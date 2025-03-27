@@ -21,7 +21,7 @@ TPVToggle (v0.1.0) is a lightweight ASI plugin for Kingdom Come: Deliverance II 
      ```
 
 2. Install TPVToggle:
-   - Download the latest release from [Nexus Mods](https://www.nexusmods.com/kingdomcomedeliverance2/mods/) or the [Releases page](https://github.com/tkhquang/KDC2Tools/releases)
+   - Download the latest release from [Nexus Mods](https://www.nexusmods.com/kingdomcomedeliverance2/mods/1550) or the [Releases page](https://github.com/tkhquang/KDC2Tools/releases)
    - Extract the following files to your game directory:
 
      ```
