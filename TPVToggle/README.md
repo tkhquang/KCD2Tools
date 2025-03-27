@@ -116,7 +116,7 @@ Common issues:
 ### Compilation
 
 ```bash
-g++ -shared -o build/KCD2_TPVToggle.asi dllmain.cpp logger.cpp config.cpp toggle_thread.cpp aob_scanner.cpp exception_handler.cpp -static-libgcc -static-libstdc++ -lpsapi -Wl,--add-stdcall-alias -O2 -Wall -Wextra
+g++ -shared -o build/KCD2_TPVToggle.asi dllmain.cpp logger.cpp config.cpp toggle_thread.cpp aob_scanner.cpp exception_handler.cpp -static -lpsapi -Wl,--add-stdcall-alias -O2 -Wall -Wextra
 ```
 
 ## Credits
