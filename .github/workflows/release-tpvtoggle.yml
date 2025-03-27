@@ -13,6 +13,11 @@ on:
         required: false
         default: false
         type: boolean
+      changelog:
+        description: "Changelog entry for this version"
+        required: false
+        default: "- Initial release with basic third-person view toggle functionality"
+        type: string
 
 jobs:
   build:
@@ -22,10 +27,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up MinGW
-        uses: egor-tensin/setup-mingw@v2
-        with:
-          platform: x64
+      - name: Install MinGW
+        run: |
+          choco install mingw --version=8.1.0 -y
+          echo "$env:ChocolateyInstall\lib\mingw\tools\install\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        shell: powershell
 
       - name: Create build directory
         run: mkdir -p TPVToggle/build
@@ -40,6 +46,11 @@ jobs:
         run: |
           copy TPVToggle\KCD2_TPVToggle.ini TPVToggle\build\KCD2_TPVToggle.ini
 
+      - name: Display build output
+        run: |
+          dir TPVToggle\build
+        shell: cmd
+
       - name: Create ZIP archive
         run: |
           cd TPVToggle\build
@@ -53,15 +64,14 @@ jobs:
           name: KCD2 TPVToggle v${{ inputs.version }}
           tag_name: TPVToggle-v${{ inputs.version }}
           body: |
-            # Kingdom Come: Deliverance II - Third Person View Toggle Mod
+            # Kingdom Come: Deliverance II - Third Person View Toggle
 
             ## Release v${{ inputs.version }}
 
             This mod enables toggling between first-person and third-person views in Kingdom Come: Deliverance II using customizable hotkeys.
 
             ## Changelog
-
-            -
+            ${{ inputs.changelog }}
 
             ### Installation
 
