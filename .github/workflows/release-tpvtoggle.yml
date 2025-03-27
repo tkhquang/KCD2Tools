@@ -1,5 +1,8 @@
 name: Build and Release TPVToggle
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
     inputs:
@@ -56,6 +59,14 @@ jobs:
         run: |
           cd TPVToggle\build
           7z a ..\..\KCD2_TPVToggle_v${{ inputs.version }}.zip KCD2_TPVToggle.asi KCD2_TPVToggle.ini
+
+      - name: Create tag
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git tag -a TPVToggle-v${{ inputs.version }} -m "Release v${{ inputs.version }}"
+          git push origin TPVToggle-v${{ inputs.version }}
+        shell: bash
 
       - name: Create Release
         id: create_release
