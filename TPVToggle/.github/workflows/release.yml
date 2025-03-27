@@ -1,0 +1,94 @@
+name: Build and Release TPVToggle
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (without v prefix)"
+        required: true
+        default: "0.1.0"
+        type: string
+      prerelease:
+        description: "Is this a pre-release?"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up MinGW
+        uses: egor-tensin/setup-mingw@v2
+        with:
+          platform: x64
+
+      - name: Create build directory
+        run: mkdir -p build
+        working-directory: TPVToggle
+
+      - name: Build ASI plugin
+        run: |
+          g++ -shared -o build/KCD2_TPVToggle.asi dllmain.cpp logger.cpp config.cpp toggle_thread.cpp aob_scanner.cpp exception_handler.cpp -static-libgcc -static-libstdc++ -lpsapi -Wl,--add-stdcall-alias -O2 -Wall -Wextra
+        working-directory: TPVToggle
+
+      - name: Copy config file
+        run: |
+          copy KCD2_TPVToggle.ini build\KCD2_TPVToggle.ini
+        working-directory: TPVToggle
+
+      - name: Create ZIP archive
+        run: |
+          cd build
+          7z a ..\..\KCD2_TPVToggle_v${{ inputs.version }}.zip KCD2_TPVToggle.asi KCD2_TPVToggle.ini
+        working-directory: TPVToggle
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: KCD2_TPVToggle_v${{ inputs.version }}.zip
+          name: KCD2 TPVToggle v${{ inputs.version }}
+          tag_name: TPVToggle-v${{ inputs.version }}
+          body: |
+            # Kingdom Come: Deliverance II - Third Person View Toggle Mod
+
+            ## Release v${{ inputs.version }}
+
+            This mod enables toggling between first-person and third-person views in Kingdom Come: Deliverance II using customizable hotkeys.
+
+            ### Changelog
+
+            -
+
+            ### Installation
+
+            1. Install [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader)
+               - Download the latest release and extract `dinput8.dll` to your game directory
+            2. Extract the contents of this ZIP file to your game directory:
+               `<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/`
+            3. Launch the game and press F3 (default) to toggle the camera view
+
+            ### Configuration
+
+            Edit the `KCD2_TPVToggle.ini` file to customize hotkeys and other settings:
+            ```ini
+            [Settings]
+            ; Keys that toggle the third-person view (comma-separated, in hex)
+            ; F3 = 0x72, F4 = 0x73, E = 0x45, etc.
+            ToggleKey = 0x72
+
+            ; Logging level: DEBUG, INFO, WARNING, ERROR
+            LogLevel = INFO
+            ```
+
+            See the [README](https://github.com/tkhquang/KDC2Tools/blob/main/TPVToggle/README.md) for detailed instructions.
+            ###
+          draft: false
+          prerelease: ${{ inputs.prerelease }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
