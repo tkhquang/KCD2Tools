@@ -35,7 +35,7 @@ TPVToggle (v0.1.0) is a lightweight ASI plugin for Kingdom Come: Deliverance II 
 
 ## How It Works
 
-This mod uses an innovative approach to enable third-person view:
+This mod uses this approach to enable third-person view:
 
 1. **Memory Scanning**: Scans the game's memory for a specific byte pattern that accesses the camera view state
 2. **Exception Handling**: Uses a minimal INT3 hook to capture the register (r9) that contains the pointer to the view state
