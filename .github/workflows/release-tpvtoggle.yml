@@ -28,24 +28,22 @@ jobs:
           platform: x64
 
       - name: Create build directory
-        run: mkdir -p build
-        working-directory: TPVToggle
+        run: mkdir -p TPVToggle/build
+        shell: bash
 
       - name: Build ASI plugin
         run: |
+          cd TPVToggle
           g++ -shared -o build/KCD2_TPVToggle.asi dllmain.cpp logger.cpp config.cpp toggle_thread.cpp aob_scanner.cpp exception_handler.cpp -static-libgcc -static-libstdc++ -lpsapi -Wl,--add-stdcall-alias -O2 -Wall -Wextra
-        working-directory: TPVToggle
 
       - name: Copy config file
         run: |
-          copy KCD2_TPVToggle.ini build\KCD2_TPVToggle.ini
-        working-directory: TPVToggle
+          copy TPVToggle\KCD2_TPVToggle.ini TPVToggle\build\KCD2_TPVToggle.ini
 
       - name: Create ZIP archive
         run: |
-          cd build
+          cd TPVToggle\build
           7z a ..\..\KCD2_TPVToggle_v${{ inputs.version }}.zip KCD2_TPVToggle.asi KCD2_TPVToggle.ini
-        working-directory: TPVToggle
 
       - name: Create Release
         id: create_release
@@ -61,7 +59,7 @@ jobs:
 
             This mod enables toggling between first-person and third-person views in Kingdom Come: Deliverance II using customizable hotkeys.
 
-            ### Changelog
+            ## Changelog
 
             -
 
@@ -75,19 +73,9 @@ jobs:
 
             ### Configuration
 
-            Edit the `KCD2_TPVToggle.ini` file to customize hotkeys and other settings:
-            ```ini
-            [Settings]
-            ; Keys that toggle the third-person view (comma-separated, in hex)
-            ; F3 = 0x72, F4 = 0x73, E = 0x45, etc.
-            ToggleKey = 0x72
-
-            ; Logging level: DEBUG, INFO, WARNING, ERROR
-            LogLevel = INFO
-            ```
+            Edit the `KCD2_TPVToggle.ini` file to customize hotkeys and other settings.
 
             See the [README](https://github.com/tkhquang/KDC2Tools/blob/main/TPVToggle/README.md) for detailed instructions.
-            ###
           draft: false
           prerelease: ${{ inputs.prerelease }}
         env:
