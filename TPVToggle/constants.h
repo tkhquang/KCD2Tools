@@ -13,7 +13,7 @@
 namespace Constants
 {
     // Version information
-    constexpr const char *MOD_VERSION = "0.1.0";
+    constexpr const char *MOD_VERSION = "0.1.1";
     constexpr const char *MOD_NAME = "KCD2_TPVToggle";
     constexpr const char *MOD_WEBSITE = "https://github.com/tkhquang/KDC2Tools";
 

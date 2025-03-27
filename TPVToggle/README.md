@@ -104,6 +104,10 @@ Common issues:
 - Exception-based hooking for minimal game modification
 - Logging system for troubleshooting
 
+### v0.1.1
+
+- Fix missing deps
+
 </details>
 
 ## Building from Source

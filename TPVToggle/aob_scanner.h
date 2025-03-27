@@ -5,9 +5,6 @@
  * This file defines functions for scanning memory regions to find specific
  * byte patterns. It's used to locate code within the game's memory that
  * handles the third-person view flag.
- *
- * @author Your Name
- * @version 0.1.0
  */
 
 #ifndef AOB_SCANNER_H
