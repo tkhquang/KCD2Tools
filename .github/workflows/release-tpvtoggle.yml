@@ -46,10 +46,6 @@ jobs:
           g++ -shared -o build/KCD2_TPVToggle.asi dllmain.cpp logger.cpp config.cpp toggle_thread.cpp aob_scanner.cpp exception_handler.cpp -static -lpsapi "-Wl,--add-stdcall-alias" -O2 -Wall -Wextra
         shell: bash
 
-      - name: Copy config file
-        run: |
-          copy TPVToggle\KCD2_TPVToggle.ini TPVToggle\build\KCD2_TPVToggle.ini
-
       - name: Display build output
         run: |
           dir TPVToggle\build
@@ -58,7 +54,8 @@ jobs:
       - name: Create ZIP archive
         run: |
           cd TPVToggle\build
-          7z a ..\..\KCD2_TPVToggle_v${{ inputs.version }}.zip KCD2_TPVToggle.asi KCD2_TPVToggle.ini
+          7z a ..\..\KCD2_TPVToggle_v${{ inputs.version }}.zip KCD2_TPVToggle.asi KCD2_TPVToggle.ini dinput8.dll README.txt THIRD-PARTY-LICENSES.txt
+        shell: powershell
 
       - name: Create tag
         run: |
@@ -87,11 +84,16 @@ jobs:
 
             ### Installation
 
-            1. Install [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader)
-               - Download the latest release and extract `dinput8.dll` to your game directory
-            2. Extract the contents of this ZIP file to your game directory:
+            1. Simply extract all files to your game directory:
                `<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/`
-            3. Launch the game and press F3 (default) to toggle the camera view
+            2. Launch the game and press F3 (default) to toggle the camera view
+
+            ### Note
+            This package includes everything you need:
+            - KCD2_TPVToggle.asi (the mod itself)
+            - KCD2_TPVToggle.ini (configuration file)
+            - dinput8.dll (Ultimate ASI Loader)
+            - Documentation and license information
 
             ### Configuration
 

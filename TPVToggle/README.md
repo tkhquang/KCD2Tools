@@ -2,32 +2,23 @@
 
 ## Overview
 
-TPVToggle (v0.1.0) is a lightweight ASI plugin for Kingdom Come: Deliverance II that enables players to toggle between first-person and third-person camera views with customizable hotkeys.
+TPVToggle is an ASI plugin for Kingdom Come: Deliverance II that enables players to toggle between first-person and third-person camera views with customizable hotkeys.
 
 ## Features
 
 - Toggle between first-person and third-person views with configurable hotkeys (default: F3)
 - Minimal performance impact through efficient memory scanning
 - Detailed logging for troubleshooting
+- Flexible configuration file search to work with different game setups
 
 ## Installation
 
-1. Install [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader):
-   - Download the latest release from the [Ultimate ASI Loader GitHub repository](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases)
-   - Extract `dinput8.dll` to your game directory:
+1. Download the latest release from [Nexus Mods](https://www.nexusmods.com/kingdomcomedeliverance2/mods/1550) or the [Releases page](https://github.com/tkhquang/KDC2Tools/releases)
+2. Extract all files to your game directory:
 
-     ```
-     <KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/
-     ```
-
-2. Install TPVToggle:
-   - Download the latest release from [Nexus Mods](https://www.nexusmods.com/kingdomcomedeliverance2/mods/1550) or the [Releases page](https://github.com/tkhquang/KDC2Tools/releases)
-   - Extract the following files to your game directory:
-
-     ```
-     <KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/KCD2_TPVToggle.asi
-     <KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/KCD2_TPVToggle.ini
-     ```
+   ```
+   <KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/
+   ```
 
 3. Launch the game and use the configured hotkey (default: F3) to toggle the camera view
 
@@ -61,6 +52,12 @@ LogLevel = INFO
 AOBPattern = 48 8B 8F 58 0A 00 00
 ```
 
+The mod will search for the INI file in several locations:
+
+- The game's executable directory (`Win64MasterMasterSteamPGO`)
+- The base game directory
+- The current working directory
+
 ### Key Codes
 
 Common key codes:
@@ -81,20 +78,30 @@ If you encounter issues:
 
 Common issues:
 
-- **Mod doesn't load**: Ensure the Ultimate ASI Loader is installed correctly
+- **Mod doesn't load**: Ensure the files are in the correct location
 - **Toggle doesn't work**: The game update may have changed the memory layout, requiring an AOB pattern update
 - **Game crashes**: Check the log file for details; consider updating to the latest mod version
 
 ## Known Issues and Limitations
 
 - Camera may clip through objects in third-person view (no collision detection)
-- Some game events or menus may temporarily be buggy
+- Some game events or menus may temporarily be buggy in third-person view (menus, map, dialog...)
+  - **Workaround**: Switch back to first-person view when using these features
 - The third-person camera uses the game's experimental implementation and may not be perfect
 
 ## Changelog
 
 <details>
 <summary>Click to expand</summary>
+
+### v0.1.2
+
+- Added support for multiple INI file locations - the mod now checks several paths for the configuration file, including the base game directory
+- Included Ultimate ASI Loader (dinput8.dll) in the package for easier installation
+
+### v0.1.1
+
+- Fixed missing dependency issues with static linking
 
 ### v0.1.0 (Initial Release)
 
@@ -103,10 +110,6 @@ Common issues:
 - Memory scanning to find the view state dynamically
 - Exception-based hooking for minimal game modification
 - Logging system for troubleshooting
-
-### v0.1.1
-
-- Fix missing deps
 
 </details>
 
