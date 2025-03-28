@@ -79,23 +79,6 @@ jobs:
           echo "C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         shell: powershell
 
-      - name: Create build directory
-        run: mkdir -p TPVToggle/build
-        shell: bash
-
-      - name: Copy README and license files to build directory
-        run: |
-          cp TPVToggle/README.txt TPVToggle/build/
-          cp TPVToggle/THIRD-PARTY-LICENSES.txt TPVToggle/build/
-          cp TPVToggle/KCD2_TPVToggle.ini TPVToggle/build/
-          # Ensure dinput8.dll is available
-          if [ -f "TPVToggle/dinput8.dll" ]; then
-            cp TPVToggle/dinput8.dll TPVToggle/build/
-          else
-            echo "Warning: dinput8.dll not found in TPVToggle directory"
-          fi
-        shell: bash
-
       - name: Build ASI plugin
         run: |
           cd TPVToggle
