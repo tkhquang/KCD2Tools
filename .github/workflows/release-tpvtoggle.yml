@@ -1,4 +1,4 @@
-name: Version Bump and Release
+name: TPVToggle - Version Bump and Release
 
 permissions:
   contents: write
