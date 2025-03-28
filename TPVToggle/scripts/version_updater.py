@@ -182,7 +182,18 @@ All notable changes to the TPVToggle mod will be documented in this file.
 
     # Format the changelog entry
     if changelog_entry:
-        formatted_entry = changelog_entry.strip()
+        # Format the changelog entry to match the style of existing entries
+        # Replace any double line breaks with single line breaks within bullet points
+        formatted_lines = []
+        for line in changelog_entry.strip().split('\n'):
+            # Keep indentation but remove extra blank lines
+            line = line.rstrip()
+            formatted_lines.append(line)
+
+        # Join the lines with a single newline to match existing format
+        formatted_entry = '\n'.join(formatted_lines)
+
+        # Add the new version section with proper formatting
         new_version_section = f"{version_header}\n\n{formatted_entry}\n\n"
 
         # Insert the new version section
@@ -194,11 +205,8 @@ All notable changes to the TPVToggle mod will be documented in this file.
         for match in re.finditer(link_pattern, updated_content):
             version_links.append((match.group(1), match.group(2)))
 
-        # Remove existing links, but keep track of where they started
-        link_section_start = updated_content.rfind("\n[")
-        if link_section_start != -1:
-            # Found the link section
-            updated_content = updated_content[:link_section_start]
+        # Remove ALL existing version links using regex instead of trying to find the section start
+        updated_content = re.sub(r'\n\[[0-9]+\.[0-9]+\.[0-9]+\]: .*', '', updated_content)
 
         # Add our version link if it doesn't exist
         version_in_links = False
