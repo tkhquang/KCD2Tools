@@ -130,17 +130,36 @@ def update_readme_txt(version):
 
 def update_changelog(version, title="", changelog_entry=""):
     """Update CHANGELOG.md with a new version entry and maintain proper structure."""
+    changelog_template = """# Changelog
+
+All notable changes to the TPVToggle mod will be documented in this file.
+
+"""
+
     if not CHANGELOG_MD.exists():
         # Create a new CHANGELOG.md file with proper format
-        content = "# Changelog\n\nAll notable changes to the TPVToggle mod will be documented in this file.\n\n"
+        content = changelog_template
     else:
         content = CHANGELOG_MD.read_text()
 
-        # Fix formatting to ensure "All notable changes" line is in the right place
+        # Fix formatting to ensure the header is correct
         if "# Changelog" in content:
-            parts = content.split("# Changelog", 1)
-            header = "# Changelog\n\nAll notable changes to the TPVToggle mod will be documented in this file.\n\n"
-            content = parts[0] + header + parts[1].replace("All notable changes to the TPVToggle mod will be documented in this file.\n\n", "").strip()
+            # Extract everything after the title section
+            if "All notable changes" in content:
+                # Split at the "All notable changes" line to get the main content
+                parts = content.split("All notable changes to the TPVToggle mod will be documented in this file.")
+                if len(parts) > 1:
+                    # Extract the main content (version entries and links)
+                    main_content = parts[1].strip()
+
+                    # Rebuild with proper header
+                    content = changelog_template + main_content
+                else:
+                    # Couldn't split properly, rebuild from scratch
+                    content = changelog_template
+            else:
+                # Missing "All notable changes" line, fix this
+                content = changelog_template + content.split("# Changelog")[1].strip()
 
     # Add title suffix if provided
     version_header = f"## [{version}]"
@@ -152,13 +171,13 @@ def update_changelog(version, title="", changelog_entry=""):
         print(f"Warning: Version {version} already exists in changelog, skipping update.")
         return
 
-    # Find where to insert the new version entry (after the header)
-    header_text = "All notable changes to the TPVToggle mod will be documented in this file."
-    header_pos = content.find(header_text)
-    if header_pos != -1:
-        insert_position = content.find("\n\n", header_pos) + 2
+    # Find where to insert the new version entry - after the intro text and before the first version
+    header_end_pos = content.find("All notable changes to the TPVToggle mod will be documented in this file.")
+    if header_end_pos != -1:
+        # Find the end of this line and the double newline that follows
+        insert_position = content.find("\n\n", header_end_pos) + 2
     else:
-        # Fallback if header text isn't found
+        # Fallback, should not happen with the fixes we made above
         insert_position = content.find("\n\n", content.find("# Changelog")) + 2
 
     # Format the changelog entry
@@ -175,8 +194,11 @@ def update_changelog(version, title="", changelog_entry=""):
         for match in re.finditer(link_pattern, updated_content):
             version_links.append((match.group(1), match.group(2)))
 
-        # Remove existing links
-        updated_content = re.sub(r'\n\[[0-9]+\.[0-9]+\.[0-9]+\]: .*', '', updated_content)
+        # Remove existing links, but keep track of where they started
+        link_section_start = updated_content.rfind("\n[")
+        if link_section_start != -1:
+            # Found the link section
+            updated_content = updated_content[:link_section_start]
 
         # Add our version link if it doesn't exist
         version_in_links = False
