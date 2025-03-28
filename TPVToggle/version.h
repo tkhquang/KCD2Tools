@@ -16,7 +16,7 @@
 // ---------------------------------------------------------------------------
 #define VERSION_MAJOR 0
 #define VERSION_MINOR 2
-#define VERSION_PATCH 1
+#define VERSION_PATCH 3
 // ---------------------------------------------------------------------------
 
 // Derived version components - DO NOT MODIFY DIRECTLY

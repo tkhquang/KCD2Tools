@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.3] - Documentation Fix
+
+- Fixed CHANGELOG.md formatting and structure
+- Improved version management system
+- Added proper version links in changelog
+
+## [0.2.2] - Infrastructure Update
+
+- Improved project structure and release workflow
+
+  - Added centralized version management through version.h
+
+  - Created separate CHANGELOG.md for better version history tracking
+
+  - Implemented automated version bumping and changelog updates
+
+  - Enhanced build and release process through GitHub Actions
+
 All notable changes to the TPVToggle mod will be documented in this file.
 
 ## [0.2.1] - Stability Update
