@@ -129,12 +129,18 @@ def update_readme_txt(version):
         traceback.print_exc()
 
 def update_changelog(version, title="", changelog_entry=""):
-    """Update CHANGELOG.md with a new version entry."""
+    """Update CHANGELOG.md with a new version entry and maintain proper structure."""
     if not CHANGELOG_MD.exists():
-        # Create a new CHANGELOG.md file if it doesn't exist
+        # Create a new CHANGELOG.md file with proper format
         content = "# Changelog\n\nAll notable changes to the TPVToggle mod will be documented in this file.\n\n"
     else:
         content = CHANGELOG_MD.read_text()
+
+        # Fix formatting to ensure "All notable changes" line is in the right place
+        if "# Changelog" in content:
+            parts = content.split("# Changelog", 1)
+            header = "# Changelog\n\nAll notable changes to the TPVToggle mod will be documented in this file.\n\n"
+            content = parts[0] + header + parts[1].replace("All notable changes to the TPVToggle mod will be documented in this file.\n\n", "").strip()
 
     # Add title suffix if provided
     version_header = f"## [{version}]"
@@ -146,23 +152,50 @@ def update_changelog(version, title="", changelog_entry=""):
         print(f"Warning: Version {version} already exists in changelog, skipping update.")
         return
 
-    # Add new version entry after the header
-    header_end = content.find("\n\n", content.find("# Changelog"))
-    if header_end == -1:  # If there's no blank line after the header
-        header_end = content.find("\n", content.find("# Changelog"))
-        if header_end == -1:  # If there's no header at all
-            header_end = 0
+    # Find where to insert the new version entry (after the header)
+    header_text = "All notable changes to the TPVToggle mod will be documented in this file."
+    header_pos = content.find(header_text)
+    if header_pos != -1:
+        insert_position = content.find("\n\n", header_pos) + 2
+    else:
+        # Fallback if header text isn't found
+        insert_position = content.find("\n\n", content.find("# Changelog")) + 2
 
     # Format the changelog entry
     if changelog_entry:
-        # Ensure the changelog_entry is properly formatted with newlines and indentation
         formatted_entry = changelog_entry.strip()
-
-        # Construct the new version section
         new_version_section = f"{version_header}\n\n{formatted_entry}\n\n"
 
-        # Insert the new version section after the header
-        updated_content = content[:header_end+2] + new_version_section + content[header_end+2:]
+        # Insert the new version section
+        updated_content = content[:insert_position] + new_version_section + content[insert_position:]
+
+        # Extract existing version links (if any)
+        version_links = []
+        link_pattern = r'\[([0-9]+\.[0-9]+\.[0-9]+)\]: (.*)'
+        for match in re.finditer(link_pattern, updated_content):
+            version_links.append((match.group(1), match.group(2)))
+
+        # Remove existing links
+        updated_content = re.sub(r'\n\[[0-9]+\.[0-9]+\.[0-9]+\]: .*', '', updated_content)
+
+        # Add our version link if it doesn't exist
+        version_in_links = False
+        for v, _ in version_links:
+            if v == version:
+                version_in_links = True
+                break
+
+        if not version_in_links:
+            version_links.append((version, f"https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v{version}"))
+
+        # Sort version links by version number (newest first)
+        version_links.sort(key=lambda x: [int(n) for n in x[0].split('.')], reverse=True)
+
+        # Add all version links to the end
+        updated_content = updated_content.rstrip() + "\n"
+        for v, link in version_links:
+            updated_content += f"\n[{v}]: {link}"
+        updated_content += "\n"
 
         CHANGELOG_MD.write_text(updated_content)
         print(f"Updated {CHANGELOG_MD} with version {version}")
