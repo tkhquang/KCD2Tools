@@ -1,4 +1,4 @@
-name: Build and Release TPVToggle
+name: Version Bump and Release
 
 permissions:
   contents: write
@@ -6,10 +6,18 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "Release version (without v prefix)"
+      version_part:
+        description: "Version part to bump"
         required: true
-        default: "0.1.0"
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      version_title:
+        description: "Version title (e.g., 'Feature Update')"
+        required: false
         type: string
       prerelease:
         description: "Is this a pre-release?"
@@ -17,18 +25,41 @@ on:
         default: false
         type: boolean
       changelog:
-        description: "Changelog entry for this version"
-        required: false
-        default: "- Initial release with basic third-person view toggle functionality"
+        description: "Changelog for this version"
+        required: true
         type: string
 
 jobs:
-  build:
+  bump-and-release:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Bump version and update changelog
+        id: bump
+        run: |
+          # Run the version updater script with the new path
+          python TPVToggle/scripts/version_updater.py bump ${{ inputs.version_part }} --title "${{ inputs.version_title }}" --changelog "${{ inputs.changelog }}"
+
+          # Extract the new version from version.h
+          $version_h = Get-Content TPVToggle\version.h -Raw
+          $major = [regex]::Match($version_h, '#define\s+VERSION_MAJOR\s+(\d+)').Groups[1].Value
+          $minor = [regex]::Match($version_h, '#define\s+VERSION_MINOR\s+(\d+)').Groups[1].Value
+          $patch = [regex]::Match($version_h, '#define\s+VERSION_PATCH\s+(\d+)').Groups[1].Value
+          $new_version = "$major.$minor.$patch"
+
+          echo "NEW_VERSION=$new_version" >> $env:GITHUB_ENV
+          echo "VERSION_TAG=v$new_version" >> $env:GITHUB_ENV
+          echo "ARTIFACT_NAME=KCD2_TPVToggle_v${new_version}.zip" >> $env:GITHUB_ENV
+        shell: pwsh
 
       - name: Cache MinGW
         id: cache-mingw
@@ -52,10 +83,23 @@ jobs:
         run: mkdir -p TPVToggle/build
         shell: bash
 
+      - name: Copy README and license files to build directory
+        run: |
+          cp TPVToggle/README.txt TPVToggle/build/
+          cp TPVToggle/THIRD-PARTY-LICENSES.txt TPVToggle/build/
+          cp TPVToggle/KCD2_TPVToggle.ini TPVToggle/build/
+          # Ensure dinput8.dll is available
+          if [ -f "TPVToggle/dinput8.dll" ]; then
+            cp TPVToggle/dinput8.dll TPVToggle/build/
+          else
+            echo "Warning: dinput8.dll not found in TPVToggle directory"
+          fi
+        shell: bash
+
       - name: Build ASI plugin
         run: |
           cd TPVToggle
-          g++ -shared -o build/KCD2_TPVToggle.asi dllmain.cpp logger.cpp config.cpp toggle_thread.cpp aob_scanner.cpp exception_handler.cpp -static -lpsapi "-Wl,--add-stdcall-alias" -O2 -Wall -Wextra
+          g++ -shared -o build/KCD2_TPVToggle.asi dllmain.cpp logger.cpp config.cpp toggle_thread.cpp aob_scanner.cpp exception_handler.cpp version.cpp -static -lpsapi "-Wl,--add-stdcall-alias" -O2 -Wall -Wextra
         shell: bash
 
       - name: Display build output
@@ -66,28 +110,29 @@ jobs:
       - name: Create ZIP archive
         run: |
           cd TPVToggle\build
-          7z a ..\..\KCD2_TPVToggle_v${{ inputs.version }}.zip KCD2_TPVToggle.asi KCD2_TPVToggle.ini dinput8.dll README.txt THIRD-PARTY-LICENSES.txt
-        shell: powershell
+          7z a ..\..\${{ env.ARTIFACT_NAME }} *
+        shell: pwsh
 
-      - name: Create tag
+      - name: Commit version changes
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git tag -a TPVToggle-v${{ inputs.version }} -m "Release v${{ inputs.version }}"
-          git push origin TPVToggle-v${{ inputs.version }}
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add TPVToggle/version.h TPVToggle/CHANGELOG.md TPVToggle/README.txt
+          git commit -m "Bump version to ${{ env.NEW_VERSION }}"
+          git tag -a TPVToggle-${{ env.VERSION_TAG }} -m "Release ${{ env.VERSION_TAG }}"
+          git push origin main --tags
         shell: bash
 
       - name: Create Release
-        id: create_release
         uses: softprops/action-gh-release@v1
         with:
-          files: KCD2_TPVToggle_v${{ inputs.version }}.zip
-          name: KCD2 TPVToggle v${{ inputs.version }}
-          tag_name: TPVToggle-v${{ inputs.version }}
+          files: ${{ env.ARTIFACT_NAME }}
+          name: KCD2 TPVToggle ${{ env.VERSION_TAG }}
+          tag_name: TPVToggle-${{ env.VERSION_TAG }}
           body: |
             # Kingdom Come: Deliverance II - Third Person View Toggle
 
-            ## Release v${{ inputs.version }}
+            ## Release ${{ env.VERSION_TAG }}
 
             This mod enables toggling between first-person and third-person views in Kingdom Come: Deliverance II using customizable hotkeys.
 
@@ -114,5 +159,3 @@ jobs:
             See the [README](https://github.com/tkhquang/KDC2Tools/blob/main/TPVToggle/README.md) for detailed instructions.
           draft: false
           prerelease: ${{ inputs.prerelease }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

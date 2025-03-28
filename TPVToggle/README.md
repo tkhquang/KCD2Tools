@@ -129,60 +129,7 @@ Common issues:
 
 ## Changelog
 
-<details>
-<summary>Click to expand</summary>
-
-### v0.2.1 (Stability Update)
-
-- Improved error handling for edge cases
-  - Added proper handling for empty key configurations
-  - Fixed potential crashes when no keys are defined
-  - Enhanced memory safety for toggle operations
-
-- Enhanced logging and diagnostics
-  - Better error messaging for configuration issues
-  - More detailed debugging information
-  - Clearer logging for key monitoring
-
-### v0.2.0 (Feature Update)
-
-- Added dedicated first-person view (FPV) keybindings
-  - Added `FPVKey` option in the INI file to specify keys that always switch to first-person view
-  - Default FPV keys: M, P, I, J, N (0x4D, 0x50, 0x49, 0x4A, 0x4E)
-  - FPV keys will always switch to first-person view when pressed, regardless of current state
-
-- Added dedicated third-person view (TPV) keybindings
-  - Added `TPVKey` option in the INI file to specify keys that always switch to third-person view
-  - No default TPV keys are assigned
-  - TPV keys will always switch to third-person view when pressed, regardless of current state
-
-- Improved logging for key monitoring
-  - Added detailed logging of which keys are being monitored for each function
-  - Added clearer action logging that distinguishes between toggle, FPV, and TPV key presses
-
-- Code improvements
-  - Added better error handling for key parsing
-  - Improved configuration file loading with better fallbacks and validation
-  - Enhanced memory safety when setting view states
-
-### v0.1.2
-
-- Added support for multiple INI file locations - the mod now checks several paths for the configuration file, including the base game directory
-- Included Ultimate ASI Loader (dinput8.dll) in the package for easier installation
-
-### v0.1.1
-
-- Fixed missing dependency issues with static linking
-
-### v0.1.0 (Initial Release)
-
-- Basic third-person view toggle functionality
-- Configurable hotkeys through INI file
-- Memory scanning to find the view state dynamically
-- Exception-based hooking for minimal game modification
-- Logging system for troubleshooting
-
-</details>
+See [CHANGELOG.md](CHANGELOG.md) for a detailed history of changes.
 
 ## Dependencies
 
@@ -205,7 +152,7 @@ This mod relies critically on the [Ultimate ASI Loader](https://github.com/Thirt
 ### Compilation
 
 ```bash
-g++ -shared -o build/KCD2_TPVToggle.asi dllmain.cpp logger.cpp config.cpp toggle_thread.cpp aob_scanner.cpp exception_handler.cpp -static -lpsapi -Wl,--add-stdcall-alias -O2 -Wall -Wextra
+g++ -shared -o build/KCD2_TPVToggle.asi dllmain.cpp logger.cpp config.cpp toggle_thread.cpp aob_scanner.cpp exception_handler.cpp version.cpp -static -lpsapi "-Wl,--add-stdcall-alias" -O2 -Wall -Wextra
 ```
 
 ## Credits

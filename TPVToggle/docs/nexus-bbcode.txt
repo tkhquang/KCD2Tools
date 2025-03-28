@@ -26,7 +26,7 @@ This mod enables toggling between first-person and third-person camera views in 
 [size=5]Installation Folder Structure[/size]
 [code]
 What you'll download:
-KCD2_TPVToggle_v0.2.1.zip
+KCD2_TPVToggle_v0.1.0.zip
 ├── KCD2_TPVToggle.asi    # The mod itself
 ├── KCD2_TPVToggle.ini    # Configuration file
 ├── dinput8.dll           # Ultimate ASI Loader (included for convenience)

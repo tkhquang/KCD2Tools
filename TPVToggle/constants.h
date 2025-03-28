@@ -9,13 +9,14 @@
 #define CONSTANTS_H
 
 #include <string>
+#include "version.h" // Include version header
 
 namespace Constants
 {
-    // Version information
-    constexpr const char *MOD_VERSION = "0.2.1";
-    constexpr const char *MOD_NAME = "KCD2_TPVToggle";
-    constexpr const char *MOD_WEBSITE = "https://github.com/tkhquang/KDC2Tools";
+    // Version information now pulled from version.h
+    constexpr const char *MOD_VERSION = Version::VERSION_STRING;
+    constexpr const char *MOD_NAME = Version::MOD_NAME;
+    constexpr const char *MOD_WEBSITE = Version::REPOSITORY;
 
     // File extensions
     constexpr const char *INI_FILE_EXTENSION = ".ini";
