@@ -110,7 +110,6 @@ If you encounter issues:
 [*] Set LogLevel = DEBUG in the INI file
 [*] Check the log file in your game directory (KCD2_TPVToggle.log)
 [*] After a game update, you may need to update the AOB pattern in the INI file
-[*] UI looks broken in third-person view? This is expected - press one of the default FPV keys (M, P, I, J, N) to automatically switch back to first-person view before using menus
 [/list]
 
 [size=5]Credits[/size]
