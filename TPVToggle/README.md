@@ -118,7 +118,6 @@ Common issues:
 - **Mod doesn't load**: Ensure the files are in the correct location
 - **Toggle doesn't work**: The game update may have changed the memory layout, requiring an AOB pattern update
 - **Game crashes**: Check the log file for details; consider updating to the latest mod version
-- **UI looks broken in third-person view**: This is expected - press one of the default FPV keys (M, P, I, J, N) to automatically switch back to first-person view before using menus
 
 ## Known Issues and Limitations
 
