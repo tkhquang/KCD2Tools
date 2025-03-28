@@ -65,6 +65,10 @@ void CleanupResources()
 DWORD WINAPI MainThread(LPVOID _param)
 {
     Logger &logger = Logger::getInstance();
+
+    // Log version information
+    Version::logVersionInfo();
+
     Config config = loadConfig(Constants::getConfigFilename());
 
     // Set log level based on configuration
@@ -81,9 +85,6 @@ DWORD WINAPI MainThread(LPVOID _param)
         logger.log(LOG_WARNING, "Settings: Invalid LogLevel '" + config.log_level + "', defaulting to DEBUG");
         logger.setLogLevel(LOG_DEBUG);
     }
-
-    // Log version information
-    Version::logVersionInfo();
 
     // Log configured toggle keys
     std::string keys_str;

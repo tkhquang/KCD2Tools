@@ -236,7 +236,7 @@ Config loadConfig(const std::string &ini_path_narrow)
     std::string currentSection;
     while (std::getline(file, line))
     {
-        logger.log(LOG_DEBUG, "INI Line: " + line);
+        // logger.log(LOG_DEBUG, "INI Line: " + line);
         std::string trimmed = trim(line);
 
         if (trimmed.empty() || trimmed[0] == ';' || trimmed[0] == '#')
