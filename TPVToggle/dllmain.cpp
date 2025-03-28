@@ -151,8 +151,11 @@ DWORD WINAPI MainThread(LPVOID _param)
     // Add exception handler to capture r9 register
     exceptionHandlerHandle = AddVectoredExceptionHandler(1, ExceptionHandler);
 
-    // Start key monitoring thread
-    ToggleData *data = new ToggleData{config.toggle_keys};
+    // Start key monitoring thread with all three key types
+    ToggleData *data = new ToggleData{
+        config.toggle_keys,
+        config.fpv_keys,
+        config.tpv_keys};
     CreateThread(NULL, 0, ToggleThread, data, 0, NULL);
 
     return 0;

@@ -146,6 +146,42 @@ std::vector<std::string> getIniFilePaths(const std::string &ini_filename)
     return paths;
 }
 
+/**
+ * Parses a comma-separated list of hexadecimal key codes
+ * Each key can be prefixed with "0x" or not
+ */
+std::vector<int> parseKeyList(const std::string &value, Logger &logger, const std::string &keyName)
+{
+    std::vector<int> keys;
+    std::istringstream iss(value);
+    std::string token;
+    logger.log(LOG_DEBUG, "Config: Parsing " + keyName + " = '" + value + "'");
+
+    while (std::getline(iss, token, ','))
+    {
+        token = trim(token);
+        if (token.empty())
+            continue;
+
+        // Remove "0x" prefix if present
+        if (token.rfind("0x", 0) == 0 || token.rfind("0X", 0) == 0)
+            token = token.substr(2);
+
+        try
+        {
+            int keycode = std::stoi(token, nullptr, 16);
+            keys.push_back(keycode);
+            logger.log(LOG_DEBUG, "Config: Added " + keyName + " code: 0x" + token);
+        }
+        catch (...)
+        {
+            logger.log(LOG_WARNING, "Config: Invalid key code in " + keyName + ": '" + token + "'");
+        }
+    }
+
+    return keys;
+}
+
 // Manual INI parser (no WinAPI calls)
 Config loadConfig(const std::string &ini_path_narrow)
 {
@@ -214,23 +250,15 @@ Config loadConfig(const std::string &ini_path_narrow)
         {
             if (key == "ToggleKey")
             {
-                logger.log(LOG_DEBUG, "Config: Raw ToggleKey = '" + value + "'");
-                std::istringstream iss(value);
-                std::string token;
-                while (std::getline(iss, token, ','))
-                {
-                    token = trim(token);
-                    if (token.rfind("0x", 0) == 0 || token.rfind("0X", 0) == 0)
-                        token = token.substr(2);
-                    try
-                    {
-                        int keycode = std::stoi(token, nullptr, 16);
-                        config.toggle_keys.push_back(keycode);
-                    }
-                    catch (...)
-                    {
-                    }
-                }
+                config.toggle_keys = parseKeyList(value, logger, "ToggleKey");
+            }
+            else if (key == "FPVKey")
+            {
+                config.fpv_keys = parseKeyList(value, logger, "FPVKey");
+            }
+            else if (key == "TPVKey")
+            {
+                config.tpv_keys = parseKeyList(value, logger, "TPVKey");
             }
             else if (key == "LogLevel")
             {
@@ -269,6 +297,23 @@ Config loadConfig(const std::string &ini_path_narrow)
         {
             logger.log(LOG_ERROR, "Config: Using default AOB pattern as fallback");
             config.aob_pattern = Constants::DEFAULT_AOB_PATTERN;
+        }
+    }
+
+    // Set default toggle keys if none were provided
+    if (config.toggle_keys.empty())
+    {
+        logger.log(LOG_WARNING, "Config: No valid ToggleKey found, using default setting)");
+        config.toggle_keys.push_back(Constants::DEFAULT_TOGGLE_KEY);
+    }
+
+    // Set default FPV keys if none were provided
+    if (config.fpv_keys.empty())
+    {
+        logger.log(LOG_INFO, "Config: No FPVKey values found, using defaults setting");
+        for (int i = 0; i < Constants::DEFAULT_FPV_KEYS_COUNT; i++)
+        {
+            config.fpv_keys.push_back(Constants::DEFAULT_FPV_KEYS[i]);
         }
     }
 

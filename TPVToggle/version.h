@@ -16,8 +16,8 @@ namespace Version
 {
     // Version numbers - update these for new releases
     constexpr int MAJOR = 0;
-    constexpr int MINOR = 1;
-    constexpr int PATCH = 2;
+    constexpr int MINOR = 2;
+    constexpr int PATCH = 0;
 
     // Build information
     constexpr const char *BUILD_DATE = __DATE__;

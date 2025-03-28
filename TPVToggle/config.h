@@ -6,10 +6,11 @@
 
 struct Config
 {
-    std::vector<int> toggle_keys; // List of virtual-key codes for toggling
-    std::string log_level;        // Logging level (DEBUG, INFO, WARNING, ERROR)
-    std::string aob_pattern;      // Array of Bytes pattern for memory scanning
-    // Add other settings as needed
+    std::vector<int> toggle_keys; // Keys that toggle between FPV and TPV
+    std::vector<int> fpv_keys;    // Keys that explicitly switch to first-person view
+    std::vector<int> tpv_keys;    // Keys that explicitly switch to third-person view
+    std::string log_level;        // Logging level
+    std::string aob_pattern;      // Pattern for memory scanning
 };
 
 Config loadConfig(const std::string &ini_path);

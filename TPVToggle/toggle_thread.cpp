@@ -49,13 +49,70 @@ bool safeToggleViewState()
 }
 
 /**
- * Thread function that monitors configured keys and toggles the view.
+ * Sets the view state to a specific value (0 for FPV, 1 for TPV)
+ * Only changes if the current state is different
+ */
+bool setViewState(BYTE state)
+{
+    // Use a local variable to prevent race conditions
+    volatile BYTE *current_addr = toggle_addr;
+
+    if (current_addr == nullptr)
+    {
+        Logger::getInstance().log(LOG_ERROR, "Toggle: Attempted to set view state with null address");
+        return false;
+    }
+
+    try
+    {
+        BYTE current_value = *current_addr;
+
+        // Only change if the state is different
+        if (current_value != state)
+        {
+            *current_addr = state;
+            return true;
+        }
+        return false; // No change needed
+    }
+    catch (...)
+    {
+        Logger::getInstance().log(LOG_ERROR, "Toggle: Exception when accessing memory at " + format_address(reinterpret_cast<uintptr_t>(current_addr)));
+        return false;
+    }
+}
+
+/**
+ * Sets the view to first-person (value 0)
+ */
+bool setFirstPersonView()
+{
+    return setViewState(0);
+}
+
+/**
+ * Sets the view to third-person (value 1)
+ */
+bool setThirdPersonView()
+{
+    return setViewState(1);
+}
+
+/**
+ * Thread function that monitors configured keys and changes the view state.
+ * Handles three types of keys: toggle keys, FPV keys, and TPV keys.
  * Tracks key states to detect press events and debounces input.
  */
 DWORD WINAPI ToggleThread(LPVOID param)
 {
     ToggleData *data = static_cast<ToggleData *>(param);
+
+    // Copy the key vectors for local use
     std::vector<int> toggle_keys = data->toggle_keys;
+    std::vector<int> fpv_keys = data->fpv_keys;
+    std::vector<int> tpv_keys = data->tpv_keys;
+
+    // Clean up the parameter data
     delete data;
 
     Logger &logger = Logger::getInstance();
@@ -68,11 +125,49 @@ DWORD WINAPI ToggleThread(LPVOID param)
 
     logger.log(LOG_INFO, "Thread: Toggle thread started");
 
+    // Log configured keys for each type
+    if (!toggle_keys.empty())
+    {
+        std::string keys_str;
+        for (int vk : toggle_keys)
+        {
+            if (!keys_str.empty())
+                keys_str += ", ";
+            keys_str += format_vkcode(vk);
+        }
+        logger.log(LOG_INFO, "Thread: Monitoring toggle keys: " + keys_str);
+    }
+
+    if (!fpv_keys.empty())
+    {
+        std::string keys_str;
+        for (int vk : fpv_keys)
+        {
+            if (!keys_str.empty())
+                keys_str += ", ";
+            keys_str += format_vkcode(vk);
+        }
+        logger.log(LOG_INFO, "Thread: Monitoring FPV keys: " + keys_str);
+    }
+
+    if (!tpv_keys.empty())
+    {
+        std::string keys_str;
+        for (int vk : tpv_keys)
+        {
+            if (!keys_str.empty())
+                keys_str += ", ";
+            keys_str += format_vkcode(vk);
+        }
+        logger.log(LOG_INFO, "Thread: Monitoring TPV keys: " + keys_str);
+    }
+
     // Track key states to detect press events (not held)
     std::unordered_map<int, bool> key_states;
 
     while (true)
     {
+        // Handle toggle keys (switch between FPV and TPV)
         for (int vk : toggle_keys)
         {
             bool isDown = (GetAsyncKeyState(vk) & 0x8000) != 0;
@@ -84,7 +179,43 @@ DWORD WINAPI ToggleThread(LPVOID param)
                 if (safeToggleViewState())
                 {
                     BYTE value = *toggle_addr;
-                    logger.log(LOG_INFO, "Action: Key " + format_vkcode(vk) + " pressed, TPV: " + (value ? "ON" : "OFF"));
+                    logger.log(LOG_INFO, "Action: Toggle key " + format_vkcode(vk) + " pressed, TPV: " + (value ? "ON" : "OFF"));
+                }
+            }
+
+            key_states[vk] = isDown;
+        }
+
+        // Handle FPV keys (force first-person view)
+        for (int vk : fpv_keys)
+        {
+            bool isDown = (GetAsyncKeyState(vk) & 0x8000) != 0;
+            bool wasDown = key_states[vk];
+
+            if (isDown && !wasDown)
+            {
+                // Key just pressed - set to first-person view
+                if (setFirstPersonView())
+                {
+                    logger.log(LOG_INFO, "Action: FPV key " + format_vkcode(vk) + " pressed, TPV: OFF");
+                }
+            }
+
+            key_states[vk] = isDown;
+        }
+
+        // Handle TPV keys (force third-person view)
+        for (int vk : tpv_keys)
+        {
+            bool isDown = (GetAsyncKeyState(vk) & 0x8000) != 0;
+            bool wasDown = key_states[vk];
+
+            if (isDown && !wasDown)
+            {
+                // Key just pressed - set to third-person view
+                if (setThirdPersonView())
+                {
+                    logger.log(LOG_INFO, "Action: TPV key " + format_vkcode(vk) + " pressed, TPV: ON");
                 }
             }
 

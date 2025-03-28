@@ -45,6 +45,14 @@ The mod can be configured by editing the `KCD2_TPVToggle.ini` file:
 ; F3 = 0x72, F4 = 0x73, E = 0x45, etc.
 ToggleKey = 0x72
 
+; First-person view keys (comma-separated, in hex)
+; Will always switch to first-person view when pressed
+FPVKey = 0x4D,0x50,0x49,0x4A,0x4E  ; M, P, I, J, N
+
+; Third-person view keys (comma-separated, in hex)
+; Will always switch to third-person view when pressed
+TPVKey =
+
 ; Logging level: DEBUG, INFO, WARNING, ERROR
 LogLevel = INFO
 
@@ -57,6 +65,20 @@ The mod will search for the INI file in several locations:
 - The game's executable directory (`Win64MasterMasterSteamPGO`)
 - The base game directory
 - The current working directory
+
+### View Control Keys
+
+The mod supports three types of key bindings:
+
+1. **Toggle Keys** (`ToggleKey`): Switches between first-person and third-person views each time pressed
+2. **First-Person Keys** (`FPVKey`): Always switches to first-person view when pressed
+3. **Third-Person Keys** (`TPVKey`): Always switches to third-person view when pressed
+
+Default key assignments:
+
+- Toggle: F3 (0x72)
+- First-Person: M, P, I, J, N (0x4D, 0x50, 0x49, 0x4A, 0x4E)
+- Third-Person: None assigned by default
 
 ### Key Codes
 
@@ -93,6 +115,27 @@ Common issues:
 
 <details>
 <summary>Click to expand</summary>
+
+### v0.2.0 (Feature Update)
+
+- Added dedicated first-person view (FPV) keybindings
+  - Added `FPVKey` option in the INI file to specify keys that always switch to first-person view
+  - Default FPV keys: M, P, I, J, N (0x4D, 0x50, 0x49, 0x4A, 0x4E)
+  - FPV keys will always switch to first-person view when pressed, regardless of current state
+
+- Added dedicated third-person view (TPV) keybindings
+  - Added `TPVKey` option in the INI file to specify keys that always switch to third-person view
+  - No default TPV keys are assigned
+  - TPV keys will always switch to third-person view when pressed, regardless of current state
+
+- Improved logging for key monitoring
+  - Added detailed logging of which keys are being monitored for each function
+  - Added clearer action logging that distinguishes between toggle, FPV, and TPV key presses
+
+- Code improvements
+  - Added better error handling for key parsing
+  - Improved configuration file loading with better fallbacks and validation
+  - Enhanced memory safety when setting view states
 
 ### v0.1.2
 
