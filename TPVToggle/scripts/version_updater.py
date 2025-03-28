@@ -101,7 +101,7 @@ def bump_version(part):
     return version_str
 
 def update_readme_txt(version):
-    """Update version in README.txt."""
+    """Update version in README.txt using string operations instead of regex."""
     if not README_TXT.exists():
         print(f"Warning: {README_TXT} not found, skipping.")
         return
@@ -109,17 +109,24 @@ def update_readme_txt(version):
     try:
         content = README_TXT.read_text()
 
-        # Use a simplified pattern
-        pattern = r'(Version )[0-9]+\.[0-9]+\.[0-9]+'
-        if re.search(pattern, content):
-            content = re.sub(pattern, f'\\1{version}', content)
-            README_TXT.write_text(content)
-            print(f"Updated {README_TXT}")
-        else:
-            print(f"Warning: Version pattern not found in {README_TXT}, skipping.")
+        # Look for the line containing "Version" and update it
+        lines = content.splitlines()
+        for i, line in enumerate(lines):
+            if line.startswith("Version "):
+                lines[i] = f"Version {version}"
+                print(f"Updated version line from '{line}' to '{lines[i]}'")
+                break
+
+        # Reconstruct the content with updated version
+        updated_content = "\n".join(lines)
+        README_TXT.write_text(updated_content)
+        print(f"Updated {README_TXT}")
 
     except Exception as e:
         print(f"Error updating README.txt: {str(e)}")
+        # Print the exception traceback for debugging
+        import traceback
+        traceback.print_exc()
 
 def update_changelog(version, title="", changelog_entry=""):
     """Update CHANGELOG.md with a new version entry."""
