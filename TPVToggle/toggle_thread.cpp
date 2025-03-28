@@ -102,6 +102,9 @@ bool setThirdPersonView()
  * Thread function that monitors configured keys and changes the view state.
  * Handles three types of keys: toggle keys, FPV keys, and TPV keys.
  * Tracks key states to detect press events and debounces input.
+ *
+ * If all key vectors are empty, the thread will still run but won't monitor any keys,
+ * effectively becoming a no-operation (noop) thread that consumes minimal resources.
  */
 DWORD WINAPI ToggleThread(LPVOID param)
 {
@@ -124,6 +127,24 @@ DWORD WINAPI ToggleThread(LPVOID param)
     }
 
     logger.log(LOG_INFO, "Thread: Toggle thread started");
+
+    // Check if all key vectors are empty - noop mode
+    bool noopMode = toggle_keys.empty() && fpv_keys.empty() && tpv_keys.empty();
+
+    if (noopMode)
+    {
+        logger.log(LOG_INFO, "Thread: No keys configured to monitor. Thread is in no-operation mode.");
+        logger.log(LOG_INFO, "Thread: Mod is loaded and initialized, but no key monitoring will occur.");
+
+        // Enter idle loop with minimal CPU usage
+        // We keep the thread alive but essentially do nothing
+        while (true)
+        {
+            Sleep(1000); // Sleep for a full second to minimize resource use
+        }
+
+        return 0;
+    }
 
     // Log configured keys for each type
     if (!toggle_keys.empty())
@@ -223,7 +244,16 @@ DWORD WINAPI ToggleThread(LPVOID param)
         }
 
         // Short sleep to reduce CPU usage while polling
-        Sleep(20);
+        // Use longer sleep if we're monitoring fewer keys to reduce CPU usage
+        int sleepDuration = 20; // Default 20ms polling rate
+
+        // If we're monitoring very few keys, we can sleep longer
+        if (toggle_keys.size() + fpv_keys.size() + tpv_keys.size() <= 3)
+        {
+            sleepDuration = 30; // Slightly longer sleep for few keys
+        }
+
+        Sleep(sleepDuration);
     }
 
     return 0;

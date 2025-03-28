@@ -13,7 +13,7 @@
 namespace Constants
 {
     // Version information
-    constexpr const char *MOD_VERSION = "0.2.0";
+    constexpr const char *MOD_VERSION = "0.2.1";
     constexpr const char *MOD_NAME = "KCD2_TPVToggle";
     constexpr const char *MOD_WEBSITE = "https://github.com/tkhquang/KDC2Tools";
 
@@ -35,10 +35,6 @@ namespace Constants
 
     // Default configuration values
     constexpr const char *DEFAULT_LOG_LEVEL = "DEBUG";
-    constexpr int DEFAULT_TOGGLE_KEY = 0x72; // F3 key
-    // Default FPV keys: M, P, I, J, N
-    constexpr const int DEFAULT_FPV_KEYS[] = {0x4D, 0x50, 0x49, 0x4A, 0x4E};
-    constexpr int DEFAULT_FPV_KEYS_COUNT = 5;
 
     // AOB Patterns
     constexpr const char *DEFAULT_AOB_PATTERN =

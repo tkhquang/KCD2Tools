@@ -26,7 +26,7 @@ This mod enables toggling between first-person and third-person camera views in 
 [size=5]Installation Folder Structure[/size]
 [code]
 What you'll download:
-KCD2_TPVToggle_v0.2.0.zip
+KCD2_TPVToggle_v0.2.1.zip
 ├── KCD2_TPVToggle.asi    # The mod itself
 ├── KCD2_TPVToggle.ini    # Configuration file
 ├── dinput8.dll           # Ultimate ASI Loader (included for convenience)
@@ -44,7 +44,13 @@ Kingdom Come: Deliverance II installation
        └── ...                       (other game files)
 [/code]
 
-Note: This mod includes the necessary Ultimate ASI Loader (dinput8.dll), so you don't need to download it separately. If you already have another mod that uses the Ultimate ASI Loader, you can keep your existing dinput8.dll.
+[size=5]Dependencies[/size]
+This mod relies critically on the [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader]Ultimate ASI Loader[/url] by ThirteenAG, which is included in the download package. This essential component:
+[list]
+[*] Allows the mod to be injected into the game as an ASI plugin
+[*] Handles the loading and execution of the mod when the game starts
+[*] Makes installation simple by just placing files in the game directory
+[/list]
 
 [size=5]Configuration[/size]
 The mod can be configured by editing the KCD2_TPVToggle.ini file:
@@ -52,26 +58,40 @@ The mod can be configured by editing the KCD2_TPVToggle.ini file:
 [Settings]
 ; Keys that toggle between first-person and third-person view (comma-separated, in hex)
 ; F3 = 0x72, F4 = 0x73, E = 0x45, etc.
+; If set to empty (ToggleKey = ), no toggle keys will be monitored.
 ToggleKey = 0x72
 
 ; Keys that will always switch to first-person view (comma-separated, in hex)
 ; These keys never toggle - they only force first-person view
-; M, P, I, J, N
+; If set to empty (FPVKey = ), no first-person view keys will be monitored.
+; 0x4D,0x50,0x49,0x4A,0x4E = M, P, I, J, N
 FPVKey = 0x4D,0x50,0x49,0x4A,0x4E
 
 ; Keys that will always switch to third-person view (comma-separated, in hex)
 ; These keys never toggle - they only force third-person view
+; If set to empty (TPVKey = ), no third-person view keys will be monitored.
 TPVKey =
 
 ; Logging level: DEBUG, INFO, WARNING, ERROR
-LogLevel = DEBUG
+LogLevel = INFO
 [/code]
 
-The default FPV keys (M, P, I, J, N) were chosen because they trigger game menus by default, which automatically switches the game to first-person view. This serves as a workaround for the buggy menus that can occur when opened in third-person view.
+[size=5]Default FPV Keys Explained[/size]
+The default FPV keys (M, P, I, J, N) were specifically chosen because they correspond to important in-game UI interactions. These keys automatically switch the view to first-person when pressed because many game UI elements and menus can appear buggy or non-functional when accessed in third-person view.
+
+This provides a seamless experience where pressing any UI key will automatically ensure you're in the correct camera mode for that interface. If you've remapped these keys in your game settings, you may want to update the FPV key settings to match your custom keybinds.
+
+[size=5]Empty Key Settings[/size]
+For each key type, you can leave the setting empty to disable that functionality:
+[list]
+[*] Setting [code]ToggleKey = [/code] will disable the toggle feature
+[*] Setting [code]FPVKey = [/code] will disable automatic switching to first-person view
+[*] Setting [code]TPVKey = [/code] will disable explicit switching to third-person view
+[/list]
+
+If all three key settings are empty, the mod will still initialize but won't monitor any keys.
 
 For a complete list of key codes, see [url=https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes]Microsoft's Virtual Key Codes[/url].
-
-The mod will search for the INI file in multiple locations, so it should work regardless of where your game launcher sets the working directory.
 
 [size=5]Known Issues[/size]
 [list]
@@ -90,12 +110,13 @@ If you encounter issues:
 [*] Set LogLevel = DEBUG in the INI file
 [*] Check the log file in your game directory (KCD2_TPVToggle.log)
 [*] After a game update, you may need to update the AOB pattern in the INI file
+[*] UI looks broken in third-person view? This is expected - press one of the default FPV keys (M, P, I, J, N) to automatically switch back to first-person view before using menus
 [/list]
 
 [size=5]Credits[/size]
 [list]
+[*] [url=https://github.com/ThirteenAG]ThirteenAG[/url] for the Ultimate ASI Loader, without which this mod would not be possible
 [*] Frans 'Otis_Inf' Bouma for his camera tools and inspiration
-[*] [url=https://github.com/ThirteenAG]ThirteenAG[/url] for the Ultimate ASI Loader
 [*] Warhorse Studios for creating this amazing game
 [/list]
 

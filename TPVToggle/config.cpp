@@ -149,10 +149,20 @@ std::vector<std::string> getIniFilePaths(const std::string &ini_filename)
 /**
  * Parses a comma-separated list of hexadecimal key codes
  * Each key can be prefixed with "0x" or not
+ * Returns an empty vector if the input is empty or contains only whitespace
  */
 std::vector<int> parseKeyList(const std::string &value, Logger &logger, const std::string &keyName)
 {
     std::vector<int> keys;
+
+    // Handle empty input case gracefully
+    std::string trimmedValue = trim(value);
+    if (trimmedValue.empty())
+    {
+        logger.log(LOG_INFO, "Config: " + keyName + " is empty, no keys will be monitored");
+        return keys; // Return empty vector
+    }
+
     std::istringstream iss(value);
     std::string token;
     logger.log(LOG_DEBUG, "Config: Parsing " + keyName + " = '" + value + "'");
@@ -280,13 +290,6 @@ Config loadConfig(const std::string &ini_path_narrow)
         logger.log(LOG_WARNING, "Config: LogLevel missing, defaulting to " + std::string(Constants::DEFAULT_LOG_LEVEL));
     }
 
-    // Final validation
-    if (config.toggle_keys.empty())
-    {
-        logger.log(LOG_WARNING, "Config: No valid ToggleKey found, using default 0x72");
-        config.toggle_keys.push_back(Constants::DEFAULT_TOGGLE_KEY);
-    }
-
     if (config.aob_pattern.empty())
     {
         logger.log(LOG_ERROR, "Config: AOBPattern is empty or missing");
@@ -300,21 +303,15 @@ Config loadConfig(const std::string &ini_path_narrow)
         }
     }
 
-    // Set default toggle keys if none were provided
-    if (config.toggle_keys.empty())
+    if (config.toggle_keys.empty() && config.fpv_keys.empty() && config.tpv_keys.empty())
     {
-        logger.log(LOG_WARNING, "Config: No valid ToggleKey found, using default setting)");
-        config.toggle_keys.push_back(Constants::DEFAULT_TOGGLE_KEY);
+        logger.log(LOG_WARNING, "Config: All key lists (ToggleKey, FPVKey, TPVKey) are empty. No hotkeys will be active.");
+        logger.log(LOG_INFO, "Config: Mod will load and initialize, but no key monitoring will occur.");
     }
-
-    // Set default FPV keys if none were provided
-    if (config.fpv_keys.empty())
+    else
     {
-        logger.log(LOG_INFO, "Config: No FPVKey values found, using defaults setting");
-        for (int i = 0; i < Constants::DEFAULT_FPV_KEYS_COUNT; i++)
-        {
-            config.fpv_keys.push_back(Constants::DEFAULT_FPV_KEYS[i]);
-        }
+        // Log the key counts
+        logger.log(LOG_INFO, "Config: Loaded " + std::to_string(config.toggle_keys.size()) + " toggle keys, " + std::to_string(config.fpv_keys.size()) + " FPV keys, and " + std::to_string(config.tpv_keys.size()) + " TPV keys");
     }
 
     return config;

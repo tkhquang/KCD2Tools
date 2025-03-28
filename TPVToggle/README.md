@@ -13,7 +13,7 @@ TPVToggle is an ASI plugin for Kingdom Come: Deliverance II that enables players
 
 ## Installation
 
-1. Download the latest release from [Nexus Mods](https://www.nexusmods.com/kingdomcomedeliverance2/mods/1550) or the [Releases page](https://github.com/tkhquang/KDC2Tools/releases)
+1. Download the latest release from [Nexus Mods](https://www.nexusmods.com/kingcomedeliverance2/mods/1550) or the [Releases page](https://github.com/tkhquang/KDC2Tools/releases)
 2. Extract all files to your game directory:
 
    ```
@@ -43,14 +43,19 @@ The mod can be configured by editing the `KCD2_TPVToggle.ini` file:
 [Settings]
 ; Keys that toggle the third-person view (comma-separated, in hex)
 ; F3 = 0x72, F4 = 0x73, E = 0x45, etc.
+; If set to empty (ToggleKey = ), no toggle keys will be monitored.
 ToggleKey = 0x72
 
 ; First-person view keys (comma-separated, in hex)
 ; Will always switch to first-person view when pressed
-FPVKey = 0x4D,0x50,0x49,0x4A,0x4E  ; M, P, I, J, N
+; Default keys are game menu keys that benefit from first-person view
+; If set to empty (FPVKey = ), no first-person view keys will be monitored.
+; 0x4D,0x50,0x49,0x4A,0x4E = M, P, I, J, N
+FPVKey = 0x4D,0x50,0x49,0x4A,0x4E
 
 ; Third-person view keys (comma-separated, in hex)
 ; Will always switch to third-person view when pressed
+; If set to empty (TPVKey = ), no third-person view keys will be monitored.
 TPVKey =
 
 ; Logging level: DEBUG, INFO, WARNING, ERROR
@@ -74,11 +79,21 @@ The mod supports three types of key bindings:
 2. **First-Person Keys** (`FPVKey`): Always switches to first-person view when pressed
 3. **Third-Person Keys** (`TPVKey`): Always switches to third-person view when pressed
 
-Default key assignments:
+#### Default FPV Keys Explained
 
-- Toggle: F3 (0x72)
-- First-Person: M, P, I, J, N (0x4D, 0x50, 0x49, 0x4A, 0x4E)
-- Third-Person: None assigned by default
+The default FPV keys (M, P, I, J, N) were specifically chosen because they correspond to important in-game UI interactions. These keys automatically switch the view to first-person when pressed because many game UI elements and menus can appear buggy or non-functional when accessed in third-person view. This provides a seamless experience where pressing any UI key will automatically ensure you're in the correct camera mode for that interface.
+
+If you've remapped these keys in your game settings, you may want to update the FPV key settings to match your custom keybinds.
+
+#### Empty Key Settings
+
+For each key type, you can leave the setting empty to disable that functionality:
+
+- Setting `ToggleKey =` will disable the toggle feature (no keys will toggle the view)
+- Setting `FPVKey =` will disable automatic switching to first-person view
+- Setting `TPVKey =` will disable explicit switching to third-person view
+
+If all three key settings are empty, the mod will still initialize but won't monitor any keys (operating in a noop state).
 
 ### Key Codes
 
@@ -103,18 +118,32 @@ Common issues:
 - **Mod doesn't load**: Ensure the files are in the correct location
 - **Toggle doesn't work**: The game update may have changed the memory layout, requiring an AOB pattern update
 - **Game crashes**: Check the log file for details; consider updating to the latest mod version
+- **UI looks broken in third-person view**: This is expected - press one of the default FPV keys (M, P, I, J, N) to automatically switch back to first-person view before using menus
 
 ## Known Issues and Limitations
 
 - Camera may clip through objects in third-person view (no collision detection)
 - Some game events or menus may temporarily be buggy in third-person view (menus, map, dialog...)
-  - **Workaround**: Switch back to first-person view when using these features
+  - **Workaround**: Use the default FPV keys (M, P, I, J, N) to automatically switch to first-person view when using these features. This is why these keys are configured by default.
 - The third-person camera uses the game's experimental implementation and may not be perfect
+- Currently only tested with the Steam version of the game
 
 ## Changelog
 
 <details>
 <summary>Click to expand</summary>
+
+### v0.2.1 (Stability Update)
+
+- Improved error handling for edge cases
+  - Added proper handling for empty key configurations
+  - Fixed potential crashes when no keys are defined
+  - Enhanced memory safety for toggle operations
+
+- Enhanced logging and diagnostics
+  - Better error messaging for configuration issues
+  - More detailed debugging information
+  - Clearer logging for key monitoring
 
 ### v0.2.0 (Feature Update)
 
@@ -156,6 +185,17 @@ Common issues:
 
 </details>
 
+## Dependencies
+
+This mod relies critically on the [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) by ThirteenAG. This essential component:
+
+- Allows the mod to be injected into the game as an ASI plugin
+- Handles the loading and execution of the mod when the game starts
+- Provides a standardized way to modify the game without changing game files
+- Makes installation simple by just placing files in the game directory
+
+**Note:** The Ultimate ASI Loader (`dinput8.dll`) is included in the download package. This is a crucial component and the mod will not function without it.
+
 ## Building from Source
 
 ### Prerequisites
@@ -171,8 +211,8 @@ g++ -shared -o build/KCD2_TPVToggle.asi dllmain.cpp logger.cpp config.cpp toggle
 
 ## Credits
 
-- [ThirteenAG](https://github.com/ThirteenAG) for the Ultimate ASI Loader
-- [Frans 'Otis_Inf' Bouma](https://opm.fransbouma.com/intro.htm) for his camera tools and inspiration - without his ideas, this mod wouldn't have been possible
+- [ThirteenAG](https://github.com/ThirteenAG) for the Ultimate ASI Loader, without which this mod would not be possible
+- [Frans 'Otis_Inf' Bouma](https://opm.fransbouma.com/intro.htm) for his camera tools and inspiration
 - Warhorse Studios for Kingdom Come: Deliverance II
 
 ## License
