@@ -23,10 +23,9 @@ from datetime import datetime
 
 # Base paths
 BASE_DIR = Path(__file__).parent.parent
-TPVTOGGLE_DIR = BASE_DIR / "TPVToggle"
-VERSION_HEADER = TPVTOGGLE_DIR / "version.h"
-CHANGELOG_MD = TPVTOGGLE_DIR / "CHANGELOG.md"
-README_TXT = TPVTOGGLE_DIR / "README.txt"
+VERSION_HEADER = BASE_DIR / "version.h"
+CHANGELOG_MD = BASE_DIR / "CHANGELOG.md"
+README_TXT = BASE_DIR / "README.txt"
 
 def get_current_version():
     """Parse version.h to extract version information."""
