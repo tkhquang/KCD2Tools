@@ -106,17 +106,20 @@ def update_readme_txt(version):
         print(f"Warning: {README_TXT} not found, skipping.")
         return
 
-    content = README_TXT.read_text()
+    try:
+        content = README_TXT.read_text()
 
-    # Update version in header
-    content = re.sub(
-        r'(KINGDOM COME: DELIVERANCE II - THIRD PERSON VIEW TOGGLE\nVersion )[0-9]+\.[0-9]+\.[0-9]+',
-        f'\\1{version}',
-        content
-    )
+        # Use a simplified pattern
+        pattern = r'(Version )[0-9]+\.[0-9]+\.[0-9]+'
+        if re.search(pattern, content):
+            content = re.sub(pattern, f'\\1{version}', content)
+            README_TXT.write_text(content)
+            print(f"Updated {README_TXT}")
+        else:
+            print(f"Warning: Version pattern not found in {README_TXT}, skipping.")
 
-    README_TXT.write_text(content)
-    print(f"Updated {README_TXT}")
+    except Exception as e:
+        print(f"Error updating README.txt: {str(e)}")
 
 def update_changelog(version, title="", changelog_entry=""):
     """Update CHANGELOG.md with a new version entry."""
