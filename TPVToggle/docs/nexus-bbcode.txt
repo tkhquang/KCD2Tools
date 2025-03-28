@@ -1,4 +1,3 @@
-
 [size=6]Kingdom Come: Deliverance II - Third Person View Toggle[/size]
 
 [size=5]Description[/size]
@@ -7,7 +6,8 @@ This mod enables toggling between first-person and third-person camera views in 
 [size=5]Features[/size]
 [list]
 [*] Toggle between first-person and third-person views with a keypress (default: F3)
-[*] Customize toggle keys through INI configuration
+[*] Dedicated keys for forcing first-person or third-person view
+[*] Customize all key bindings through INI configuration
 [*] Minimal game modification for better stability
 [*] Flexible configuration file search across multiple game directories
 [*] Open-source with full transparency
@@ -20,13 +20,13 @@ This mod enables toggling between first-person and third-person camera views in 
 
 [size=5]Installation[/size]
 1. Extract all files from the archive to your game directory:
-   [code]<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/[/code]
+  [code]<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/[/code]
 2. Launch the game and press F3 (default) to toggle the camera view
 
 [size=5]Installation Folder Structure[/size]
 [code]
 What you'll download:
-KCD2_TPVToggle_v0.1.2.zip
+KCD2_TPVToggle_v0.2.0.zip
 ├── KCD2_TPVToggle.asi    # The mod itself
 ├── KCD2_TPVToggle.ini    # Configuration file
 ├── dinput8.dll           # Ultimate ASI Loader (included for convenience)
@@ -36,12 +36,12 @@ KCD2_TPVToggle_v0.1.2.zip
 Where to place the files:
 Kingdom Come: Deliverance II installation
 └── Bin
-    └── Win64MasterMasterSteamPGO     # Copy all files here
-        ├── KCD2_TPVToggle.asi        ✓
-        ├── KCD2_TPVToggle.ini        ✓
-        ├── dinput8.dll               ✓
-        ├── KingdomCome.exe           (original game file)
-        └── ...                       (other game files)
+   └── Win64MasterMasterSteamPGO     # Copy all files here
+       ├── KCD2_TPVToggle.asi        ✓
+       ├── KCD2_TPVToggle.ini        ✓
+       ├── dinput8.dll               ✓
+       ├── KingdomCome.exe           (original game file)
+       └── ...                       (other game files)
 [/code]
 
 Note: This mod includes the necessary Ultimate ASI Loader (dinput8.dll), so you don't need to download it separately. If you already have another mod that uses the Ultimate ASI Loader, you can keep your existing dinput8.dll.
@@ -50,22 +50,35 @@ Note: This mod includes the necessary Ultimate ASI Loader (dinput8.dll), so you 
 The mod can be configured by editing the KCD2_TPVToggle.ini file:
 [code]
 [Settings]
-; Toggle keys (hex format, comma-separated)
+; Keys that toggle between first-person and third-person view (comma-separated, in hex)
+; F3 = 0x72, F4 = 0x73, E = 0x45, etc.
 ToggleKey = 0x72
 
+; Keys that will always switch to first-person view (comma-separated, in hex)
+; These keys never toggle - they only force first-person view
+; M, P, I, J, N
+FPVKey = 0x4D,0x50,0x49,0x4A,0x4E
+
+; Keys that will always switch to third-person view (comma-separated, in hex)
+; These keys never toggle - they only force third-person view
+TPVKey =
+
 ; Logging level: DEBUG, INFO, WARNING, ERROR
-LogLevel = INFO
+LogLevel = DEBUG
 [/code]
+
+The default FPV keys (M, P, I, J, N) were chosen because they trigger game menus by default, which automatically switches the game to first-person view. This serves as a workaround for the buggy menus that can occur when opened in third-person view.
+
 For a complete list of key codes, see [url=https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes]Microsoft's Virtual Key Codes[/url].
 
-The mod will now search for the INI file in multiple locations, so it should work regardless of where your game launcher sets the working directory.
+The mod will search for the INI file in multiple locations, so it should work regardless of where your game launcher sets the working directory.
 
 [size=5]Known Issues[/size]
 [list]
 [*] Camera may clip through objects in third-person view (no collision detection)
 [*] Some game actions may temporarily be buggy in third-person view (menus, map, dialog...)
 [list]
-[*] [b]Workaround:[/b] Switch back to first-person view when using these features
+[*] [b]Workaround:[/b] Use the default FPV keys (M, P, I, J, N) to automatically switch to first-person view when using these features
 [/list]
 [*] The third-person camera uses the game's experimental implementation and may not be perfect
 [*] Currently only tested with the Steam version of the game
