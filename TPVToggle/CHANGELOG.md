@@ -2,6 +2,14 @@
 
 All notable changes to the TPVToggle mod will be documented in this file.
 
+## [0.2.2] - Infrastructure Update
+
+- Improved project structure and release workflow
+  - Added centralized version management through version.h
+  - Created separate CHANGELOG.md for better version history tracking
+  - Implemented automated version bumping and changelog updates
+  - Enhanced build and release process through GitHub Actions
+
 ## [0.2.1] - Stability Update
 
 - Improved error handling for edge cases
@@ -52,6 +60,12 @@ All notable changes to the TPVToggle mod will be documented in this file.
 - Exception-based hooking for minimal game modification
 - Logging system for troubleshooting
 
+[0.2.1]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.2.1
+[0.2.0]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.2.0
+[0.1.2]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.1.2
+[0.1.1]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.1.1
+
+[0.2.2]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.2.2
 [0.2.1]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.2.1
 [0.2.0]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.2.0
 [0.1.2]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.1.2
