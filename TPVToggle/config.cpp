@@ -15,6 +15,7 @@
 #include <sstream>
 #include <fstream>
 #include <iomanip>
+#include <algorithm>
 
 // Helper: Convert std::wstring to std::string (ACP encoding)
 std::string WideToNarrow_std(const std::wstring &wstr)
@@ -78,24 +79,110 @@ bool validateAOBPattern(const std::string &pattern, Logger &logger)
     return count > 0;
 }
 
+/**
+ * Gets the possible paths where the INI file might be located
+ * Checks multiple locations to be more flexible
+ */
+std::vector<std::string> getIniFilePaths(const std::string &ini_filename)
+{
+    std::vector<std::string> paths;
+    char buffer[MAX_PATH];
+
+    // 1. First try the same directory as the DLL
+    HMODULE hModule = NULL;
+    GetModuleHandleEx(
+        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        (LPCSTR)&loadConfig,
+        &hModule);
+
+    if (hModule != NULL)
+    {
+        DWORD length = GetModuleFileNameA(hModule, buffer, MAX_PATH);
+        if (length > 0 && length < MAX_PATH)
+        {
+            std::string dllPath(buffer);
+            size_t lastSlash = dllPath.find_last_of("\\/");
+            if (lastSlash != std::string::npos)
+            {
+                std::string dllDir = dllPath.substr(0, lastSlash + 1);
+                paths.push_back(dllDir + ini_filename);
+            }
+        }
+    }
+
+    // 2. Try the current working directory
+    if (GetCurrentDirectoryA(MAX_PATH, buffer) > 0)
+    {
+        std::string currentDir(buffer);
+        if (!currentDir.empty() && currentDir.back() != '\\' && currentDir.back() != '/')
+            currentDir += '\\';
+        paths.push_back(currentDir + ini_filename);
+    }
+
+    // 3. Try game base directory (parent of the executable directory)
+    DWORD exeLength = GetModuleFileNameA(NULL, buffer, MAX_PATH);
+    if (exeLength > 0 && exeLength < MAX_PATH)
+    {
+        std::string exePath(buffer);
+        size_t lastSlash = exePath.find_last_of("\\/");
+        if (lastSlash != std::string::npos)
+        {
+            std::string exeDir = exePath.substr(0, lastSlash + 1);
+            size_t parentSlash = exeDir.find_last_of("\\/", exeDir.length() - 2);
+            if (parentSlash != std::string::npos)
+            {
+                std::string parentDir = exeDir.substr(0, parentSlash + 1);
+                paths.push_back(parentDir + ini_filename);
+            }
+        }
+    }
+
+    // 4. Also add the original path that was passed in
+    if (std::find(paths.begin(), paths.end(), ini_filename) == paths.end())
+    {
+        paths.push_back(ini_filename);
+    }
+
+    return paths;
+}
+
 // Manual INI parser (no WinAPI calls)
 Config loadConfig(const std::string &ini_path_narrow)
 {
     Config config;
     Logger &logger = Logger::getInstance();
 
-    // Try to resolve and log full path
-    std::wstring ini_path_wide = NarrowToWide_std(ini_path_narrow);
-    wchar_t full_path[MAX_PATH];
-    DWORD result = GetFullPathNameW(ini_path_wide.c_str(), MAX_PATH, full_path, nullptr);
-    if (result > 0 && result < MAX_PATH)
-        logger.log(LOG_DEBUG, "Config: Loading from " + WideToNarrow_std(full_path));
+    // Get possible INI file locations
+    std::vector<std::string> possiblePaths = getIniFilePaths(ini_path_narrow);
 
-    // Open INI file
-    std::ifstream file(ini_path_narrow);
+    // Try each possible path until we find a file that exists
+    std::ifstream file;
+    std::string usedPath;
+
+    for (const auto &path : possiblePaths)
+    {
+        file.open(path);
+        if (file.is_open())
+        {
+            usedPath = path;
+            logger.log(LOG_INFO, "Config: Successfully loaded INI from " + usedPath);
+            break;
+        }
+    }
+
     if (!file.is_open())
     {
-        logger.log(LOG_ERROR, "Config: Could not open INI file at " + ini_path_narrow);
+        // Log all paths we tried but failed to open
+        std::string allPaths;
+        for (const auto &path : possiblePaths)
+        {
+            if (!allPaths.empty())
+                allPaths += ", ";
+            allPaths += path;
+        }
+
+        logger.log(LOG_ERROR, "Config: Could not open INI file. Tried paths: " + allPaths);
+        logger.log(LOG_WARNING, "Config: Using default configuration values");
         return config;
     }
 
