@@ -30,10 +30,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Cache MinGW
+        id: cache-mingw
+        uses: actions/cache@v3
+        with:
+          path: C:\ProgramData\chocolatey\lib\mingw
+          key: ${{ runner.os }}-mingw-8.1.0
+
       - name: Install MinGW
+        if: steps.cache-mingw.outputs.cache-hit != 'true'
         run: |
           choco install mingw --version=8.1.0 -y
-          echo "$env:ChocolateyInstall\lib\mingw\tools\install\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        shell: powershell
+
+      - name: Set MinGW path
+        run: |
+          echo "C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         shell: powershell
 
       - name: Create build directory
