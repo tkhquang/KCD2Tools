@@ -78,7 +78,7 @@ LogLevel = INFO
 This mod is designed to work with keyboard inputs directly. For controller support:
 
 [list]
-[*] [url=https://joytokey.net/]JoyToKey[/url]: Map your controller buttons to keyboard keys configured in the INI file.
+[*] [url=https://joytokey.net/en/]JoyToKey[/url]: Map your controller buttons to keyboard keys configured in the INI file.
 [*] Steam Input: If playing through Steam, use Steam's controller configuration to map controller buttons to keyboard keys.
 [/list]
 

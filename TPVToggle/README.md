@@ -77,7 +77,7 @@ This mod is designed to work with keyboard inputs directly. If you'd like to use
 
 ### Controller Support Options
 
-- **JoyToKey**: Use [JoyToKey](https://joytokey.net/) to map your controller buttons to keyboard keys configured in the INI file.
+- **JoyToKey**: Use [JoyToKey](https://joytokey.net/en/) to map your controller buttons to keyboard keys configured in the INI file.
 
 - **Steam Input**: If playing through Steam, use Steam's controller configuration to map controller buttons to keyboard keys.
 
