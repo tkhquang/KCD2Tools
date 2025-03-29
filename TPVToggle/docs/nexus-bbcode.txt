@@ -8,8 +8,6 @@ This mod enables toggling between first-person and third-person camera views in 
 [*] Toggle between first-person and third-person views with a keypress (default: F3)
 [*] Dedicated keys for forcing first-person or third-person view
 [*] Customize all key bindings through INI configuration
-[*] Minimal game modification for better stability
-[*] Flexible configuration file search across multiple game directories
 [*] Open-source with full transparency
 [/list]
 
@@ -26,7 +24,7 @@ This mod enables toggling between first-person and third-person camera views in 
 [size=5]Installation Folder Structure[/size]
 [code]
 What you'll download:
-KCD2_TPVToggle_v0.1.0.zip
+KCD2_TPVToggle.zip
 ├── KCD2_TPVToggle.asi    # The mod itself
 ├── KCD2_TPVToggle.ini    # Configuration file
 ├── dinput8.dll           # Ultimate ASI Loader (included for convenience)
@@ -76,6 +74,16 @@ TPVKey =
 LogLevel = INFO
 [/code]
 
+[size=5]Using with Controllers[/size]
+This mod is designed to work with keyboard inputs directly. For controller support:
+
+[list]
+[*] [url=https://joytokey.net/]JoyToKey[/url]: Map your controller buttons to keyboard keys configured in the INI file.
+[*] Steam Input: If playing through Steam, use Steam's controller configuration to map controller buttons to keyboard keys.
+[/list]
+
+Both options allow you to map any controller button to the F3 key (or your preferred toggle key).
+
 [size=5]Default FPV Keys Explained[/size]
 The default FPV keys (M, P, I, J, N) were specifically chosen because they correspond to important in-game UI interactions. These keys automatically switch the view to first-person when pressed because many game UI elements and menus can appear buggy or non-functional when accessed in third-person view.
 
@@ -110,6 +118,7 @@ If you encounter issues:
 [*] Set LogLevel = DEBUG in the INI file
 [*] Check the log file in your game directory (KCD2_TPVToggle.log)
 [*] After a game update, you may need to update the AOB pattern in the INI file
+[*] If using JoyToKey or Steam Input, verify your controller mappings are correct
 [/list]
 
 [size=5]Credits[/size]

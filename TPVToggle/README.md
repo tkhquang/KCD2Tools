@@ -6,10 +6,10 @@ TPVToggle is an ASI plugin for Kingdom Come: Deliverance II that enables players
 
 ## Features
 
-- Toggle between first-person and third-person views with configurable hotkeys (default: F3)
-- Minimal performance impact through efficient memory scanning
-- Detailed logging for troubleshooting
-- Flexible configuration file search to work with different game setups
+- Toggle between first-person and third-person views with a keypress (default: F3)
+- Dedicated keys for forcing first-person or third-person view
+- Customize all key bindings through INI configuration
+- Open-source with full transparency
 
 ## Installation
 
@@ -71,7 +71,19 @@ The mod will search for the INI file in several locations:
 - The base game directory
 - The current working directory
 
-### View Control Keys
+## Using with Controllers
+
+This mod is designed to work with keyboard inputs directly. If you'd like to use a controller:
+
+### Controller Support Options
+
+- **JoyToKey**: Use [JoyToKey](https://joytokey.net/) to map your controller buttons to keyboard keys configured in the INI file.
+
+- **Steam Input**: If playing through Steam, use Steam's controller configuration to map controller buttons to keyboard keys.
+
+Both tools allow you to map any controller button to the F3 key (or whichever key you've set for toggling the view).
+
+## View Control Keys
 
 The mod supports three types of key bindings:
 
@@ -79,13 +91,13 @@ The mod supports three types of key bindings:
 2. **First-Person Keys** (`FPVKey`): Always switches to first-person view when pressed
 3. **Third-Person Keys** (`TPVKey`): Always switches to third-person view when pressed
 
-#### Default FPV Keys Explained
+### Default FPV Keys Explained
 
 The default FPV keys (M, P, I, J, N) were specifically chosen because they correspond to important in-game UI interactions. These keys automatically switch the view to first-person when pressed because many game UI elements and menus can appear buggy or non-functional when accessed in third-person view. This provides a seamless experience where pressing any UI key will automatically ensure you're in the correct camera mode for that interface.
 
 If you've remapped these keys in your game settings, you may want to update the FPV key settings to match your custom keybinds.
 
-#### Empty Key Settings
+### Empty Key Settings
 
 For each key type, you can leave the setting empty to disable that functionality:
 
@@ -118,12 +130,13 @@ Common issues:
 - **Mod doesn't load**: Ensure the files are in the correct location
 - **Toggle doesn't work**: The game update may have changed the memory layout, requiring an AOB pattern update
 - **Game crashes**: Check the log file for details; consider updating to the latest mod version
+- **Controller doesn't work**: If using JoyToKey, ensure it's configured correctly and running
 
 ## Known Issues and Limitations
 
 - Camera may clip through objects in third-person view (no collision detection)
 - Some game events or menus may temporarily be buggy in third-person view (menus, map, dialog...)
-  - **Workaround**: Use the default FPV keys (M, P, I, J, N) to automatically switch to first-person view when using these features. This is why these keys are configured by default.
+  - **Workaround**: Use the default FPV keys (M, P, I, J, N) to automatically switch to first-person view when using these features
 - The third-person camera uses the game's experimental implementation and may not be perfect
 - Currently only tested with the Steam version of the game
 
