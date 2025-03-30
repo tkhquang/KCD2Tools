@@ -78,8 +78,12 @@ jobs:
       - name: Bump version and update changelog
         id: bump
         run: |
+          # Create a temporary file for the changelog to avoid command line escaping issues
+          $changelogContent = '${{ steps.read-changelog.outputs.CHANGELOG }}' -replace '%0A', "`n"
+          Set-Content -Path "temp_changelog.txt" -Value $changelogContent
+
           # Run the version updater script with changelog from file
-          python TPVToggle/scripts/version_updater.py bump ${{ inputs.version_part }} --title "${{ steps.determine-title.outputs.TITLE }}" --changelog "${{ steps.read-changelog.outputs.CHANGELOG }}"
+          python TPVToggle/scripts/version_updater.py bump ${{ inputs.version_part }} --title "${{ steps.determine-title.outputs.TITLE }}" --changelog (Get-Content -Path "temp_changelog.txt" -Raw)
 
           # Extract the new version from version.h
           $version_h = Get-Content TPVToggle\version.h -Raw
@@ -91,6 +95,9 @@ jobs:
           echo "NEW_VERSION=$new_version" >> $env:GITHUB_ENV
           echo "VERSION_TAG=v$new_version" >> $env:GITHUB_ENV
           echo "ARTIFACT_NAME=KCD2_TPVToggle_v${new_version}.zip" >> $env:GITHUB_ENV
+
+          # Clean up temp file
+          Remove-Item -Path "temp_changelog.txt"
         shell: pwsh
 
       - name: Cache MinGW
