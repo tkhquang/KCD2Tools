@@ -1,0 +1,5 @@
+## AOB Scanner and Workflow Improvements
+
+- Added wildcard support in AOB scanning ("??" and "?" characters)
+- Improved error handling and pattern matching for memory scanning
+- Enhanced release workflow with automated changelog management
