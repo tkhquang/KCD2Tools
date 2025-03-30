@@ -2,6 +2,12 @@
 
 All notable changes to the TPVToggle mod will be documented in this file.
 
+## [0.2.3] - AOB Scanner and Workflow Improvements
+
+- Added wildcard support in AOB scanning ("??" and "?" characters)
+- Improved error handling and pattern matching for memory scanning
+- Enhanced release workflow with automated changelog management
+
 ## [0.2.2] - Infrastructure Update
 
 - Improved project structure and release workflow
@@ -60,6 +66,7 @@ All notable changes to the TPVToggle mod will be documented in this file.
 - Exception-based hooking for minimal game modification
 - Logging system for troubleshooting
 
+[0.2.3]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.2.3
 [0.2.2]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.2.2
 [0.2.1]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.2.1
 [0.2.0]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.2.0
