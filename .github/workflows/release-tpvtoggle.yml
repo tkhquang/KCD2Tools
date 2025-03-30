@@ -145,40 +145,52 @@ jobs:
           git push origin main --tags
         shell: bash
 
+      - name: Prepare release body
+        id: prepare-release
+        run: |
+          $changelog = '${{ steps.read-changelog.outputs.CHANGELOG }}' -replace '%0A', "`n"
+          $releaseBody = @"
+          # Kingdom Come: Deliverance II - Third Person View Toggle
+
+          ## Release ${{ env.VERSION_TAG }}
+
+          This mod enables toggling between first-person and third-person views in Kingdom Come: Deliverance II using customizable hotkeys.
+
+          ## Changelog
+          $changelog
+
+          ### Installation
+
+          1. Simply extract all files to your game directory:
+             `<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/`
+          2. Launch the game and press F3 (default) to toggle the camera view
+
+          ### Note
+          This package includes everything you need:
+          - KCD2_TPVToggle.asi (the mod itself)
+          - KCD2_TPVToggle.ini (configuration file)
+          - dinput8.dll (Ultimate ASI Loader)
+          - Documentation and license information
+
+          ### Configuration
+
+          Edit the `KCD2_TPVToggle.ini` file to customize hotkeys and other settings.
+
+          See the [README](https://github.com/tkhquang/KDC2Tools/blob/main/TPVToggle/README.md) for detailed instructions.
+          "@
+
+          # Save to a file to preserve formatting
+          Set-Content -Path "release_body.txt" -Value $releaseBody -Encoding UTF8
+          echo "RELEASE_BODY_PATH=release_body.txt" >> $env:GITHUB_OUTPUT
+        shell: pwsh
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: ${{ env.ARTIFACT_NAME }}
           name: KCD2 TPVToggle ${{ env.VERSION_TAG }}
           tag_name: TPVToggle-${{ env.VERSION_TAG }}
-          body: |
-            # Kingdom Come: Deliverance II - Third Person View Toggle
-
-            ## Release ${{ env.VERSION_TAG }}
-
-            This mod enables toggling between first-person and third-person views in Kingdom Come: Deliverance II using customizable hotkeys.
-
-            ## Changelog
-            ${{ steps.read-changelog.outputs.CHANGELOG }}
-
-            ### Installation
-
-            1. Simply extract all files to your game directory:
-               `<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/`
-            2. Launch the game and press F3 (default) to toggle the camera view
-
-            ### Note
-            This package includes everything you need:
-            - KCD2_TPVToggle.asi (the mod itself)
-            - KCD2_TPVToggle.ini (configuration file)
-            - dinput8.dll (Ultimate ASI Loader)
-            - Documentation and license information
-
-            ### Configuration
-
-            Edit the `KCD2_TPVToggle.ini` file to customize hotkeys and other settings.
-
-            See the [README](https://github.com/tkhquang/KDC2Tools/blob/main/TPVToggle/README.md) for detailed instructions.
+          body_path: ${{ steps.prepare-release.outputs.RELEASE_BODY_PATH }}
           draft: false
           prerelease: ${{ inputs.prerelease }}
 
