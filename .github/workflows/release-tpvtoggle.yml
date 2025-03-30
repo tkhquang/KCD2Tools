@@ -189,14 +189,13 @@ jobs:
           Move-Item "TPVToggle\docs\NEXT_CHANGELOG.md" "$archiveDir\CHANGELOG_$timestamp.md"
 
           # Create an empty NEXT_CHANGELOG.md template for the next update
-          $template = @"
-## [Title for next release]
+          $template = @'
+          ## [Title for next release]
 
--
--
--
-
-"@
+          -
+          -
+          -
+          '@
           Set-Content -Path "TPVToggle\docs\NEXT_CHANGELOG.md" -Value $template
 
           # Commit the changes
