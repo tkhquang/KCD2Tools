@@ -121,7 +121,8 @@ jobs:
       - name: Build ASI plugin
         run: |
           cd TPVToggle
-          g++ -shared -o build/KCD2_TPVToggle.asi dllmain.cpp logger.cpp config.cpp toggle_thread.cpp aob_scanner.cpp exception_handler.cpp version.cpp -static -lpsapi "-Wl,--add-stdcall-alias" -O2 -Wall -Wextra
+          make clean
+          make
         shell: bash
 
       - name: Display build output
