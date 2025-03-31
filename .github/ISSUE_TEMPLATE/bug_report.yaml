@@ -25,7 +25,7 @@ body:
     id: game_version
     attributes:
       label: Game Version
-      description: What version of Kingdom Come: Deliverance II are you using?
+      description: "What version of Kingdom Come: Deliverance II are you using?"
       placeholder: e.g., 1.2.0.0
 
   - type: dropdown
