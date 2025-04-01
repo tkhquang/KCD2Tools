@@ -182,8 +182,7 @@ build/KCD2_TPVToggle.asi
 ```bash
 g++ -std=c++20 -m64 -O2 -Wall -Wextra \
     -static -static-libgcc -static-libstdc++ \
-    -shared dllmain.cpp logger.cpp config.cpp toggle_thread.cpp \
-    aob_scanner.cpp exception_handler.cpp version.cpp \
+    -shared src/*.cpp \
     -o build/KCD2_TPVToggle.asi \
     -ldinput8 -luser32 -lkernel32 -lpsapi \
     -Wl,--add-stdcall-alias
@@ -194,7 +193,7 @@ Ensure that `dinput8.dll` (ASI Loader) and the resulting `.asi` file are placed 
 ## Credits
 
 - [ThirteenAG](https://github.com/ThirteenAG) – for the Ultimate ASI Loader
-- [Frans 'Otis_Inf' Bouma](https://opm.fransbouma.com/intro.htm) – for camera tools and inspiration
+- [Frans 'Otis_Inf' Bouma](https://opm.fransbouma.com/intro.htm) – for his camera tools and inspiration
 - Warhorse Studios – for Kingdom Come: Deliverance II
 
 ## License

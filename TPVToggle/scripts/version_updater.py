@@ -23,7 +23,7 @@ from datetime import datetime
 
 # Base paths
 BASE_DIR = Path(__file__).parent.parent
-VERSION_HEADER = BASE_DIR / "version.h"
+VERSION_HEADER = BASE_DIR / "src" / "version.h"
 CHANGELOG_MD = BASE_DIR / "CHANGELOG.md"
 README_TXT = BASE_DIR / "build" / "README.txt"
 
