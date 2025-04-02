@@ -20,8 +20,15 @@ SRCS := \
     $(SRC_DIR)/toggle_thread.cpp \
     $(SRC_DIR)/version.cpp
 
+# Determine C++ standard support
+ifeq ($(shell $(CXX) -std=c++20 -E - 2>/dev/null >/dev/null || echo fail),fail)
+    CXX_STANDARD := -std=c++2a
+else
+    CXX_STANDARD := -std=c++20
+endif
+
 # Compiler flags
-CXXFLAGS := -std=c++20 -m64 -O2 -Wall -Wextra \
+CXXFLAGS := $(CXX_STANDARD) -m64 -O2 -Wall -Wextra \
             -static -static-libgcc -static-libstdc++ \
             -DWIN32_LEAN_AND_MEAN -DNOMINMAX \
             -Isrc
