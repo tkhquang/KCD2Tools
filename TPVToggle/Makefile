@@ -16,6 +16,7 @@ SRCS := \
     $(SRC_DIR)/dllmain.cpp \
     $(SRC_DIR)/exception_handler.cpp \
     $(SRC_DIR)/logger.cpp \
+    $(SRC_DIR)/overlay_detection.cpp \
     $(SRC_DIR)/toggle_thread.cpp \
     $(SRC_DIR)/version.cpp
 

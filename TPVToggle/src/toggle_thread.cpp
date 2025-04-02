@@ -4,6 +4,7 @@
  *
  * This file implements the thread that monitors keyboard input
  * and toggles the third-person view flag when configured keys are pressed.
+ * It also provides functions for accessing and manipulating the view state.
  */
 
 #include "toggle_thread.h"
@@ -17,6 +18,41 @@
 #include <sstream>
 
 extern volatile BYTE *toggle_addr;
+
+/**
+ * Returns a pointer to the toggle_addr for use in other modules.
+ */
+volatile BYTE *getToggleAddr()
+{
+    return toggle_addr;
+}
+
+/**
+ * Gets the current view state (0 for FPV, 1 for TPV).
+ * Returns 0 (FPV) if the address is invalid or an exception occurs.
+ */
+BYTE getViewState()
+{
+    // Use a local variable to prevent race conditions
+    volatile BYTE *current_addr = toggle_addr;
+
+    if (current_addr == nullptr)
+    {
+        Logger::getInstance().log(LOG_ERROR, "Toggle: Attempted to get view state with null address");
+        return 0; // Default to FPV on error
+    }
+
+    try
+    {
+        return *current_addr;
+    }
+    catch (...)
+    {
+        Logger::getInstance().log(LOG_ERROR, "Toggle: Exception when accessing memory at " +
+                                                 format_address(reinterpret_cast<uintptr_t>(current_addr)));
+        return 0; // Default to FPV on error
+    }
+}
 
 /**
  * Safely toggles the third-person view state with error handling.

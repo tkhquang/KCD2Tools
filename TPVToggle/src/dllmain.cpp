@@ -14,6 +14,7 @@
 #include "utils.h"
 #include "constants.h"
 #include "version.h"
+#include "overlay_detection.h"
 
 #include <windows.h>
 #include <psapi.h>
@@ -58,6 +59,9 @@ void CleanupResources()
         RemoveVectoredExceptionHandler(exceptionHandlerHandle);
         logger.log(LOG_INFO, "Cleanup: Removed exception handler");
     }
+
+    // Clean up overlay detection resources
+    CleanupOverlayDetection();
 
     logger.log(LOG_INFO, "Cleanup complete");
 }
@@ -158,6 +162,16 @@ DWORD WINAPI MainThread(LPVOID _param)
         config.fpv_keys,
         config.tpv_keys};
     CreateThread(NULL, 0, ToggleThread, data, 0, NULL);
+
+    // Initialize and start overlay detection system
+    if (InitializeOverlayDetection())
+    {
+        StartOverlayMonitoring();
+    }
+    else
+    {
+        logger.log(LOG_WARNING, "Failed to initialize overlay detection - auto FPV toggle for menus will not be available");
+    }
 
     return 0;
 }
