@@ -101,13 +101,42 @@ If all three key settings are empty, the mod will still initialize but won't mon
 
 For a complete list of key codes, see [url=https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes]Microsoft's Virtual Key Codes[/url].
 
-[size=5]Known Issues[/size]
+[size=5]Known Issues and Limitations[/size]
+
+[b]Camera and View Limitations:[/b]
 [list]
 [*] Camera may clip through objects in third-person view (no collision detection)
-[*] Some game actions may temporarily be buggy in third-person view (menus, map, dialog...)
+[*] Some game events or menus may temporarily be buggy in third-person view (menus, map, dialog...)
 [list]
 [*] [b]Workaround:[/b] Use the default FPV keys (M, P, I, J, N) to automatically switch to first-person view when using these features
 [/list]
+[/list]
+
+[b]Rare Camera Behavior in Specific Scene:[/b]
+
+During the scene where Hans carries Henry (likely a story-critical moment from the game's opening), switching between first-person and third-person views can cause unexpected camera and character model behavior.
+
+[b]Detailed Behavior:[/b]
+[list]
+[*] The scene uses a forced camera perspective with specific positioning
+[*] Switching to third-person view may rotate Henry's body incorrectly
+[*] Returning to first-person view might not restore the original camera positioning
+[/list]
+
+[b]Impact:[/b] This issue appears to be unique to this specific scripted sequence where the character positioning is tightly controlled by the game.
+
+[b]Recommended Approach:[/b]
+[list]
+[*] Keep the game in first-person view during this specific scene
+[*] Avoid toggling camera views until the scene completes
+[*] If you accidentally switch views, you may need to reload the previous save
+[*] [b]Temporary Solution:[/b] Simply rename [code]KCD2_TPVToggle.asi[/code] to [code]KCD2_TPVToggle.bak[/code] or remove it from your game directory
+[/list]
+
+[b]Note:[/b] This behavior seems limited to this particular story moment and does not represent a widespread mod issue.
+
+[b]General Limitations:[/b]
+[list]
 [*] The third-person camera uses the game's experimental implementation and may not be perfect
 [*] Currently only tested with the Steam version of the game
 [/list]

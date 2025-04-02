@@ -138,9 +138,37 @@ Common issues:
 
 ## Known Issues and Limitations
 
+### Camera and View Limitations
+
 - Camera may clip through objects in third-person view (no collision detection)
 - Some game events or menus may temporarily be buggy in third-person view (menus, map, dialog...)
   - **Workaround**: Use the default FPV keys (M, P, I, J, N) to automatically switch to first-person view when using these features
+
+### Rare Camera Behavior Issue in Specific Scene
+
+#### Cinematic Sequence Camera Limitations
+
+**Specific Scenario**: During the scene where Hans carries Henry (likely a story-critical moment from the game's opening), switching between first-person and third-person views can cause unexpected camera and character model behavior.
+
+**Detailed Behavior**:
+
+- The scene uses a forced camera perspective with specific positioning
+- Switching to third-person view may rotate Henry's body incorrectly
+- Returning to first-person view might not restore the original camera positioning
+
+**Impact**: This issue appears to be unique to this specific scripted sequence where the character positioning is tightly controlled by the game.
+
+**Recommended Approach**:
+
+- Keep the game in first-person view during this specific scene
+- Avoid toggling camera views until the scene completes
+- If you accidentally switch views, you may need to reload the previous save
+- **Temporary Solution**: Simply rename `KCD2_TPVToggle.asi` to `KCD2_TPVToggle.bak` or remove it from your game directory
+
+**Note**: This behavior seems limited to this particular story moment and does not represent a widespread mod issue.
+
+### General Limitations
+
 - The third-person camera uses the game's experimental implementation and may not be perfect
 - Currently only tested with the Steam version of the game
 
