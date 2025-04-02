@@ -2,7 +2,26 @@
 
 All notable changes to the TPVToggle mod will be documented in this file.
 
-## [0.2.3] - AOB Scanner and Workflow Improvements
+## [0.3.0] - Experimental Overlay Detection and Project Structure Improvements
+
+### Added
+- [EXPERIMENTAL] Automatic view management for game menus and overlays
+- Automatically switch to first-person view when menus open
+- Preserve camera state during menu interactions
+
+### Project Structure
+- Moved all source and header files to the `src/` folder
+- Updated Makefile and GitHub Actions to use the new structure
+- Adjusted version updater script to read `src/version.h`
+- Updated README and build instructions
+
+### Limitations
+- Pre-release experimental feature
+- May not work perfectly with all game interactions
+- Relies on specific game memory patterns that could change with updates
+
+## [0.2.3] - AOB Scanner and Workflow Improvements
+
 
 - Added wildcard support in AOB scanning ("??" and "?" characters)
 - Improved error handling and pattern matching for memory scanning
@@ -66,6 +85,7 @@ All notable changes to the TPVToggle mod will be documented in this file.
 - Exception-based hooking for minimal game modification
 - Logging system for troubleshooting
 
+[0.3.0]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.3.0
 [0.2.3]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.2.3
 [0.2.2]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.2.2
 [0.2.1]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.2.1
