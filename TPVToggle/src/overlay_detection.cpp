@@ -7,6 +7,9 @@
  * When the overlay closes, the system automatically restores the previous view state.
  */
 
+#define WINVER 0x0600
+#define _WIN32_WINNT 0x0600
+
 #include "overlay_detection.h"
 #include "aob_scanner.h"
 #include "logger.h"
