@@ -1,24 +1,21 @@
 # Makefile for building KCD2_TPVToggle.asi using g++ (MinGW)
 
-# Compiler
-CXX := g++
+# Compiler and linker
+CXX = g++
+WINDRES = windres
 
-# Output DLL
-TARGET := build/KCD2_TPVToggle.asi
+# Directories
+SRC_DIR = src
+EXTERNAL_DIR = external
+BUILD_DIR = build
+OBJ_DIR = $(BUILD_DIR)/obj
+MINHOOK_DIR = $(EXTERNAL_DIR)/minhook
+MINHOOK_OBJ_DIR = $(OBJ_DIR)/minhook
 
-# Source directory
-SRC_DIR := src
-
-# Source files (sorted and line-separated, with path)
-SRCS := \
-    $(SRC_DIR)/aob_scanner.cpp \
-    $(SRC_DIR)/config.cpp \
-    $(SRC_DIR)/dllmain.cpp \
-    $(SRC_DIR)/exception_handler.cpp \
-    $(SRC_DIR)/logger.cpp \
-    $(SRC_DIR)/overlay_detection.cpp \
-    $(SRC_DIR)/toggle_thread.cpp \
-    $(SRC_DIR)/version.cpp
+# Check if MinHook submodule is initialized
+ifeq ($(wildcard $(MINHOOK_DIR)/include/MinHook.h),)
+$(error MinHook submodule not initialized. Please run 'git submodule update --init --recursive')
+endif
 
 # Determine C++ standard support
 ifeq ($(shell $(CXX) -std=c++20 -E - 2>/dev/null >/dev/null || echo fail),fail)
@@ -28,27 +25,68 @@ else
 endif
 
 # Compiler flags
-CXXFLAGS := $(CXX_STANDARD) -m64 -O2 -Wall -Wextra \
-            -static -static-libgcc -static-libstdc++ \
-            -DWIN32_LEAN_AND_MEAN -DNOMINMAX \
-            -Isrc
+CXXFLAGS = -std=c++20 -m64 -O2 -Wall -Wextra -I$(MINHOOK_DIR)/include -I$(SRC_DIR)
 
 # Linker flags
-LDFLAGS := -shared -Wl,--add-stdcall-alias
+LDFLAGS = -static -static-libgcc -static-libstdc++ -shared
+LDLIBS = -ldinput8 -luser32 -lkernel32 -lpsapi -Wl,--add-stdcall-alias
 
-# Windows libraries
-LIBS := -ldinput8 -luser32 -lkernel32 -lpsapi
+# Source files - standard approach assuming exception_handler files are removed
+SRCS = $(wildcard $(SRC_DIR)/*.cpp)
+OBJS = $(patsubst $(SRC_DIR)/%.cpp,$(OBJ_DIR)/%.o,$(SRCS))
 
-# Build rule
-all: $(TARGET)
+# Add MinHook object files
+MINHOOK_SRCS = $(wildcard $(MINHOOK_DIR)/src/*.c) $(wildcard $(MINHOOK_DIR)/src/hde/*.c)
+MINHOOK_OBJS = $(patsubst $(MINHOOK_DIR)/%.c,$(MINHOOK_OBJ_DIR)/%.o,$(MINHOOK_SRCS))
 
-$(TARGET): $(SRCS)
+# Target
+TARGET = $(BUILD_DIR)/KCD2_TPVToggle.asi
+
+# Default target
+all: prepare $(TARGET)
+
+# Create directories
+prepare:
+	@mkdir -p $(OBJ_DIR)
+	@mkdir -p $(MINHOOK_OBJ_DIR)/src/hde
+
+# Link everything together
+$(TARGET): $(OBJS) $(MINHOOK_OBJS)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+	@echo Build complete: $@
+
+# Compile source files
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $(LDFLAGS) $^ -o $@ $(LIBS)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# Clean rule
+# Compile MinHook source files
+$(MINHOOK_OBJ_DIR)/%.o: $(MINHOOK_DIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# Clean target removes compiled objects and executables
 clean:
-	@echo Cleaning...
-	@rm -f $(TARGET)
+	rm -rf $(OBJ_DIR)/* $(TARGET)
 
-.PHONY: all clean
+# Clean everything including build directory
+distclean:
+	rm -rf $(BUILD_DIR)
+
+# Copy config files and documentation to build directory
+install: all
+	@cp -f $(SRC_DIR)/../KCD2_TPVToggle.ini $(BUILD_DIR)/
+	@cp -f $(SRC_DIR)/../README.txt $(BUILD_DIR)/
+	@cp -f $(SRC_DIR)/../THIRD-PARTY-LICENSES.txt $(BUILD_DIR)/
+	@echo Files copied to $(BUILD_DIR)
+
+# Help target to display available commands
+help:
+	@echo "Available commands:"
+	@echo "  make          - Build the mod"
+	@echo "  make clean    - Remove object files and executable"
+	@echo "  make distclean - Remove entire build directory"
+	@echo "  make install  - Build and copy configuration files to build directory"
+	@echo "  make help     - Display this help information"
+
+.PHONY: all prepare clean distclean install help

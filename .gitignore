@@ -1,6 +1,7 @@
 .idea/*
 .vscode
 
+TPVToggle/build/obj/*
 TPVToggle/build/KCD2_TPVToggle.asi
 
 LootBeacon/build/*
