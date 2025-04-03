@@ -9,6 +9,10 @@ INSTALLATION:
 CONFIGURATION:
 Edit KCD2_TPVToggle.ini to customize hotkeys and logging options.
 
+DEPENDENCIES:
+- Ultimate ASI Loader (dinput8.dll) - Included in package
+- MinHook API Hooking Library - Integrated into the mod
+
 TROUBLESHOOTING:
 - Set LogLevel = DEBUG in the INI file
 - Check KCD2_TPVToggle.log for details

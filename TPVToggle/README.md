@@ -178,11 +178,13 @@ See [CHANGELOG.md](CHANGELOG.md) for a detailed history of updates.
 
 ## Dependencies
 
-This mod requires the [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) by [**ThirteenAG**](https://github.com/ThirteenAG).
+This mod requires:
 
-It enables `.asi` plugin support and loads the mod automatically at game startup.
+1. [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) by [**ThirteenAG**](https://github.com/ThirteenAG) - Enables `.asi` plugin support and loads the mod automatically at game startup.
 
-> **Note:** `dinput8.dll` (ASI Loader) is bundled in the ZIP file. The mod will not work without it.
+2. [MinHook](https://github.com/TsudaKageyu/minhook) by [**Tsuda Kageyu**](https://github.com/TsudaKageyu) - A minimalistic API hooking library used for the camera toggle functionality.
+
+> **Note:** Both dependencies are included in the release package. The mod will not work without these components.
 
 ## Building from Source
 
@@ -190,12 +192,29 @@ It enables `.asi` plugin support and loads the mod automatically at game startup
 
 - [MinGW-w64](https://www.mingw-w64.org/) (GCC/G++)
 - Windows SDK headers (for WinAPI access)
+- Git (for cloning with submodules)
+
+### Setting Up Development Environment
+
+1. Clone the repository with submodules:
+   ```bash
+   git clone --recursive https://github.com/tkhquang/KDC2Tools.git
+   ```
+
+   If you've already cloned the repository without submodules:
+   ```bash
+   git submodule update --init --recursive
+   ```
+
+2. This will initialize the MinHook submodule required for building.
 
 ### Using Makefile
 
 If `make` is installed, simply run:
 
 ```bash
+cd TPVToggle
+make clean
 make
 ```
 
@@ -220,9 +239,14 @@ Ensure that `dinput8.dll` (ASI Loader) and the resulting `.asi` file are placed 
 
 ## Credits
 
-- [ThirteenAG](https://github.com/ThirteenAG) – for the Ultimate ASI Loader
+This project would not be possible without the following contributors and resources:
+
+- [ThirteenAG](https://github.com/ThirteenAG) - For the Ultimate ASI Loader that makes ASI plugins possible
+- [Tsuda Kageyu](https://github.com/TsudaKageyu) - For the MinHook library that provides the API hooking functionality
 - [Frans 'Otis_Inf' Bouma](https://opm.fransbouma.com/intro.htm) – for his camera tools and inspiration
-- Warhorse Studios – for Kingdom Come: Deliverance II
+- [Warhorse Studios](https://warhorsestudios.com/) - For creating Kingdom Come: Deliverance II
+
+Thank you to the modding community for their ongoing support and contributions to game enhancement tools.
 
 ## License
 
