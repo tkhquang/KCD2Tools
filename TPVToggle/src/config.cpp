@@ -1,14 +1,16 @@
 /**
  * @file config.cpp
- * @brief Implementation of configuration loading functionality
+ * @brief Implementation of configuration loading/validation from INI file.
  *
- * This file implements functions for loading and validating configuration
- * from an INI file, handling string conversions, and providing default values.
+ * Reads settings (hotkeys, log level, AOB pattern) from an INI file format.
+ * Includes validation, defaults, and INI path determination relative to DLL.
  */
 
 #include "config.h"
 #include "logger.h"
 #include "constants.h"
+#include "utils.h" // For trim() and formatting helpers
+
 #include <windows.h>
 #include <vector>
 #include <string>
@@ -16,303 +18,413 @@
 #include <fstream>
 #include <iomanip>
 #include <algorithm>
-
-// Helper: Convert std::wstring to std::string (ACP encoding)
-std::string WideToNarrow_std(const std::wstring &wstr)
-{
-    if (wstr.empty())
-        return "";
-    int size_needed = WideCharToMultiByte(CP_ACP, 0, wstr.c_str(), (int)wstr.size(), NULL, 0, NULL, NULL);
-    std::string result(size_needed, 0);
-    WideCharToMultiByte(CP_ACP, 0, wstr.c_str(), (int)wstr.size(), &result[0], size_needed, NULL, NULL);
-    return result;
-}
-
-// Helper: Convert std::string to std::wstring (ACP encoding)
-std::wstring NarrowToWide_std(const std::string &str)
-{
-    if (str.empty())
-        return L"";
-    int size_needed = MultiByteToWideChar(CP_ACP, 0, str.c_str(), (int)str.size(), NULL, 0);
-    std::wstring result(size_needed, 0);
-    MultiByteToWideChar(CP_ACP, 0, str.c_str(), (int)str.size(), &result[0], size_needed);
-    return result;
-}
-
-// Helper: Trim leading/trailing whitespace from string
-std::string trim(const std::string &s)
-{
-    size_t start = s.find_first_not_of(" \t\r\n");
-    size_t end = s.find_last_not_of(" \t\r\n");
-    return (start == std::string::npos) ? "" : s.substr(start, end - start + 1);
-}
+#include <filesystem> // Requires C++17
+#include <cctype>     // For isxdigit, toupper
 
 /**
- * Validates if an AOB pattern is correctly formatted.
- * Checks that each byte is a valid hexadecimal value and
- * the pattern is long enough to be useful.
+ * @brief Validates format of an AOB pattern string from INI.
+ * @details Checks tokens for '??','?' or 2-digit hex. Warns on short length.
+ * @param pattern_str The AOB string from config.
+ * @param logger Logger instance for reporting.
+ * @return bool True if format is valid, false otherwise.
  */
-bool validateAOBPattern(const std::string &pattern, Logger &logger)
+bool validateAOBPattern(const std::string &pattern_str, Logger &logger)
 {
-    std::istringstream iss(pattern);
-    std::string byte_str;
-    int count = 0;
-
-    while (iss >> byte_str)
+    std::string trimmed_pattern = trim(pattern_str);
+    if (trimmed_pattern.empty())
     {
-        count++;
-        // Check that each byte is a valid hex value
-        if (byte_str.length() != 2 ||
-            !std::isxdigit(byte_str[0]) ||
-            !std::isxdigit(byte_str[1]))
+        logger.log(LOG_ERROR, "ConfigValidate: AOB Pattern string is empty.");
+        return false;
+    }
+
+    std::istringstream iss(trimmed_pattern);
+    std::string token;
+    int element_count = 0;
+    bool is_valid = true; // Track validity throughout loop
+
+    while (iss >> token)
+    {
+        element_count++;
+        if (token == "??" || token == "?")
         {
-            logger.log(LOG_ERROR, "Config: Invalid AOB pattern format at position " + std::to_string(count));
-            return false;
+            continue; // Wildcard is valid
+        }
+        // Check for 2 valid hex characters
+        else if (token.length() == 2 &&
+                 std::isxdigit(static_cast<unsigned char>(token[0])) &&
+                 std::isxdigit(static_cast<unsigned char>(token[1])))
+        {
+            continue; // Valid hex byte format
+        }
+        // If neither, it's an error
+        else
+        {
+            std::ostringstream err_msg;
+            // Break up '??' sequence here as well
+            err_msg << "ConfigValidate: Invalid AOB pattern element #"
+                    << element_count << ": '" << token
+                    << "'. Expected '?"
+                       "?"
+                       "', '?', or 2 hex digits.";
+            logger.log(LOG_ERROR, err_msg.str());
+            is_valid = false; // Mark as invalid but continue check
         }
     }
 
-    if (count < 10)
-    { // Arbitrary minimum length for a useful pattern
-        logger.log(LOG_WARNING, "Config: AOB pattern is suspiciously short (" + std::to_string(count) + " bytes)");
+    if (!is_valid)
+    {
+        return false; // Return false if any element failed
     }
 
-    return count > 0;
+    // Check minimum length after ensuring format is correct
+    constexpr int MIN_AOB_LEN = 8;
+    if (element_count < MIN_AOB_LEN)
+    {
+        logger.log(LOG_WARNING, "ConfigValidate: AOB pattern has only " +
+                                    std::to_string(element_count) + " elements. Ensure "
+                                                                    "it is sufficiently unique.");
+    }
+
+    return element_count > 0; // Must have at least one element
 }
 
 /**
- * Gets the possible paths where the INI file might be located
- * Checks multiple locations to be more flexible
+ * @brief Determines the full path for the INI config file.
+ * @details Prefers same directory as the DLL. Falls back to filename only.
+ * Uses C++17 filesystem.
+ * @param ini_filename Base INI filename (e.g., "KCD2_TPVToggle.ini").
+ * @return std::string Full path to INI file.
  */
-std::vector<std::string> getIniFilePaths(const std::string &ini_filename)
+std::string getIniFilePath(const std::string &ini_filename)
 {
-    std::vector<std::string> paths;
-    char buffer[MAX_PATH];
-
-    // 1. First try the same directory as the DLL
-    HMODULE hModule = NULL;
-    GetModuleHandleEx(
-        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-        (LPCSTR)&loadConfig,
-        &hModule);
-
-    if (hModule != NULL)
+    Logger &logger = Logger::getInstance();
+    try
     {
-        DWORD length = GetModuleFileNameA(hModule, buffer, MAX_PATH);
-        if (length > 0 && length < MAX_PATH)
+        char dll_path_buf[MAX_PATH] = {0};
+        HMODULE h_self = NULL;
+
+        // Get handle to this DLL
+        if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                    GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                (LPCSTR)&getIniFilePath, &h_self))
         {
-            std::string dllPath(buffer);
-            size_t lastSlash = dllPath.find_last_of("\\/");
-            if (lastSlash != std::string::npos)
-            {
-                std::string dllDir = dllPath.substr(0, lastSlash + 1);
-                paths.push_back(dllDir + ini_filename);
-            }
+            throw std::runtime_error("GetModuleHandleExA failed: " +
+                                     std::to_string(GetLastError()));
         }
-    }
 
-    // 2. Try the current working directory
-    if (GetCurrentDirectoryA(MAX_PATH, buffer) > 0)
-    {
-        std::string currentDir(buffer);
-        if (!currentDir.empty() && currentDir.back() != '\\' && currentDir.back() != '/')
-            currentDir += '\\';
-        paths.push_back(currentDir + ini_filename);
-    }
-
-    // 3. Try game base directory (parent of the executable directory)
-    DWORD exeLength = GetModuleFileNameA(NULL, buffer, MAX_PATH);
-    if (exeLength > 0 && exeLength < MAX_PATH)
-    {
-        std::string exePath(buffer);
-        size_t lastSlash = exePath.find_last_of("\\/");
-        if (lastSlash != std::string::npos)
+        // Get full DLL path
+        DWORD len = GetModuleFileNameA(h_self, dll_path_buf, MAX_PATH);
+        if (len == 0 || GetLastError() == ERROR_INSUFFICIENT_BUFFER)
         {
-            std::string exeDir = exePath.substr(0, lastSlash + 1);
-            size_t parentSlash = exeDir.find_last_of("\\/", exeDir.length() - 2);
-            if (parentSlash != std::string::npos)
-            {
-                std::string parentDir = exeDir.substr(0, parentSlash + 1);
-                paths.push_back(parentDir + ini_filename);
-            }
+            throw std::runtime_error("GetModuleFileNameA failed: " +
+                                     std::to_string(GetLastError()));
         }
-    }
 
-    // 4. Also add the original path that was passed in
-    if (std::find(paths.begin(), paths.end(), ini_filename) == paths.end())
+        // Construct path: <DLL_Dir>/<ini_filename>
+        std::filesystem::path ini_path =
+            std::filesystem::path(dll_path_buf).parent_path() / ini_filename;
+        logger.log(LOG_DEBUG, "Config Path: Using INI path based on DLL: " +
+                                  ini_path.string());
+        return ini_path.string();
+    }
+    catch (const std::exception &e)
     {
-        paths.push_back(ini_filename);
+        logger.log(LOG_WARNING, "Config Path: Error determining path: " +
+                                    std::string(e.what()) + ". Using relative path: " +
+                                    ini_filename);
+    }
+    catch (...)
+    {
+        logger.log(LOG_WARNING, "Config Path: Unknown error determining path."
+                                " Using relative path: " +
+                                    ini_filename);
     }
 
-    return paths;
+    return ini_filename; // Fallback
 }
 
 /**
- * Parses a comma-separated list of hexadecimal key codes
- * Each key can be prefixed with "0x" or not
- * Returns an empty vector if the input is empty or contains only whitespace
+ * @brief Parses comma-separated string of hex VK codes (e.g., "0x72, 4D").
+ * @param value_str String value from INI.
+ * @param logger Logger reference.
+ * @param key_name Key name being parsed (for logs, e.g., "ToggleKey").
+ * @return std::vector<int> Vector of valid integer VK codes found.
  */
-std::vector<int> parseKeyList(const std::string &value, Logger &logger, const std::string &keyName)
+std::vector<int> parseKeyList(const std::string &value_str, Logger &logger,
+                              const std::string &key_name)
 {
     std::vector<int> keys;
+    std::string trimmed_val = trim(value_str);
 
-    // Handle empty input case gracefully
-    std::string trimmedValue = trim(value);
-    if (trimmedValue.empty())
+    if (trimmed_val.empty())
     {
-        logger.log(LOG_INFO, "Config: " + keyName + " is empty, no keys will be monitored");
-        return keys; // Return empty vector
+        logger.log(LOG_DEBUG, "Config ParseKeys: List '" + key_name +
+                                  "' is empty.");
+        return keys;
     }
 
-    std::istringstream iss(value);
+    std::istringstream iss(trimmed_val);
     std::string token;
-    logger.log(LOG_DEBUG, "Config: Parsing " + keyName + " = '" + value + "'");
+    logger.log(LOG_DEBUG, "Config ParseKeys: Parsing '" + key_name +
+                              "': '" + trimmed_val + "'");
+    int idx = 0;
 
     while (std::getline(iss, token, ','))
     {
-        token = trim(token);
-        if (token.empty())
+        idx++;
+        std::string trimmed_token = trim(token);
+        if (trimmed_token.empty())
+        {
+            logger.log(LOG_WARNING, "Config ParseKeys: Empty token in '" +
+                                        key_name + "' list at pos " + std::to_string(idx));
             continue;
+        }
 
-        // Remove "0x" prefix if present
-        if (token.rfind("0x", 0) == 0 || token.rfind("0X", 0) == 0)
-            token = token.substr(2);
+        // Handle optional "0x" or "0X" prefix
+        bool has_prefix = (trimmed_token.rfind("0x", 0) == 0 ||
+                           trimmed_token.rfind("0X", 0) == 0);
+        if (has_prefix)
+        {
+            if (trimmed_token.length() > 2)
+            {
+                trimmed_token = trimmed_token.substr(2); // Strip prefix
+            }
+            else
+            { // Only prefix found ("0x")
+                logger.log(LOG_WARNING, "Config ParseKeys: Invalid token "
+                                        "(only prefix) in '" +
+                                            key_name + "': '" + token + "'.");
+                continue;
+            }
+        }
+        if (trimmed_token.empty())
+        { // Empty after stripping?
+            logger.log(LOG_WARNING, "Config ParseKeys: Empty token after "
+                                    "processing in '" +
+                                        key_name + "': '" + token + "'.");
+            continue;
+        }
 
+        // Validate remaining: Must be only hex digits
+        if (trimmed_token.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos)
+        {
+            logger.log(LOG_WARNING, "Config ParseKeys: Invalid char in key "
+                                    "token for '" +
+                                        key_name + "': '" + token + "'.");
+            continue;
+        }
+
+        // Convert validated hex string to integer key code
         try
         {
-            int keycode = std::stoi(token, nullptr, 16);
-            keys.push_back(keycode);
-            logger.log(LOG_DEBUG, "Config: Added " + keyName + " code: 0x" + token);
+            unsigned long code_ul = std::stoul(trimmed_token, nullptr, 16);
+            // Optional check for typical VK range
+            if (code_ul == 0 || code_ul > 0xFF)
+            {
+                logger.log(LOG_WARNING, "Config ParseKeys: Key code " +
+                                            format_hex(static_cast<int>(code_ul)) + " for '" +
+                                            key_name + "' outside VK range (0x01-0xFF). Using anyway.");
+            }
+            keys.push_back(static_cast<int>(code_ul));
+            logger.log(LOG_DEBUG, "Config ParseKeys: Added key for '" +
+                                      key_name + "': " + format_vkcode(keys.back()));
+        }
+        catch (const std::exception &e)
+        { // Catch stoul errors
+            logger.log(LOG_WARNING, "Config ParseKeys: Error converting hex "
+                                    "token '" +
+                                        token + "' for '" + key_name + "': " + e.what());
         }
         catch (...)
         {
-            logger.log(LOG_WARNING, "Config: Invalid key code in " + keyName + ": '" + token + "'");
+            logger.log(LOG_WARNING, "Config ParseKeys: Unknown error parsing "
+                                    "hex token '" +
+                                        token + "' for '" + key_name + "'.");
         }
+    } // End token loop
+
+    if (keys.empty() && !trimmed_val.empty())
+    {
+        logger.log(LOG_WARNING, "Config ParseKeys: Parsed '" + key_name +
+                                    "' value '" + trimmed_val + "' but found 0 valid keys.");
     }
 
     return keys;
 }
 
-// Manual INI parser (no WinAPI calls)
-Config loadConfig(const std::string &ini_path_narrow)
+/**
+ * @brief Loads config settings from INI file specified by filename.
+ * @details Parses [Settings] section. Applies defaults and validates values.
+ * @param ini_filename Base name of the INI file.
+ * @return Config Structure containing loaded or default settings.
+ */
+Config loadConfig(const std::string &ini_filename)
 {
-    Config config;
+    Config config; // Initialize default struct
     Logger &logger = Logger::getInstance();
 
-    // Get possible INI file locations
-    std::vector<std::string> possiblePaths = getIniFilePaths(ini_path_narrow);
+    std::string ini_path = getIniFilePath(ini_filename);
+    logger.log(LOG_INFO, "Config Load: Attempting load from: " + ini_path);
 
-    // Try each possible path until we find a file that exists
-    std::ifstream file;
-    std::string usedPath;
+    // --- Set Defaults ---
+    config.log_level = Constants::DEFAULT_LOG_LEVEL;
+    config.aob_pattern = Constants::DEFAULT_AOB_PATTERN;
 
-    for (const auto &path : possiblePaths)
-    {
-        file.open(path);
-        if (file.is_open())
-        {
-            usedPath = path;
-            logger.log(LOG_INFO, "Config: Successfully loaded INI from " + usedPath);
-            break;
-        }
-    }
-
+    // --- Open & Parse ---
+    std::ifstream file(ini_path);
     if (!file.is_open())
     {
-        // Log all paths we tried but failed to open
-        std::string allPaths;
-        for (const auto &path : possiblePaths)
-        {
-            if (!allPaths.empty())
-                allPaths += ", ";
-            allPaths += path;
-        }
-
-        logger.log(LOG_ERROR, "Config: Could not open INI file. Tried paths: " + allPaths);
-        logger.log(LOG_WARNING, "Config: Using default configuration values");
-        return config;
+        logger.log(LOG_ERROR, "Config Load: Failed open INI: " + ini_path +
+                                  ". Using default settings.");
+        return config; // Return struct with defaults already set
     }
+    logger.log(LOG_INFO, "Config Load: Successfully opened INI file.");
 
     std::string line;
-    std::string currentSection;
+    std::string section;
+    int line_num = 0;
+
     while (std::getline(file, line))
     {
-        // logger.log(LOG_DEBUG, "INI Line: " + line);
-        std::string trimmed = trim(line);
+        line_num++;
+        std::string trimmed_line = trim(line);
 
-        if (trimmed.empty() || trimmed[0] == ';' || trimmed[0] == '#')
-            continue;
-
-        // Section header
-        if (trimmed.front() == '[' && trimmed.back() == ']')
+        if (trimmed_line.empty() || trimmed_line[0] == ';' || trimmed_line[0] == '#')
         {
-            currentSection = trimmed.substr(1, trimmed.size() - 2);
+            continue; // Skip blank lines/comments
+        }
+
+        // Check for section header: [SectionName]
+        if (trimmed_line.length() >= 2 && trimmed_line.front() == '[' &&
+            trimmed_line.back() == ']')
+        {
+            section = trim(trimmed_line.substr(1, trimmed_line.size() - 2));
+            logger.log(LOG_DEBUG, "Config Load: Entering section [" + section + "]");
             continue;
         }
 
-        size_t eqPos = trimmed.find('=');
-        if (eqPos == std::string::npos)
-            continue;
-
-        std::string key = trim(trimmed.substr(0, eqPos));
-        std::string value = trim(trimmed.substr(eqPos + 1));
-
-        if (currentSection == "Settings")
+        // Look for key=value pair within a section
+        size_t eq_pos = trimmed_line.find('=');
+        if (eq_pos != std::string::npos)
         {
-            if (key == "ToggleKey")
+            std::string key = trim(trimmed_line.substr(0, eq_pos));
+            std::string value = trim(trimmed_line.substr(eq_pos + 1));
+
+            // Process only keys within the [Settings] section
+            if (section == "Settings")
             {
-                config.toggle_keys = parseKeyList(value, logger, "ToggleKey");
+                logger.log(LOG_DEBUG, "Config Load: [Settings] -> '" + key +
+                                          "' = '" + value + "'");
+                if (key == "ToggleKey")
+                {
+                    config.toggle_keys = parseKeyList(value, logger, key);
+                }
+                else if (key == "FPVKey")
+                {
+                    config.fpv_keys = parseKeyList(value, logger, key);
+                }
+                else if (key == "TPVKey")
+                {
+                    config.tpv_keys = parseKeyList(value, logger, key);
+                }
+                else if (key == "LogLevel")
+                {
+                    config.log_level = trim(value); // Validate later
+                }
+                else if (key == "AOBPattern")
+                {
+                    config.aob_pattern = value; // Validate later
+                }
+                else
+                {
+                    logger.log(LOG_WARNING, "Config Load: Unknown key '" + key +
+                                                "' in [Settings] at line " +
+                                                std::to_string(line_num));
+                }
             }
-            else if (key == "FPVKey")
+            else if (!section.empty())
             {
-                config.fpv_keys = parseKeyList(value, logger, "FPVKey");
+                logger.log(LOG_DEBUG, "Config Load: Skipping key '" + key +
+                                          "' in other section [" + section + "]");
             }
-            else if (key == "TPVKey")
-            {
-                config.tpv_keys = parseKeyList(value, logger, "TPVKey");
+            else
+            { // Key outside any section
+                logger.log(LOG_WARNING, "Config Load: Key '" + key +
+                                            "' outside section at line " +
+                                            std::to_string(line_num));
             }
-            else if (key == "LogLevel")
-            {
-                config.log_level = value;
-                logger.log(LOG_DEBUG, "Config: Raw LogLevel = '" + value + "'");
-            }
-            else if (key == "AOBPattern")
-            {
-                config.aob_pattern = value;
-                logger.log(LOG_DEBUG, "Config: Raw AOBPattern = '" + value + "'");
-            }
+        }
+        else
+        { // Line is not empty/comment/section/key=value
+            logger.log(LOG_WARNING, "Config Load: Malformed line " +
+                                        std::to_string(line_num) + ": '" + trimmed_line + "'");
         }
     }
+    file.close();
 
-    // Default fallback log level if empty
-    if (config.log_level.empty())
+    // --- Final Validation ---
+    // Validate LogLevel
+    std::string upper_level = config.log_level;
+    std::transform(upper_level.begin(), upper_level.end(), upper_level.begin(),
+                   [](unsigned char c)
+                   { return std::toupper(c); });
+    if (upper_level != "DEBUG" && upper_level != "INFO" &&
+        upper_level != "WARNING" && upper_level != "ERROR")
     {
+        logger.log(LOG_WARNING, "Config Load: Invalid LogLevel '" +
+                                    config.log_level + "' in INI. Using default '" +
+                                    Constants::DEFAULT_LOG_LEVEL + "'.");
         config.log_level = Constants::DEFAULT_LOG_LEVEL;
-        logger.log(LOG_WARNING, "Config: LogLevel missing, defaulting to " + std::string(Constants::DEFAULT_LOG_LEVEL));
-    }
-
-    if (config.aob_pattern.empty())
-    {
-        logger.log(LOG_ERROR, "Config: AOBPattern is empty or missing");
     }
     else
     {
-        if (!validateAOBPattern(config.aob_pattern, logger))
+        config.log_level = upper_level; // Use validated uppercase version
+        logger.log(LOG_DEBUG, "Config Load: Effective LogLevel: " +
+                                  config.log_level);
+    }
+
+    // Validate AOB Pattern format
+    if (!validateAOBPattern(config.aob_pattern, logger))
+    {
+        logger.log(LOG_ERROR, "Config Load: AOBPattern in INI is invalid.");
+        logger.log(LOG_WARNING, "Config Load: Using default AOB pattern.");
+        config.aob_pattern = Constants::DEFAULT_AOB_PATTERN;
+    }
+    else
+    {
+        // Clean extra whitespace from validated pattern for consistency
+        std::string cleaned_pattern;
+        std::istringstream iss_p(config.aob_pattern);
+        std::string part;
+        bool first = true;
+        while (iss_p >> part)
         {
-            logger.log(LOG_ERROR, "Config: Using default AOB pattern as fallback");
-            config.aob_pattern = Constants::DEFAULT_AOB_PATTERN;
+            if (!first)
+                cleaned_pattern += " ";
+            cleaned_pattern += part;
+            first = false;
         }
+        config.aob_pattern = cleaned_pattern;
+        logger.log(LOG_DEBUG, "Config Load: Using AOB Pattern: " +
+                                  config.aob_pattern);
     }
 
-    if (config.toggle_keys.empty() && config.fpv_keys.empty() && config.tpv_keys.empty())
+    // Log key loading summary
+    bool no_keys = config.toggle_keys.empty() && config.fpv_keys.empty() &&
+                   config.tpv_keys.empty();
+    if (no_keys)
     {
-        logger.log(LOG_WARNING, "Config: All key lists (ToggleKey, FPVKey, TPVKey) are empty. No hotkeys will be active.");
-        logger.log(LOG_INFO, "Config: Mod will load and initialize, but no key monitoring will occur.");
+        logger.log(LOG_WARNING, "Config Load: No valid keys defined. "
+                                "Hotkeys will be inactive.");
     }
     else
     {
-        // Log the key counts
-        logger.log(LOG_INFO, "Config: Loaded " + std::to_string(config.toggle_keys.size()) + " toggle keys, " + std::to_string(config.fpv_keys.size()) + " FPV keys, and " + std::to_string(config.tpv_keys.size()) + " TPV keys");
+        logger.log(LOG_INFO, "Config Load: Loaded Hotkeys (Toggle:" +
+                                 std::to_string(config.toggle_keys.size()) + " FPV:" +
+                                 std::to_string(config.fpv_keys.size()) + " TPV:" +
+                                 std::to_string(config.tpv_keys.size()) + ")");
     }
 
+    logger.log(LOG_INFO, "Config Load: Finished processing configuration.");
     return config;
 }

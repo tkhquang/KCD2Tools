@@ -1,253 +1,173 @@
-# Kingdom Come: Deliverance II - Third Person View Toggle
+# Kingdom Come: Deliverance II - TPV Toggle & Camera Utils
 
 ## Overview
 
-**TPVToggle** is an ASI plugin for Kingdom Come: Deliverance II that enables players to toggle between first-person and third-person camera views using customizable hotkeys.
+**TPVToggle** is an ASI plugin for Kingdom Come: Deliverance II that enables players to:
+- Toggle between first-person and third-person views using hotkeys.
+- Adjust various third-person camera parameters (distance, height, pitch, etc.) using hotkeys.
 
 ## Features
 
-- Toggle between first-person and third-person views with a keypress (default: F3)
-- Dedicated keys for forcing first-person or third-person view
-- Fully customizable key bindings via INI configuration
-- Open-source with full transparency
+- Toggle between first-person (FPV) and third-person (TPV) views (default: F3)
+- Force FPV or TPV using dedicated keys
+- Adjust TPV Camera:
+    - Distance (Zoom In/Out)
+    - Height (Up/Down)
+    - Pitch (Tilt Up/Down)
+    * Side Offset (Shift Left/Right)
+    * FOV (Field of View) - *Experimental*
+    * Z/X Offset - *Experimental*
+- Reset camera offsets to defaults
+- Automatic switch to FPV when game menus/overlays are active (prevents UI bugs)
+- Fully customizable key bindings and adjustment steps via INI configuration
+- Open-source with MinGW compatibility
 
 ## Installation
 
-1. Download the latest release from [Nexus Mods](https://www.nexusmods.com/kingdomcomedeliverance2/mods/1550) or the [GitHub Releases page](https://github.com/tkhquang/KDC2Tools/releases)
-2. Extract all files to your game directory:
+1.  **Install ASI Loader:** If you haven't already, download and install [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases). Place its `dinput8.dll` (or `wininet.dll`) into your game's main executable directory:
+    ```
+    <KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/
+    ```
+2.  **Download TPVToggle:** Download the latest release from [Nexus Mods](https://www.nexusmods.com/kingdomcomedeliverance2/mods/1550) or the [GitHub Releases page](https://github.com/tkhquang/KDC2Tools/releases).
+3.  **Extract Files:** Extract all files from the TPVToggle release archive (`KCD2_TPVToggle.asi`, `KCD2_TPVToggle.ini`, `README.txt`, etc.) into the *same game directory* where you placed the ASI Loader:
+    ```
+    <KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/
+    ```
+4.  **Configure (Optional):** Edit `KCD2_TPVToggle.ini` to customize hotkeys and camera settings (see Configuration section).
+5.  **Launch Game:** Start the game. The ASI Loader will automatically load the mod. Use the configured hotkeys to control the camera.
 
-   ```
-   <KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/
-   ```
-
-3. Launch the game and use the configured hotkey (default: F3) to toggle the camera view.
-
-> **Note:** This mod was developed and tested on the Steam version of Kingdom Come: Deliverance II. Other versions (Epic, GOG, etc.) may not be compatible.
+> **Note:** Developed and tested on the Steam version. Other versions (Epic, GOG) may work but are not guaranteed.
 
 ## How It Works
 
-This mod enables third-person view using the following approach:
+1.  **Memory Scanning:** Finds memory patterns (AOBs) related to the view state flag and camera parameter modification code.
+2.  **Hooking:** Uses MinHook to place small assembly detours at specific game code locations.
+    *   One hook captures the `r9` register needed to access the FPV/TPV flag byte.
+    *   Another hook captures the `rbx` register used by the game to detect overlays (menus, map, dialogue, etc.).
+    *   A third hook captures the `rbx` register when the game writes camera parameters (like distance), providing a base pointer for modifications.
+3.  **Key Monitoring:** A background thread monitors keyboard input for configured hotkeys.
+4.  **Interaction:** Based on key presses and game state (overlay active/inactive), the thread:
+    *   Toggles the view state flag (byte at `[r9+0x38]`).
+    *   Forces FPV when an overlay is detected. Restores previous view (TPV/FPV) when overlay closes.
+    *   Adjusts camera parameters (floats at `[rbx+Offset]`, e.g., `[rbx+0x20]` for distance) based on camera hotkey presses.
 
-1. **Memory Scanning** – Scans the game's memory for a specific byte pattern that accesses the camera view state.
-2. **Exception Handling** – Uses a minimal INT3 hook to capture the `r9` register, which contains the pointer to the view state.
-3. **Key Monitoring** – Spawns a separate thread to listen for configured hotkeys.
-4. **View Toggling** – Safely toggles the camera view byte between `0` (first-person) and `1` (third-person).
+This approach uses minimal, targeted hooks and assembly detours that execute original game code bytes, significantly improving stability compared to older methods.
 
-This implementation minimizes code modification, improving stability and compatibility with game updates.
-
-## Configuration
-
-The mod is configured via the `KCD2_TPVToggle.ini` file:
+## Configuration (`KCD2_TPVToggle.ini`)
 
 ```ini
 [Settings]
-; Keys that toggle the third-person view (comma-separated, in hex)
-; F3 = 0x72, F4 = 0x73, E = 0x45, etc.
-; If set to empty (ToggleKey = ), no toggle keys will be monitored.
-ToggleKey = 0x72
+; --- Basic View Control ---
+; ToggleKey: Keys to toggle FPV/TPV. Comma-separated hex VK codes. 0x optional.
+ToggleKey = 0x72 ; F3
 
-; First-person view keys (comma-separated, in hex)
-; Always switch to first-person view when pressed.
-; Default keys are game menu keys that benefit from first-person view.
-; If set to empty (FPVKey = ), no first-person view keys will be monitored.
-; 0x4D,0x50,0x49,0x4A,0x4E = M, P, I, J, N
-FPVKey = 0x4D,0x50,0x49,0x4A,0x4E
+; FPVKey: Keys to FORCE first-person view. Useful for menu keys. Comma-separated hex.
+; Default game menus: M=4D, P=50, I=49, J=4A, N=4E. Update if you rebind!
+FPVKey = 0x4D, 0x50, 0x49, 0x4A, 0x4E
 
-; Third-person view keys (comma-separated, in hex)
-; Always switch to third-person view when pressed.
-; If set to empty (TPVKey = ), no third-person view keys will be monitored.
+; TPVKey: Keys to FORCE third-person view. Comma-separated hex.
 TPVKey =
 
-; Logging level: DEBUG, INFO, WARNING, ERROR
-LogLevel = INFO
+; --- Logging & Advanced ---
+LogLevel = INFO ; DEBUG, INFO, WARNING, ERROR
+AOBPattern = 48 8B 8F 58 ... ; Pattern for TPV flag code. Don't change unless needed.
 
-; AOB Pattern (advanced users only - update if mod stops working after game patches)
-AOBPattern = 48 8B 8F 58 0A 00 00
+; =============================================================
+;                   Camera Adjustment Hotkeys
+; =============================================================
+; Keys to adjust camera settings IN THIRD-PERSON VIEW ONLY. Ignored in FPV or menus.
+[CameraHotkeys]
+; --- Camera Distance (Zoom) --- (Default: -2.5) +Val = Farther
+IncreaseDistance = ADD     ; Numpad +
+DecreaseDistance = SUBTRACT ; Numpad -
+; --- Camera Height --- (Default: -0.1) -Val = Higher
+IncreaseHeight = NEXT   ; Page Down (Increases offset value -> lowers camera)
+DecreaseHeight = PRIOR  ; Page Up   (Decreases offset value -> raises camera)
+; --- Camera Pitch (Vertical Angle) --- (Default: ~0.95) +Val = Tilt Up
+IncreasePitch = NUMPAD8
+DecreasePitch = NUMPAD2
+; --- Camera Side Offset (Horizontal Position) --- (Default: 0.0) +Val = Right, -Val = Left
+IncreaseSideOffset = NUMPAD6
+DecreaseSideOffset = NUMPAD4
+; --- Camera Forward/Backward/Height? (Z/X Combined Offset) --- (Default: 0.0) *Experimental*
+IncreaseZXOffset =
+DecreaseZXOffset =
+; --- Camera Field of View (FOV) --- (Default: ~60?) *Experimental*
+IncreaseFOV =
+DecreaseFOV =
+; --- Reset ---
+ResetOffsets = END ; Key to reset ALL above camera offsets to game defaults.
+
+; =============================================================
+;                    Camera Adjustment Settings
+; =============================================================
+; How much each parameter changes per key press. MUST be positive numbers.
+[CameraSettings]
+DistanceStep = 0.25
+HeightStep = 0.05
+PitchStep = 0.05
+SideOffsetStep = 0.05
+ZXOffsetStep = 0.05
+FovStep = 1.0
 ```
 
-The mod looks for the INI file in the following locations:
+### Key Binding Notes
 
-- The game's executable directory (`Win64MasterMasterSteamPGO`)
-- The base game directory
-- The current working directory
+-   **Empty Lists:** Leave a key setting empty (e.g., `ToggleKey =`) to disable those specific keys. If all `ToggleKey`, `FPVKey`, `TPVKey`, and all `[CameraHotkeys]` are empty, hotkey monitoring is fully disabled.
+-   **Virtual Key Codes:** Use hexadecimal VK codes. Common codes:
+    -   F1-F12: `0x70`-`0x7B`
+    -   0-9: `0x30`-`0x39`
+    -   A-Z: `0x41`-`0x5A`
+    -   Numpad 0-9: `0x60`-`0x69`
+    -   Numpad /*-+.: `0x6A`-`0x6E`
+    -   Arrows: Left=`0x25`, Up=`0x26`, Right=`0x27`, Down=`0x28`
+    -   PageUp=`0x21` (PRIOR), PageDown=`0x22` (NEXT), End=`0x23`, Home=`0x24`
+    -   Shift=`0x10`, Ctrl=`0x11`, Alt=`0x12`
+    -   See full list: [Microsoft Virtual Key Codes](https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes)
 
 ## Using with Controllers
 
-This mod natively listens for keyboard input. To use it with a controller:
-
-### Controller Support Options
-
-- **[JoyToKey](https://joytokey.net/en/):** Map controller buttons to keys configured in the INI file.
-- **[Steam Input](https://store.steampowered.com/controller):** Use Steam's controller configuration to map controller buttons to keys.
-
-Both allow you to bind any controller button to F3 (or whichever key you've chosen to toggle the view).
-
-## View Control Keys
-
-The mod supports three types of key bindings:
-
-1. **Toggle Keys (`ToggleKey`)** – Switch between first-person and third-person views when pressed
-2. **First-Person Keys (`FPVKey`)** – Forces first-person view
-3. **Third-Person Keys (`TPVKey`)** – Forces third-person view
-
-### Default FPV Keys Explained
-
-The default keys (M, P, I, J, N) correspond to important in-game UI interactions. These automatically switch the view to first-person to avoid UI bugs or broken menu displays in third-person view.
-
-> If you've remapped these keys in your game settings, be sure to update the `FPVKey` list accordingly.
-
-### Empty Key Settings
-
-You can leave any key list empty to disable its feature:
-
-- `ToggleKey =` → disables toggle behavior
-- `FPVKey =` → disables forced first-person mode
-- `TPVKey =` → disables forced third-person mode
-
-If all are empty, the mod will initialize but not monitor any keys (noop mode).
-
-### Key Codes
-
-Some common virtual key codes:
-
-- F1–F12: `0x70`–`0x7B`
-- 1–9: `0x31`–`0x39`
-- A–Z: `0x41`–`0x5A`
-
-See the full list: [Microsoft Virtual Key Codes](https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes)
+This mod listens for keyboard input. Use tools like **JoyToKey**, **reWASD**, or **Steam Input** to map controller buttons to the keyboard keys configured in the INI file.
 
 ## Troubleshooting
 
-If you encounter issues:
+1.  **Mod Not Loading?** Ensure `dinput8.dll` (or other ASI loader) is installed correctly in `Bin/Win64MasterMasterSteamPGO/` along with `KCD2_TPVToggle.asi` and `.ini`. Check the ASI loader's log file if it creates one.
+2.  **Keys Not Working?**
+    *   Verify keys/codes in the INI file (`[Settings]`, `[CameraHotkeys]`). Check `KCD2_TPVToggle.log` (set `LogLevel = DEBUG` in INI first).
+    *   Remember camera adjustment keys only work in TPV and when *not* in a menu/overlay.
+    *   If using controller mapping software, ensure it's running and correctly mapping buttons to keys.
+3.  **Toggle Fails After Game Update?** The `AOBPattern` in the INI likely needs updating. Check mod pages/forums for updated patterns or learn to find them using Cheat Engine. The Overlay and Camera parameter patterns are currently hardcoded but might also need updates in the future (requiring a mod update).
+4.  **Crashes?** Check `KCD2_TPVToggle.log` for ERROR messages. Ensure you have the latest version of the mod. Report issues on GitHub with log file contents.
 
-1. Set `LogLevel = DEBUG` in the INI file
-2. Check the log file:
-   `<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/KCD2_TPVToggle.log`
-3. After a game update, the mod may stop working. This usually means the AOB pattern no longer matches the updated binary.
-   You will need to find the new `AOBPattern` for the latest version of the game.
-   > If you know what you're doing, you can try finding the AOB manually using Cheat Engine or a disassembler.
-
-Common issues:
-
-- **Mod doesn't load** – Ensure the files are in the correct location
-- **Toggle doesn't work** – The game update may have changed the memory layout, requiring an updated AOB pattern in the INI file
-- **Game crashes** – Check the log file for errors; try updating to the latest version
-- **Controller doesn’t work** – Ensure JoyToKey or Steam Input is set up properly
-
-> **Still stuck?** [Open a GitHub issue](https://github.com/tkhquang/KDC2Tools/issues/new?assignees=&labels=bug&template=bug_report.yaml) and include your INI config, log output, and game version.
+> **Still stuck?** [Open a GitHub issue](https://github.com/tkhquang/KDC2Tools/issues/new?assignees=&labels=bug&template=bug_report.yaml) including INI, log output, game version, and detailed steps.
 
 ## Known Issues and Limitations
 
-### Camera and View Limitations
-
-- Camera may clip through objects in third-person view (no collision detection)
-- Some game events or menus may temporarily be buggy in third-person view (menus, map, dialog...)
-  - **Workaround**: Use the default FPV keys (M, P, I, J, N) to automatically switch to first-person view when using these features
-
-### Rare Camera Behavior Issue in Specific Scene
-
-#### Cinematic Sequence Camera Limitations
-
-**Specific Scenario**: During the scene where Hans carries Henry (likely a story-critical moment from the game's opening), switching between first-person and third-person views can cause unexpected camera and character model behavior.
-
-**Detailed Behavior**:
-
-- The scene uses a forced camera perspective with specific positioning
-- Switching to third-person view may rotate Henry's body incorrectly
-- Returning to first-person view might not restore the original camera positioning
-
-**Impact**: This issue appears to be unique to this specific scripted sequence where the character positioning is tightly controlled by the game.
-
-**Recommended Approach**:
-
-- Keep the game in first-person view during this specific scene
-- Avoid toggling camera views until the scene completes
-- If you accidentally switch views, you may need to reload the previous save
-- **Temporary Solution**: Simply rename `KCD2_TPVToggle.asi` to `KCD2_TPVToggle.bak` or remove it from your game directory
-
-**Note**: This behavior seems limited to this particular story moment and does not represent a widespread mod issue.
-
-### General Limitations
-
-- The third-person camera uses the game's experimental implementation and may not be perfect
-- Currently only tested with the Steam version of the game
+-   **Clipping:** Standard TPV clipping issues (camera going through walls) may occur. The mod doesn't add custom collision.
+-   **Menus/Overlays:** Opening menus (Inv, Map, Dialogues etc.) automatically forces FPV to prevent UI bugs. Your previous view state (TPV/FPV) is restored when the menu closes. ***Note:*** Camera parameter *adjustments* might be reset or behave unexpectedly when returning from menus; manual readjustment might be needed. The previous automatic distance restoration was removed due to instability.
+-   **Scripted Scenes:** Certain highly scripted scenes (like the opening) may have camera issues if you toggle views. It's best to stay in the intended view (usually FPV) during such sequences.
+-   **Experimental Parameters:** FOV and Z/X offset adjustments are less tested; their exact effects and limits might vary.
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for a detailed history of updates.
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## Dependencies
 
-This mod requires:
-
-1. [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) by [**ThirteenAG**](https://github.com/ThirteenAG) - Enables `.asi` plugin support and loads the mod automatically at game startup.
-
-2. [MinHook](https://github.com/TsudaKageyu/minhook) by [**Tsuda Kageyu**](https://github.com/TsudaKageyu) - A minimalistic API hooking library used for the camera toggle functionality.
-
-> **Note:** Both dependencies are included in the release package. The mod will not work without these components.
+-   [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) by ThirteenAG (included/required).
+-   [MinHook](https://github.com/TsudaKageyu/minhook) by Tsuda Kageyu (included, built from source).
 
 ## Building from Source
 
-### Prerequisites
-
-- [MinGW-w64](https://www.mingw-w64.org/) (GCC/G++)
-- Windows SDK headers (for WinAPI access)
-- Git (for cloning with submodules)
-
-### Setting Up Development Environment
-
-1. Clone the repository with submodules:
-   ```bash
-   git clone --recursive https://github.com/tkhquang/KDC2Tools.git
-   ```
-
-   If you've already cloned the repository without submodules:
-   ```bash
-   git submodule update --init --recursive
-   ```
-
-2. This will initialize the MinHook submodule required for building.
-
-### Using Makefile
-
-If `make` is installed, simply run:
-
-```bash
-cd TPVToggle
-make clean
-make
-```
-
-This will output:
-
-```
-build/KCD2_TPVToggle.asi
-```
-
-### Manual Compilation (without Makefile)
-
-```bash
-g++ -std=c++20 -m64 -O2 -Wall -Wextra \
-    -static -static-libgcc -static-libstdc++ \
-    -shared src/*.cpp \
-    -o build/KCD2_TPVToggle.asi \
-    -ldinput8 -luser32 -lkernel32 -lpsapi \
-    -Wl,--add-stdcall-alias
-```
-
-Ensure that `dinput8.dll` (ASI Loader) and the resulting `.asi` file are placed in the correct game folder.
+(Build instructions remain largely the same as provided previously - using MinGW and make)
 
 ## Credits
 
-This project would not be possible without the following contributors and resources:
-
-- [ThirteenAG](https://github.com/ThirteenAG) - For the Ultimate ASI Loader that makes ASI plugins possible
-- [Tsuda Kageyu](https://github.com/TsudaKageyu) - For the MinHook library that provides the API hooking functionality
-- [Frans 'Otis_Inf' Bouma](https://opm.fransbouma.com/intro.htm) – for his camera tools and inspiration
-- [Warhorse Studios](https://warhorsestudios.com/) - For creating Kingdom Come: Deliverance II
-
-Thank you to the modding community for their ongoing support and contributions to game enhancement tools.
+-   [ThirteenAG](https://github.com/ThirteenAG) (ASI Loader)
+-   [Tsuda Kageyu](https://github.com/TsudaKageyu) (MinHook)
+-   [Frans 'Otis_Inf' Bouma](https://opm.fransbouma.com/intro.htm) (Inspiration)
+-   [Warhorse Studios](https://warhorsestudios.com/) (The Game!)
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE).

@@ -1,49 +1,58 @@
+/**
+ * @file toggle_thread.h
+ * @brief Header for background key monitoring and game interaction thread.
+ *
+ * Declares data structures, thread entry function, view state manipulation
+ * functions, and overlay state tracking boolean.
+ */
 #ifndef TOGGLE_THREAD_H
 #define TOGGLE_THREAD_H
 
 #include <windows.h>
 #include <vector>
+#include <string>
+#include <cstdint> // For uintptr_t
+
+// --- Global Pointers/Flags (Managed in dllmain.cpp) ---
+extern "C"
+{
+    // Pointers to allocated storage for captured register values
+    extern uintptr_t *g_r9_for_tpv_flag;
+    extern uintptr_t *g_rbx_for_camera_distance;
+
+    // Trampoline/Continuation Function Pointers
+    extern void *fpTPV_OriginalCode;
+    extern void *fpMenuOpen_OriginalCode;
+    extern void *fpMenuClose_OriginalCode;
+    extern void *fpCameraDistance_OriginalCode;
+
+    // Global overlay active flag - directly accessible to assembly
+    extern bool g_isOverlayActive;
+    // Pointer to the flag (for compatibility with old code)
+    extern bool *g_pIsOverlayActive;
+}
+
+// --- End Extern "C" ---
 
 /**
- * @brief Data structure passed to the toggle thread
- *
- * Contains the lists of virtual key codes to monitor for different view modes
+ * @struct ToggleData
+ * @brief Structure holding configured key codes passed to the toggle thread.
  */
 struct ToggleData
 {
-    std::vector<int> toggle_keys; // Keys that toggle between FPV and TPV
-    std::vector<int> fpv_keys;    // Keys that force first-person view
-    std::vector<int> tpv_keys;    // Keys that force third-person view
+    std::vector<int> toggle_keys;
+    std::vector<int> fpv_keys;
+    std::vector<int> tpv_keys;
 };
 
-/**
- * @brief Thread function that monitors keys and changes the view based on key type
- *
- * @param param Pointer to a ToggleData structure
- * @return DWORD Thread exit code
- */
-DWORD WINAPI ToggleThread(LPVOID param);
+// --- Thread Entry Point ---
+DWORD WINAPI MonitorThread(LPVOID param);
 
-/**
- * @brief Safely toggles the view state with error handling
- *
- * @return bool True if toggle was successful, false otherwise
- */
-bool safeToggleViewState();
-
-/**
- * @brief Sets the view state to first-person (0)
- *
- * @return bool True if change was successful, false otherwise
- */
-bool setFirstPersonView();
-
-/**
- * @brief Sets the view state to third-person (1)
- *
- * @return bool True if change was successful, false otherwise
- */
-bool setThirdPersonView();
+// --- Game Interaction Functions (Prototypes) ---
+bool safeToggleViewState(int *key_pressed_vk = nullptr);
+bool setFirstPersonView(int *key_pressed_vk = nullptr);
+bool setThirdPersonView(int *key_pressed_vk = nullptr);
+int getViewState();
 
 /**
  * @brief Gets the current view state (0 for FPV, 1 for TPV)
