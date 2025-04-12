@@ -158,4 +158,4 @@ If you encounter issues:
 [/list]
 
 [size=5]Source Code[/size]
-This mod is open source. The full source code is available on [url=https://github.com/tkhquang/KDC2Tools]GitHub[/url].
+All my Kingdom Come: Deliverance II mods and tools can be found in this [url=https://github.com/tkhquang/KDC2Tools]GitHub repository[/url]. Feel free to contribute or suggest improvements!

@@ -91,3 +91,6 @@ I don't have experience with creating particle effects, so the current highlight
 [*] [url=https://next.nexusmods.com/profile/yobson?gameId=7286]yobson[/url] - For [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/459]VS Code Lua Runner[/url], which helped testing lua scripts faster
 [*] Warhorse Studios for creating Kingdom Come: Deliverance II
 [/list]
+
+[size=5]Source Code[/size]
+All my Kingdom Come: Deliverance II mods and tools can be found in this [url=https://github.com/tkhquang/KDC2Tools]GitHub repository[/url]. Feel free to contribute or suggest improvements!
