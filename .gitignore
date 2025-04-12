@@ -1,5 +1,9 @@
 .idea/*
-!/**/.gitkeep
 .vscode
 
 TPVToggle/build/KCD2_TPVToggle.asi
+
+LootBeacon/build/*
+LootBeacon/src/**/*.pak
+
+!/**/.gitkeep

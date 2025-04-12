@@ -1,0 +1,22 @@
+<Table>
+<Row>
+<Cell>ui_loot_beacon_prefix</Cell>
+<Cell>[Loot Beacon]</Cell>
+<Cell>[Loot Beacon]</Cell>
+</Row>
+<Row>
+<Cell>ui_loot_beacon_found_1</Cell>
+<Cell>Highlightied</Cell>
+<Cell>Highlightied</Cell>
+</Row>
+<Row>
+<Cell>ui_loot_beacon_found_2</Cell>
+<Cell>Item(s).</Cell>
+<Cell>Item(s).</Cell>
+</Row>
+<Row>
+<Cell>ui_loot_beacon_not_found</Cell>
+<Cell>No Pickable Items Nearby.</Cell>
+<Cell>No Pickable Items Nearby.</Cell>
+</Row>
+</Table>
