@@ -11,7 +11,7 @@
 
 ## Installation
 
-1. **Download the mod** from [Nexus Mods](https://www.nexusmods.com/kingdomcomedeliverance2/mods/xxxx)
+1. **Download the mod** from [Nexus Mods](https://www.nexusmods.com/kingdomcomedeliverance2/mods/1722)
 2. **Extract the contents** to your Kingdom Come: Deliverance 2 Mods folder:
    ```
    <KC:D 2 installation folder>/Mods/
