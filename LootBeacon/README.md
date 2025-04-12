@@ -74,3 +74,7 @@ I don't have experience with creating particle effects, so the current highlight
 - **[7H3LaughingMan](https://next.nexusmods.com/profile/7H3LaughingMan?gameId=7286)** - For [KCD2 PAK](https://www.nexusmods.com/kingdomcomedeliverance2/mods/1482), which helps create pak files with ease
 - **[yobson](https://next.nexusmods.com/profile/yobson?gameId=7286)** - For [VS Code Lua Runner](https://www.nexusmods.com/kingdomcomedeliverance2/mods/459), which helped testing lua scripts faster
 - **Warhorse Studios** - For creating Kingdom Come: Deliverance II
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
