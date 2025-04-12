@@ -10,7 +10,7 @@ LootBeacon.modname = "Loot Beacon"
 LootBeacon.version = "1.1.0"
 
 -- Configuration values with g_ prefix as per KCD coding standards
-LootBeacon.g_detectionRadius = 30.0
+LootBeacon.g_detectionRadius = 15.0
 LootBeacon.g_itemParticleEffectPath = "loot_beacon.pillar_red"
 LootBeacon.g_humanCorpseParticleEffectPath = "loot_beacon.pillar_green"
 LootBeacon.g_animalCorpseParticleEffectPath = "loot_beacon.pillar_blue"
