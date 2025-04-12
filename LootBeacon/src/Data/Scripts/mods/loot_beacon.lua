@@ -425,6 +425,7 @@ function LootBeacon:loadModConfig()
 
     -- If config wasn't properly loaded, set defaults
     if not self.g_mod_config_loaded then
+        System.ExecuteCommand("bind f4 loot_beacon_activate")
         self:logWarning("Config file not loaded or incomplete, using default settings")
         -- Default values are already set in variable initialization
     end
