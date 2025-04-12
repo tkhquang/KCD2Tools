@@ -1,7 +1,7 @@
 [size=6]Loot Beacon - Never Miss a Drop (Highlight Pickable Items)[/size]
 
 [size=5]Description[/size]
-This immersive mod helps you spot dropped items in the world of Kingdom Come: Deliverance II. Activate the "Loot Beacon" with a simple keypress and watch as nearby pickable items are highlighted with a colorful particle effect, ensuring you never miss valuable loot on the battlefield or in the dark.
+This mod helps you spot dropped items in the world of Kingdom Come: Deliverance II. Activate the "Loot Beacon" with a simple keypress and watch as nearby pickable items are highlighted with a colorful particle effect, ensuring you never miss valuable loot on the battlefield or in the dark.
 
 [size=5]Features[/size]
 [list]
@@ -28,6 +28,8 @@ KingdomComeDeliverance2/
 [/code]
 [*] Launch the game and press F4 to activate the highlight effect
 [/list]
+
+[b]This mod is also available on [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3462589332]Steam Workshop[/url].[/b]
 
 [b]Uninstall with Vortex Mod Manager (VMM)[/b]
 [list=1]

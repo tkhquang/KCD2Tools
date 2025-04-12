@@ -1,0 +1,103 @@
+[h1]Loot Beacon - Never Miss a Drop (Highlight Pickable Items)[/h1]
+
+[h2]⚠️ IMPORTANT NOTE ⚠️[/h2]
+[b]The Steam Workshop version (this one) cannot be customized. If you want to change settings like detection radius, beacon color, or highlight duration, please download the Nexus version instead:
+[url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1722]https://www.nexusmods.com/kingdomcomedeliverance2/mods/1722[/url][/b]
+
+[h2]Description[/h2]
+This mod helps you spot dropped items in the world of Kingdom Come: Deliverance II. Activate the "Loot Beacon" with a simple keypress (F4) and watch as nearby pickable items are highlighted with a colorful particle effect, ensuring you never miss valuable loot on the battlefield or in the dark.
+
+[h2]Features[/h2]
+[list]
+[*]Instantly highlights all nearby pickable items with a glowing beacon (F4 key)
+[*]Detection radius: 15 meters [b](fixed in Steam version)[/b]
+[*]Highlight duration: 5 seconds [b](fixed in Steam version)[/b]
+[*]Beacon color: Red [b](fixed in Steam version)[/b]
+[*]Fully customizable in the Nexus version only: [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1722]Nexus Mod Page[/url]
+[/list]
+
+[h2]Installation (Nexus Version Only)[/h2]
+[olist]
+[*]Download the file from Nexus: [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1722]https://www.nexusmods.com/kingdomcomedeliverance2/mods/1722[/url]
+[*]Navigate to your Kingdom Come: Deliverance 2 game folder in the Steam folder. The default is: [code]C:\Program Files (x86)\Steam\steamapps\common\KingdomComeDeliverance2\[/code]
+[*]Go to the "Mods" folder, if it doesn't exist create it.
+[*]Open the zip and extract the contents to the folder
+[*]Launch the game and press F4 to activate the highlight effect
+[/olist]
+
+[h2]Uninstall with Vortex Mod Manager (VMM) - Nexus Version[/h2]
+[olist]
+[*]Start Vortex Mod Manager and choose MODS in the menu on the left.
+[*]Right click the mod in the list and choose remove/delete
+[*]When prompted choose whether you want to delete the zip file or not.
+[/olist]
+
+[h2]Manual uninstall - Nexus Version[/h2]
+[olist]
+[*]Open Windows Explorer and navigate to your [code]KingdomComeDeliverance2\Mods[/code] folder
+[*]Delete the Folder LootBeacon
+[/olist]
+
+[h2]Configuration (Nexus Version Only)[/h2]
+[b]This customization is only available in the Nexus version - the Steam Workshop version uses fixed default settings.[/b]
+
+You can customize the mod by editing the mod.cfg file inside the LootBeacon folder.
+
+Key Configuration Commands:
+[code]
+bind f4 loot_beacon_activate    # Change f4 to any key you prefer
+[/code]
+
+Mod Settings:
+[code]
+loot_beacon_set_detection_radius 15.0    # Detection radius in meters
+loot_beacon_set_highlight_duration 5.0   # Duration of highlight effect in seconds
+loot_beacon_set_show_message 1           # Show on-screen messages (1=on, 0=off)
+
+# Particle effect colors (choose one)
+loot_beacon_set_particle_effect_path "loot_beacon.pillar_red"    # Red beacon
+loot_beacon_set_particle_effect_path "loot_beacon.pillar_green"  # Green beacon
+loot_beacon_set_particle_effect_path "loot_beacon.pillar_blue"   # Blue beacon
+
+# Log level (1=Debug, 2=Info, 3=Warning, 4=Error)
+loot_beacon_set_log_level 2
+[/code]
+
+You can also use these commands directly in the console (~ key) for temporary changes.
+
+[h2]Usage[/h2]
+[list]
+[*]Press F4 to highlight all pickable items within the detection radius
+[*]The highlight effect will last for 5 seconds
+[*]Pressing F4 again while the effect is active will restart the highlight duration
+[*]A notification will show how many items were found
+[/list]
+
+[h2]Steam Workshop vs. Nexus Version[/h2]
+[list]
+[*][b]Steam Workshop version (this one):[/b] Easy one-click installation, but uses fixed default settings
+[*][b]Nexus version ([url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1722]link here[/url]):[/b] Requires manual installation, but allows full customization of all mod settings
+[/list]
+
+[h2]Known Issues and Limitations[/h2]
+[list]
+[*]The "PickableItem" class doesn't contain all pickable items in the game (for example, torches may not be highlighted)
+[*]Some items might be highlighted but still can't be picked up, and some pickable items might not be highlighted
+[*]This is an early version that needs further testing - please report any issues you encounter
+[/list]
+
+[h2]Compatibility[/h2]
+This mod should be compatible with most other KCD II mods as it doesn't modify any core game systems, only adds visual effects to existing entities.
+
+[h2]Note[/h2]
+I don't have experience with creating particle effects, so the current highlight beacons are adapted from existing game resources with some tweaks. If anyone has better particle effect ideas or expertise with creating custom particles for KCD II, please contact me - I'd be happy to collaborate on improving the visual effects in this mod!
+
+[h2]Credits[/h2]
+[list]
+[*][url=https://next.nexusmods.com/profile/7H3LaughingMan?gameId=7286]7H3LaughingMan[/url] - For [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1482]KCD2 PAK[/url], which helps me create pak files with ease
+[*][url=https://next.nexusmods.com/profile/yobson?gameId=7286]yobson[/url] - For [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/459]VS Code Lua Runner[/url], which helped testing lua scripts faster
+[*]Warhorse Studios for creating Kingdom Come: Deliverance II
+[/list]
+
+[h2]Source Code[/h2]
+All my Kingdom Come: Deliverance II mods and tools can be found in this [url=https://github.com/tkhquang/KDC2Tools]GitHub repository[/url]. Feel free to contribute or suggest improvements!
