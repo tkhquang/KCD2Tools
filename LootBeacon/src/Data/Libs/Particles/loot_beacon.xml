@@ -22,7 +22,7 @@
             RandomRotationRate="y=360"
             PhysicsType="SimpleCollision"
             CollideTerrain="true"
-            CollideStaticObjects="true"
+            CollideStaticObjects="false"
             CollideDynamicObjects="false"
         />
     </Particles>
@@ -48,7 +48,7 @@
             RandomRotationRate="y=360"
             PhysicsType="SimpleCollision"
             CollideTerrain="true"
-            CollideStaticObjects="true"
+            CollideStaticObjects="false"
             CollideDynamicObjects="false"
         />
     </Particles>
@@ -74,7 +74,7 @@
             RandomRotationRate="y=360"
             PhysicsType="SimpleCollision"
             CollideTerrain="true"
-            CollideStaticObjects="true"
+            CollideStaticObjects="false"
             CollideDynamicObjects="false"
         />
     </Particles>

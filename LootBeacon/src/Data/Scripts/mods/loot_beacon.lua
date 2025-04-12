@@ -1,20 +1,28 @@
 --[[
-Loot Beacon - Never Miss a Drop (Highlight Pickable Items)
-Version: 1.0.0
+Loot Beacon - Never Miss a Drop or Corpse
+Version: 1.1.0
 Author: tkhquang
 ]]
 
 -- Define the LootBeacon table with mod properties
 LootBeacon = {}
 LootBeacon.modname = "Loot Beacon"
-LootBeacon.version = "1.0.0"
+LootBeacon.version = "1.1.0"
 
 -- Configuration values with g_ prefix as per KCD coding standards
-LootBeacon.g_detectionRadius = 15.0
-LootBeacon.g_particleEffectPath = "loot_beacon.pillar_red"
+LootBeacon.g_detectionRadius = 30.0
+LootBeacon.g_itemParticleEffectPath = "loot_beacon.pillar_red"
+LootBeacon.g_humanCorpseParticleEffectPath = "loot_beacon.pillar_green"
+LootBeacon.g_animalCorpseParticleEffectPath = "loot_beacon.pillar_blue"
 LootBeacon.g_highlightDuration = 5.0
 LootBeacon.g_showMessage = true
 LootBeacon.g_mod_config_loaded = false
+
+-- Configuration for what to highlight
+LootBeacon.g_highlightItems = true
+LootBeacon.g_highlightCorpses = false
+LootBeacon.g_highlightAnimals = false
+
 -- Default to Info (1: Debug, 2: Info, 3: Warning, 4: Error)
 LootBeacon.g_logLevel = 2
 
@@ -28,6 +36,22 @@ LootBeacon.LOG_LEVEL_DEBUG = 1
 LootBeacon.LOG_LEVEL_INFO = 2
 LootBeacon.LOG_LEVEL_WARNING = 3
 LootBeacon.LOG_LEVEL_ERROR = 4
+
+-- Entity classes
+LootBeacon.ENTITY_CLASS_PICKABLE = "PickableItem"
+
+-- Dumps all properties of an object to console for debugging
+function dump(obj)
+    for key, value in pairs(obj) do
+        System.LogAlways(tostring(key) .. ": " .. tostring(value))
+        if type(value) == "table" then
+            System.LogAlways("  Sub-table " .. tostring(key) .. ":")
+            for subKey, subValue in pairs(value) do
+                System.LogAlways("    " .. tostring(subKey) .. ": " .. tostring(subValue))
+            end
+        end
+    end
+end
 
 -- Helper function to extract numeric value from command line
 -- @param line string: The command line to parse
@@ -89,18 +113,48 @@ function LootBeacon:set_detection_radius(line)
     end
 end
 
--- Handler for setting particle effect path from config
+-- Handler for setting item particle effect path from config
 -- @param line string: Command line containing the effect path
-function LootBeacon:set_particle_effect_path(line)
-    self:logDebug("set_particle_effect_path() line: " .. tostring(line))
+function LootBeacon:set_item_particle_effect_path(line)
+    self:logDebug("set_item_particle_effect_path() line: " .. tostring(line))
 
     local value = self:getStringValueFromLine(line)
     if value and value ~= "" then
-        self.g_particleEffectPath = value
-        self:logInfo("Particle effect path set to: " .. value)
+        self.g_itemParticleEffectPath = value
+        self:logInfo("Item particle effect path set to: " .. value)
         self.g_mod_config_loaded = true
     else
-        self:logWarning("Invalid particle effect path, using default: " .. self.g_particleEffectPath)
+        self:logWarning("Invalid item particle effect path, using default: " .. self.g_itemParticleEffectPath)
+    end
+end
+
+-- Handler for setting human corpse particle effect path from config
+-- @param line string: Command line containing the effect path
+function LootBeacon:set_human_corpse_particle_effect_path(line)
+    self:logDebug("set_human_corpse_particle_effect_path() line: " .. tostring(line))
+
+    local value = self:getStringValueFromLine(line)
+    if value and value ~= "" then
+        self.g_humanCorpseParticleEffectPath = value
+        self:logInfo("Human corpse particle effect path set to: " .. value)
+        self.g_mod_config_loaded = true
+    else
+        self:logWarning("Invalid human corpse particle effect path, using default: " .. self.g_humanCorpseParticleEffectPath)
+    end
+end
+
+-- Handler for setting animal corpse particle effect path from config
+-- @param line string: Command line containing the effect path
+function LootBeacon:set_animal_corpse_particle_effect_path(line)
+    self:logDebug("set_animal_corpse_particle_effect_path() line: " .. tostring(line))
+
+    local value = self:getStringValueFromLine(line)
+    if value and value ~= "" then
+        self.g_animalCorpseParticleEffectPath = value
+        self:logInfo("Animal corpse particle effect path set to: " .. value)
+        self.g_mod_config_loaded = true
+    else
+        self:logWarning("Invalid animal corpse particle effect path, using default: " .. self.g_animalCorpseParticleEffectPath)
     end
 end
 
@@ -155,6 +209,54 @@ function LootBeacon:set_log_level(line)
         self.g_mod_config_loaded = true
     else
         self:logWarning("Invalid log level (should be 1-4), using default: " .. self.g_logLevel)
+    end
+end
+
+-- Handler for setting highlight items flag
+-- @param line string: Command line containing the flag value (0 or 1)
+function LootBeacon:set_highlight_items(line)
+    self:logDebug("set_highlight_items() line: " .. tostring(line))
+
+    local value = self:getNumberValueFromLine(line)
+    if value == 0 or value == 1 then
+        self.g_highlightItems = (value == 1)
+        self:logInfo("Highlight items set to: " .. (self.g_highlightItems and "ON" or "OFF"))
+        self.g_mod_config_loaded = true
+    else
+        self:logWarning("Invalid highlight items value (should be 0 or 1), using default: " ..
+                       (self.g_highlightItems and "1" or "0"))
+    end
+end
+
+-- Handler for setting highlight corpses flag
+-- @param line string: Command line containing the flag value (0 or 1)
+function LootBeacon:set_highlight_corpses(line)
+    self:logDebug("set_highlight_corpses() line: " .. tostring(line))
+
+    local value = self:getNumberValueFromLine(line)
+    if value == 0 or value == 1 then
+        self.g_highlightCorpses = (value == 1)
+        self:logInfo("Highlight corpses set to: " .. (self.g_highlightCorpses and "ON" or "OFF"))
+        self.g_mod_config_loaded = true
+    else
+        self:logWarning("Invalid highlight corpses value (should be 0 or 1), using default: " ..
+                       (self.g_highlightCorpses and "1" or "0"))
+    end
+end
+
+-- Handler for setting highlight animals flag
+-- @param line string: Command line containing the flag value (0 or 1)
+function LootBeacon:set_highlight_animals(line)
+    self:logDebug("set_highlight_animals() line: " .. tostring(line))
+
+    local value = self:getNumberValueFromLine(line)
+    if value == 0 or value == 1 then
+        self.g_highlightAnimals = (value == 1)
+        self:logInfo("Highlight animals set to: " .. (self.g_highlightAnimals and "ON" or "OFF"))
+        self.g_mod_config_loaded = true
+    else
+        self:logWarning("Invalid highlight animals value (should be 0 or 1), using default: " ..
+                       (self.g_highlightAnimals and "1" or "0"))
     end
 end
 
@@ -290,50 +392,38 @@ function LootBeacon:isItemPickable(pickableItem)
     return true
 end
 
--- Finds nearby pickable items within the detection radius
--- @return table: A list of pickable item entities
-function LootBeacon:findPickableItems()
-    -- Get player position with error handling
-    if not player then
-        self:logError("Player object is nil")
-        return {}
+-- Gets an entity's name through various methods
+-- @param entity table|nil: The entity to get the name from
+-- @return string|nil: The entity's name or nil if not available
+function LootBeacon:getEntityName(entity)
+    if not entity then
+        return nil
     end
 
-    local playerPos = player:GetWorldPos()
-    if not playerPos then
-        self:logError("Failed to get player position")
-        return {}
+    if (type(entity) == "userdata") then
+        entity = System.GetEntity(entity)
     end
 
-    -- Get nearby items
-    local nearbyItems
-    local success, err = pcall(function()
-        nearbyItems = System.GetEntitiesInSphereByClass(playerPos, self.g_detectionRadius, "PickableItem") or {}
-    end)
+    local entityName = nil
 
-    if not success then
-        self:logError("Failed to get entities in sphere: " .. tostring(err))
-        return {}
+    if not entityName and entity["soul"] then
+        entityName = entity.soul:GetNameStringId()
     end
 
-    -- Filter pickable items
-    local filteredItems = {}
-    self:logDebug("Found " .. #nearbyItems .. " potential items within " .. self.g_detectionRadius .. "m")
-
-    for _, pickableItem in pairs(nearbyItems) do
-        if self:isItemPickable(pickableItem) then
-            table.insert(filteredItems, pickableItem)
-            self:logDebug("Added pickable item to highlight list")
-        end
+    if not entityName and entity["uiname"] then
+        entityName = entity.uiname
     end
 
-    self:logInfo("Found " .. #filteredItems .. " pickable items to highlight")
-    return filteredItems
+    if not entityName then
+        entityName = entity:GetName()
+    end
+
+    return entityName
 end
 
--- Removes all active highlights from items
+-- Removes all active highlights from entities
 function LootBeacon:removeHighlights()
-    self:logInfo("Removing highlights from " .. #self.particleEntities .. " items")
+    self:logInfo("Removing highlights from " .. #self.particleEntities .. " entities")
 
     for _, data in pairs(self.particleEntities) do
         local entity = data.entity
@@ -356,7 +446,64 @@ function LootBeacon:removeHighlights()
     self.timerID = nil
 end
 
--- Activates highlights on nearby pickable items
+-- Applies a particle effect to an entity
+-- @param entity: The entity to highlight
+-- @param effectPath string: The particle effect path to use
+-- @return boolean: True if successful, false otherwise
+function LootBeacon:applyHighlightEffect(entity, effectPath)
+    if not entity or not effectPath then
+        self:logWarning("Invalid entity or effect path in applyHighlightEffect")
+        return false
+    end
+
+    -- Apply particle effect to the entity
+    local slot = -1
+    local success, result = pcall(function()
+        return entity:LoadParticleEffect(-1, effectPath, {})
+    end)
+
+    if success and result and result >= 0 then
+        slot = result
+        table.insert(self.particleEntities, {entity = entity, slot = slot})
+
+        -- Adjust orientation with randomized angles for visual variety
+        if entity.GetWorldAngles then
+            local angSuccess, ang = pcall(function() return entity:GetWorldAngles() end)
+            if angSuccess and ang then
+                pcall(function()
+                    -- Generate a random angle between 30 and 90 degrees for upward direction
+                    local randomX = math.random(30, 90)
+
+                    -- Counter the entity's rotation and add randomized upward angle
+                    local adjustedAngles = {
+                        x = -ang.x + randomX,
+                        y = -ang.y,
+                        z = -ang.z
+                    }
+
+                    -- If the original angles are all near zero, use a randomized orientation
+                    if math.abs(ang.x) < 0.1 and math.abs(ang.y) < 0.1 and math.abs(ang.z) < 0.1 then
+                        adjustedAngles = { x = randomX, y = 0, z = 0 }
+                    end
+
+                    entity:SetSlotAngles(slot, adjustedAngles)
+                end)
+            else
+                -- If we can't get the angles, set a randomized upward orientation
+                pcall(function()
+                    local randomX = math.random(30, 90)
+                    entity:SetSlotAngles(slot, { x = randomX, y = 0, z = 0 })
+                end)
+            end
+        end
+        return true
+    else
+        self:logWarning("Failed to load particle effect for entity: " .. tostring(result or "unknown error"))
+        return false
+    end
+end
+
+-- Activates highlights on nearby entities based on configuration
 function LootBeacon:activateHighlights()
     self:logInfo("Activating highlights (radius: " .. self.g_detectionRadius .. "m, duration: " .. self.g_highlightDuration .. "s)")
 
@@ -369,43 +516,101 @@ function LootBeacon:activateHighlights()
     -- Remove existing highlights
     self:removeHighlights()
 
-    -- Set active state and find items
+    -- Set active state
     self.isHighlightActive = true
-    local items = self:findPickableItems()
 
-    -- Apply particle effects to found items
-    for _, entity in pairs(items) do
-        -- Safe LoadParticleEffect call with error handling
-        local slot = -1
-        local success, result = pcall(function()
-            return entity:LoadParticleEffect(-1, self.g_particleEffectPath, {})
-        end)
+    -- Track counts for UI message
+    local totalHighlighted = 0
+    local itemsCount = 0
+    local corpsesCount = 0
+    local animalsCount = 0
 
-        if success and result and result >= 0 then
-            slot = result
-            table.insert(self.particleEntities, {entity = entity, slot = slot})
+    -- Get all entities in sphere around player
+    local playerPos = player:GetPos()
+    local allEntities = System.GetEntitiesInSphere(playerPos, self.g_detectionRadius)
 
-            -- Optional: Adjust orientation to counter entity's rotation
-            if entity.GetWorldAngles then
-                local angSuccess, ang = pcall(function() return entity:GetWorldAngles() end)
-                if angSuccess and ang then
-                    pcall(function()
-                        entity:SetSlotAngles(slot, { x = -ang.x, y = -ang.y, z = -ang.z })
+    -- Process each entity
+    for _, entity in pairs(allEntities) do
+        -- Check if entity is an actor (NPC or Animal)
+        if entity and entity["actor"] then
+            self:logDebug("Actor IsDead: " .. tostring(entity.actor:IsDead()))
+            self:logDebug("Actor Name: " .. tostring(self:getEntityName(entity)))
+
+            -- Only process dead actors
+            if entity.actor:IsDead() then
+                -- Is Human
+                if entity["human"] and self.g_highlightCorpses then
+                    if self:applyHighlightEffect(entity, self.g_humanCorpseParticleEffectPath) then
+                        corpsesCount = corpsesCount + 1
+                        totalHighlighted = totalHighlighted + 1
+                    end
+                -- Is Animal (not human and is dead)
+                elseif self.g_highlightAnimals then
+                    if self:applyHighlightEffect(entity, self.g_animalCorpseParticleEffectPath) then
+                        animalsCount = animalsCount + 1
+                        totalHighlighted = totalHighlighted + 1
+                    end
+                end
+            end
+        -- Check for pickable items
+        elseif entity and entity.class == self.ENTITY_CLASS_PICKABLE and self.g_highlightItems then
+            if self:isItemPickable(entity) then
+                if self:applyHighlightEffect(entity, self.g_itemParticleEffectPath) then
+                    itemsCount = itemsCount + 1
+                    totalHighlighted = totalHighlighted + 1
+                end
+            end
+        else
+            -- Other entities
+            self:logDebug("Other Entity: " .. tostring(entity))
+        end
+    end
+
+    self:logInfo("Highlighted " .. itemsCount .. " pickable items")
+    self:logInfo("Highlighted " .. corpsesCount .. " human corpses")
+    self:logInfo("Highlighted " .. animalsCount .. " animal corpses")
+
+    -- Show notification to player
+    if self.g_showMessage then
+        if totalHighlighted > 0 then
+            -- For a single type of highlight, use a simple message
+            if itemsCount > 0 and corpsesCount == 0 and animalsCount == 0 then
+                Game.ShowNotification("@ui_loot_beacon_prefix " .. itemsCount .. " @ui_loot_beacon_found_item_suffix")
+            elseif itemsCount == 0 and corpsesCount > 0 and animalsCount == 0 then
+                Game.ShowNotification("@ui_loot_beacon_prefix " .. corpsesCount .. " @ui_loot_beacon_found_corpse_suffix")
+            elseif itemsCount == 0 and corpsesCount == 0 and animalsCount > 0 then
+                Game.ShowNotification("@ui_loot_beacon_prefix " .. animalsCount .. " @ui_loot_beacon_found_animal_suffix")
+            -- For multiple types, show individual counts as separate notifications
+            else
+                -- Display individual counts as separate notifications
+                if itemsCount > 0 then
+                    Game.ShowNotification("@ui_loot_beacon_prefix " .. itemsCount .. " @ui_loot_beacon_found_item_suffix")
+                end
+
+                if corpsesCount > 0 then
+                    Script.SetTimer(1000, function()
+                        Game.ShowNotification("@ui_loot_beacon_prefix " .. corpsesCount .. " @ui_loot_beacon_found_corpse_suffix")
+                    end)
+                end
+
+                if animalsCount > 0 then
+                    Script.SetTimer(2000, function()
+                        Game.ShowNotification("@ui_loot_beacon_prefix " .. animalsCount .. " @ui_loot_beacon_found_animal_suffix")
                     end)
                 end
             end
         else
-            self:logWarning("Failed to load particle effect for entity: " .. tostring(result or "unknown error"))
-        end
-    end
-
-    -- Show notification to player
-    local numItems = #self.particleEntities
-    if self.g_showMessage then
-        if numItems > 0 then
-            Game.ShowNotification("@ui_loot_beacon_prefix " .. "@ui_loot_beacon_found_1 " .. numItems .. " @ui_loot_beacon_found_2")
-        else
-            Game.ShowNotification("@ui_loot_beacon_prefix " .. "@ui_loot_beacon_not_found")
+            -- More specific "not found" messages based on what's enabled
+            if self.g_highlightItems and not self.g_highlightCorpses and not self.g_highlightAnimals then
+                Game.ShowNotification("@ui_loot_beacon_prefix @ui_loot_beacon_not_found_items")
+            elseif not self.g_highlightItems and self.g_highlightCorpses and not self.g_highlightAnimals then
+                Game.ShowNotification("@ui_loot_beacon_prefix @ui_loot_beacon_not_found_corpses")
+            elseif not self.g_highlightItems and not self.g_highlightCorpses and self.g_highlightAnimals then
+                Game.ShowNotification("@ui_loot_beacon_prefix @ui_loot_beacon_not_found_animals")
+            else
+                -- Generic message for multiple types
+                Game.ShowNotification("@ui_loot_beacon_prefix @ui_loot_beacon_not_found")
+            end
         end
     end
 
@@ -425,16 +630,21 @@ function LootBeacon:loadModConfig()
 
     -- If config wasn't properly loaded, set defaults
     if not self.g_mod_config_loaded then
-        System.ExecuteCommand("bind f4 loot_beacon_activate")
         self:logWarning("Config file not loaded or incomplete, using default settings")
+        System.ExecuteCommand("bind f4 loot_beacon_activate")
         -- Default values are already set in variable initialization
     end
 
     self:logInfo("Configuration loaded successfully")
     self:logInfo("Detection radius: " .. self.g_detectionRadius .. "m")
-    self:logInfo("Particle effect: " .. self.g_particleEffectPath)
+    self:logInfo("Item particle effect: " .. self.g_itemParticleEffectPath)
+    self:logInfo("Human corpse particle effect: " .. self.g_humanCorpseParticleEffectPath)
+    self:logInfo("Animal particle effect: " .. self.g_animalCorpseParticleEffectPath)
     self:logInfo("Highlight duration: " .. self.g_highlightDuration .. "s")
     self:logInfo("Show messages: " .. (self.g_showMessage and "Yes" or "No"))
+    self:logInfo("Highlight items: " .. (self.g_highlightItems and "Yes" or "No"))
+    self:logInfo("Highlight corpses: " .. (self.g_highlightCorpses and "Yes" or "No"))
+    self:logInfo("Highlight animals: " .. (self.g_highlightAnimals and "Yes" or "No"))
 end
 
 -- Initializes the mod
@@ -443,12 +653,17 @@ function LootBeacon:onInit()
     self:logInfo("Initializing " .. self.modname .. " version " .. self.version)
 
     -- Register all console commands for configuration
-    System.AddCCommand("loot_beacon_activate", "LootBeacon:activateHighlights()", "Activate item highlighting")
+    System.AddCCommand("loot_beacon_activate", "LootBeacon:activateHighlights()", "Activate entity highlighting")
     System.AddCCommand("loot_beacon_set_detection_radius", "LootBeacon:set_detection_radius(%line)", "Set detection radius in meters")
-    System.AddCCommand("loot_beacon_set_particle_effect_path", "LootBeacon:set_particle_effect_path(%line)", "Set particle effect path")
+    System.AddCCommand("loot_beacon_set_item_particle_effect_path", "LootBeacon:set_item_particle_effect_path(%line)", "Set item particle effect path")
+    System.AddCCommand("loot_beacon_set_human_corpse_particle_effect_path", "LootBeacon:set_human_corpse_particle_effect_path(%line)", "Set human corpse particle effect path")
+    System.AddCCommand("loot_beacon_set_animal_corpse_particle_effect_path", "LootBeacon:set_animal_corpse_particle_effect_path(%line)", "Set animal corpse particle effect path")
     System.AddCCommand("loot_beacon_set_highlight_duration", "LootBeacon:set_highlight_duration(%line)", "Set highlight duration in seconds")
     System.AddCCommand("loot_beacon_set_show_message", "LootBeacon:set_show_message(%line)", "Set show message flag (0=off, 1=on)")
     System.AddCCommand("loot_beacon_set_log_level", "LootBeacon:set_log_level(%line)", "Set log level (1=Debug, 2=Info, 3=Warning, 4=Error)")
+    System.AddCCommand("loot_beacon_set_highlight_items", "LootBeacon:set_highlight_items(%line)", "Set highlight items flag (0=off, 1=on)")
+    System.AddCCommand("loot_beacon_set_highlight_corpses", "LootBeacon:set_highlight_corpses(%line)", "Set highlight corpses flag (0=off, 1=on)")
+    System.AddCCommand("loot_beacon_set_highlight_animals", "LootBeacon:set_highlight_animals(%line)", "Set highlight animals flag (0=off, 1=on)")
 
     -- Load configuration
     self:loadModConfig()
@@ -459,17 +674,16 @@ end
 
 -- Function called when the game system has started
 function LootBeacon:onSystemStarted()
-    self:logInfo("---------------- onSystemStarted() ----------------- ")
+    self:logDebug("---------------- onSystemStarted() ----------------- ")
     -- Additional initialization that requires the game system to be started
-    self:logInfo("--------------------------------------------------------")
 end
 
 -- Function called when the game is paused
 function LootBeacon:onGamePause()
-    self:logInfo("---------------- onGamePause() ----------------")
+    self:logDebug("---------------- onGamePause() ----------------")
     -- Remove highlights when game is paused for safety
     if self.isHighlightActive then
-        self:logInfo("Game paused - removing active highlights for safety")
+        self:logDebug("Game paused - removing active highlights for safety")
         if self.timerID then
             Script.KillTimer(self.timerID)
             self.timerID = nil
@@ -480,7 +694,7 @@ end
 
 -- Function called when the game is resumed
 function LootBeacon:onGameResume()
-    self:logInfo("---------------- onGameResume() ----------------")
+    self:logDebug("---------------- onGameResume() ----------------")
     -- Game has resumed, nothing specific to do here
 end
 

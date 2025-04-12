@@ -1,4 +1,4 @@
-# Loot Beacon - Never Miss a Drop
+# Loot Beacon - Never Miss a Drop or Corpse
 
 ## Overview
 

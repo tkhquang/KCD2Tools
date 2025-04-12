@@ -5,18 +5,38 @@
 <Cell>[Loot Beacon]</Cell>
 </Row>
 <Row>
-<Cell>ui_loot_beacon_found_1</Cell>
-<Cell>Highlightied</Cell>
-<Cell>Highlightied</Cell>
+<Cell>ui_loot_beacon_found_item_suffix</Cell>
+<Cell>Item(s).</Cell>
+<Cell>Item(s).</Cell>
 </Row>
 <Row>
-<Cell>ui_loot_beacon_found_2</Cell>
-<Cell>Item(s).</Cell>
-<Cell>Item(s).</Cell>
+<Cell>ui_loot_beacon_found_animal_suffix</Cell>
+<Cell>Animal Carcass(es).</Cell>
+<Cell>Animal Carcass(es).</Cell>
+</Row>
+<Row>
+<Cell>ui_loot_beacon_found_corpse_suffix</Cell>
+<Cell>Human Corpse(s).</Cell>
+<Cell>Human Corpse(s).</Cell>
 </Row>
 <Row>
 <Cell>ui_loot_beacon_not_found</Cell>
-<Cell>No Pickable Items Nearby.</Cell>
-<Cell>No Pickable Items Nearby.</Cell>
+<Cell>No lootable objects nearby.</Cell>
+<Cell>No lootable objects nearby.</Cell>
+</Row>
+<Row>
+<Cell>ui_loot_beacon_not_found_items</Cell>
+<Cell>No pickable items nearby.</Cell>
+<Cell>No pickable items nearby.</Cell>
+</Row>
+<Row>
+<Cell>ui_loot_beacon_not_found_animals</Cell>
+<Cell>No animal carcasses nearby.</Cell>
+<Cell>No animal carcasses nearby.</Cell>
+</Row>
+<Row>
+<Cell>ui_loot_beacon_not_found_corpses</Cell>
+<Cell>No human corpses nearby.</Cell>
+<Cell>No human corpses nearby.</Cell>
 </Row>
 </Table>
