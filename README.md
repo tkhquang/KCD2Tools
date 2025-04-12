@@ -7,6 +7,9 @@ A collection of mods for Kingdom Come: Deliverance II that enhance gameplay and 
 ### [TPVToggle](TPVToggle/)
 A lightweight mod that adds a hotkey to toggle between first-person and third-person camera views in Kingdom Come: Deliverance II.
 
+### [LootBeacon](LootBeacon/)
+A mod that helps players spot dropped items in the game world. Activate the highlight feature with a keypress and watch as nearby pickable items are highlighted with a colorful particle effect.
+
 ## Installation
 
 Each mod has its own installation instructions. See the respective mod's README for details.
