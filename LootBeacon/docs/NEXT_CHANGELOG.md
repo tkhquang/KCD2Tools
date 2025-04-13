@@ -5,10 +5,6 @@
 - Added Italian translation (thanks to Nevyn77)
 - Fixed Vortex installation and mod.cfg parsing issues (thanks to c0rish)
 - Improved configuration parsing with better error handling
-- Enhanced logging system with configurable verbosity levels
-- Fixed issue with some pickable items not being properly detected
-- Improved randomized particle angles for better visual distinction
-- Optimized code for better performance
 
 ## Version 1.1.0
 
