@@ -99,8 +99,6 @@ namespace Constants
      * @details Flag: 0 = FPV, 1 = TPV. Relative to the captured R9 value.
      */
     constexpr int TOGGLE_FLAG_OFFSET = 0x38;
-    constexpr int OVERLAY_FLAG_OFFSET = 0xD8;
-    constexpr int CAMERA_DISTANCE_OFFSET = 0x20;
 
     /** @brief Offset from Menu Open AOB start to `mov ..., 1` target. */
     constexpr int MENU_OPEN_HOOK_OFFSET = 0; // Target is at start of pattern

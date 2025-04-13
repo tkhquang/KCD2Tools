@@ -54,14 +54,4 @@ bool setFirstPersonView(int *key_pressed_vk = nullptr);
 bool setThirdPersonView(int *key_pressed_vk = nullptr);
 int getViewState();
 
-/**
- * @brief Gets the current view state (0 for FPV, 1 for TPV)
- *
- * @return BYTE Current view state value
- */
-BYTE getViewState();
-
-// Make the toggle_addr variable accessible to other modules through a getter
-volatile BYTE *getToggleAddr();
-
 #endif // TOGGLE_THREAD_H

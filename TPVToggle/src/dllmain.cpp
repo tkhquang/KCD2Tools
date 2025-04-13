@@ -478,11 +478,7 @@ DWORD WINAPI MainThread(LPVOID hModule_param)
     int wait_cycles = 0;
     while (!g_r9_for_tpv_flag || *g_r9_for_tpv_flag == 0)
     {
-        // Only log every 10 cycles (approximately every 2 seconds) to reduce spam
-        if (logger.isDebugEnabled() && (wait_cycles % 10 == 0))
-        {
-            logger.log(LOG_DEBUG, "MainThread: Still waiting for R9(TPV) pointer...");
-        }
+        // Waiting for R9(TPV) pointer...
         wait_cycles++;
         Sleep(200);
     }
