@@ -1,0 +1,42 @@
+<Table>
+<Row>
+<Cell>ui_loot_beacon_prefix</Cell>
+<Cell>[Loot Beacon]</Cell>
+<Cell>[Bottino segnalato]</Cell>
+</Row>
+<Row>
+<Cell>ui_loot_beacon_found_item_suffix</Cell>
+<Cell>Item(s).</Cell>
+<Cell>Oggetto(i).</Cell>
+</Row>
+<Row>
+<Cell>ui_loot_beacon_found_animal_suffix</Cell>
+<Cell>Animal Carcass(es).</Cell>
+<Cell>Carcassa(e) di animale.</Cell>
+</Row>
+<Row>
+<Cell>ui_loot_beacon_found_corpse_suffix</Cell>
+<Cell>Human Corpse(s).</Cell>
+<Cell>Cadavere(i) umano.</Cell>
+</Row>
+<Row>
+<Cell>ui_loot_beacon_not_found</Cell>
+<Cell>No lootable objects nearby.</Cell>
+<Cell>Nessun oggetto da saccheggiare nelle vicinanze.</Cell>
+</Row>
+<Row>
+<Cell>ui_loot_beacon_not_found_items</Cell>
+<Cell>No pickable items nearby.</Cell>
+<Cell>Nessun oggetto da raccogliere nelle vicinanze.</Cell>
+</Row>
+<Row>
+<Cell>ui_loot_beacon_not_found_animals</Cell>
+<Cell>No animal carcasses nearby.</Cell>
+<Cell>Nessuna carcassa di animale nelle vicinanze.</Cell>
+</Row>
+<Row>
+<Cell>ui_loot_beacon_not_found_corpses</Cell>
+<Cell>No human corpses nearby.</Cell>
+<Cell>Nessun cadavere umano nelle vicinanze.</Cell>
+</Row>
+</Table>

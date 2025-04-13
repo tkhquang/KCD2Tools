@@ -1,13 +1,13 @@
 --[[
 Loot Beacon - Never Miss a Drop or Corpse
-Version: 1.1.0
+Version: 1.2.0
 Author: tkhquang
 ]]
 
 -- Define the LootBeacon table with mod properties
 LootBeacon = {}
 LootBeacon.modname = "Loot Beacon"
-LootBeacon.version = "1.1.0"
+LootBeacon.version = "1.2.0"
 
 -- Configuration values with g_ prefix as per KCD coding standards
 LootBeacon.g_detectionRadius = 15.0
@@ -16,12 +16,13 @@ LootBeacon.g_humanCorpseParticleEffectPath = "loot_beacon.pillar_green"
 LootBeacon.g_animalCorpseParticleEffectPath = "loot_beacon.pillar_blue"
 LootBeacon.g_highlightDuration = 5.0
 LootBeacon.g_showMessage = true
+LootBeacon.g_keyBinding = "f4"
 LootBeacon.g_mod_config_loaded = false
 
 -- Configuration for what to highlight
 LootBeacon.g_highlightItems = true
-LootBeacon.g_highlightCorpses = false
-LootBeacon.g_highlightAnimals = false
+LootBeacon.g_highlightCorpses = true
+LootBeacon.g_highlightAnimals = true
 
 -- Default to Info (1: Debug, 2: Info, 3: Warning, 4: Error)
 LootBeacon.g_logLevel = 2
@@ -53,21 +54,28 @@ function dump(obj)
     end
 end
 
--- Helper function to extract numeric value from command line
+-- Helper function to extract numeric value from command line with the format "parameter =value"
 -- @param line string: The command line to parse
 -- @return number: The extracted numeric value, or nil if invalid
 function LootBeacon:getNumberValueFromLine(line)
     if not line then return nil end
 
-    -- Try to extract a number from the line
+    -- First try the specific format with space after equals sign: "parameter =value"
+    local equalPattern = "=%s*([%d%.]+)"
+    local match = string.match(line, equalPattern)
+    if match then
+        return tonumber(match)
+    end
+
+    -- Fallback - try to extract a direct number from the line
     local value = tonumber(line)
     if value ~= nil then
         return value
     end
 
-    -- If no direct number found, try to extract from a string pattern
+    -- Last attempt - try generic pattern
     local pattern = "%s*([%d%.]+)"
-    local match = string.match(line, pattern)
+    match = string.match(line, pattern)
     if match then
         return tonumber(match)
     end
@@ -75,20 +83,34 @@ function LootBeacon:getNumberValueFromLine(line)
     return nil
 end
 
--- Helper function to extract string value from command line
+-- Helper function to extract string value from command line with the format "parameter =value"
 -- @param line string: The command line to parse
 -- @return string: The extracted string value, or nil if invalid
 function LootBeacon:getStringValueFromLine(line)
     if not line then return nil end
 
-    -- Try to extract a quoted string
-    local pattern = '%s*"([^"]*)"'
-    local match = string.match(line, pattern)
+    -- First try the specific format with space after equals sign: "parameter =\"value\""
+    local equalPattern = "=%s*\"([^\"]*)\""
+    local match = string.match(line, equalPattern)
     if match then
         return match
     end
 
-    -- If no quoted string, try to get the rest of the line
+    -- Try without quotes: "parameter =value"
+    equalPattern = "=%s*([%S]+)"
+    match = string.match(line, equalPattern)
+    if match then
+        return match
+    end
+
+    -- Fallback - try for quoted string anywhere
+    local pattern = '%s*"([^"]*)"'
+    match = string.match(line, pattern)
+    if match then
+        return match
+    end
+
+    -- Last attempt - get the rest of the line
     local simplePattern = "%s*(.+)"
     match = string.match(line, simplePattern)
     if match then
@@ -139,7 +161,8 @@ function LootBeacon:set_human_corpse_particle_effect_path(line)
         self:logInfo("Human corpse particle effect path set to: " .. value)
         self.g_mod_config_loaded = true
     else
-        self:logWarning("Invalid human corpse particle effect path, using default: " .. self.g_humanCorpseParticleEffectPath)
+        self:logWarning("Invalid human corpse particle effect path, using default: " ..
+            self.g_humanCorpseParticleEffectPath)
     end
 end
 
@@ -154,7 +177,8 @@ function LootBeacon:set_animal_corpse_particle_effect_path(line)
         self:logInfo("Animal corpse particle effect path set to: " .. value)
         self.g_mod_config_loaded = true
     else
-        self:logWarning("Invalid animal corpse particle effect path, using default: " .. self.g_animalCorpseParticleEffectPath)
+        self:logWarning("Invalid animal corpse particle effect path, using default: " ..
+            self.g_animalCorpseParticleEffectPath)
     end
 end
 
@@ -185,7 +209,7 @@ function LootBeacon:set_show_message(line)
         self.g_mod_config_loaded = true
     else
         self:logWarning("Invalid show message value (should be 0 or 1), using default: " ..
-                       (self.g_showMessage and "1" or "0"))
+            (self.g_showMessage and "1" or "0"))
     end
 end
 
@@ -224,7 +248,7 @@ function LootBeacon:set_highlight_items(line)
         self.g_mod_config_loaded = true
     else
         self:logWarning("Invalid highlight items value (should be 0 or 1), using default: " ..
-                       (self.g_highlightItems and "1" or "0"))
+            (self.g_highlightItems and "1" or "0"))
     end
 end
 
@@ -240,7 +264,7 @@ function LootBeacon:set_highlight_corpses(line)
         self.g_mod_config_loaded = true
     else
         self:logWarning("Invalid highlight corpses value (should be 0 or 1), using default: " ..
-                       (self.g_highlightCorpses and "1" or "0"))
+            (self.g_highlightCorpses and "1" or "0"))
     end
 end
 
@@ -256,7 +280,30 @@ function LootBeacon:set_highlight_animals(line)
         self.g_mod_config_loaded = true
     else
         self:logWarning("Invalid highlight animals value (should be 0 or 1), using default: " ..
-                       (self.g_highlightAnimals and "1" or "0"))
+            (self.g_highlightAnimals and "1" or "0"))
+    end
+end
+
+-- Handler for setting key binding from config
+-- @param line string: Command line containing the key name
+function LootBeacon:set_key_binding(line)
+    self:logDebug("set_key_binding() line: " .. tostring(line))
+
+    local key = self:getStringValueFromLine(line)
+    if key and key ~= "" then
+        -- Store the configured key
+        self.g_keyBinding = key
+        self:logInfo("Key binding set to: " .. key)
+
+        -- Apply the binding
+        System.ExecuteCommand("bind " .. key .. " loot_beacon_activate")
+        self:logDebug("Applied console command: bind " .. key .. " loot_beacon_activate")
+
+        self.g_mod_config_loaded = true
+    else
+        self:logWarning("Invalid key binding, using default: f4")
+        self.g_keyBinding = "f4"
+        System.ExecuteCommand("bind f4 loot_beacon_activate")
     end
 end
 
@@ -294,13 +341,13 @@ end
 -- Logs a warning message
 -- @param message string: The message to log
 function LootBeacon:logWarning(message)
-    self:log(message, self.LOG_LEVEL_WARNING, "$6")  -- $6 for yellow color
+    self:log(message, self.LOG_LEVEL_WARNING, "$6") -- $6 for yellow color
 end
 
 -- Logs an error message
 -- @param message string: The message to log
 function LootBeacon:logError(message)
-    self:log(message, self.LOG_LEVEL_ERROR, "$4")  -- $4 for red color
+    self:log(message, self.LOG_LEVEL_ERROR, "$4") -- $4 for red color
 end
 
 -- Logs a message with a specified level and optional color
@@ -312,7 +359,7 @@ function LootBeacon:log(message, level, color)
     if not level then level = self.LOG_LEVEL_INFO end
     if level < self.g_logLevel then return end
 
-    color = color or "$5"  -- Default to white color
+    color = color or "$5" -- Default to white color
 
     local levelStr
     if level == self.LOG_LEVEL_DEBUG then
@@ -386,8 +433,8 @@ function LootBeacon:isItemPickable(pickableItem)
     local ownerEntity = ownerHandle and System.GetEntity(ownerHandle) or nil
 
     self:logDebug("Item owner check - Handle: " .. tostring(ownerHandle) ..
-                 ", Entity: " .. tostring(ownerEntity) ..
-                 ", Player ID: " .. tostring(player.this and player.this.id or "nil"))
+        ", Entity: " .. tostring(ownerEntity) ..
+        ", Player ID: " .. tostring(player.this and player.this.id or "nil"))
 
     return true
 end
@@ -464,7 +511,7 @@ function LootBeacon:applyHighlightEffect(entity, effectPath)
 
     if success and result and result >= 0 then
         slot = result
-        table.insert(self.particleEntities, {entity = entity, slot = slot})
+        table.insert(self.particleEntities, { entity = entity, slot = slot })
 
         -- Adjust orientation with randomized angles for visual variety
         if entity.GetWorldAngles then
@@ -505,7 +552,8 @@ end
 
 -- Activates highlights on nearby entities based on configuration
 function LootBeacon:activateHighlights()
-    self:logInfo("Activating highlights (radius: " .. self.g_detectionRadius .. "m, duration: " .. self.g_highlightDuration .. "s)")
+    self:logInfo("Activating highlights (radius: " ..
+        self.g_detectionRadius .. "m, duration: " .. self.g_highlightDuration .. "s)")
 
     -- Kill existing timer if active
     if self.timerID then
@@ -544,7 +592,7 @@ function LootBeacon:activateHighlights()
                         corpsesCount = corpsesCount + 1
                         totalHighlighted = totalHighlighted + 1
                     end
-                -- Is Animal (not human and is dead)
+                    -- Is Animal (not human and is dead)
                 elseif self.g_highlightAnimals then
                     if self:applyHighlightEffect(entity, self.g_animalCorpseParticleEffectPath) then
                         animalsCount = animalsCount + 1
@@ -552,7 +600,7 @@ function LootBeacon:activateHighlights()
                     end
                 end
             end
-        -- Check for pickable items
+            -- Check for pickable items
         elseif entity and entity.class == self.ENTITY_CLASS_PICKABLE and self.g_highlightItems then
             if self:isItemPickable(entity) then
                 if self:applyHighlightEffect(entity, self.g_itemParticleEffectPath) then
@@ -580,7 +628,7 @@ function LootBeacon:activateHighlights()
                 Game.ShowNotification("@ui_loot_beacon_prefix " .. corpsesCount .. " @ui_loot_beacon_found_corpse_suffix")
             elseif itemsCount == 0 and corpsesCount == 0 and animalsCount > 0 then
                 Game.ShowNotification("@ui_loot_beacon_prefix " .. animalsCount .. " @ui_loot_beacon_found_animal_suffix")
-            -- For multiple types, show individual counts as separate notifications
+                -- For multiple types, show individual counts as separate notifications
             else
                 -- Display individual counts as separate notifications
                 if itemsCount > 0 then
@@ -589,13 +637,15 @@ function LootBeacon:activateHighlights()
 
                 if corpsesCount > 0 then
                     Script.SetTimer(1000, function()
-                        Game.ShowNotification("@ui_loot_beacon_prefix " .. corpsesCount .. " @ui_loot_beacon_found_corpse_suffix")
+                        Game.ShowNotification("@ui_loot_beacon_prefix " ..
+                            corpsesCount .. " @ui_loot_beacon_found_corpse_suffix")
                     end)
                 end
 
                 if animalsCount > 0 then
                     Script.SetTimer(2000, function()
-                        Game.ShowNotification("@ui_loot_beacon_prefix " .. animalsCount .. " @ui_loot_beacon_found_animal_suffix")
+                        Game.ShowNotification("@ui_loot_beacon_prefix " ..
+                            animalsCount .. " @ui_loot_beacon_found_animal_suffix")
                     end)
                 end
             end
@@ -624,27 +674,50 @@ end
 function LootBeacon:loadModConfig()
     self:logInfo("Loading mod configuration")
 
-    -- Execute the mod config file
-    self:logInfo("Executing mod.cfg file")
-    System.ExecuteCommand("exec Mods/LootBeacon/mod.cfg")
+    -- Track whether any configuration was loaded
+    self.g_mod_config_loaded = false
 
-    -- If config wasn't properly loaded, set defaults
-    if not self.g_mod_config_loaded then
-        self:logWarning("Config file not loaded or incomplete, using default settings")
-        System.ExecuteCommand("bind f4 loot_beacon_activate")
-        -- Default values are already set in variable initialization
+    -- Define potential config file paths to check
+    local configPaths = {
+        "Mods/LootBeacon/mod.cfg",
+        "Mods/loot_beacon/mod.cfg",
+    }
+
+    -- Try each possible config path
+    local configLoaded = false
+    for _, path in ipairs(configPaths) do
+        self:logDebug("Attempting to load config from: " .. path)
+
+        -- Try to execute the config file
+        System.ExecuteCommand("exec " .. path)
+
+        -- Check if any parameters were successfully loaded
+        if self.g_mod_config_loaded then
+            self:logInfo("Configuration successfully loaded from: " .. path)
+            configLoaded = true
+            break
+        end
     end
 
-    self:logInfo("Configuration loaded successfully")
-    self:logInfo("Detection radius: " .. self.g_detectionRadius .. "m")
-    self:logInfo("Item particle effect: " .. self.g_itemParticleEffectPath)
-    self:logInfo("Human corpse particle effect: " .. self.g_humanCorpseParticleEffectPath)
-    self:logInfo("Animal particle effect: " .. self.g_animalCorpseParticleEffectPath)
-    self:logInfo("Highlight duration: " .. self.g_highlightDuration .. "s")
-    self:logInfo("Show messages: " .. (self.g_showMessage and "Yes" or "No"))
-    self:logInfo("Highlight items: " .. (self.g_highlightItems and "Yes" or "No"))
-    self:logInfo("Highlight corpses: " .. (self.g_highlightCorpses and "Yes" or "No"))
-    self:logInfo("Highlight animals: " .. (self.g_highlightAnimals and "Yes" or "No"))
+    -- If no config was loaded, set up defaults
+    if not configLoaded then
+        self:logWarning("No configuration file found. Using default settings.")
+        -- Ensure F4 is bound to our command
+        System.ExecuteCommand("bind " .. self.g_keyBinding .. " loot_beacon_activate")
+    end
+
+    -- Log the final configuration
+    self:logInfo("Final configuration:")
+    self:logInfo("- Detection radius: " .. self.g_detectionRadius .. "m")
+    self:logInfo("- Item particle effect: " .. self.g_itemParticleEffectPath)
+    self:logInfo("- Human corpse particle effect: " .. self.g_humanCorpseParticleEffectPath)
+    self:logInfo("- Animal particle effect: " .. self.g_animalCorpseParticleEffectPath)
+    self:logInfo("- Highlight duration: " .. self.g_highlightDuration .. "s")
+    self:logInfo("- Show messages: " .. (self.g_showMessage and "Yes" or "No"))
+    self:logInfo("- Highlight items: " .. (self.g_highlightItems and "Yes" or "No"))
+    self:logInfo("- Highlight corpses: " .. (self.g_highlightCorpses and "Yes" or "No"))
+    self:logInfo("- Highlight animals: " .. (self.g_highlightAnimals and "Yes" or "No"))
+    self:logInfo("- Key binding: " .. (self.g_keyBinding or "f4"))
 end
 
 -- Initializes the mod
@@ -654,16 +727,28 @@ function LootBeacon:onInit()
 
     -- Register all console commands for configuration
     System.AddCCommand("loot_beacon_activate", "LootBeacon:activateHighlights()", "Activate entity highlighting")
-    System.AddCCommand("loot_beacon_set_detection_radius", "LootBeacon:set_detection_radius(%line)", "Set detection radius in meters")
-    System.AddCCommand("loot_beacon_set_item_particle_effect_path", "LootBeacon:set_item_particle_effect_path(%line)", "Set item particle effect path")
-    System.AddCCommand("loot_beacon_set_human_corpse_particle_effect_path", "LootBeacon:set_human_corpse_particle_effect_path(%line)", "Set human corpse particle effect path")
-    System.AddCCommand("loot_beacon_set_animal_corpse_particle_effect_path", "LootBeacon:set_animal_corpse_particle_effect_path(%line)", "Set animal corpse particle effect path")
-    System.AddCCommand("loot_beacon_set_highlight_duration", "LootBeacon:set_highlight_duration(%line)", "Set highlight duration in seconds")
-    System.AddCCommand("loot_beacon_set_show_message", "LootBeacon:set_show_message(%line)", "Set show message flag (0=off, 1=on)")
-    System.AddCCommand("loot_beacon_set_log_level", "LootBeacon:set_log_level(%line)", "Set log level (1=Debug, 2=Info, 3=Warning, 4=Error)")
-    System.AddCCommand("loot_beacon_set_highlight_items", "LootBeacon:set_highlight_items(%line)", "Set highlight items flag (0=off, 1=on)")
-    System.AddCCommand("loot_beacon_set_highlight_corpses", "LootBeacon:set_highlight_corpses(%line)", "Set highlight corpses flag (0=off, 1=on)")
-    System.AddCCommand("loot_beacon_set_highlight_animals", "LootBeacon:set_highlight_animals(%line)", "Set highlight animals flag (0=off, 1=on)")
+    System.AddCCommand("loot_beacon_set_detection_radius", "LootBeacon:set_detection_radius(%line)",
+        "Set detection radius in meters")
+    System.AddCCommand("loot_beacon_set_item_particle_effect_path", "LootBeacon:set_item_particle_effect_path(%line)",
+        "Set item particle effect path")
+    System.AddCCommand("loot_beacon_set_human_corpse_particle_effect_path",
+        "LootBeacon:set_human_corpse_particle_effect_path(%line)", "Set human corpse particle effect path")
+    System.AddCCommand("loot_beacon_set_animal_corpse_particle_effect_path",
+        "LootBeacon:set_animal_corpse_particle_effect_path(%line)", "Set animal corpse particle effect path")
+    System.AddCCommand("loot_beacon_set_highlight_duration", "LootBeacon:set_highlight_duration(%line)",
+        "Set highlight duration in seconds")
+    System.AddCCommand("loot_beacon_set_show_message", "LootBeacon:set_show_message(%line)",
+        "Set show message flag (0=off, 1=on)")
+    System.AddCCommand("loot_beacon_set_log_level", "LootBeacon:set_log_level(%line)",
+        "Set log level (1=Debug, 2=Info, 3=Warning, 4=Error)")
+    System.AddCCommand("loot_beacon_set_highlight_items", "LootBeacon:set_highlight_items(%line)",
+        "Set highlight items flag (0=off, 1=on)")
+    System.AddCCommand("loot_beacon_set_highlight_corpses", "LootBeacon:set_highlight_corpses(%line)",
+        "Set highlight corpses flag (0=off, 1=on)")
+    System.AddCCommand("loot_beacon_set_highlight_animals", "LootBeacon:set_highlight_animals(%line)",
+        "Set highlight animals flag (0=off, 1=on)")
+    System.AddCCommand("loot_beacon_set_key_binding", "LootBeacon:set_key_binding(%line)",
+        "Set key binding for highlight activation")
 
     -- Load configuration
     self:loadModConfig()

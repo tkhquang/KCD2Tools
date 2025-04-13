@@ -1,11 +1,20 @@
-[size=6]Loot Beacon - Never Miss a Drop (Highlight Pickable Items)[/size]
+[size=6]Loot Beacon - Never Miss a Drop or Corpse[/size]
 
 [size=5]Description[/size]
-This mod helps you spot dropped items in the world of Kingdom Come: Deliverance II. Activate the "Loot Beacon" with a simple keypress and watch as nearby pickable items are highlighted with a colorful particle effect, ensuring you never miss valuable loot on the battlefield or in the dark.
+This mod helps you spot lootable objects in the world of Kingdom Come: Deliverance II. Activate the "Loot Beacon" with a simple keypress and watch as nearby pickable items, human corpses, and animal carcasses are highlighted with colorful particle effects, ensuring you never miss valuable loot on the battlefield or in the dark.
 
 [size=5]Features[/size]
 [list]
-[*] Instantly highlights all nearby pickable items with a glowing beacon (default: F4 key)
+[*] Instantly highlights lootable objects with color-coded glowing beacons (default: F4 key):
+   [list]
+   [*] [color=#FF0000]Red[/color]: Pickable items
+   [*] [color=#00FF00]Green[/color]: Human corpses
+   [*] [color=#0000FF]Blue[/color]: Animal carcasses
+   [/list]
+[*] Toggle highlighting for each object type individually
+[*] Configurable detection radius and highlight duration
+[*] On-screen notifications showing what was found
+[*] Full localization support (English and Italian)
 [*] Fully customizable through configuration file
 [/list]
 
@@ -46,38 +55,56 @@ KingdomComeDeliverance2/
 [size=5]Configuration[/size]
 You can customize the mod by editing the mod.cfg file inside the pak archive, or by using console commands in-game:
 
-[b]Key Configuration Commands:[/b]
+[b]Important Note on Configuration Format:[/b]
 [code]
-bind f4 loot_beacon_activate    # Change f4 to any key you prefer
+-- Parameter assignments must follow this exact format:
+parameter =value    (space after equals sign, NO space before)
 [/code]
 
-[b]Mod Settings:[/b]
+[b]Key Configuration:[/b]
 [code]
-loot_beacon_set_detection_radius 15.0    # Detection radius in meters
-loot_beacon_set_highlight_duration 5.0   # Duration of highlight effect in seconds
-loot_beacon_set_show_message 1           # Show on-screen messages (1=on, 0=off)
+loot_beacon_set_key_binding =f4    # Change f4 to any key you prefer
+[/code]
 
-# Particle effect colors (choose one)
-loot_beacon_set_particle_effect_path "loot_beacon.pillar_red"    # Red beacon
-loot_beacon_set_particle_effect_path "loot_beacon.pillar_green"  # Green beacon
-loot_beacon_set_particle_effect_path "loot_beacon.pillar_blue"   # Blue beacon
+[b]Detection Settings:[/b]
+[code]
+loot_beacon_set_detection_radius =15.0    # Detection radius in meters
+loot_beacon_set_highlight_duration =5.0   # Duration of highlight effect in seconds
+loot_beacon_set_show_message =1           # Show on-screen messages (1=on, 0=off)
+[/code]
 
-# Log level (1=Debug, 2=Info, 3=Warning, 4=Error)
-loot_beacon_set_log_level 2
+[b]Object Type Settings (1=on, 0=off):[/b]
+[code]
+loot_beacon_set_highlight_items =1        # Highlight pickable items
+loot_beacon_set_highlight_corpses =0      # Highlight human corpses
+loot_beacon_set_highlight_animals =0      # Highlight animal carcasses
+[/code]
+
+[b]Particle Effect Colors:[/b]
+[code]
+loot_beacon_set_item_particle_effect_path ="loot_beacon.pillar_red"          # Red beacon for items
+loot_beacon_set_human_corpse_particle_effect_path ="loot_beacon.pillar_green"  # Green beacon for human corpses
+loot_beacon_set_animal_corpse_particle_effect_path ="loot_beacon.pillar_blue"  # Blue beacon for animal carcasses
+[/code]
+
+[b]Debugging:[/b]
+[code]
+loot_beacon_set_log_level =2             # Log level (1=Debug, 2=Info, 3=Warning, 4=Error)
 [/code]
 
 [size=5]Usage[/size]
 [list]
-[*] Press F4 (or your configured key) to highlight all pickable items within the detection radius
-[*] The highlight effect will last for 5 seconds (or your configured duration)
+[*] Press F4 (or your configured key) to highlight all enabled lootable objects within the detection radius
+[*] The highlight effect will last for your configured duration (5 seconds by default)
 [*] Pressing F4 again while the effect is active will restart the highlight duration
-[*] A notification will show how many items were found
+[*] A notification will show how many objects of each type were found
 [/list]
 
 [size=5]Known Issues and Limitations[/size]
 [list]
 [*] The "PickableItem" class doesn't contain all pickable items in the game (for example, torches may not be highlighted)
 [*] Some items might be highlighted but still can't be picked up, and some pickable items might not be highlighted
+[*] Performance may decrease if highlighting many objects at once in dense areas
 [*] This is an early version that needs further testing - please report any issues you encounter
 [/list]
 
@@ -87,8 +114,17 @@ This mod should be compatible with most other KCD II mods as it doesn't modify a
 [size=5]Note[/size]
 I don't have experience with creating particle effects, so the current highlight beacons are adapted from existing game resources with some tweaks. If anyone has better particle effect ideas or expertise with creating custom particles for KCD II, please contact me - I'd be happy to collaborate on improving the visual effects in this mod!
 
+[size=5]Localization[/size]
+The mod currently supports the following languages:
+[list]
+[*] English
+[*] Italian
+[/list]
+
 [size=5]Credits[/size]
 [list]
+[*] [url=https://next.nexusmods.com/profile/Nevyn77?gameId=7286]Nevyn77[/url] - For Italian translation
+[*] [url=https://next.nexusmods.com/profile/c0rish?gameId=7286]c0rish[/url] - For helping debug Vortex installation and mod.cfg errors
 [*] [url=https://next.nexusmods.com/profile/7H3LaughingMan?gameId=7286]7H3LaughingMan[/url] - For [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1482]KCD2 PAK[/url], which helps me create pak files with ease
 [*] [url=https://next.nexusmods.com/profile/yobson?gameId=7286]yobson[/url] - For [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/459]VS Code Lua Runner[/url], which helped testing lua scripts faster
 [*] Warhorse Studios for creating Kingdom Come: Deliverance II
