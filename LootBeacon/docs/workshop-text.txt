@@ -46,6 +46,21 @@ This mod helps you spot lootable objects in the world of Kingdom Come: Deliveran
 
 3. Copy the following configuration into the mod.cfg file:
 [code]
+-- #####################################
+-- LOOT BEACON CONFIGURATION
+-- #####################################
+
+-- IMPORTANT FORMATTING INSTRUCTIONS FOR USERS:
+-- 1. DO NOT add or remove spaces in parameter assignments
+-- 2. Always use the EXACT format: parameter =value
+--    (space after equals sign, NO space before)
+-- 3. Editing the values is fine, but keep the format intact
+
+-- Examples:
+--   CORRECT:   loot_beacon_set_detection_radius =20.0
+--   INCORRECT: loot_beacon_set_detection_radius=20.0  (missing space after =)
+--   INCORRECT: loot_beacon_set_detection_radius = 20.0 (extra space before value)
+
 -- Detection radius in meters
 loot_beacon_set_detection_radius =15.0
 
@@ -74,6 +89,10 @@ loot_beacon_set_highlight_animals =1    -- Animal corpses
 
 -- Key binding for highlight activation (F4 is default)
 loot_beacon_set_key_binding =f4
+
+-- ============================================================================
+-- END OF CONFIGURATION
+-- ============================================================================
 [/code]
 
 4. Modify the values as you wish, following these rules:
