@@ -1,8 +1,7 @@
 [h1]Loot Beacon - Never Miss a Drop or Corpse[/h1]
 
-[h2]⚠️ IMPORTANT NOTE ⚠️[/h2]
-[b]The Steam Workshop version (this one) cannot be customized. If you want to change settings like detection radius, beacon color, or highlight duration, please download the Nexus version instead:
-[url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1722]https://www.nexusmods.com/kingdomcomedeliverance2/mods/1722[/url][/b]
+[h2]🚨 ALSO AVAILABLE ON NEXUS MODS! 🚨[/h2]
+[b]Get the [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1722]Nexus version[/url] for additional features and easier mod management with Vortex![/b]
 
 [h2]Description[/h2]
 This mod helps you spot lootable objects in the world of Kingdom Come: Deliverance II. Activate the "Loot Beacon" with a simple keypress (F4) and watch as nearby pickable items, human corpses, and animal carcasses are highlighted with colorful particle effects, ensuring you never miss valuable loot on the battlefield or in the dark.
@@ -13,43 +12,84 @@ This mod helps you spot lootable objects in the world of Kingdom Come: Deliveran
    [*][b]Red:[/b] Pickable items
    [*][b]Green:[/b] Human corpses
    [*][b]Blue:[/b] Animal carcasses
-[*]Default settings in Steam Workshop version:
-   [*]Detection radius: 15 meters [b](fixed in Steam version)[/b]
-   [*]Highlight duration: 5 seconds [b](fixed in Steam version)[/b]
-   [*]All highlight types (items, corpses, animals) enabled by default [b](fixed in Steam version)[/b]
-[*]Fully customizable in the Nexus version only: [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1722]Nexus Mod Page[/url]
+[*]Fully customizable settings
+   [*]Detection radius: 15 meters
+   [*]Highlight duration: 5 seconds
+   [*]All highlight types (items, corpses, animals) enabled by default
 [/list]
 
-[h2]Installation (Nexus Version Only)[/h2]
+[h2]Installation[/h2]
 [olist]
-[*]Download the file from Nexus: [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1722]https://www.nexusmods.com/kingdomcomedeliverance2/mods/1722[/url]
-[*]Navigate to your Kingdom Come: Deliverance 2 game folder in the Steam folder. The default is: [code]C:\Program Files (x86)\Steam\steamapps\common\KingdomComeDeliverance2\[/code]
-[*]Go to the "Mods" folder, if it doesn't exist create it.
-[*]Open the zip and extract the contents to the folder
-[*]Launch the game and press F4 to activate the highlight effect
+[*]Subscribe to the mod on Steam Workshop
+[*]Launch the game
+[*]Press F4 to activate the highlight effect
 [/olist]
 
-[h2]Uninstall with Vortex Mod Manager (VMM) - Nexus Version[/h2]
-[olist]
-[*]Start Vortex Mod Manager and choose MODS in the menu on the left.
-[*]Right click the mod in the list and choose remove/delete
-[*]When prompted choose whether you want to delete the zip file or not.
-[/olist]
+[h2]Usage[/h2]
+[list]
+[*]Press F4 to highlight all enabled lootable objects within the detection radius
+[*]The highlight effect will last for 5 seconds
+[*]Pressing F4 again while the effect is active will restart the highlight duration
+[*]A notification will show how many objects of each type were found
+[/list]
 
-[h2]Manual uninstall - Nexus Version[/h2]
-[olist]
-[*]Open Windows Explorer and navigate to your [code]KingdomComeDeliverance2\Mods[/code] folder
-[*]Delete the Folder LootBeacon
-[/olist]
+[h2]⚠️ CONFIGURATION INSTRUCTIONS ⚠️[/h2]
+[b]You can customize the mod by creating a configuration file in one of these locations:[/b]
 
-[h2]Configuration (Nexus Version Only)[/h2]
-[b]This customization is only available in the Nexus version - the Steam Workshop version uses fixed default settings.[/b]
+1. Create a folder in one of these locations:
+   [list]
+   [*][b]C:\KCD2Mods\LootBeacon\[/b]
+   [*][b]D:\KCD2Mods\LootBeacon\[/b]
+   [/list]
 
-You can customize the mod by editing the mod.cfg file inside the LootBeacon folder.
+2. Create a file named [b]mod.cfg[/b] (make sure it's a .cfg file, NOT .txt!) in the folder you chose.
+
+3. Copy the following configuration into the mod.cfg file:
+[code]
+-- Detection radius in meters
+loot_beacon_set_detection_radius =15.0
+
+-- Particle effect for items (available colors: red, green, blue)
+loot_beacon_set_item_particle_effect_path ="loot_beacon.pillar_red"
+
+-- Particle effect for human corpses
+loot_beacon_set_human_corpse_particle_effect_path ="loot_beacon.pillar_green"
+
+-- Particle effect for animal corpses
+loot_beacon_set_animal_corpse_particle_effect_path ="loot_beacon.pillar_blue"
+
+-- Highlight duration in seconds
+loot_beacon_set_highlight_duration =5.0
+
+-- Show on-screen messages (1=on, 0=off)
+loot_beacon_set_show_message =1
+
+-- Log level (1=Debug, 2=Info, 3=Warning, 4=Error)
+loot_beacon_set_log_level =2
+
+-- Enable/disable highlighting for different types (1=on, 0=off)
+loot_beacon_set_highlight_items =1      -- Pickable items
+loot_beacon_set_highlight_corpses =1    -- Human corpses
+loot_beacon_set_highlight_animals =1    -- Animal corpses
+
+-- Key binding for highlight activation (F4 is default)
+loot_beacon_set_key_binding =f4
+[/code]
+
+4. Modify the values as you wish, following these rules:
+   [list]
+   [*]Always use [b]= value[/b] (space after equals sign)
+   [*]No spaces before the value
+   [*]Use whole numbers for on/off settings (1 or 0)
+   [*]Use decimal numbers for radius and duration
+   [/list]
+
+[h2]Configuration Options[/h2]
+You can modify the mod's behavior using console commands or by creating a configuration file:
 
 Key Configuration:
 [code]
-loot_beacon_set_key_binding =f4    # Change f4 to any key you prefer
+loot_beacon_set_key_binding =f4    # Change F4 to any key you prefer
 [/code]
 
 Detection Settings:
@@ -72,22 +112,6 @@ loot_beacon_set_item_particle_effect_path ="loot_beacon.pillar_red"          # R
 loot_beacon_set_human_corpse_particle_effect_path ="loot_beacon.pillar_green"  # Green beacon for human corpses
 loot_beacon_set_animal_corpse_particle_effect_path ="loot_beacon.pillar_blue"  # Blue beacon for animal carcasses
 [/code]
-
-You can also use these commands directly in the console (~ key) for temporary changes.
-
-[h2]Usage[/h2]
-[list]
-[*]Press F4 to highlight all enabled lootable objects within the detection radius
-[*]The highlight effect will last for 5 seconds
-[*]Pressing F4 again while the effect is active will restart the highlight duration
-[*]A notification will show how many objects of each type were found
-[/list]
-
-[h2]Steam Workshop vs. Nexus Version[/h2]
-[list]
-[*][b]Steam Workshop version (this one):[/b] Easy one-click installation, but uses fixed default settings
-[*][b]Nexus version ([url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1722]link here[/url]):[/b] Requires manual installation, but allows full customization of all mod settings
-[/list]
 
 [h2]Known Issues and Limitations[/h2]
 [list]

@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 1.2.1
+
+- Added full configuration support for Steam Workshop version
+- Users can now customize mod settings by creating a `mod.cfg` file in `C:\KCD2Mods\LootBeacon\` or `D:\KCD2Mods\LootBeacon\`
+- Simplified mod installation and configuration instructions
+- Removed version-specific restrictions on customization
+
 ## Version 1.2.0
 
 - Added Italian translation (thanks to Nevyn77)
