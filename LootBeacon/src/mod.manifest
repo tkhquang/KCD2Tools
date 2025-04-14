@@ -5,7 +5,7 @@
 		<modid>loot_beacon</modid>
 		<description>Loot Beacon - Never Miss a Drop or Corpse (Highlight Pickable Items)</description>
 		<author>tkhquang</author>
-		<version>1.2.1</version>
+		<version>1.2.2</version>
 		<created_on>10.04.2025</created_on>
 		<modifies_level>false</modifies_level>
 	</info>

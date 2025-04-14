@@ -1,19 +1,21 @@
 --[[
 Loot Beacon - Never Miss a Drop or Corpse
-Version: 1.2.1
+Version: 1.2.2
 Author: tkhquang
 ]]
 
 -- Define the LootBeacon table with mod properties
 LootBeacon = {}
 LootBeacon.modname = "Loot Beacon"
-LootBeacon.version = "1.2.1"
+LootBeacon.version = "1.2.2"
 
 -- Configuration values with g_ prefix as per KCD coding standards
 LootBeacon.g_detectionRadius = 15.0
 LootBeacon.g_itemParticleEffectPath = "loot_beacon.pillar_red"
 LootBeacon.g_humanCorpseParticleEffectPath = "loot_beacon.pillar_green"
 LootBeacon.g_animalCorpseParticleEffectPath = "loot_beacon.pillar_blue"
+LootBeacon.g_customEntityParticleEffectPath = "loot_beacon.pillar_red"
+LootBeacon.g_customEntityClasses = "Nest"
 LootBeacon.g_highlightDuration = 5.0
 LootBeacon.g_showMessage = true
 LootBeacon.g_keyBinding = "f4"
@@ -179,6 +181,37 @@ function LootBeacon:set_animal_corpse_particle_effect_path(line)
     else
         self:logWarning("Invalid animal corpse particle effect path, using default: " ..
             self.g_animalCorpseParticleEffectPath)
+    end
+end
+
+-- Handler for setting custom entity classes
+-- @param line string: Command line containing comma-separated entity class names
+function LootBeacon:set_custom_entity_classes(line)
+    self:logDebug("set_custom_entity_classes() line: " .. tostring(line))
+
+    local value = self:getStringValueFromLine(line)
+    if value then
+        self.g_customEntityClasses = value
+        self:logInfo("Custom entity classes set to: " .. value)
+        self.g_mod_config_loaded = true
+    else
+        self:logWarning("Invalid custom entity classes, using default: " .. self.g_customEntityClasses)
+    end
+end
+
+-- Handler for setting custom entity particle effect path
+-- @param line string: Command line containing the effect path
+function LootBeacon:set_custom_entity_particle_effect_path(line)
+    self:logDebug("set_custom_entity_particle_effect_path() line: " .. tostring(line))
+
+    local value = self:getStringValueFromLine(line)
+    if value and value ~= "" then
+        self.g_customEntityParticleEffectPath = value
+        self:logInfo("Custom entity particle effect path set to: " .. value)
+        self.g_mod_config_loaded = true
+    else
+        self:logWarning("Invalid custom entity particle effect path, using default: " ..
+            self.g_customEntityParticleEffectPath)
     end
 end
 
@@ -468,6 +501,34 @@ function LootBeacon:getEntityName(entity)
     return entityName
 end
 
+-- Helper function to check if a class is in the custom entity classes list
+-- @param className string: The class name to check
+-- @return boolean: True if the class is in the custom entity classes list
+function LootBeacon:isCustomEntityClass(className)
+    if not className or not self.g_customEntityClasses or self.g_customEntityClasses == "" then
+        return false
+    end
+
+    -- Split the comma-separated string into a table
+    local classNames = {}
+    for class in string.gmatch(self.g_customEntityClasses, "([^,]+)") do
+        -- Trim whitespace
+        class = string.match(class, "^%s*(.-)%s*$")
+        if class and class ~= "" then
+            table.insert(classNames, class)
+        end
+    end
+
+    -- Check if the className is in the list
+    for _, class in ipairs(classNames) do
+        if className == class then
+            return true
+        end
+    end
+
+    return false
+end
+
 -- Removes all active highlights from entities
 function LootBeacon:removeHighlights()
     self:logInfo("Removing highlights from " .. #self.particleEntities .. " entities")
@@ -579,39 +640,55 @@ function LootBeacon:activateHighlights()
 
     -- Process each entity
     for _, entity in pairs(allEntities) do
-        -- Check if entity is an actor (NPC or Animal)
-        if entity and entity["actor"] then
-            self:logDebug("Actor IsDead: " .. tostring(entity.actor:IsDead()))
-            self:logDebug("Actor Name: " .. tostring(self:getEntityName(entity)))
+        self:logDebug("=============================")
+        self:logDebug("Entity: " .. tostring(entity))
+        self:logDebug("Entity Name: " .. tostring(self:getEntityName(entity)))
+        self:logDebug("Entity Class: " .. tostring(entity.class))
+        -- Only process non-hidden entities
+        if entity and entity:IsHidden() ~= true then
+            -- Check if entity is an actor (NPC or Animal)
+            if entity["actor"] then
+                self:logDebug("Actor IsDead: " .. tostring(entity.actor:IsDead()))
+                self:logDebug("Actor Name: " .. tostring(self:getEntityName(entity)))
 
-            -- Only process dead actors
-            if entity.actor:IsDead() then
-                -- Is Human
-                if entity["human"] and self.g_highlightCorpses then
-                    if self:applyHighlightEffect(entity, self.g_humanCorpseParticleEffectPath) then
-                        corpsesCount = corpsesCount + 1
-                        totalHighlighted = totalHighlighted + 1
+                -- Only process dead actors
+                if entity.actor:IsDead() then
+                    -- Is Human
+                    if entity["human"] and self.g_highlightCorpses then
+                        if self:applyHighlightEffect(entity, self.g_humanCorpseParticleEffectPath) then
+                            corpsesCount = corpsesCount + 1
+                            totalHighlighted = totalHighlighted + 1
+                        end
+                        -- Is Animal (not human and is dead)
+                    elseif self.g_highlightAnimals then
+                        if self:applyHighlightEffect(entity, self.g_animalCorpseParticleEffectPath) then
+                            animalsCount = animalsCount + 1
+                            totalHighlighted = totalHighlighted + 1
+                        end
                     end
-                    -- Is Animal (not human and is dead)
-                elseif self.g_highlightAnimals then
-                    if self:applyHighlightEffect(entity, self.g_animalCorpseParticleEffectPath) then
-                        animalsCount = animalsCount + 1
+                end
+                -- Check for pickable items
+            elseif entity.class == self.ENTITY_CLASS_PICKABLE and self.g_highlightItems then
+                if self:isItemPickable(entity) then
+                    if self:applyHighlightEffect(entity, self.g_itemParticleEffectPath) then
+                        itemsCount = itemsCount + 1
                         totalHighlighted = totalHighlighted + 1
                     end
                 end
-            end
-            -- Check for pickable items
-        elseif entity and entity.class == self.ENTITY_CLASS_PICKABLE and self.g_highlightItems then
-            if self:isItemPickable(entity) then
-                if self:applyHighlightEffect(entity, self.g_itemParticleEffectPath) then
-                    itemsCount = itemsCount + 1
+                -- Check for custom entity classes
+            elseif self.g_customEntityClasses ~= "" and self:isCustomEntityClass(entity.class) then
+                if self:applyHighlightEffect(entity, self.g_customEntityParticleEffectPath) then
+                    itemsCount = itemsCount + 1 -- Count these as items for the UI message
                     totalHighlighted = totalHighlighted + 1
                 end
+            else
+                -- Other entities
+                self:logDebug("IS OTHER ENTITY")
             end
         else
-            -- Other entities
-            self:logDebug("Other Entity: " .. tostring(entity))
+            self:logDebug("Entity is hidden, skipping")
         end
+        self:logDebug("=============================")
     end
 
     self:logInfo("Highlighted " .. itemsCount .. " pickable items")
@@ -714,6 +791,8 @@ function LootBeacon:loadModConfig()
     self:logInfo("- Item particle effect: " .. self.g_itemParticleEffectPath)
     self:logInfo("- Human corpse particle effect: " .. self.g_humanCorpseParticleEffectPath)
     self:logInfo("- Animal particle effect: " .. self.g_animalCorpseParticleEffectPath)
+    self:logInfo("- Custom entity classes: " .. self.g_customEntityClasses)
+    self:logInfo("- Custom entity particle effect: " .. self.g_customEntityParticleEffectPath)
     self:logInfo("- Highlight duration: " .. self.g_highlightDuration .. "s")
     self:logInfo("- Show messages: " .. (self.g_showMessage and "Yes" or "No"))
     self:logInfo("- Highlight items: " .. (self.g_highlightItems and "Yes" or "No"))
@@ -737,6 +816,11 @@ function LootBeacon:onInit()
         "LootBeacon:set_human_corpse_particle_effect_path(%line)", "Set human corpse particle effect path")
     System.AddCCommand("loot_beacon_set_animal_corpse_particle_effect_path",
         "LootBeacon:set_animal_corpse_particle_effect_path(%line)", "Set animal corpse particle effect path")
+    System.AddCCommand("loot_beacon_set_custom_entity_classes", "LootBeacon:set_custom_entity_classes(%line)",
+        "Set custom entity classes to highlight (comma-separated)")
+    System.AddCCommand("loot_beacon_set_custom_entity_particle_effect_path",
+        "LootBeacon:set_custom_entity_particle_effect_path(%line)",
+        "Set custom entity particle effect path")
     System.AddCCommand("loot_beacon_set_highlight_duration", "LootBeacon:set_highlight_duration(%line)",
         "Set highlight duration in seconds")
     System.AddCCommand("loot_beacon_set_show_message", "LootBeacon:set_show_message(%line)",

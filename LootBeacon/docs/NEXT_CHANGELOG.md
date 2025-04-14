@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 1.2.2
+
+- Added support for custom entity classes with configurable options:
+  - Highlight bird nests, herbs, mushrooms, and other special entity types
+  - Configure custom entity classes via comma-separated list in `mod.cfg`
+  - Customize particle effect color for custom entities separately
+  - Custom entities count toward item totals in notifications
+- Added comprehensive debug logging for entity detection
+
 ## Version 1.2.1
 
 - Added full configuration support for Steam Workshop version

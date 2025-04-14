@@ -1,16 +1,17 @@
 [size=6]Loot Beacon - Never Miss a Drop or Corpse[/size]
 
 [size=5]Description[/size]
-This mod helps you spot lootable objects in the world of Kingdom Come: Deliverance II. Activate the "Loot Beacon" with a simple keypress and watch as nearby pickable items, human corpses, and animal carcasses are highlighted with colorful particle effects, ensuring you never miss valuable loot on the battlefield or in the dark.
+This mod helps you spot lootable objects in the world of Kingdom Come: Deliverance II. Activate the "Loot Beacon" with a simple keypress and watch as nearby pickable items, human corpses, animal carcasses, and special entities like bird nests are highlighted with colorful particle effects, ensuring you never miss valuable loot on the battlefield or in the dark.
 
 [size=5]Features[/size]
 [list]
 [*] Instantly highlights lootable objects with color-coded glowing beacons (default: F4 key):
    [list]
-   [*] [color=#FF0000]Red[/color]: Pickable items
+   [*] [color=#FF0000]Red[/color]: Pickable items and custom entities (nests, herbs, etc.)
    [*] [color=#00FF00]Green[/color]: Human corpses
    [*] [color=#0000FF]Blue[/color]: Animal carcasses
    [/list]
+[*] Custom entity class support for bird nests, herbs, and more
 [*] Toggle highlighting for each object type individually
 [*] Configurable detection radius and highlight duration
 [*] On-screen notifications showing what was found
@@ -76,8 +77,15 @@ loot_beacon_set_show_message =1           # Show on-screen messages (1=on, 0=off
 [b]Object Type Settings (1=on, 0=off):[/b]
 [code]
 loot_beacon_set_highlight_items =1        # Highlight pickable items
-loot_beacon_set_highlight_corpses =0      # Highlight human corpses
-loot_beacon_set_highlight_animals =0      # Highlight animal carcasses
+loot_beacon_set_highlight_corpses =1      # Highlight human corpses
+loot_beacon_set_highlight_animals =1      # Highlight animal carcasses
+[/code]
+
+[b]Custom Entity Settings:[/b]
+[code]
+loot_beacon_set_custom_entity_classes ="Nest"  # Comma-separated list of entity classes to highlight
+                                               # Examples: "Nest" for bird nests, "PickableArea" for herbs
+loot_beacon_set_custom_entity_particle_effect_path ="loot_beacon.pillar_red"  # Color for custom entities
 [/code]
 
 [b]Particle Effect Colors:[/b]

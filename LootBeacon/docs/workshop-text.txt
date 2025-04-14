@@ -4,18 +4,19 @@
 [b]Get the [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1722]Nexus version[/url] for additional features and easier mod management with Vortex![/b]
 
 [h2]Description[/h2]
-This mod helps you spot lootable objects in the world of Kingdom Come: Deliverance II. Activate the "Loot Beacon" with a simple keypress (F4) and watch as nearby pickable items, human corpses, and animal carcasses are highlighted with colorful particle effects, ensuring you never miss valuable loot on the battlefield or in the dark.
+This mod helps you spot lootable objects in the world of Kingdom Come: Deliverance II. Activate the "Loot Beacon" with a simple keypress (F4) and watch as nearby pickable items, human corpses, animal carcasses, and special entities like bird nests are highlighted with colorful particle effects, ensuring you never miss valuable loot on the battlefield or in the dark.
 
 [h2]Features[/h2]
 [list]
 [*]Instantly highlights lootable objects with color-coded glowing beacons (F4 key):
-   [*][b]Red:[/b] Pickable items
+   [*][b]Red:[/b] Pickable items and custom entities (like bird nests)
    [*][b]Green:[/b] Human corpses
    [*][b]Blue:[/b] Animal carcasses
+[*]Custom entity highlighting for bird nests, herbs, and more
 [*]Fully customizable settings
    [*]Detection radius: 15 meters
    [*]Highlight duration: 5 seconds
-   [*]All highlight types (items, corpses, animals) enabled by default
+   [*]All highlight types (items, corpses, animals, custom entities) enabled by default
 [/list]
 
 [h2]Installation[/h2]
@@ -73,6 +74,16 @@ loot_beacon_set_human_corpse_particle_effect_path ="loot_beacon.pillar_green"
 -- Particle effect for animal corpses
 loot_beacon_set_animal_corpse_particle_effect_path ="loot_beacon.pillar_blue"
 
+-- Custom entity classes to highlight (comma-separated, leave empty to disable)
+-- Common entity classes in KC:D2:
+-- - Nest: Bird nests
+-- - PickableArea: Herbs, plants,...
+-- Example: "Nest,PickableArea"
+loot_beacon_set_custom_entity_classes ="Nest"
+
+-- Particle effect for custom entity classes (available colors: red, green, blue)
+loot_beacon_set_custom_entity_particle_effect_path ="loot_beacon.pillar_red"
+
 -- Highlight duration in seconds
 loot_beacon_set_highlight_duration =5.0
 
@@ -123,6 +134,7 @@ Object Type Settings (1=on, 0=off):
 loot_beacon_set_highlight_items =1        # Highlight pickable items
 loot_beacon_set_highlight_corpses =1      # Highlight human corpses
 loot_beacon_set_highlight_animals =1      # Highlight animal carcasses
+loot_beacon_set_custom_entity_classes ="Nest"  # Custom entity classes to highlight
 [/code]
 
 Particle Effect Colors:
@@ -130,6 +142,7 @@ Particle Effect Colors:
 loot_beacon_set_item_particle_effect_path ="loot_beacon.pillar_red"          # Red beacon for items
 loot_beacon_set_human_corpse_particle_effect_path ="loot_beacon.pillar_green"  # Green beacon for human corpses
 loot_beacon_set_animal_corpse_particle_effect_path ="loot_beacon.pillar_blue"  # Blue beacon for animal carcasses
+loot_beacon_set_custom_entity_particle_effect_path ="loot_beacon.pillar_red"   # Red beacon for custom entities
 [/code]
 
 [h2]Known Issues and Limitations[/h2]

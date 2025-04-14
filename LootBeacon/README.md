@@ -7,10 +7,11 @@
 ## Features
 
 - Instantly highlight nearby lootable objects with color-coded beacons (default: F4 key)
-  - **Red**: Pickable items
+  - **Red**: Pickable items and custom entity classes
   - **Green**: Human corpses
   - **Blue**: Animal carcasses
 - Toggle highlighting for each object type individually
+- Custom entity class support (highlight bird nests, herbs, and more)
 - Configurable detection radius and highlight duration
 - On-screen notifications showing what was found
 - Full localization support (English and Italian)
@@ -53,6 +54,15 @@ loot_beacon_set_human_corpse_particle_effect_path ="loot_beacon.pillar_green"
 -- Particle effect for animal corpses
 loot_beacon_set_animal_corpse_particle_effect_path ="loot_beacon.pillar_blue"
 
+-- Custom entity classes to highlight (comma-separated, leave empty to disable)
+-- Common entity classes in KC:D2:
+-- - Nest: Bird nests
+-- - PickableArea: Herbs, plants,...
+loot_beacon_set_custom_entity_classes ="Nest"
+
+-- Particle effect for custom entity classes
+loot_beacon_set_custom_entity_particle_effect_path ="loot_beacon.pillar_red"
+
 -- Highlight duration in seconds
 loot_beacon_set_highlight_duration =5.0
 
@@ -61,8 +71,8 @@ loot_beacon_set_show_message =1
 
 -- Enable/disable highlighting for different types (1=on, 0=off)
 loot_beacon_set_highlight_items =1      -- Pickable items
-loot_beacon_set_highlight_corpses =0    -- Human corpses
-loot_beacon_set_highlight_animals =0    -- Animal corpses
+loot_beacon_set_highlight_corpses =1    -- Human corpses
+loot_beacon_set_highlight_animals =1    -- Animal corpses
 
 -- Key binding for highlight activation (F4 is default)
 loot_beacon_set_key_binding =f4
@@ -72,7 +82,7 @@ loot_beacon_set_key_binding =f4
 
 1. Press F4 (or your configured key) in-game
 2. All enabled lootable objects within your configured radius will be highlighted:
-   - Red beacons for pickable items
+   - Red beacons for pickable items and custom entities
    - Green beacons for human corpses
    - Blue beacons for animal carcasses
 3. The highlight effect lasts for your configured duration (5 seconds by default)
