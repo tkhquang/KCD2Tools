@@ -1,13 +1,13 @@
 --[[
 Loot Beacon - Never Miss a Drop or Corpse
-Version: 1.2.2
+Version: 1.2.3
 Author: tkhquang
 ]]
 
 -- Define the LootBeacon table with mod properties
 LootBeacon = {}
 LootBeacon.modname = "Loot Beacon"
-LootBeacon.version = "1.2.2"
+LootBeacon.version = "1.2.3"
 
 -- Configuration values with g_ prefix as per KCD coding standards
 LootBeacon.g_detectionRadius = 15.0
