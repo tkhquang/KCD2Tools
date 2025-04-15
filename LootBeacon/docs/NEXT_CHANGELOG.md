@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 1.3.0
+
+- Added Good Citizen Mode (will skip highlighting items that require stealing)
+- Added German translation
+
 ## Version 1.2.2
 
 - Added support for custom entity classes with configurable options:
