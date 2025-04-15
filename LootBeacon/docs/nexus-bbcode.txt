@@ -15,7 +15,6 @@ This mod helps you spot lootable objects in the world of Kingdom Come: Deliveran
 [*] Toggle highlighting for each object type individually
 [*] Configurable detection radius and highlight duration
 [*] On-screen notifications showing what was found
-[*] Full localization support (English and Italian)
 [*] Fully customizable through configuration file
 [/list]
 
@@ -54,7 +53,7 @@ KingdomComeDeliverance2/
 [/list]
 
 [size=5]Configuration[/size]
-You can customize the mod by editing the mod.cfg file inside the pak archive, or by using console commands in-game:
+You can customize the mod by editing the mod.cfg file, or by using console commands in-game:
 
 [b]Important Note on Configuration Format:[/b]
 [code]
@@ -65,6 +64,7 @@ parameter =value    (space after equals sign, NO space before)
 [b]Key Configuration:[/b]
 [code]
 loot_beacon_set_key_binding =f4    # Change f4 to any key you prefer
+# For a full list of key names see: https://www.cryengine.com/docs/static/engines/cryengine-5/categories/23756813/pages/23306384#list-of-key-names
 [/code]
 
 [b]Detection Settings:[/b]
@@ -79,6 +79,7 @@ loot_beacon_set_show_message =1           # Show on-screen messages (1=on, 0=off
 loot_beacon_set_highlight_items =1        # Highlight pickable items
 loot_beacon_set_highlight_corpses =1      # Highlight human corpses
 loot_beacon_set_highlight_animals =1      # Highlight animal carcasses
+loot_beacon_set_good_citizen_mode =0      # Skip highlighting items that require stealing
 [/code]
 
 [b]Custom Entity Settings:[/b]
@@ -122,16 +123,9 @@ This mod should be compatible with most other KCD II mods as it doesn't modify a
 [size=5]Note[/size]
 I don't have experience with creating particle effects, so the current highlight beacons are adapted from existing game resources with some tweaks. If anyone has better particle effect ideas or expertise with creating custom particles for KCD II, please contact me - I'd be happy to collaborate on improving the visual effects in this mod!
 
-[size=5]Localization[/size]
-The mod currently supports the following languages:
-[list]
-[*] English
-[*] Italian
-[/list]
-
 [size=5]Credits[/size]
 [list]
-[*] [url=https://next.nexusmods.com/profile/Nevyn77?gameId=7286]Nevyn77[/url] - For Italian translation
+[*] [url=https://next.nexusmods.com/profile/Nevyn77?gameId=7286]Nevyn77[/url] (Italian), [url=https://next.nexusmods.com/profile/pauldenton?gameId=7286]pauldenton[/url] (German) - For translations
 [*] [url=https://next.nexusmods.com/profile/c0rish?gameId=7286]c0rish[/url] - For helping debug Vortex installation and mod.cfg errors
 [*] [url=https://next.nexusmods.com/profile/7H3LaughingMan?gameId=7286]7H3LaughingMan[/url] - For [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1482]KCD2 PAK[/url], which helps me create pak files with ease
 [*] [url=https://next.nexusmods.com/profile/yobson?gameId=7286]yobson[/url] - For [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/459]VS Code Lua Runner[/url], which helped testing lua scripts faster

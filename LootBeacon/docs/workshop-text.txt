@@ -98,7 +98,12 @@ loot_beacon_set_highlight_items =1      -- Pickable items
 loot_beacon_set_highlight_corpses =1    -- Human corpses
 loot_beacon_set_highlight_animals =1    -- Animal corpses
 
+-- Good Citizen Mode (1=on, 0=off)
+-- If ON (1), will skip highlighting items that require stealing.
+loot_beacon_set_good_citizen_mode =0
+
 -- Key binding for highlight activation (F4 is default)
+-- Check for all supported key names: https://www.cryengine.com/docs/static/engines/cryengine-5/categories/23756813/pages/23306384#list-of-key-names
 loot_beacon_set_key_binding =f4
 
 -- ============================================================================
@@ -120,6 +125,7 @@ You can modify the mod's behavior using console commands or by creating a config
 Key Configuration:
 [code]
 loot_beacon_set_key_binding =f4    # Change F4 to any key you prefer
+# For a full list of key names see: https://www.cryengine.com/docs/static/engines/cryengine-5/categories/23756813/pages/23306384#list-of-key-names
 [/code]
 
 Detection Settings:
@@ -134,6 +140,7 @@ Object Type Settings (1=on, 0=off):
 loot_beacon_set_highlight_items =1        # Highlight pickable items
 loot_beacon_set_highlight_corpses =1      # Highlight human corpses
 loot_beacon_set_highlight_animals =1      # Highlight animal carcasses
+loot_beacon_set_good_citizen_mode =0      # Skip highlighting items that require stealing
 loot_beacon_set_custom_entity_classes ="Nest"  # Custom entity classes to highlight
 [/code]
 
@@ -153,22 +160,12 @@ loot_beacon_set_custom_entity_particle_effect_path ="loot_beacon.pillar_red"   #
 [*]This is an early version that needs further testing - please report any issues you encounter
 [/list]
 
-[h2]Compatibility[/h2]
-This mod should be compatible with most other KCD II mods as it doesn't modify any core game systems, only adds visual effects to existing entities.
-
-[h2]Localization[/h2]
-The mod currently supports the following languages:
-[list]
-[*]English
-[*]Italian
-[/list]
-
 [h2]Note[/h2]
 I don't have experience with creating particle effects, so the current highlight beacons are adapted from existing game resources with some tweaks. If anyone has better particle effect ideas or expertise with creating custom particles for KCD II, please contact me - I'd be happy to collaborate on improving the visual effects in this mod!
 
 [h2]Credits[/h2]
 [list]
-[*][url=https://next.nexusmods.com/profile/Nevyn77?gameId=7286]Nevyn77[/url] - For Italian translation
+[*][url=https://next.nexusmods.com/profile/Nevyn77?gameId=7286]Nevyn77[/url] (Italian), [url=https://next.nexusmods.com/profile/pauldenton?gameId=7286]pauldenton[/url] (German) - For translations
 [*][url=https://next.nexusmods.com/profile/c0rish?gameId=7286]c0rish[/url] - For helping debug Vortex installation and mod.cfg errors
 [*][url=https://next.nexusmods.com/profile/7H3LaughingMan?gameId=7286]7H3LaughingMan[/url] - For [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1482]KCD2 PAK[/url], which helps me create pak files with ease
 [*][url=https://next.nexusmods.com/profile/yobson?gameId=7286]yobson[/url] - For [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/459]VS Code Lua Runner[/url], which helped testing lua scripts faster

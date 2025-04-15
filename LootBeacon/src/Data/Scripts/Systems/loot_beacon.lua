@@ -1,13 +1,13 @@
 --[[
 Loot Beacon - Never Miss a Drop or Corpse
-Version: 1.2.3
+Version: 1.3.0
 Author: tkhquang
 ]]
 
 -- Define the LootBeacon table with mod properties
 LootBeacon = {}
 LootBeacon.modname = "Loot Beacon"
-LootBeacon.version = "1.2.3"
+LootBeacon.version = "1.3.0"
 
 -- Configuration values with g_ prefix as per KCD coding standards
 LootBeacon.g_detectionRadius = 15.0
@@ -25,6 +25,9 @@ LootBeacon.g_mod_config_loaded = false
 LootBeacon.g_highlightItems = true
 LootBeacon.g_highlightCorpses = true
 LootBeacon.g_highlightAnimals = true
+
+-- Configuration for other modes
+LootBeacon.g_goodCitizenMode = false
 
 -- Default to Info (1: Debug, 2: Info, 3: Warning, 4: Error)
 LootBeacon.g_logLevel = 2
@@ -317,6 +320,22 @@ function LootBeacon:set_highlight_animals(line)
     end
 end
 
+-- Handler for setting good citizen mode flag
+-- @param line string: Command line containing the flag value (0 or 1)
+function LootBeacon:set_good_citizen_mode(line)
+    self:logDebug("set_good_citizen_mode() line: " .. tostring(line))
+
+    local value = self:getNumberValueFromLine(line)
+    if value == 0 or value == 1 then
+        self.g_goodCitizenMode = (value == 1)
+        self:logInfo("Good Citizen Mode set to: " .. (self.g_goodCitizenMode and "ON" or "OFF"))
+        self.g_mod_config_loaded = true
+    else
+        self:logWarning("Invalid Good Citizen Mode value (should be 0 or 1), using default: " ..
+            (self.g_goodCitizenMode and "1" or "0"))
+    end
+end
+
 -- Handler for setting key binding from config
 -- @param line string: Command line containing the key name
 function LootBeacon:set_key_binding(line)
@@ -446,6 +465,11 @@ function LootBeacon:isItemPickable(pickableItem)
 
     if pickableItem.item:CanPickUp(player.id) == false then
         self:logDebug("Item " .. itemName .. " is not pickupable by player, skipping")
+        return false
+    end
+
+    if pickableItem.item:CanSteal(player.id) and self.g_goodCitizenMode then
+        self:logDebug("Item " .. itemName .. " is illegal to be picked up by player, skipping")
         return false
     end
 
@@ -798,6 +822,7 @@ function LootBeacon:loadModConfig()
     self:logInfo("- Highlight items: " .. (self.g_highlightItems and "Yes" or "No"))
     self:logInfo("- Highlight corpses: " .. (self.g_highlightCorpses and "Yes" or "No"))
     self:logInfo("- Highlight animals: " .. (self.g_highlightAnimals and "Yes" or "No"))
+    self:logInfo("- Good Citizen Mode: " .. (self.g_goodCitizenMode and "Yes" or "No"))
     self:logInfo("- Key binding: " .. (self.g_keyBinding or "f4"))
 end
 
@@ -832,6 +857,8 @@ function LootBeacon:onInit()
     System.AddCCommand("loot_beacon_set_highlight_corpses", "LootBeacon:set_highlight_corpses(%line)",
         "Set highlight corpses flag (0=off, 1=on)")
     System.AddCCommand("loot_beacon_set_highlight_animals", "LootBeacon:set_highlight_animals(%line)",
+        "Set highlight animals flag (0=off, 1=on)")
+    System.AddCCommand("loot_beacon_set_good_citizen_mode", "LootBeacon:set_good_citizen_mode(%line)",
         "Set highlight animals flag (0=off, 1=on)")
     System.AddCCommand("loot_beacon_set_key_binding", "LootBeacon:set_key_binding(%line)",
         "Set key binding for highlight activation")

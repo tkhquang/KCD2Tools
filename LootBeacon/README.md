@@ -14,7 +14,6 @@
 - Custom entity class support (highlight bird nests, herbs, and more)
 - Configurable detection radius and highlight duration
 - On-screen notifications showing what was found
-- Full localization support (English and Italian)
 - Fully customizable through configuration file
 
 ## Installation
@@ -74,7 +73,12 @@ loot_beacon_set_highlight_items =1      -- Pickable items
 loot_beacon_set_highlight_corpses =1    -- Human corpses
 loot_beacon_set_highlight_animals =1    -- Animal corpses
 
+-- Good Citizen Mode (1=on, 0=off)
+-- If ON (1), will skip highlighting items that require stealing.
+loot_beacon_set_good_citizen_mode =0
+
 -- Key binding for highlight activation (F4 is default)
+-- Check for all supported key names: https://www.cryengine.com/docs/static/engines/cryengine-5/categories/23756813/pages/23306384#list-of-key-names
 loot_beacon_set_key_binding =f4
 ```
 
@@ -96,15 +100,9 @@ loot_beacon_set_key_binding =f4
 - Performance may decrease if highlighting many objects at once in dense areas
 - This is an early version that needs further testing - please report any issues you encounter
 
-## Localization Support
-
-The mod currently supports the following languages:
-- English
-- Italian
-
 ## Credits
 
-- **[Nevyn77](https://next.nexusmods.com/profile/Nevyn77?gameId=7286)** - For Italian translation
+- **[Nevyn77](https://next.nexusmods.com/profile/Nevyn77?gameId=7286)** (Italian), **[pauldenton](https://next.nexusmods.com/profile/pauldenton?gameId=7286)** (German) - For translations.
 - **[c0rish](https://next.nexusmods.com/profile/c0rish?gameId=7286)** - For helping debug Vortex installation and mod.cfg errors
 - **[7H3LaughingMan](https://next.nexusmods.com/profile/7H3LaughingMan?gameId=7286)** - For [KCD2 PAK](https://www.nexusmods.com/kingdomcomedeliverance2/mods/1482), which helps create pak files with ease
 - **[yobson](https://next.nexusmods.com/profile/yobson?gameId=7286)** - For [VS Code Lua Runner](https://www.nexusmods.com/kingdomcomedeliverance2/mods/459), which helped testing lua scripts faster
