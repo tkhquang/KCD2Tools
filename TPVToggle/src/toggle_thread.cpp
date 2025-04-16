@@ -1,13 +1,14 @@
 /**
  * @file toggle_thread.cpp
- * @brief Implementation of key monitoring and view toggling
+ * @brief Implements background thread for key/state monitoring and interaction.
  *
- * This file implements the thread that monitors keyboard input
- * and toggles the third-person view flag when configured keys are pressed.
- * It also provides functions for accessing and manipulating the view state.
+ * Contains the main polling loop (GetAsyncKeyState), key state debouncing,
+ * overlay state tracking via global boolean updated by hooks, and view state
+ * management using captured R9. Includes automatic view switching when
+ * overlays open/close.
  */
 
-#include "toggle_thread.h"
+#include "toggle_thread.h" // Includes extern global pointer/flag declarations
 #include "logger.h"
 #include "utils.h"
 #include "constants.h"
@@ -15,282 +16,350 @@
 #include <windows.h>
 #include <vector>
 #include <unordered_map>
+#include <string>
 #include <sstream>
+#include <cmath>
+#include <iomanip>
 
-extern volatile BYTE *toggle_addr;
-
+// --- Helper Function: Memory Validation ---
 /**
- * Returns a pointer to the toggle_addr for use in other modules.
+ * @brief Checks if a memory address is likely readable.
  */
-volatile BYTE *getToggleAddr()
+bool isMemoryReadable(const volatile void *address, size_t size)
 {
-    return toggle_addr;
+    if (!address || size == 0)
+        return false;
+    MEMORY_BASIC_INFORMATION mbi;
+    if (VirtualQuery(const_cast<LPCVOID>(address), &mbi, sizeof(mbi)) == 0)
+        return false;
+    if (mbi.State != MEM_COMMIT)
+        return false;
+    const DWORD READ_FLAGS = (PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY |
+                              PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY);
+    if ((mbi.Protect & READ_FLAGS) == 0 || (mbi.Protect & PAGE_NOACCESS) || (mbi.Protect & PAGE_GUARD))
+        return false;
+    uintptr_t region_base_addr = reinterpret_cast<uintptr_t>(mbi.BaseAddress);
+    uintptr_t region_end_addr = region_base_addr + mbi.RegionSize;
+    uintptr_t requested_addr = reinterpret_cast<uintptr_t>(address);
+    uintptr_t requested_end_addr = requested_addr + size;
+    if (requested_end_addr < requested_addr)
+        return false;
+    return (requested_addr >= region_base_addr && requested_end_addr <= region_end_addr);
 }
 
 /**
- * Gets the current view state (0 for FPV, 1 for TPV).
- * Returns 0 (FPV) if the address is invalid or an exception occurs.
+ * @brief Checks if a memory address is likely writable.
  */
-BYTE getViewState()
+bool isMemoryWritable(volatile void *address, size_t size)
 {
-    // Use a local variable to prevent race conditions
-    volatile BYTE *current_addr = toggle_addr;
+    if (!address || size == 0)
+        return false;
+    MEMORY_BASIC_INFORMATION mbi;
+    if (VirtualQuery(const_cast<LPCVOID>(address), &mbi, sizeof(mbi)) == 0)
+        return false;
+    if (mbi.State != MEM_COMMIT)
+        return false;
+    const DWORD WRITE_FLAGS = (PAGE_READWRITE | PAGE_WRITECOPY |
+                               PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY);
+    if ((mbi.Protect & WRITE_FLAGS) == 0 || (mbi.Protect & PAGE_NOACCESS) || (mbi.Protect & PAGE_GUARD))
+        return false;
+    uintptr_t region_base_addr = reinterpret_cast<uintptr_t>(mbi.BaseAddress);
+    uintptr_t region_end_addr = region_base_addr + mbi.RegionSize;
+    uintptr_t requested_addr = reinterpret_cast<uintptr_t>(address);
+    uintptr_t requested_end_addr = requested_addr + size;
+    if (requested_end_addr < requested_addr)
+        return false;
+    return (requested_addr >= region_base_addr && requested_end_addr <= region_end_addr);
+}
 
-    if (current_addr == nullptr)
-    {
-        Logger::getInstance().log(LOG_ERROR, "Toggle: Attempted to get view state with null address");
-        return 0; // Default to FPV on error
-    }
-
-    try
-    {
-        return *current_addr;
-    }
-    catch (...)
-    {
-        Logger::getInstance().log(LOG_ERROR, "Toggle: Exception when accessing memory at " +
-                                                 format_address(reinterpret_cast<uintptr_t>(current_addr)));
-        return 0; // Default to FPV on error
-    }
+// --- View State Management (Uses R9 from TPV Hook) ---
+/**
+ * @brief (Internal) Reads the TPV flag byte using captured R9.
+ */
+bool readViewStateInternal(BYTE &current_value)
+{
+    if (!g_r9_for_tpv_flag)
+        return false;
+    uintptr_t r9_base_value = *g_r9_for_tpv_flag;
+    if (r9_base_value == 0)
+        return false;
+    volatile BYTE *flag_addr = reinterpret_cast<volatile BYTE *>(r9_base_value + Constants::TOGGLE_FLAG_OFFSET);
+    if (!isMemoryReadable(flag_addr, sizeof(BYTE)))
+        return false;
+    current_value = *flag_addr;
+    return true;
 }
 
 /**
- * Safely toggles the third-person view state with error handling.
- * Handles potential memory access exceptions and null pointer checks.
+ * @brief (Internal) Writes the TPV flag byte using captured R9.
  */
-bool safeToggleViewState()
+bool writeViewStateInternal(BYTE new_state)
 {
-    // Use a local variable to prevent race conditions
-    volatile BYTE *current_addr = toggle_addr;
-
-    if (current_addr == nullptr)
+    Logger &logger = Logger::getInstance();
+    if (!g_r9_for_tpv_flag)
     {
-        Logger::getInstance().log(LOG_ERROR, "Toggle: Attempted to toggle with null address");
+        logger.log(LOG_ERROR, "WriteView: Global R9 storage ptr is NULL.");
         return false;
     }
-
-    // Use structured exception handling to catch access violations
-    try
+    uintptr_t r9_base_value = *g_r9_for_tpv_flag;
+    if (r9_base_value == 0)
     {
-        BYTE current_value = *current_addr;
-        BYTE new_value = (current_value == 0) ? 1 : 0;
-        *current_addr = new_value;
-        return true;
-    }
-    catch (...)
-    {
-        Logger::getInstance().log(LOG_ERROR, "Toggle: Exception when accessing memory at " + format_address(reinterpret_cast<uintptr_t>(current_addr)));
+        logger.log(LOG_WARNING, "WriteView: Cannot write, captured R9 is 0x0.");
         return false;
     }
+    volatile BYTE *flag_addr = reinterpret_cast<volatile BYTE *>(r9_base_value + Constants::TOGGLE_FLAG_OFFSET);
+    if (!isMemoryWritable(flag_addr, sizeof(BYTE)))
+    {
+        logger.log(LOG_ERROR, "WriteView: Cannot write to flag address " + format_address(reinterpret_cast<uintptr_t>(flag_addr)));
+        return false;
+    }
+    *flag_addr = new_state;
+    return true;
 }
 
 /**
- * Sets the view state to a specific value (0 for FPV, 1 for TPV)
- * Only changes if the current state is different
+ * @brief Safely gets the current view state (FPV/TPV).
  */
-bool setViewState(BYTE state)
+int getViewState()
 {
-    // Use a local variable to prevent race conditions
-    volatile BYTE *current_addr = toggle_addr;
-
-    if (current_addr == nullptr)
+    BYTE current_value = 0;
+    if (readViewStateInternal(current_value))
     {
-        Logger::getInstance().log(LOG_ERROR, "Toggle: Attempted to set view state with null address");
-        return false;
-    }
-
-    try
-    {
-        BYTE current_value = *current_addr;
-
-        // Only change if the state is different
-        if (current_value != state)
+        if (current_value == 0 || current_value == 1)
+            return static_cast<int>(current_value);
+        else
         {
-            *current_addr = state;
+            Logger::getInstance().log(LOG_WARNING, "GetView: Read unexpected TPV flag value: " + std::to_string(current_value));
+            return -1;
+        }
+    }
+    return -1;
+}
+
+/**
+ * @brief Safely sets the view state (FPV/TPV).
+ */
+bool setViewState(BYTE new_state, int *key_pressed_vk = nullptr)
+{
+    Logger &logger = Logger::getInstance();
+    BYTE current_value = 0xFF;
+    std::string key_log_suffix = (key_pressed_vk) ? " (Key: " + format_vkcode(*key_pressed_vk) + ")" : " (Internal)";
+    std::string action_desc = (new_state == 0) ? "Set FPV" : "Set TPV";
+    if (readViewStateInternal(current_value))
+    {
+        if (current_value == new_state)
+        {
+            if (logger.isDebugEnabled())
+                logger.log(LOG_DEBUG, action_desc + key_log_suffix + ": View already " + std::to_string(new_state) + ". No change.");
             return true;
         }
-        return false; // No change needed
     }
-    catch (...)
+    logger.log(LOG_INFO, action_desc + key_log_suffix + ": Attempting write -> " + std::to_string(new_state));
+    if (writeViewStateInternal(new_state))
     {
-        Logger::getInstance().log(LOG_ERROR, "Toggle: Exception when accessing memory at " + format_address(reinterpret_cast<uintptr_t>(current_addr)));
+        logger.log(LOG_INFO, action_desc + key_log_suffix + ": Set TPV Flag to " + std::to_string(new_state) + (new_state ? " (TPV)" : " (FPV)"));
+        return true;
+    }
+    else
+    {
+        logger.log(LOG_ERROR, action_desc + key_log_suffix + ": Write FAILED.");
         return false;
     }
 }
 
 /**
- * Sets the view to first-person (value 0)
+ * @brief Safely toggles between FPV (0) and TPV (1).
  */
-bool setFirstPersonView()
+bool safeToggleViewState(int *key_pressed_vk)
 {
-    return setViewState(0);
-}
-
-/**
- * Sets the view to third-person (value 1)
- */
-bool setThirdPersonView()
-{
-    return setViewState(1);
-}
-
-/**
- * Thread function that monitors configured keys and changes the view state.
- * Handles three types of keys: toggle keys, FPV keys, and TPV keys.
- * Tracks key states to detect press events and debounces input.
- *
- * If all key vectors are empty, the thread will still run but won't monitor any keys,
- * effectively becoming a no-operation (noop) thread that consumes minimal resources.
- */
-DWORD WINAPI ToggleThread(LPVOID param)
-{
-    ToggleData *data = static_cast<ToggleData *>(param);
-
-    // Copy the key vectors for local use
-    std::vector<int> toggle_keys = data->toggle_keys;
-    std::vector<int> fpv_keys = data->fpv_keys;
-    std::vector<int> tpv_keys = data->tpv_keys;
-
-    // Clean up the parameter data
-    delete data;
-
     Logger &logger = Logger::getInstance();
-
-    // Wait for toggle address to be initialized by exception handler
-    while (toggle_addr == nullptr)
+    std::string key_log_suffix = (key_pressed_vk) ? " (Key: " + format_vkcode(*key_pressed_vk) + ")" : " (Internal)";
+    int current_state = getViewState();
+    if (current_state == 0)
     {
-        Sleep(100);
+        logger.log(LOG_DEBUG, "Toggle" + key_log_suffix + ": Current=FPV(0), switching to TPV(1)...");
+        return setViewState(1, key_pressed_vk);
     }
-
-    logger.log(LOG_INFO, "Thread: Toggle thread started");
-
-    // Check if all key vectors are empty - noop mode
-    bool noopMode = toggle_keys.empty() && fpv_keys.empty() && tpv_keys.empty();
-
-    if (noopMode)
+    else if (current_state == 1)
     {
-        logger.log(LOG_INFO, "Thread: No keys configured to monitor. Thread is in no-operation mode.");
-        logger.log(LOG_INFO, "Thread: Mod is loaded and initialized, but no key monitoring will occur.");
+        logger.log(LOG_DEBUG, "Toggle" + key_log_suffix + ": Current=TPV(1), switching to FPV(0)...");
+        return setViewState(0, key_pressed_vk);
+    }
+    else
+    {
+        logger.log(LOG_ERROR, "Toggle" + key_log_suffix + ": Cannot toggle, failed get valid state (" + std::to_string(current_state) + ").");
+        return false;
+    }
+}
 
-        // Enter idle loop with minimal CPU usage
-        // We keep the thread alive but essentially do nothing
-        while (true)
+/** @brief Sets view to First Person. Wrapper for setViewState(0). */
+bool setFirstPersonView(int *key_pressed_vk) { return setViewState(0, key_pressed_vk); }
+
+/** @brief Sets view to Third Person. Wrapper for setViewState(1). */
+bool setThirdPersonView(int *key_pressed_vk) { return setViewState(1, key_pressed_vk); }
+
+// --- Main Monitor Thread ---
+DWORD WINAPI MonitorThread(LPVOID param)
+{
+    // --- Initialization ---
+    ToggleData *data_ptr = static_cast<ToggleData *>(param);
+    if (!data_ptr)
+    {
+        Logger::getInstance().log(LOG_ERROR, "MonitorThread: NULL data.");
+        return 1;
+    }
+    std::vector<int> toggle_keys = std::move(data_ptr->toggle_keys);
+    std::vector<int> fpv_keys = std::move(data_ptr->fpv_keys);
+    std::vector<int> tpv_keys = std::move(data_ptr->tpv_keys);
+    delete data_ptr;
+    Logger &logger = Logger::getInstance();
+    logger.log(LOG_INFO, "MonitorThread: Monitoring thread started.");
+
+    // --- Debounce Map ---
+    std::unordered_map<int, bool> key_was_down;
+    std::vector<const std::vector<int> *> all_key_lists = {&toggle_keys, &fpv_keys, &tpv_keys};
+    for (const auto *key_list : all_key_lists)
+    {
+        for (int vk : *key_list)
         {
-            Sleep(1000); // Sleep for a full second to minimize resource use
+            key_was_down[vk] = false;
         }
-
-        return 0;
     }
+    bool noop_keys = toggle_keys.empty() && fpv_keys.empty() && tpv_keys.empty();
 
-    // Log configured keys for each type
-    if (!toggle_keys.empty())
-    {
-        std::string keys_str;
-        for (int vk : toggle_keys)
-        {
-            if (!keys_str.empty())
-                keys_str += ", ";
-            keys_str += format_vkcode(vk);
-        }
-        logger.log(LOG_INFO, "Thread: Monitoring toggle keys: " + keys_str);
-    }
+    // --- State Tracking ---
+    // Initialize previous state by safely reading the global flag
+    bool previous_overlay_state = g_isOverlayActive;
+    bool was_tpv_before_overlay = false; // Track view state before overlay opened
 
-    if (!fpv_keys.empty())
-    {
-        std::string keys_str;
-        for (int vk : fpv_keys)
-        {
-            if (!keys_str.empty())
-                keys_str += ", ";
-            keys_str += format_vkcode(vk);
-        }
-        logger.log(LOG_INFO, "Thread: Monitoring FPV keys: " + keys_str);
-    }
+    // Define sleep constants
+    const DWORD NORMAL_SLEEP_MS = 30;
+    const DWORD ACTIVE_SLEEP_MS = 20;
 
-    if (!tpv_keys.empty())
-    {
-        std::string keys_str;
-        for (int vk : tpv_keys)
-        {
-            if (!keys_str.empty())
-                keys_str += ", ";
-            keys_str += format_vkcode(vk);
-        }
-        logger.log(LOG_INFO, "Thread: Monitoring TPV keys: " + keys_str);
-    }
+    if (noop_keys)
+        logger.log(LOG_INFO, "MonitorThread: No user keys configured. Overlay state handler active.");
+    else
+        logger.log(LOG_INFO, "MonitorThread: Keys: Toggle=" + format_vkcode_list(toggle_keys) +
+                                 ", FPV=" + format_vkcode_list(fpv_keys) +
+                                 ", TPV=" + format_vkcode_list(tpv_keys));
 
-    // Track key states to detect press events (not held)
-    std::unordered_map<int, bool> key_states;
+    logger.log(LOG_INFO, "MonitorThread: Starting main loop...");
 
+    // --- Main Polling Loop ---
     while (true)
     {
-        // Handle toggle keys (switch between FPV and TPV)
-        for (int vk : toggle_keys)
+        try
         {
-            bool isDown = (GetAsyncKeyState(vk) & 0x8000) != 0;
-            bool wasDown = key_states[vk];
+            bool key_action_this_cycle = false;
+            bool verbose_debug = logger.isDebugEnabled();
 
-            if (isDown && !wasDown)
+            // *** Read current view state *before* processing changes ***
+            int current_view_state_snapshot = getViewState(); // Snapshot at start of cycle
+
+            // --- Process Key Input ---
+            if (!noop_keys)
             {
-                // Key just pressed (not held) - toggle the view state
-                if (safeToggleViewState())
+                int vk_pressed = 0;
+                for (int vk : toggle_keys)
                 {
-                    BYTE value = *toggle_addr;
-                    logger.log(LOG_INFO, "Action: Toggle key " + format_vkcode(vk) + " pressed, TPV: " + (value ? "ON" : "OFF"));
+                    bool is_down = (GetAsyncKeyState(vk) & 0x8000) != 0;
+                    if (is_down && !key_was_down[vk])
+                    {
+                        if (verbose_debug)
+                            logger.log(LOG_DEBUG, "Input: Toggle Key " + format_vkcode(vk) + " pressed.");
+                        vk_pressed = vk;
+                        safeToggleViewState(&vk_pressed);
+                        key_action_this_cycle = true;
+                    }
+                    key_was_down[vk] = is_down;
+                }
+                for (int vk : fpv_keys)
+                {
+                    bool is_down = (GetAsyncKeyState(vk) & 0x8000) != 0;
+                    if (is_down && !key_was_down[vk])
+                    {
+                        if (verbose_debug)
+                            logger.log(LOG_DEBUG, "Input: FPV Key " + format_vkcode(vk) + " pressed.");
+                        vk_pressed = vk;
+                        setFirstPersonView(&vk_pressed);
+                        key_action_this_cycle = true;
+                    }
+                    key_was_down[vk] = is_down;
+                }
+                for (int vk : tpv_keys)
+                {
+                    bool is_down = (GetAsyncKeyState(vk) & 0x8000) != 0;
+                    if (is_down && !key_was_down[vk])
+                    {
+                        if (verbose_debug)
+                            logger.log(LOG_DEBUG, "Input: TPV Key " + format_vkcode(vk) + " pressed.");
+                        vk_pressed = vk;
+                        setThirdPersonView(&vk_pressed);
+                        key_action_this_cycle = true;
+                    }
+                    key_was_down[vk] = is_down;
                 }
             }
 
-            key_states[vk] = isDown;
-        }
-
-        // Handle FPV keys (force first-person view)
-        for (int vk : fpv_keys)
-        {
-            bool isDown = (GetAsyncKeyState(vk) & 0x8000) != 0;
-            bool wasDown = key_states[vk];
-
-            if (isDown && !wasDown)
+            // --- Process Overlay State Change (With Auto View Switch) ---
+            // Directly read g_isOverlayActive flag
+            bool current_overlay_state = g_isOverlayActive;
+            if (current_overlay_state != previous_overlay_state)
             {
-                // Key just pressed - set to first-person view
-                if (setFirstPersonView())
+                // --- Overlay Just Opened ---
+                if (current_overlay_state) // Became true
                 {
-                    logger.log(LOG_INFO, "Action: FPV key " + format_vkcode(vk) + " pressed, TPV: OFF");
+                    logger.log(LOG_INFO, "Overlay: State transition detected -> ACTIVE");
+                    // *** Use the snapshot taken at the start of the loop ***
+                    if (current_view_state_snapshot == 1)
+                    { // Was TPV *before* this cycle started
+                        logger.log(LOG_INFO, "Overlay: Was TPV, switching to FPV.");
+                        was_tpv_before_overlay = true; // Set flag to remember
+                        // Switch to FPV (the game might do this anyway, but we ensure it)
+                        setFirstPersonView(); // Internal call, no key press arg needed
+                    }
+                    else
+                    { // Was FPV or error
+                        if (verbose_debug)
+                            logger.log(LOG_DEBUG, "Overlay: Was FPV/Unknown, no view change needed.");
+                        was_tpv_before_overlay = false; // Ensure flag is false
+                    }
                 }
+                // --- Overlay Just Closed ---
+                else // Became false
+                {
+                    logger.log(LOG_INFO, "Overlay: State transition detected -> INACTIVE");
+                    if (was_tpv_before_overlay)
+                    { // If we were TPV before opening
+                        logger.log(LOG_INFO, "Overlay: Was TPV before, restoring TPV state...");
+                        // Switch back to TPV
+                        setThirdPersonView(); // Internal call, no key press arg needed
+                    }
+                    else
+                    {
+                        if (verbose_debug)
+                            logger.log(LOG_DEBUG, "Overlay: Was not TPV before, no view restore.");
+                    }
+                    // Reset the tracking flag *after* handling the close event
+                    was_tpv_before_overlay = false;
+                }
+                previous_overlay_state = current_overlay_state; // Update tracked state for next cycle
             }
 
-            key_states[vk] = isDown;
+            // --- Adaptive Sleep ---
+            DWORD sleep_duration = key_action_this_cycle ? ACTIVE_SLEEP_MS : NORMAL_SLEEP_MS;
+            Sleep(sleep_duration);
         }
-
-        // Handle TPV keys (force third-person view)
-        for (int vk : tpv_keys)
+        // Exception Handling
+        catch (const std::exception &e)
         {
-            bool isDown = (GetAsyncKeyState(vk) & 0x8000) != 0;
-            bool wasDown = key_states[vk];
-
-            if (isDown && !wasDown)
-            {
-                // Key just pressed - set to third-person view
-                if (setThirdPersonView())
-                {
-                    logger.log(LOG_INFO, "Action: TPV key " + format_vkcode(vk) + " pressed, TPV: ON");
-                }
-            }
-
-            key_states[vk] = isDown;
+            logger.log(LOG_ERROR, "MonitorThread: Exception: " + std::string(e.what()));
+            Sleep(1000); // Longer sleep on exception
         }
-
-        // Short sleep to reduce CPU usage while polling
-        // Use longer sleep if we're monitoring fewer keys to reduce CPU usage
-        int sleepDuration = 20; // Default 20ms polling rate
-
-        // If we're monitoring very few keys, we can sleep longer
-        if (toggle_keys.size() + fpv_keys.size() + tpv_keys.size() <= 3)
+        catch (...)
         {
-            sleepDuration = 30; // Slightly longer sleep for few keys
+            logger.log(LOG_ERROR, "MonitorThread: Unknown exception.");
+            Sleep(1000); // Longer sleep on exception
         }
-
-        Sleep(sleepDuration);
-    }
-
-    return 0;
+    } // End while(true)
 }

@@ -1,0 +1,3 @@
+[submodule "TPVToggle/external/minhook"]
+	path = TPVToggle/external/minhook
+	url = https://github.com/TsudaKageyu/minhook.git
