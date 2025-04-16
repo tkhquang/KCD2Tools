@@ -324,6 +324,8 @@ function LootBeacon.Config:setKeyBinding(line)
     if key and key ~= "" then
         self.keyBinding = key
         LootBeacon.Logger:info("Key binding set to: %s", key)
+        -- Re-apply key binding
+        self:applyKeyBinding()
         self.configLoaded = true
     else
         LootBeacon.Logger:warning("Invalid key binding, using default: %s", self.keyBinding)

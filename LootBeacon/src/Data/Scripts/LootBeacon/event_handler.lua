@@ -18,7 +18,6 @@ function LootBeacon.EventHandler:registerEvents()
     UIAction.RegisterEventSystemListener(self, "System", "OnSystemStarted", "onSystemStarted")
     UIAction.RegisterEventSystemListener(self, "System", "OnGamePause", "onGamePause")
     UIAction.RegisterEventSystemListener(self, "System", "OnGameResume", "onGameResume")
-    UIAction.RegisterEventSystemListener(self, "System", "OnLevelUnload", "onLevelUnload")
 
     self.registered = true
     return self
@@ -32,10 +31,9 @@ function LootBeacon.EventHandler:unregisterEvents()
     LootBeacon.Logger:info("Unregistering event handlers")
 
     -- Unregister system event listeners
-    UIAction.UnregisterEventSystemListener(self, "System", "OnSystemStarted")
-    UIAction.UnregisterEventSystemListener(self, "System", "OnGamePause")
-    UIAction.UnregisterEventSystemListener(self, "System", "OnGameResume")
-    UIAction.UnregisterEventSystemListener(self, "System", "OnLevelUnload")
+    UIAction.UnregisterEventSystemListener(self, "OnSystemStarted")
+    UIAction.UnregisterEventSystemListener(self, "OnGamePause")
+    UIAction.UnregisterEventSystemListener(self, "OnGameResume")
 
     self.registered = false
     return self
@@ -61,16 +59,6 @@ end
 function LootBeacon.EventHandler:onGameResume()
     LootBeacon.Logger:debug("Game resume event received")
     -- Game has resumed, nothing specific to do here
-end
-
-function LootBeacon.EventHandler:onLevelUnload()
-    LootBeacon.Logger:debug("Level unload event received")
-
-    -- Ensure any highlights are removed when level changes
-    if LootBeacon.Highlighter.isActive then
-        LootBeacon.Logger:debug("Level changing - removing active highlights")
-        LootBeacon.Highlighter:removeAllHighlights()
-    end
 end
 
 return LootBeacon.EventHandler

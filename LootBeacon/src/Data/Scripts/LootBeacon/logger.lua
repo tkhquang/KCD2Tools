@@ -76,20 +76,4 @@ function LootBeacon.Logger:log(level, message, ...)
     System.LogAlways(fullMessage)
 end
 
-function LootBeacon.Logger:dump(obj, label)
-    if LootBeacon.Config.logLevel > self.LOG_LEVEL_DEBUG then
-        return
-    end
-
-    self:debug(label or "Object dump:")
-    for key, value in pairs(obj or {}) do
-        self:debug("  %s: %s", tostring(key), tostring(value))
-        if type(value) == "table" then
-            for subKey, subValue in pairs(value) do
-                self:debug("    %s: %s", tostring(subKey), tostring(subValue))
-            end
-        end
-    end
-end
-
 return LootBeacon.Logger

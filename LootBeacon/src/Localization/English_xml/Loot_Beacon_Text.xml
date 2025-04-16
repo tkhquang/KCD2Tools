@@ -6,8 +6,8 @@
 </Row>
 <Row>
 <Cell>ui_loot_beacon_found_item_suffix</Cell>
-<Cell>Item(s).</Cell>
-<Cell>Item(s).</Cell>
+<Cell>Pickable Item(s).</Cell>
+<Cell>Pickable Item(s).</Cell>
 </Row>
 <Row>
 <Cell>ui_loot_beacon_found_animal_suffix</Cell>

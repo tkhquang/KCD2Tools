@@ -5,7 +5,7 @@ Handles initialization and provides access to other modules
 
 LootBeacon.Core = {
     MOD_NAME = "Loot Beacon",
-    VERSION = "2.0.0",
+    VERSION = "1.4.0",
     initialized = false
 }
 
@@ -18,11 +18,11 @@ function LootBeacon.Core:initialize()
     LootBeacon.Logger:initialize(LootBeacon.Core.MOD_NAME)
     LootBeacon.Logger:info("Initializing %s v%s", self.MOD_NAME, self.VERSION)
 
-    -- Load configuration
-    LootBeacon.Config:initialize()
-
     -- Register console commands
     LootBeacon.CommandRegistry:initialize()
+
+    -- Load configuration
+    LootBeacon.Config:initialize()
 
     -- Initialize the highlighter
     LootBeacon.Highlighter:initialize()
