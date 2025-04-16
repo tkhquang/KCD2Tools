@@ -18,6 +18,7 @@ LootBeacon.Config = {
     highlightCorpses = true,
     highlightAnimals = true,
     goodCitizenMode = false,
+    treatUnconsciousAsDead = false,
     logLevel = 2, -- INFO level
 
     -- Internal state
@@ -93,6 +94,7 @@ function LootBeacon.Config:logConfigSummary()
     LootBeacon.Logger:info("- Highlight corpses: %s", self.highlightCorpses and "Yes" or "No")
     LootBeacon.Logger:info("- Highlight animals: %s", self.highlightAnimals and "Yes" or "No")
     LootBeacon.Logger:info("- Good Citizen Mode: %s", self.goodCitizenMode and "Yes" or "No")
+    LootBeacon.Logger:info("- Treat Unconscious as Dead: %s", self.treatUnconsciousAsDead and "Yes" or "No")
     LootBeacon.Logger:info("- Key binding: %s", self.keyBinding)
 end
 
@@ -316,6 +318,18 @@ function LootBeacon.Config:setGoodCitizenMode(line)
     else
         LootBeacon.Logger:warning("Invalid Good Citizen Mode value (should be 0 or 1), using default: %s",
             self.goodCitizenMode and "1" or "0")
+    end
+end
+
+function LootBeacon.Config:setTreatUnconsciousAsDead(line)
+    local value = self:parseNumberFromLine(line)
+    if value == 0 or value == 1 then
+        self.treatUnconsciousAsDead = (value == 1)
+        LootBeacon.Logger:info("Treat Unconscious as Dead set to: %s", self.treatUnconsciousAsDead and "ON" or "OFF")
+        self.configLoaded = true
+    else
+        LootBeacon.Logger:warning("Invalid Treat Unconscious as Dead value (should be 0 or 1), using default: %s",
+            self.treatUnconsciousAsDead and "1" or "0")
     end
 end
 

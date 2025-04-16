@@ -78,10 +78,7 @@ function LootBeacon.EntityDetector:processEntity(entity)
             table.insert(self.results.custom, entity)
             -- Check if entity is an actor (NPC or Animal)
         elseif entity["actor"] then
-            LootBeacon.Logger:debug("Actor IsDead: %s", tostring(entity.actor:IsDead()))
-            LootBeacon.Logger:debug("Actor Name: %s", self:getEntityName(entity))
-
-            if entity.actor:IsDead() then
+            if entity.actor:IsDead() or (LootBeacon.Config.treatUnconsciousAsDead and entity.actor:IsUnconscious()) then
                 if LootBeacon.Config.goodCitizenMode and entity["soul"] and not entity.soul:IsLegalToLoot() then
                     LootBeacon.Logger:debug("Good citizens don't rob, skipping")
                 else

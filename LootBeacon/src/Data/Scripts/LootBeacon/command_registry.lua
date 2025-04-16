@@ -66,6 +66,10 @@ function LootBeacon.CommandRegistry:initialize()
         "LootBeacon.Config:setGoodCitizenMode(%line)",
         "Set Good Citizen Mode flag (0=off, 1=on)")
 
+    self:registerCommand("loot_beacon_set_treat_unconscious_as_dead",
+        "LootBeacon.Config:setTreatUnconsciousAsDead(%line)",
+        "Set Treat Unconscious as Dead flag (0=off, 1=on)")
+
     self:registerCommand("loot_beacon_set_key_binding",
         "LootBeacon.Config:setKeyBinding(%line)",
         "Set key binding for highlight activation")
