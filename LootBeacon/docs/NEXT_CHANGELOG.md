@@ -1,5 +1,15 @@
 # Changelog
 
+## Version 1.4.0
+
+- Added "Treat Unconscious as Dead" configuration option
+- Enhanced Good Citizen Mode to exclude illegal corpses
+- Improved entity detection and filtering logic
+- Comprehensive codebase restructuring:
+  - Improved module organization
+  - Enhanced code modularity
+  - Simplified inter-module communication
+
 ## Version 1.3.0
 
 - Added Good Citizen Mode (will skip highlighting items that require stealing)
