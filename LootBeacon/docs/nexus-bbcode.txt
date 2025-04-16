@@ -76,10 +76,11 @@ loot_beacon_set_show_message =1           # Show on-screen messages (1=on, 0=off
 
 [b]Object Type Settings (1=on, 0=off):[/b]
 [code]
-loot_beacon_set_highlight_items =1        # Highlight pickable items
-loot_beacon_set_highlight_corpses =1      # Highlight human corpses
-loot_beacon_set_highlight_animals =1      # Highlight animal carcasses
-loot_beacon_set_good_citizen_mode =0      # Skip highlighting items that require stealing
+loot_beacon_set_highlight_items =1            # Highlight pickable items
+loot_beacon_set_highlight_corpses =1          # Highlight human corpses
+loot_beacon_set_highlight_animals =1          # Highlight animal carcasses
+loot_beacon_set_good_citizen_mode =0          # Skip highlighting items that require stealing
+loot_beacon_set_treat_unconscious_as_dead =0  # Highlight unconscious NPCs as if dead
 [/code]
 
 [b]Custom Entity Settings:[/b]
@@ -101,24 +102,12 @@ loot_beacon_set_animal_corpse_particle_effect_path ="loot_beacon.pillar_blue"  #
 loot_beacon_set_log_level =2             # Log level (1=Debug, 2=Info, 3=Warning, 4=Error)
 [/code]
 
-[size=5]Usage[/size]
-[list]
-[*] Press F4 (or your configured key) to highlight all enabled lootable objects within the detection radius
-[*] The highlight effect will last for your configured duration (5 seconds by default)
-[*] Pressing F4 again while the effect is active will restart the highlight duration
-[*] A notification will show how many objects of each type were found
-[/list]
-
 [size=5]Known Issues and Limitations[/size]
 [list]
 [*] The "PickableItem" class doesn't contain all pickable items in the game (for example, torches may not be highlighted)
 [*] Some items might be highlighted but still can't be picked up, and some pickable items might not be highlighted
 [*] Performance may decrease if highlighting many objects at once in dense areas
-[*] This is an early version that needs further testing - please report any issues you encounter
 [/list]
-
-[size=5]Compatibility[/size]
-This mod should be compatible with most other KCD II mods as it doesn't modify any core game systems, only adds visual effects to existing entities.
 
 [size=5]Note[/size]
 I don't have experience with creating particle effects, so the current highlight beacons are adapted from existing game resources with some tweaks. If anyone has better particle effect ideas or expertise with creating custom particles for KCD II, please contact me - I'd be happy to collaborate on improving the visual effects in this mod!

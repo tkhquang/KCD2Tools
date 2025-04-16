@@ -77,8 +77,11 @@ loot_beacon_set_highlight_animals =1    -- Animal corpses
 -- If ON (1), will skip highlighting items that require stealing.
 loot_beacon_set_good_citizen_mode =0
 
+-- Treat unconscious as dead (1=on, 0=off)
+-- If ON (1), will highlight unconscious NPCs like dead corpses.
+loot_beacon_set_treat_unconscious_as_dead =0
+
 -- Key binding for highlight activation (F4 is default)
--- Check for all supported key names: https://www.cryengine.com/docs/static/engines/cryengine-5/categories/23756813/pages/23306384#list-of-key-names
 loot_beacon_set_key_binding =f4
 ```
 
@@ -98,7 +101,6 @@ loot_beacon_set_key_binding =f4
 - The "PickableItem" class doesn't contain all pickable items in the game (for example, torches may not be highlighted)
 - Some items might be highlighted but still can't be picked up, and some pickable items might not be highlighted
 - Performance may decrease if highlighting many objects at once in dense areas
-- This is an early version that needs further testing - please report any issues you encounter
 
 ## Credits
 
