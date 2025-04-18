@@ -143,4 +143,4 @@ I don't have experience with creating particle effects, so the current highlight
 [/list]
 
 [h2]Source Code[/h2]
-All my Kingdom Come: Deliverance II mods and tools can be found in this [url=https://github.com/tkhquang/KDC2Tools]GitHub repository[/url]. Feel free to contribute or suggest improvements!
+All my Kingdom Come: Deliverance II mods and tools can be found in this [url=https://github.com/tkhquang/KCD2Tools]GitHub repository[/url]. Feel free to contribute or suggest improvements!

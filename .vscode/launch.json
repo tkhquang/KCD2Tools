@@ -8,8 +8,8 @@
       "args": [],
       "stopAtEntry": false,
       "externalConsole": true,
-      "cwd": "d:/Workspace/KDC2Tools/TPVToggle/src",
-      "program": "d:/Workspace/KDC2Tools/TPVToggle/src/build/Debug/outDebug",
+      "cwd": "d:/Workspace/KCD2Tools/TPVToggle/src",
+      "program": "d:/Workspace/KCD2Tools/TPVToggle/src/build/Debug/outDebug",
       "MIMode": "gdb",
       "miDebuggerPath": "gdb",
       "setupCommands": [

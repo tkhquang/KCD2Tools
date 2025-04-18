@@ -46,8 +46,8 @@ namespace Version
     // Project information
     constexpr const char *MOD_NAME = "KCD2_TPVToggle";
     constexpr const char *AUTHOR = "tkhquang";
-    constexpr const char *REPOSITORY = "https://github.com/tkhquang/KDC2Tools";
-    constexpr const char *RELEASE_URL = "https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-" VERSION_STR(VERSION_MAJOR) "." VERSION_STR(VERSION_MINOR) "." VERSION_STR(VERSION_PATCH);
+    constexpr const char *REPOSITORY = "https://github.com/tkhquang/KCD2Tools";
+    constexpr const char *RELEASE_URL = "https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-" VERSION_STR(VERSION_MAJOR) "." VERSION_STR(VERSION_MINOR) "." VERSION_STR(VERSION_PATCH);
 
     /**
      * @brief Get the full version string (e.g., "0.1.0")

@@ -1,7 +1,7 @@
 --[[
 Loot Beacon - Never Miss a Drop or Corpse
 Author: tkhquang
-Source: https://github.com/tkhquang/KDC2Tools
+Source: https://github.com/tkhquang/KCD2Tools
 ]]
 
 -- Bootstrap file for Loot Beacon mod

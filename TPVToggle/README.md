@@ -13,7 +13,7 @@
 
 ## Installation
 
-1. Download the latest release from [Nexus Mods](https://www.nexusmods.com/kingdomcomedeliverance2/mods/1550) or the [GitHub Releases page](https://github.com/tkhquang/KDC2Tools/releases)
+1. Download the latest release from [Nexus Mods](https://www.nexusmods.com/kingdomcomedeliverance2/mods/1550) or the [GitHub Releases page](https://github.com/tkhquang/KCD2Tools/releases)
 2. Extract all files to your game directory:
 
    ```
@@ -134,7 +134,7 @@ Common issues:
 - **Game crashes** – Check the log file for errors; try updating to the latest version
 - **Controller doesn’t work** – Ensure JoyToKey or Steam Input is set up properly
 
-> **Still stuck?** [Open a GitHub issue](https://github.com/tkhquang/KDC2Tools/issues/new?assignees=&labels=bug&template=bug_report.yaml) and include your INI config, log output, and game version.
+> **Still stuck?** [Open a GitHub issue](https://github.com/tkhquang/KCD2Tools/issues/new?assignees=&labels=bug&template=bug_report.yaml) and include your INI config, log output, and game version.
 
 ## Known Issues and Limitations
 

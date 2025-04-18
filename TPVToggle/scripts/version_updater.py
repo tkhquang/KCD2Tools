@@ -216,7 +216,7 @@ All notable changes to the TPVToggle mod will be documented in this file.
                 break
 
         if not version_in_links:
-            version_links.append((version, f"https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v{version}"))
+            version_links.append((version, f"https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v{version}"))
 
         # Sort version links by version number (newest first)
         version_links.sort(key=lambda x: [int(n) for n in x[0].split('.')], reverse=True)

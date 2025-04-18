@@ -14,4 +14,4 @@ TROUBLESHOOTING:
 - Check KCD2_TPVToggle.log for details
 
 SOURCE & SUPPORT:
-https://github.com/tkhquang/KDC2Tools
+https://github.com/tkhquang/KCD2Tools

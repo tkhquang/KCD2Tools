@@ -2,7 +2,8 @@
 
 All notable changes to the TPVToggle mod will be documented in this file.
 
-## [0.3.0] - Experimental Overlay Detection and Project Structure Improvements
+## [0.3.0] - Experimental Overlay Detection and Project Structure Improvements
+
 
 ### Added
 - [EXPERIMENTAL] Automatic view management for game menus and overlays
@@ -84,12 +85,12 @@ All notable changes to the TPVToggle mod will be documented in this file.
 - Memory scanning to find the view state dynamically
 - Exception-based hooking for minimal game modification
 - Logging system for troubleshooting
-
-[0.3.0]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.3.0
-[0.2.3]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.2.3
-[0.2.2]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.2.2
-[0.2.1]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.2.1
-[0.2.0]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.2.0
-[0.1.2]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.1.2
-[0.1.1]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.1.1
+KCD
+[0.3.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.3.0
+[0.2.3]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.2.3
+[0.2.2]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.2.2
+[0.2.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.2.1
+[0.2.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.2.0
+[0.1.2]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.1.2
+[0.1.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.1.1
 [0.1.0]: https://github.com/tkhquang/KDC2Tools/releases/tag/TPVToggle-v0.1.0
