@@ -63,7 +63,7 @@ end
 
 function LootBeacon.EntityDetector:processEntity(entity)
     -- Debug separator start
-    LootBeacon.Logger:debug("=============================")
+    LootBeacon.Logger:debug("==============1===============")
     LootBeacon.Logger:debug("Entity: %s", tostring(entity))
     LootBeacon.Logger:debug("Entity Name: %s", self:getEntityName(entity))
     LootBeacon.Logger:debug("Entity Class: %s", tostring(entity.class))
@@ -122,7 +122,7 @@ function LootBeacon.EntityDetector:processEntity(entity)
     end
 
     -- Debug separator end - only one place
-    LootBeacon.Logger:debug("=============================")
+    LootBeacon.Logger:debug("==============1===============")
 end
 
 function LootBeacon.EntityDetector:isItemPickable(pickableItem)

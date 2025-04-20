@@ -7,8 +7,8 @@
 ## Features
 
 - Instantly highlight nearby lootable objects with color-coded beacons (default: F4 key)
-  - **Red**: Pickable items and custom entity classes
-  - **Green**: Human corpses
+  - **Orange**: Pickable items and custom entity classes
+  - **Cyan**: Human corpses
   - **Blue**: Animal carcasses
 - Toggle highlighting for each object type individually
 - Custom entity class support (highlight bird nests, herbs, and more)
@@ -44,11 +44,11 @@ Edit the `mod.cfg` file in the LootBeacon folder to customize the mod:
 -- Detection radius in meters
 loot_beacon_set_detection_radius =15.0
 
--- Particle effect for items (available colors: red, green, blue)
-loot_beacon_set_item_particle_effect_path ="loot_beacon.pillar_red"
+-- Particle effect for items
+loot_beacon_set_item_particle_effect_path ="loot_beacon.pillar_orange"
 
 -- Particle effect for human corpses
-loot_beacon_set_human_corpse_particle_effect_path ="loot_beacon.pillar_green"
+loot_beacon_set_human_corpse_particle_effect_path ="loot_beacon.pillar_cyan"
 
 -- Particle effect for animal corpses
 loot_beacon_set_animal_corpse_particle_effect_path ="loot_beacon.pillar_blue"
@@ -60,7 +60,7 @@ loot_beacon_set_animal_corpse_particle_effect_path ="loot_beacon.pillar_blue"
 loot_beacon_set_custom_entity_classes ="Nest"
 
 -- Particle effect for custom entity classes
-loot_beacon_set_custom_entity_particle_effect_path ="loot_beacon.pillar_red"
+loot_beacon_set_custom_entity_particle_effect_path ="loot_beacon.pillar_orange"
 
 -- Highlight duration in seconds
 loot_beacon_set_highlight_duration =5.0
@@ -85,12 +85,24 @@ loot_beacon_set_treat_unconscious_as_dead =0
 loot_beacon_set_key_binding =f4
 ```
 
+### Available Colors
+
+For colorblind-friendly options and personal preference, you can choose from 12 different colors:
+
+- **Basic Colors**: red, green, blue
+- **Extended Colors**: orange, cyan, yellow, magenta, purple, white, lightblue, pink, lime, teal
+
+Simply change the particle effect path to your preferred color, for example:
+```
+loot_beacon_set_item_particle_effect_path ="loot_beacon.pillar_yellow"
+```
+
 ## Usage
 
 1. Press F4 (or your configured key) in-game
 2. All enabled lootable objects within your configured radius will be highlighted:
-   - Red beacons for pickable items and custom entities
-   - Green beacons for human corpses
+   - Orange beacons for pickable items and custom entities
+   - Cyan beacons for human corpses
    - Blue beacons for animal carcasses
 3. The highlight effect lasts for your configured duration (5 seconds by default)
 4. Pressing F4 again while active will restart the highlight duration

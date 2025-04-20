@@ -112,7 +112,7 @@ function LootBeacon.Highlighter:applyEffectToEntity(entity, effectPath)
         table.insert(self.highlightedEntities, { entity = entity, slot = slot })
 
         -- Adjust orientation with randomized angles for visual variety
-        self:adjustParticleOrientation(entity, slot)
+        -- self:adjustParticleOrientation(entity, slot)
         return true
     else
         LootBeacon.Logger:warning("Failed to load particle effect for entity: %s",
@@ -127,6 +127,8 @@ function LootBeacon.Highlighter:adjustParticleOrientation(entity, slot)
         return
     end
 
+    LootBeacon.Logger:debug("==============2===============")
+
     -- Try to adjust orientation to make effect vertical
     pcall(function()
         -- First try to get entity's world angles
@@ -140,10 +142,16 @@ function LootBeacon.Highlighter:adjustParticleOrientation(entity, slot)
             end
         end
 
+        local entityAngles = entity:GetAngles()
+
+        LootBeacon.Logger:debug("entityAngles: x=%.2f, y=%.2f, z=%.2f", entityAngles.x, entityAngles.y, entityAngles.z)
+
         -- Generate a random angle for upward direction
-        local randomX = math.random(30, 90)
+        local randomX = math.random(90, 180)
+        LootBeacon.Logger:debug("randomX: %s", randomX)
 
         if hasAngles and ang then
+            LootBeacon.Logger:debug("ang: x=%.2f, y=%.2f, z=%.2f", ang.x, ang.y, ang.z)
             -- Counter the entity's rotation and add randomized upward angle
             local adjustedAngles = {
                 x = -ang.x + randomX,
@@ -156,12 +164,19 @@ function LootBeacon.Highlighter:adjustParticleOrientation(entity, slot)
                 adjustedAngles = { x = randomX, y = 0, z = 0 }
             end
 
+            LootBeacon.Logger:debug("adjustedAngles: x=%.2f, y=%.2f, z=%.2f", adjustedAngles.x, adjustedAngles.y,
+                adjustedAngles.z)
+
             entity:SetSlotAngles(slot, adjustedAngles)
         else
+            LootBeacon.Logger:debug("Can't get angles")
+
             -- If we can't get angles, set a default upward orientation
             entity:SetSlotAngles(slot, { x = randomX, y = 0, z = 0 })
         end
     end)
+
+    LootBeacon.Logger:debug("==============2===============")
 end
 
 function LootBeacon.Highlighter:removeAllHighlights()

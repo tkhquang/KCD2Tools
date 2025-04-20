@@ -1,5 +1,18 @@
 # Changelog
 
+## Version 1.4.1
+
+- Added expanded color palette for particle effects (12 colors total)
+  - New colors: Yellow, Cyan, Magenta, Orange, Purple, White, Light Blue, Pink, Lime, Teal
+  - Improves accessibility for users with color vision deficiencies
+- Changed default color scheme:
+  - Items: Orange (previously Red)
+  - Human Corpses: Cyan (previously Green)
+  - Animal Corpses: Blue (unchanged)
+- Updated configuration file with new color options
+- Added detailed color documentation to help files
+- Adjust the particle effects: thinner, more consistent
+
 ## Version 1.4.0
 
 - Added "Treat Unconscious as Dead" configuration option

@@ -6,11 +6,11 @@ Handles loading and validation of mod settings
 LootBeacon.Config = {
     -- Default configuration values
     detectionRadius = 15.0,
-    itemParticleEffectPath = "loot_beacon.pillar_red",
-    humanCorpseParticleEffectPath = "loot_beacon.pillar_green",
-    animalCorpseParticleEffectPath = "loot_beacon.pillar_blue",
-    customEntityParticleEffectPath = "loot_beacon.pillar_red",
     customEntityClasses = "Nest",
+    itemParticleEffectPath = "loot_beacon.pillar_orange",
+    humanCorpseParticleEffectPath = "loot_beacon.pillar_cyan",
+    animalCorpseParticleEffectPath = "loot_beacon.pillar_blue",
+    customEntityParticleEffectPath = "loot_beacon.pillar_orange",
     highlightDuration = 5.0,
     showMessage = true,
     keyBinding = "f4",

@@ -7,8 +7,8 @@ This mod helps you spot lootable objects in the world of Kingdom Come: Deliveran
 [list]
 [*] Instantly highlights lootable objects with color-coded glowing beacons (default: F4 key):
    [list]
-   [*] [color=#FF0000]Red[/color]: Pickable items and custom entities (nests, herbs, etc.)
-   [*] [color=#00FF00]Green[/color]: Human corpses
+   [*] [color=#FFA500]Orange[/color]: Pickable items and custom entities (nests, herbs, etc.)
+   [*] [color=#00FFFF]Cyan[/color]: Human corpses
    [*] [color=#0000FF]Blue[/color]: Animal carcasses
    [/list]
 [*] Custom entity class support for bird nests, herbs, and more
@@ -57,8 +57,13 @@ You can customize the mod by editing the mod.cfg file, or by using console comma
 
 [b]Important Note on Configuration Format:[/b]
 [code]
--- Parameter assignments must follow this exact format:
-parameter =value    (space after equals sign, NO space before)
+-- Parameter assignments must follow the format shown in all examples:
+parameter =value    (space BEFORE equals sign, NO space after it)
+
+-- Examples:
+-- CORRECT:   loot_beacon_set_detection_radius =20.0  (space before equals sign)
+-- INCORRECT: loot_beacon_set_detection_radius= 20.0  (space after equals sign)
+-- INCORRECT: loot_beacon_set_detection_radius = 20.0 (spaces on both sides)
 [/code]
 
 [b]Key Configuration:[/b]
@@ -87,14 +92,18 @@ loot_beacon_set_treat_unconscious_as_dead =0  # Highlight unconscious NPCs as if
 [code]
 loot_beacon_set_custom_entity_classes ="Nest"  # Comma-separated list of entity classes to highlight
                                                # Examples: "Nest" for bird nests, "PickableArea" for herbs
-loot_beacon_set_custom_entity_particle_effect_path ="loot_beacon.pillar_red"  # Color for custom entities
+loot_beacon_set_custom_entity_particle_effect_path ="loot_beacon.pillar_orange"  # Color for custom entities
 [/code]
 
 [b]Particle Effect Colors:[/b]
 [code]
-loot_beacon_set_item_particle_effect_path ="loot_beacon.pillar_red"          # Red beacon for items
-loot_beacon_set_human_corpse_particle_effect_path ="loot_beacon.pillar_green"  # Green beacon for human corpses
-loot_beacon_set_animal_corpse_particle_effect_path ="loot_beacon.pillar_blue"  # Blue beacon for animal carcasses
+# Default colors for different entity types:
+loot_beacon_set_item_particle_effect_path ="loot_beacon.pillar_orange"          # Orange beacon for items
+loot_beacon_set_human_corpse_particle_effect_path ="loot_beacon.pillar_cyan"    # Cyan beacon for human corpses
+loot_beacon_set_animal_corpse_particle_effect_path ="loot_beacon.pillar_blue"   # Blue beacon for animal carcasses
+
+# Available colors (use with loot_beacon.pillar_COLOR format):
+# red, green, blue, yellow, cyan, magenta, orange, purple, white, lightblue, pink, lime, teal
 [/code]
 
 [b]Debugging:[/b]

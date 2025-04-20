@@ -9,8 +9,8 @@ This mod helps you spot lootable objects in the world of Kingdom Come: Deliveran
 [h2]Features[/h2]
 [list]
 [*]Instantly highlights lootable objects with color-coded glowing beacons (F4 key):
-   [*][b]Red:[/b] Pickable items and custom entities (like bird nests)
-   [*][b]Green:[/b] Human corpses
+   [*][b]Orange:[/b] Pickable items and custom entities (like bird nests)
+   [*][b]Cyan:[/b] Human corpses
    [*][b]Blue:[/b] Animal carcasses
 [*]Custom entity highlighting for bird nests, herbs, and more
 [*]Fully customizable settings
@@ -44,27 +44,17 @@ This mod helps you spot lootable objects in the world of Kingdom Come: Deliveran
 -- #####################################
 
 -- IMPORTANT FORMATTING INSTRUCTIONS FOR USERS:
--- 1. DO NOT add or remove spaces in parameter assignments
--- 2. Always use the EXACT format: parameter =value
---    (space after equals sign, NO space before)
--- 3. Editing the values is fine, but keep the format intact
+-- 1. Parameter assignments must follow the format shown in all examples below
+-- 2. Notice there is a space BEFORE the equals sign, and NO space after it:
+--    parameter =value
 
 -- Examples:
---   CORRECT:   loot_beacon_set_detection_radius =20.0
---   INCORRECT: loot_beacon_set_detection_radius=20.0  (missing space after =)
---   INCORRECT: loot_beacon_set_detection_radius = 20.0 (extra space before value)
+--   CORRECT:   loot_beacon_set_detection_radius =20.0  (space before equals sign)
+--   INCORRECT: loot_beacon_set_detection_radius= 20.0  (space after equals sign)
+--   INCORRECT: loot_beacon_set_detection_radius = 20.0 (spaces on both sides)
 
 -- Detection radius in meters
 loot_beacon_set_detection_radius =15.0
-
--- Particle effect for items (available colors: red, green, blue)
-loot_beacon_set_item_particle_effect_path ="loot_beacon.pillar_red"
-
--- Particle effect for human corpses
-loot_beacon_set_human_corpse_particle_effect_path ="loot_beacon.pillar_green"
-
--- Particle effect for animal corpses
-loot_beacon_set_animal_corpse_particle_effect_path ="loot_beacon.pillar_blue"
 
 -- Custom entity classes to highlight (comma-separated, leave empty to disable)
 -- Common entity classes in KC:D2:
@@ -73,8 +63,21 @@ loot_beacon_set_animal_corpse_particle_effect_path ="loot_beacon.pillar_blue"
 -- Example: "Nest,PickableArea"
 loot_beacon_set_custom_entity_classes ="Nest"
 
--- Particle effect for custom entity classes (available colors: red, green, blue)
-loot_beacon_set_custom_entity_particle_effect_path ="loot_beacon.pillar_red"
+-- AVAILABLE COLORS
+-- Colors: red, green, blue, yellow, cyan, magenta, orange, purple, white, lightblue, pink, lime, teal
+-- Usage: loot_beacon.pillar_COLOR (e.g., loot_beacon.pillar_orange)
+
+-- Particle effect for items (see available colors above)
+loot_beacon_set_item_particle_effect_path ="loot_beacon.pillar_orange"
+
+-- Particle effect for human corpses
+loot_beacon_set_human_corpse_particle_effect_path ="loot_beacon.pillar_cyan"
+
+-- Particle effect for animal corpses
+loot_beacon_set_animal_corpse_particle_effect_path ="loot_beacon.pillar_blue"
+
+-- Particle effect for custom entity classes
+loot_beacon_set_custom_entity_particle_effect_path ="loot_beacon.pillar_orange"
 
 -- Highlight duration in seconds
 loot_beacon_set_highlight_duration =5.0
