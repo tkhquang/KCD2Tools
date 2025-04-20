@@ -2,6 +2,10 @@
 
 ## Version 1.4.2
 
+- Fixed wrong illegal animal UI message
+
+## Version 1.4.2
+
 - Added key binding for highlighting only illegal items
   - New configuration option: `loot_beacon_set_illegal_highlight_key_binding`
   - Allows highlighting items that require stealing with a separate key
