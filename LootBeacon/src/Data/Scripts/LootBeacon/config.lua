@@ -14,6 +14,7 @@ LootBeacon.Config = {
     highlightDuration = 5.0,
     showMessage = true,
     keyBinding = "f4",
+    illegalHighlightKeyBinding = "none",
     highlightItems = true,
     highlightCorpses = true,
     highlightAnimals = true,
@@ -39,6 +40,7 @@ function LootBeacon.Config:initialize()
 
     -- Apply key binding
     self:applyKeyBinding()
+    self:applyIllegalHighlightKeyBinding()
 
     -- Log configuration summary
     self:logConfigSummary()
@@ -80,6 +82,17 @@ function LootBeacon.Config:applyKeyBinding()
     LootBeacon.Logger:debug("Applied key binding: %s", command)
 end
 
+function LootBeacon.Config:applyIllegalHighlightKeyBinding()
+    -- Only apply if not set to "none" or empty string
+    if self.illegalHighlightKeyBinding ~= "none" and self.illegalHighlightKeyBinding ~= "" then
+        local command = string.format("bind %s loot_beacon_activate_illegal", self.illegalHighlightKeyBinding)
+        System.ExecuteCommand(command)
+        LootBeacon.Logger:debug("Applied illegal highlight key binding: %s", command)
+    else
+        LootBeacon.Logger:debug("Illegal highlight key binding disabled (set to 'none' or empty)")
+    end
+end
+
 function LootBeacon.Config:logConfigSummary()
     LootBeacon.Logger:info("Final configuration:")
     LootBeacon.Logger:info("- Detection radius: %gm", self.detectionRadius)
@@ -96,6 +109,12 @@ function LootBeacon.Config:logConfigSummary()
     LootBeacon.Logger:info("- Good Citizen Mode: %s", self.goodCitizenMode and "Yes" or "No")
     LootBeacon.Logger:info("- Treat Unconscious as Dead: %s", self.treatUnconsciousAsDead and "Yes" or "No")
     LootBeacon.Logger:info("- Key binding: %s", self.keyBinding)
+
+    if self.illegalHighlightKeyBinding ~= "none" and self.illegalHighlightKeyBinding ~= "" then
+        LootBeacon.Logger:info("- Illegal highlight key binding: %s", self.illegalHighlightKeyBinding)
+    else
+        LootBeacon.Logger:info("- Illegal highlight key binding: disabled")
+    end
 end
 
 -- Helper function to extract numeric value from config line
@@ -343,6 +362,28 @@ function LootBeacon.Config:setKeyBinding(line)
         self.configLoaded = true
     else
         LootBeacon.Logger:warning("Invalid key binding, using default: %s", self.keyBinding)
+    end
+end
+
+function LootBeacon.Config:setIllegalHighlightKeyBinding(line)
+    local key = self:parseStringFromLine(line)
+    if key then
+        if key == "" or key:lower() == "none" then
+            -- User wants to disable the feature
+            self.illegalHighlightKeyBinding = "none"
+            LootBeacon.Logger:info("Illegal highlight key binding disabled")
+        else
+            -- User wants to enable the feature with a specific key
+            self.illegalHighlightKeyBinding = key
+            LootBeacon.Logger:info("Illegal highlight key binding set to: %s", key)
+        end
+
+        -- Re-apply key binding
+        self:applyIllegalHighlightKeyBinding()
+        self.configLoaded = true
+    else
+        LootBeacon.Logger:warning("Invalid illegal highlight key binding, using default: %s",
+            self.illegalHighlightKeyBinding)
     end
 end
 

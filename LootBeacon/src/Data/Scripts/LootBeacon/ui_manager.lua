@@ -54,6 +54,33 @@ function LootBeacon.UIManager:showHighlightResults(counts)
     end
 end
 
+function LootBeacon.UIManager:showIllegalHighlightResults(counts)
+    -- Skip if notifications are disabled
+    if not LootBeacon.Config.showMessage then
+        LootBeacon.Logger:debug("UI notifications disabled in config")
+        return
+    end
+
+    -- If nothing was found, show appropriate message
+    if counts.total == 0 then
+        local message = self.TEXT_KEYS.PREFIX .. " " .. self.TEXT_KEYS.NOT_FOUND_ITEMS
+        self:showNotification(message)
+        return
+    end
+
+    -- For illegal items notification
+    if counts.illegal_items > 0 then
+        local message = self.TEXT_KEYS.PREFIX .. " " .. counts.illegal_items .. " " .. self.TEXT_KEYS.ITEM_SUFFIX
+        self:showNotification(message)
+    end
+
+    -- For illegal corpses notification
+    if counts.illegal_corpses > 0 then
+        local message = self.TEXT_KEYS.PREFIX .. " " .. counts.illegal_corpses .. " " .. self.TEXT_KEYS.CORPSE_SUFFIX
+        self:showNotification(message)
+    end
+end
+
 function LootBeacon.UIManager:showNothingFoundMessage()
     -- Determine the most specific "not found" message based on what's enabled
     local message

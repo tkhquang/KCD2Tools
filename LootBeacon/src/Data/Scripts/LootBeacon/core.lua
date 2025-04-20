@@ -5,7 +5,7 @@ Handles initialization and provides access to other modules
 
 LootBeacon.Core = {
     MOD_NAME = "Loot Beacon",
-    VERSION = "1.4.1",
+    VERSION = "1.4.2",
     initialized = false
 }
 

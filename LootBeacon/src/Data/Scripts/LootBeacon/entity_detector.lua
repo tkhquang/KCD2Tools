@@ -9,10 +9,11 @@ LootBeacon.EntityDetector = {
 
     -- Result containers
     results = {
-        items = {},
-        corpses = {},
-        animals = {},
-        custom = {}
+        items = {},   -- All pickable items
+        corpses = {}, -- All human corpses
+        animals = {}, -- All animal corpses
+        custom = {},  -- All custom entity classes
+        metadata = {} -- Metadata for all entities (indexed by entity.id)
     }
 }
 
@@ -57,7 +58,8 @@ function LootBeacon.EntityDetector:resetResults()
         items = {},
         corpses = {},
         animals = {},
-        custom = {}
+        custom = {},
+        metadata = {}
     }
 end
 
@@ -71,78 +73,101 @@ function LootBeacon.EntityDetector:processEntity(entity)
     -- Skip invalid or hidden entities
     if not entity or entity:IsHidden() == true then
         LootBeacon.Logger:debug("Entity is hidden, skipping")
-    else
-        -- First check if it's a custom entity class
-        if self:isCustomEntityClass(entity.class) then
-            LootBeacon.Logger:debug("Found custom entity class: %s", entity.class)
-            table.insert(self.results.custom, entity)
-            -- Check if entity is an actor (NPC or Animal)
-        elseif entity["actor"] then
-            if entity.actor:IsDead() or (LootBeacon.Config.treatUnconsciousAsDead and entity.actor:IsUnconscious()) then
-                if LootBeacon.Config.goodCitizenMode and entity["soul"] and not entity.soul:IsLegalToLoot() then
-                    LootBeacon.Logger:debug("Good citizens don't rob, skipping")
-                else
-                    -- First check if it's a human
-                    if entity["human"] then
-                        LootBeacon.Logger:debug("Entity is a dead human")
-                        -- Only add to corpses if human corpse highlighting is enabled
-                        if LootBeacon.Config.highlightCorpses then
-                            LootBeacon.Logger:debug("Adding to corpses list")
-                            table.insert(self.results.corpses, entity)
-                        else
-                            LootBeacon.Logger:debug("Corpse highlighting disabled, skipping")
-                        end
-                    else
-                        LootBeacon.Logger:debug("Entity is a dead animal")
-                        -- It's an animal - only add if animal highlighting is enabled
-                        if LootBeacon.Config.highlightAnimals then
-                            LootBeacon.Logger:debug("Adding to animals list")
-                            table.insert(self.results.animals, entity)
-                        else
-                            LootBeacon.Logger:debug("Skipping: animal highlighting disabled")
-                        end
-                    end
+        return
+    end
+
+    -- Initialize metadata for this entity
+    if entity.id then
+        self.results.metadata[entity.id] = {
+            requires_stealing = false,
+            illegal_corpse = false,
+            is_pickable = false,
+            is_custom = false
+        }
+    end
+
+    -- First check if it's a custom entity class
+    if self:isCustomEntityClass(entity.class) then
+        LootBeacon.Logger:debug("Found custom entity class: %s", entity.class)
+        table.insert(self.results.custom, entity)
+        if entity.id then
+            self.results.metadata[entity.id].is_custom = true
+        end
+
+        -- Check if entity is an actor (NPC or Animal)
+    elseif entity["actor"] then
+        if entity.actor:IsDead() or (LootBeacon.Config.treatUnconsciousAsDead and entity.actor:IsUnconscious()) then
+            -- Check if corpse is illegal to loot
+            local isIllegalCorpse = false
+            if entity["soul"] and not entity.soul:IsLegalToLoot() then
+                isIllegalCorpse = true
+                if entity.id then
+                    self.results.metadata[entity.id].illegal_corpse = true
                 end
-            else
-                LootBeacon.Logger:debug("Actor is alive, skipping")
+                LootBeacon.Logger:debug("Corpse is illegal to loot")
             end
-            -- Check for pickable items
-        elseif entity.class == self.ENTITY_CLASS_PICKABLE and LootBeacon.Config.highlightItems then
-            LootBeacon.Logger:debug("Found pickable item")
-            if self:isItemPickable(entity) then
-                LootBeacon.Logger:debug("Item is pickable, adding to items list")
-                table.insert(self.results.items, entity)
+
+            -- First check if it's a human
+            if entity["human"] then
+                LootBeacon.Logger:debug("Entity is a dead human")
+                table.insert(self.results.corpses, entity)
             else
-                LootBeacon.Logger:debug("Item not pickable, skipping")
+                LootBeacon.Logger:debug("Entity is a dead animal")
+                table.insert(self.results.animals, entity)
             end
         else
-            -- If we got here, it's an entity that doesn't match any category
-            LootBeacon.Logger:debug("IS OTHER ENTITY")
+            LootBeacon.Logger:debug("Actor is alive, skipping")
         end
+
+        -- Check for pickable items
+    elseif entity.class == self.ENTITY_CLASS_PICKABLE then
+        LootBeacon.Logger:debug("Found pickable item")
+
+        -- Get basic item pickability status
+        local isPickable, requiresStealing = self:getItemPickabilityInfo(entity)
+
+        if isPickable then
+            LootBeacon.Logger:debug("Item is pickable, adding to items list")
+            table.insert(self.results.items, entity)
+
+            if entity.id then
+                self.results.metadata[entity.id].is_pickable = true
+
+                if requiresStealing then
+                    self.results.metadata[entity.id].requires_stealing = true
+                    LootBeacon.Logger:debug("Item requires stealing")
+                end
+            end
+        else
+            LootBeacon.Logger:debug("Item not pickable, skipping")
+        end
+    else
+        -- If we got here, it's an entity that doesn't match any category
+        LootBeacon.Logger:debug("IS OTHER ENTITY")
     end
 
     -- Debug separator end - only one place
     LootBeacon.Logger:debug("==============1===============")
 end
 
-function LootBeacon.EntityDetector:isItemPickable(pickableItem)
+function LootBeacon.EntityDetector:getItemPickabilityInfo(pickableItem)
     if not pickableItem or not pickableItem.item then
-        LootBeacon.Logger:warning("Invalid pickable item passed to isItemPickable")
-        return false
+        LootBeacon.Logger:warning("Invalid pickable item passed to getItemPickabilityInfo")
+        return false, false
     end
 
     -- Get item ID safely
     local itemId = pickableItem.item:GetId()
     if not itemId then
         LootBeacon.Logger:debug("Item has no ID, skipping")
-        return false
+        return false, false
     end
 
     -- Get item entity
     local itemEntity = ItemManager.GetItem(itemId)
     if not itemEntity then
         LootBeacon.Logger:debug("Failed to get item entity for ID: %s", tostring(itemId))
-        return false
+        return false, false
     end
 
     -- Get item name for logs
@@ -154,34 +179,35 @@ function LootBeacon.EntityDetector:isItemPickable(pickableItem)
     -- Check if the player can pick up the item
     if not player or not player.id then
         LootBeacon.Logger:warning("Player reference is invalid")
-        return false
+        return false, false
     end
 
     -- Check if item can be picked up
     if pickableItem.item:CanPickUp(player.id) == false then
         LootBeacon.Logger:debug("Item %s is not pickupable by player, skipping", itemName)
-        return false
+        return false, false
     end
 
-    -- Check for "good citizen mode" - skip items that require stealing
-    if pickableItem.item:CanSteal(player.id) and LootBeacon.Config.goodCitizenMode then
-        LootBeacon.Logger:debug("Item %s is illegal to be picked up by player, skipping", itemName)
-        return false
+    -- Check if item requires stealing
+    local requiresStealing = false
+    if pickableItem.item:CanSteal(player.id) then
+        requiresStealing = true
+        LootBeacon.Logger:debug("Item %s requires stealing", itemName)
     end
 
     -- Skip items with empty UI names (NPC only items)
     if itemUIName == "" then
         LootBeacon.Logger:debug("Item %s is NPC only, skipping", itemName)
-        return false
+        return false, false
     end
 
     -- Skip items that are being used
     if pickableItem.item:IsUsed() == true then
         LootBeacon.Logger:debug("Item %s is being used, skipping", itemName)
-        return false
+        return false, false
     end
 
-    return true
+    return true, requiresStealing
 end
 
 function LootBeacon.EntityDetector:getEntityName(entity)

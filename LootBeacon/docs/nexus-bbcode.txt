@@ -69,6 +69,7 @@ parameter =value    (space BEFORE equals sign, NO space after it)
 [b]Key Configuration:[/b]
 [code]
 loot_beacon_set_key_binding =f4    # Change f4 to any key you prefer
+loot_beacon_set_illegal_highlight_key_binding =none
 # For a full list of key names see: https://www.cryengine.com/docs/static/engines/cryengine-5/categories/23756813/pages/23306384#list-of-key-names
 [/code]
 

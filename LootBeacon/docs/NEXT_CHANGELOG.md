@@ -1,5 +1,16 @@
 # Changelog
 
+## Version 1.4.2
+
+- Added key binding for highlighting only illegal items
+  - New configuration option: `loot_beacon_set_illegal_highlight_key_binding`
+  - Allows highlighting items that require stealing with a separate key
+  - Set to "none" by default (disabled)
+- Improved entity detection architecture
+  - Made entity detection and filtering completely independent
+  - Illegal highlight feature now works even with Good Citizen Mode enabled
+  - Better metadata tracking for all detected entities
+
 ## Version 1.4.1
 
 - Added expanded color palette for particle effects (12 colors total)

@@ -83,6 +83,10 @@ loot_beacon_set_treat_unconscious_as_dead =0
 
 -- Key binding for highlight activation (F4 is default)
 loot_beacon_set_key_binding =f4
+
+-- Key binding for illegal item highlight (items that require stealing)
+-- Set to "none" to disable this feature
+loot_beacon_set_illegal_highlight_key_binding =none
 ```
 
 ### Available Colors

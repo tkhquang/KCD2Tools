@@ -30,7 +30,7 @@ function LootBeacon.Highlighter:activateHighlights()
     local entitiesFound = LootBeacon.EntityDetector:detectEntities()
 
     -- Apply highlight effects to detected entities
-    local counts = self:applyHighlightEffects(entitiesFound)
+    local counts = self:applyHighlightEffects(entitiesFound, false)
 
     -- Show UI notifications
     LootBeacon.UIManager:showHighlightResults(counts)
@@ -43,20 +43,69 @@ function LootBeacon.Highlighter:activateHighlights()
     return counts
 end
 
-function LootBeacon.Highlighter:applyHighlightEffects(entities)
+function LootBeacon.Highlighter:activateIllegalHighlights()
+    LootBeacon.Logger:info("Activating illegal item highlights")
+
+    -- Cancel existing highlight if active
+    if self.isActive then
+        self:removeAllHighlights()
+    end
+
+    -- Set state to active
+    self.isActive = true
+
+    -- Find entities to highlight
+    local entitiesFound = LootBeacon.EntityDetector:detectEntities()
+
+    -- Apply highlight effects to detected entities but only for illegal items
+    local counts = self:applyHighlightEffects(entitiesFound, true)
+
+    -- Show UI notifications
+    LootBeacon.UIManager:showIllegalHighlightResults(counts)
+
+    -- Set timer to automatically remove highlights
+    self.timerID = Script.SetTimer(LootBeacon.Config.highlightDuration * 1000, function()
+        LootBeacon.Highlighter:removeAllHighlights()
+    end)
+
+    return counts
+end
+
+function LootBeacon.Highlighter:applyHighlightEffects(entities, illegalOnly)
     -- Initialize counts for UI
     local counts = {
         items = 0,
         corpses = 0,
         animals = 0,
         custom = 0,
+        illegal_items = 0,
+        illegal_corpses = 0,
         total = 0
     }
 
     -- Apply effects to pickable items
     if LootBeacon.Config.highlightItems then
         for _, entity in ipairs(entities.items) do
-            if self:applyEffectToEntity(entity, LootBeacon.Config.itemParticleEffectPath) then
+            local metadata = entities.metadata[entity.id] or {}
+            local shouldHighlight = false
+
+            -- Determine if we should highlight this item
+            if illegalOnly then
+                -- In illegal mode, only highlight items that require stealing
+                shouldHighlight = metadata.requires_stealing
+            else
+                -- In regular mode, follow Good Citizen Mode setting
+                if LootBeacon.Config.goodCitizenMode and metadata.requires_stealing then
+                    shouldHighlight = false
+                else
+                    shouldHighlight = true
+                end
+            end
+
+            if shouldHighlight and self:applyEffectToEntity(entity, LootBeacon.Config.itemParticleEffectPath) then
+                if metadata.requires_stealing then
+                    counts.illegal_items = counts.illegal_items + 1
+                end
                 counts.items = counts.items + 1
                 counts.total = counts.total + 1
             end
@@ -66,7 +115,26 @@ function LootBeacon.Highlighter:applyHighlightEffects(entities)
     -- Apply effects to human corpses
     if LootBeacon.Config.highlightCorpses then
         for _, entity in ipairs(entities.corpses) do
-            if self:applyEffectToEntity(entity, LootBeacon.Config.humanCorpseParticleEffectPath) then
+            local metadata = entities.metadata[entity.id] or {}
+            local shouldHighlight = false
+
+            -- Determine if we should highlight this corpse
+            if illegalOnly then
+                -- In illegal mode, only highlight corpses that are illegal to loot
+                shouldHighlight = metadata.illegal_corpse
+            else
+                -- In regular mode, follow Good Citizen Mode setting
+                if LootBeacon.Config.goodCitizenMode and metadata.illegal_corpse then
+                    shouldHighlight = false
+                else
+                    shouldHighlight = true
+                end
+            end
+
+            if shouldHighlight and self:applyEffectToEntity(entity, LootBeacon.Config.humanCorpseParticleEffectPath) then
+                if metadata.illegal_corpse then
+                    counts.illegal_corpses = counts.illegal_corpses + 1
+                end
                 counts.corpses = counts.corpses + 1
                 counts.total = counts.total + 1
             end
@@ -76,18 +144,47 @@ function LootBeacon.Highlighter:applyHighlightEffects(entities)
     -- Apply effects to animal corpses
     if LootBeacon.Config.highlightAnimals then
         for _, entity in ipairs(entities.animals) do
-            if self:applyEffectToEntity(entity, LootBeacon.Config.animalCorpseParticleEffectPath) then
+            local metadata = entities.metadata[entity.id] or {}
+            local shouldHighlight = false
+
+            -- Determine if we should highlight this animal corpse
+            if illegalOnly then
+                -- In illegal mode, only highlight animal corpses that are illegal to loot
+                shouldHighlight = metadata.illegal_corpse
+            else
+                -- In regular mode, follow Good Citizen Mode setting
+                if LootBeacon.Config.goodCitizenMode and metadata.illegal_corpse then
+                    shouldHighlight = false
+                else
+                    shouldHighlight = true
+                end
+            end
+
+            if shouldHighlight and self:applyEffectToEntity(entity, LootBeacon.Config.animalCorpseParticleEffectPath) then
+                if metadata.illegal_corpse then
+                    counts.illegal_corpses = counts.illegal_corpses + 1
+                end
                 counts.animals = counts.animals + 1
                 counts.total = counts.total + 1
             end
         end
     end
 
-    -- Apply effects to custom entities
-    for _, entity in ipairs(entities.custom) do
-        if self:applyEffectToEntity(entity, LootBeacon.Config.customEntityParticleEffectPath) then
-            counts.custom = counts.custom + 1
-            counts.total = counts.total + 1
+    -- Apply effects to custom entities if not in illegal-only mode
+    if not illegalOnly then
+        for _, entity in ipairs(entities.custom) do
+            local metadata = entities.metadata[entity.id] or {}
+            local shouldHighlight = true
+
+            -- Check if custom entity has illegal status (unlikely but possible)
+            if LootBeacon.Config.goodCitizenMode and metadata.illegal_corpse then
+                shouldHighlight = false
+            end
+
+            if shouldHighlight and self:applyEffectToEntity(entity, LootBeacon.Config.customEntityParticleEffectPath) then
+                counts.custom = counts.custom + 1
+                counts.total = counts.total + 1
+            end
         end
     end
 

@@ -13,6 +13,11 @@ function LootBeacon.CommandRegistry:initialize()
         "LootBeacon.Highlighter:activateHighlights()",
         "Activate entity highlighting")
 
+    -- Command to activate illegal item highlights only
+    self:registerCommand("loot_beacon_activate_illegal",
+        "LootBeacon.Highlighter:activateIllegalHighlights()",
+        "Highlight only items that require stealing")
+
     -- Configuration commands
     self:registerCommand("loot_beacon_set_detection_radius",
         "LootBeacon.Config:setDetectionRadius(%line)",
@@ -74,6 +79,10 @@ function LootBeacon.CommandRegistry:initialize()
         "LootBeacon.Config:setKeyBinding(%line)",
         "Set key binding for highlight activation")
 
+    self:registerCommand("loot_beacon_set_illegal_highlight_key_binding",
+        "LootBeacon.Config:setIllegalHighlightKeyBinding(%line)",
+        "Set key binding for illegal item highlight activation")
+
     -- Utility commands
     self:registerCommand("loot_beacon_remove_highlights",
         "LootBeacon.Highlighter:removeAllHighlights()",
@@ -110,10 +119,18 @@ end
 function LootBeacon.CommandRegistry:showHelp()
     System.LogAlways("$5[Loot Beacon] Available commands:")
     System.LogAlways("$5  loot_beacon_activate - Highlight nearby lootable objects")
+    System.LogAlways("$5  loot_beacon_activate_illegal - Highlight only items that require stealing")
     System.LogAlways("$5  loot_beacon_remove_highlights - Remove all active highlights")
     System.LogAlways("$5  loot_beacon_version - Show mod version")
     System.LogAlways("$5")
     System.LogAlways("$5  Default key binding: " .. LootBeacon.Config.keyBinding)
+
+    if LootBeacon.Config.illegalHighlightKeyBinding ~= "none" then
+        System.LogAlways("$5  Illegal highlight key binding: " .. LootBeacon.Config.illegalHighlightKeyBinding)
+    else
+        System.LogAlways("$5  Illegal highlight key binding: disabled")
+    end
+
     System.LogAlways("$5")
     System.LogAlways("$5  For configuration options, edit mod.cfg or see the mod documentation")
 end
