@@ -79,7 +79,8 @@ function LootBeacon.Highlighter:applyHighlightEffects(entities, illegalOnly)
         animals = 0,
         custom = 0,
         illegal_items = 0,
-        illegal_corpses = 0,
+        illegal_corpses = 0, -- Human corpses only
+        illegal_animals = 0, -- Animal corpses only
         total = 0
     }
 
@@ -162,7 +163,7 @@ function LootBeacon.Highlighter:applyHighlightEffects(entities, illegalOnly)
 
             if shouldHighlight and self:applyEffectToEntity(entity, LootBeacon.Config.animalCorpseParticleEffectPath) then
                 if metadata.illegal_corpse then
-                    counts.illegal_corpses = counts.illegal_corpses + 1
+                    counts.illegal_animals = counts.illegal_animals + 1 -- Track illegal animals separately
                 end
                 counts.animals = counts.animals + 1
                 counts.total = counts.total + 1

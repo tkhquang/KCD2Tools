@@ -74,9 +74,15 @@ function LootBeacon.UIManager:showIllegalHighlightResults(counts)
         self:showNotification(message)
     end
 
-    -- For illegal corpses notification
+    -- For illegal human corpses notification
     if counts.illegal_corpses > 0 then
         local message = self.TEXT_KEYS.PREFIX .. " " .. counts.illegal_corpses .. " " .. self.TEXT_KEYS.CORPSE_SUFFIX
+        self:showNotification(message)
+    end
+
+    -- For illegal animal corpses notification
+    if counts.illegal_animals > 0 then
+        local message = self.TEXT_KEYS.PREFIX .. " " .. counts.illegal_animals .. " " .. self.TEXT_KEYS.ANIMAL_SUFFIX
         self:showNotification(message)
     end
 end
