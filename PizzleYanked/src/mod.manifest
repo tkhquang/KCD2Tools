@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<kcd_mod>
+  <info>
+    <name>Alternate Death Text - Pizzle Yanked</name>
+    <modid>alt_death_text_pizzle_yanked</modid>
+    <description>Game Over? Nah, Pizzle Yanked! (Alternate Death Text)</description>
+    <author>tkhquang</author>
+    <version>1.0.0</version>
+    <created_on>2025-04-25</created_on>
+    <modifies_level>false</modifies_level>
+  </info>
+</kcd_mod>
