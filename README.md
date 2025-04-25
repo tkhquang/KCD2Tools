@@ -10,6 +10,9 @@ A lightweight mod that adds a hotkey to toggle between first-person and third-pe
 ### [LootBeacon](LootBeacon/)
 A mod that helps players spot dropped items in the game world. Activate the highlight feature with a keypress and watch as nearby pickable items are highlighted with a colorful particle effect.
 
+### [PizzleYanked](PizzleYanked/)
+This mod replaces the boring "Game Over" text with the much more historically significant and spiritually accurate phrase: "Pizzle Yanked"
+
 ## Installation
 
 Each mod has its own installation instructions. See the respective mod's README for details.
