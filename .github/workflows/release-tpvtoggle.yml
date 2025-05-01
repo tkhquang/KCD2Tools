@@ -140,7 +140,7 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add TPVToggle/src/version.h TPVToggle/CHANGELOG.md TPVToggle/build/README.txt
+          git add TPVToggle/src/version.h TPVToggle/CHANGELOG.md TPVToggle/build/KCD2_TPVToggle_Readme.txt
           git commit -m "Bump version to ${{ env.NEW_VERSION }}"
           git tag -a TPVToggle-${{ env.VERSION_TAG }} -m "Release ${{ env.VERSION_TAG }}"
           git push origin main --tags

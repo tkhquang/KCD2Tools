@@ -1,191 +1,329 @@
 /**
  * @file dllmain.cpp
- * @brief Main entry point for the TPVToggle mod
+ * @brief Main initialization and cleanup for the TPV Toggle mod.
  *
- * This file contains the DLL entry point and main thread that initializes
- * the mod, finds memory patterns, sets up hooks, and starts key monitoring.
+ * Handles module loading, configuration, hook setup, and thread management.
  */
 
-#include "aob_scanner.h"
-#include "exception_handler.h"
-#include "toggle_thread.h"
 #include "logger.h"
 #include "config.h"
 #include "utils.h"
 #include "constants.h"
 #include "version.h"
-#include "overlay_detection.h"
+#include "toggle_thread.h"
+#include "game_interface.h"
+#include "global_state.h"
+#include "hooks/overlay_hook.h"
+#include "hooks/event_hooks.h"
+#include "hooks/fov_hook.h"
+#include "MinHook.h"
 
 #include <windows.h>
 #include <psapi.h>
-#include <string>
-#include <vector>
-#include <iomanip>
+#include <thread>
+#include <stdexcept>
 
-volatile BYTE *toggle_addr = nullptr;
-BYTE original_bytes[4];
-BYTE *instr_addr = nullptr;
-DWORD original_protection;
-PVOID exceptionHandlerHandle = nullptr;
+// Configuration state
+Config g_config;
 
 /**
- * Cleans up resources when the DLL is unloaded.
- * Restores original bytes if hook was applied.
+ * @brief Safely cleans up all resources and threads.
  */
-void CleanupResources()
+void cleanupResources()
 {
     Logger &logger = Logger::getInstance();
-    logger.log(LOG_INFO, "DLL is being unloaded, cleaning up resources");
+    logger.log(LOG_INFO, "Cleanup: Starting cleanup process...");
 
-    // Restore original bytes if we hooked anything
-    if (instr_addr != nullptr)
+    // Signal threads to exit
+    if (g_exitEvent)
     {
-        DWORD oldProtect;
-        if (VirtualProtect(instr_addr, 4, PAGE_EXECUTE_READWRITE, &oldProtect))
+        SetEvent(g_exitEvent);
+        Sleep(100); // Allow threads time to process exit signal
+    }
+
+    // Wait for threads to complete (with timeout)
+    HANDLE threads[] = {g_hMonitorThread, g_hOverlayThread};
+    DWORD thread_count = 0;
+    if (g_hMonitorThread)
+        threads[thread_count++] = g_hMonitorThread;
+    if (g_hOverlayThread)
+        threads[thread_count++] = g_hOverlayThread;
+
+    if (thread_count > 0)
+    {
+        DWORD wait_result = WaitForMultipleObjects(thread_count, threads, TRUE, 2000); // 2 second timeout
+        if (wait_result == WAIT_TIMEOUT)
         {
-            memcpy(instr_addr, original_bytes, 4);
-            VirtualProtect(instr_addr, 4, oldProtect, &oldProtect);
-            logger.log(LOG_INFO, "Cleanup: Restored original instruction at " + format_address(reinterpret_cast<uintptr_t>(instr_addr)));
-        }
-        else
-        {
-            logger.log(LOG_ERROR, "Cleanup: Failed to restore original instruction");
+            logger.log(LOG_WARNING, "Cleanup: Thread wait timeout - some threads may not have exited cleanly");
         }
     }
 
-    // Remove exception handler if added
-    if (exceptionHandlerHandle != nullptr)
+    // Clean up thread handles
+    if (g_hMonitorThread)
     {
-        RemoveVectoredExceptionHandler(exceptionHandlerHandle);
-        logger.log(LOG_INFO, "Cleanup: Removed exception handler");
+        CloseHandle(g_hMonitorThread);
+        g_hMonitorThread = NULL;
+    }
+    if (g_hOverlayThread)
+    {
+        CloseHandle(g_hOverlayThread);
+        g_hOverlayThread = NULL;
     }
 
-    // Clean up overlay detection resources
-    CleanupOverlayDetection();
+    // Clean up hooks and interfaces in reverse order of initialization
+    cleanupEventHooks();
+    cleanupFovHook();
+    cleanupOverlayHook();
+    cleanupGameInterface();
 
-    logger.log(LOG_INFO, "Cleanup complete");
+    // Uninitialize MinHook
+    MH_Uninitialize();
+
+    // Clean up exit event
+    if (g_exitEvent)
+    {
+        CloseHandle(g_exitEvent);
+        g_exitEvent = NULL;
+    }
+
+    logger.log(LOG_INFO, "Cleanup: All resources freed successfully");
 }
 
-DWORD WINAPI MainThread(LPVOID _param)
+/**
+ * @brief Validates that the target game module is loaded and accessible.
+ * @return true if module is valid, false otherwise.
+ */
+bool validateGameModule()
 {
     Logger &logger = Logger::getInstance();
 
-    // Log version information
-    Version::logVersionInfo();
-
-    Config config = loadConfig(Constants::getConfigFilename());
-
-    // Set log level based on configuration
-    if (config.log_level == "DEBUG")
-        logger.setLogLevel(LOG_DEBUG);
-    else if (config.log_level == "INFO")
-        logger.setLogLevel(LOG_INFO);
-    else if (config.log_level == "WARNING")
-        logger.setLogLevel(LOG_WARNING);
-    else if (config.log_level == "ERROR")
-        logger.setLogLevel(LOG_ERROR);
-    else
+    // Wait for module to load
+    HMODULE game_module = NULL;
+    for (int i = 0; i < 30 && !game_module; ++i)
     {
-        logger.log(LOG_WARNING, "Settings: Invalid LogLevel '" + config.log_level + "', defaulting to DEBUG");
-        logger.setLogLevel(LOG_DEBUG);
+        game_module = GetModuleHandleA(Constants::MODULE_NAME);
+        if (!game_module)
+            Sleep(100);
     }
 
-    // Log configured toggle keys
-    std::string keys_str;
-    for (int vk : config.toggle_keys)
+    if (!game_module)
     {
-        if (!keys_str.empty())
-            keys_str += ", ";
-        std::ostringstream oss;
-        oss << "0x" << std::hex << std::setw(2) << std::setfill('0') << vk;
-        keys_str += oss.str();
+        logger.log(LOG_ERROR, "Failed to find module: " + std::string(Constants::MODULE_NAME));
+        return false;
     }
-    logger.log(LOG_INFO, "Settings: ToggleKeys = " + keys_str);
 
-    logger.log(LOG_INFO, "DLL loaded");
-
-    // Parse AOB pattern
-    std::vector<BYTE> pattern = parseAOB(config.aob_pattern);
-    if (pattern.empty())
+    // Get module information
+    MODULEINFO mod_info = {};
+    if (!GetModuleInformation(GetCurrentProcess(), game_module, &mod_info, sizeof(mod_info)))
     {
-        logger.log(LOG_ERROR, "Settings: AOBPattern is empty or invalid");
+        logger.log(LOG_ERROR, "Failed to get module information: " + std::to_string(GetLastError()));
+        return false;
+    }
+
+    g_ModuleBase = reinterpret_cast<uintptr_t>(mod_info.lpBaseOfDll);
+    g_ModuleSize = mod_info.SizeOfImage;
+
+    if (g_ModuleSize == 0)
+    {
+        logger.log(LOG_ERROR, "Module has zero size");
+        return false;
+    }
+
+    logger.log(LOG_INFO, "Module validated: " + format_address(g_ModuleBase) +
+                             " (Size: " + std::to_string(g_ModuleSize) + " bytes)");
+    return true;
+}
+
+/**
+ * @brief Initializes MinHook library and all required hooks.
+ * @return true if initialization successful, false otherwise.
+ */
+bool initializeHooks()
+{
+    Logger &logger = Logger::getInstance();
+
+    // Initialize MinHook
+    MH_STATUS status = MH_Initialize();
+    if (status != MH_OK)
+    {
+        logger.log(LOG_ERROR, "MinHook initialization failed: " + std::string(MH_StatusToString(status)));
+        return false;
+    }
+
+    // Initialize core game interface (always required)
+    if (!initializeGameInterface(g_ModuleBase, g_ModuleSize))
+    {
+        logger.log(LOG_ERROR, "Critical: Game interface initialization failed - mod cannot function");
+        return false;
+    }
+
+    // Initialize optional overlay system
+    if (g_config.enable_overlay_feature)
+    {
+        if (!initializeOverlayHook(g_ModuleBase, g_ModuleSize))
+        {
+            logger.log(LOG_WARNING, "Overlay hook initialization failed - overlay features disabled");
+            g_config.enable_overlay_feature = false;
+        }
+
+        if (g_config.enable_overlay_feature)
+        {
+            if (!initializeEventHooks(g_ModuleBase, g_ModuleSize))
+            {
+                logger.log(LOG_WARNING, "Event hooks initialization failed - input filtering disabled");
+                cleanupOverlayHook();
+                g_config.enable_overlay_feature = false;
+            }
+        }
+    }
+
+    // Initialize optional FOV feature
+    if (g_config.tpv_fov_degrees > 0.0f)
+    {
+        if (!initializeFovHook(g_ModuleBase, g_ModuleSize, g_config.tpv_fov_degrees))
+        {
+            logger.log(LOG_WARNING, "FOV hook initialization failed - FOV modification disabled");
+            g_config.tpv_fov_degrees = -1.0f;
+        }
+    }
+
+    return true;
+}
+
+/**
+ * @brief Creates and starts the monitor threads.
+ * @return true if all required threads started successfully, false otherwise.
+ */
+bool startMonitorThreads()
+{
+    Logger &logger = Logger::getInstance();
+
+    // Prepare toggle data for the main monitor thread
+    ToggleData *toggle_data = new (std::nothrow) ToggleData{
+        std::move(g_config.toggle_keys),
+        std::move(g_config.fpv_keys),
+        std::move(g_config.tpv_keys)};
+
+    if (!toggle_data)
+    {
+        logger.log(LOG_ERROR, "Failed to allocate memory for toggle data");
+        return false;
+    }
+
+    // Start main monitor thread (always required)
+    g_hMonitorThread = CreateThread(NULL, 0, MonitorThread, toggle_data, 0, NULL);
+    if (!g_hMonitorThread)
+    {
+        delete toggle_data;
+        logger.log(LOG_ERROR, "Failed to create monitor thread: " + std::to_string(GetLastError()));
+        return false;
+    }
+
+    // Start overlay monitor thread (optional)
+    if (g_config.enable_overlay_feature)
+    {
+        g_hOverlayThread = CreateThread(NULL, 0, OverlayMonitorThread, NULL, 0, NULL);
+        if (!g_hOverlayThread)
+        {
+            logger.log(LOG_WARNING, "Failed to create overlay monitor thread - overlay features disabled");
+            g_config.enable_overlay_feature = false;
+        }
+    }
+
+    return true;
+}
+
+/**
+ * @brief Main initialization thread that sets up the mod.
+ */
+DWORD WINAPI MainThread(LPVOID hModule_param)
+{
+    (void)hModule_param;
+    Logger &logger = Logger::getInstance();
+
+    try
+    {
+        // Log startup banner
+        logger.log(LOG_INFO, "----------------------------------------");
+        Version::logVersionInfo();
+
+        // Load configuration
+        g_config = loadConfig(Constants::getConfigFilename());
+
+        // Apply log level from config
+        LogLevel log_level = LOG_INFO;
+        if (g_config.log_level == "DEBUG")
+            log_level = LOG_DEBUG;
+        else if (g_config.log_level == "WARNING")
+            log_level = LOG_WARNING;
+        else if (g_config.log_level == "ERROR")
+            log_level = LOG_ERROR;
+        logger.setLogLevel(log_level);
+
+        // Create exit event for thread signaling
+        g_exitEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+        if (!g_exitEvent)
+        {
+            throw std::runtime_error("Failed to create exit event: " + std::to_string(GetLastError()));
+        }
+
+        // Validate game module
+        if (!validateGameModule())
+        {
+            throw std::runtime_error("Game module validation failed");
+        }
+
+        // Initialize hooks
+        if (!initializeHooks())
+        {
+            throw std::runtime_error("Hook initialization failed");
+        }
+
+        // Start monitor threads
+        if (!startMonitorThreads())
+        {
+            throw std::runtime_error("Failed to start monitor threads");
+        }
+
+        logger.log(LOG_INFO, "Initialization completed successfully");
+    }
+    catch (const std::exception &e)
+    {
+        logger.log(LOG_ERROR, "Fatal initialization error: " + std::string(e.what()));
+        MessageBoxA(NULL, ("Fatal Error:\n" + std::string(e.what())).c_str(),
+                    Constants::MOD_NAME, MB_ICONERROR | MB_OK);
+        cleanupResources();
         return 1;
     }
-
-    // Find game module
-    HMODULE hModule = GetModuleHandleA(Constants::MODULE_NAME);
-    if (!hModule)
+    catch (...)
     {
-        logger.log(LOG_ERROR, "Module: Failed to find " + std::string(Constants::MODULE_NAME));
+        logger.log(LOG_ERROR, "Fatal initialization error: Unknown exception");
+        MessageBoxA(NULL, "Fatal Unknown Error!", Constants::MOD_NAME, MB_ICONERROR | MB_OK);
+        cleanupResources();
         return 1;
-    }
-    logger.log(LOG_INFO, "Module: " + std::string(Constants::MODULE_NAME) + " found at " + format_address(reinterpret_cast<uintptr_t>(hModule)));
-
-    // Get module information for scanning
-    MODULEINFO moduleInfo;
-    if (!GetModuleInformation(GetCurrentProcess(), hModule, &moduleInfo, sizeof(moduleInfo)))
-    {
-        logger.log(LOG_ERROR, "Module: Failed to get " + std::string(Constants::MODULE_NAME) + " info");
-        return 1;
-    }
-
-    // Scan for pattern
-    BYTE *base = (BYTE *)hModule;
-    size_t size = moduleInfo.SizeOfImage;
-    BYTE *aob_addr = FindPattern(base, size, pattern);
-    if (!aob_addr)
-    {
-        logger.log(LOG_ERROR, "AOB: Pattern not found in " + std::string(Constants::MODULE_NAME));
-        return 1;
-    }
-    logger.log(LOG_INFO, "AOB: Found at " + format_address(reinterpret_cast<uintptr_t>(aob_addr)));
-
-    // Set up INT3 hook at the instruction that reads the flag
-    instr_addr = aob_addr + 18; // Offset to the instruction that reads [r9+0x38]
-    memcpy(original_bytes, instr_addr, 4);
-    if (!VirtualProtect(instr_addr, 4, PAGE_EXECUTE_READWRITE, &original_protection))
-    {
-        logger.log(LOG_ERROR, "Memory: Failed to change protection at " + format_address(reinterpret_cast<uintptr_t>(instr_addr)));
-        return 1;
-    }
-
-    // Place INT3 breakpoint
-    memset(instr_addr, 0xCC, 4);
-    logger.log(LOG_INFO, "Hook: INT3 set at " + format_address(reinterpret_cast<uintptr_t>(instr_addr)));
-
-    // Add exception handler to capture r9 register
-    exceptionHandlerHandle = AddVectoredExceptionHandler(1, ExceptionHandler);
-
-    // Start key monitoring thread with all three key types
-    ToggleData *data = new ToggleData{
-        config.toggle_keys,
-        config.fpv_keys,
-        config.tpv_keys};
-    CreateThread(NULL, 0, ToggleThread, data, 0, NULL);
-
-    // Initialize and start overlay detection system
-    if (InitializeOverlayDetection())
-    {
-        StartOverlayMonitoring();
-    }
-    else
-    {
-        logger.log(LOG_WARNING, "Failed to initialize overlay detection - auto FPV toggle for menus will not be available");
     }
 
     return 0;
 }
 
-BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID _lpReserved)
+/**
+ * @brief DLL entry point.
+ */
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
 {
-    if (reason == DLL_PROCESS_ATTACH)
+    (void)lpReserved;
+
+    switch (ul_reason_for_call)
     {
+    case DLL_PROCESS_ATTACH:
         DisableThreadLibraryCalls(hModule);
-        CreateThread(NULL, 0, MainThread, NULL, 0, NULL);
+        CreateThread(NULL, 0, MainThread, hModule, 0, NULL);
+        break;
+
+    case DLL_PROCESS_DETACH:
+        cleanupResources();
+        break;
     }
-    else if (reason == DLL_PROCESS_DETACH)
-    {
-        CleanupResources();
-    }
+
     return TRUE;
 }

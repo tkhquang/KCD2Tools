@@ -3,11 +3,13 @@
 [size=5]Description[/size]
 This mod enables toggling between first-person and third-person camera views in Kingdom Come: Deliverance II using customizable hotkeys, giving you a new perspective on the medieval world of Bohemia.
 
-[size=5]Features[/size]
+[size=5]Key Features[/size]
 [list]
 [*] Toggle between first-person and third-person views with a keypress (default: F3)
 [*] Dedicated keys for forcing first-person or third-person view
-[*] Customize all key bindings through INI configuration
+[*] Automatic camera switching when menus/dialogs open
+[*] Custom Field of View (FOV) setting for third-person view
+[*] Fully customizable settings through INI configuration
 [*] Open-source with full transparency
 [/list]
 
@@ -28,8 +30,8 @@ KCD2_TPVToggle.zip
 ├── KCD2_TPVToggle.asi    # The mod itself
 ├── KCD2_TPVToggle.ini    # Configuration file
 ├── dinput8.dll           # Ultimate ASI Loader (included for convenience)
-├── README.txt            # Documentation
-└── THIRD-PARTY-LICENSES.txt # Third-party license information
+├── KCD2_TPVToggle_Readme.txt            # Documentation
+└── KCD2_TPVToggle_Acknowledgements.txt # Third-party license information
 
 Where to place the files:
 Kingdom Come: Deliverance II installation
@@ -62,7 +64,7 @@ ToggleKey = 0x72
 ; Keys that will always switch to first-person view (comma-separated, in hex)
 ; These keys never toggle - they only force first-person view
 ; If set to empty (FPVKey = ), no first-person view keys will be monitored.
-; 0x4D,0x50,0x49,0x4A,0x4E = M, P, I, J, N
+; M, P, I, J, N = 0x4D,0x50,0x49,0x4A,0x4E
 FPVKey = 0x4D,0x50,0x49,0x4A,0x4E
 
 ; Keys that will always switch to third-person view (comma-separated, in hex)
@@ -72,6 +74,14 @@ TPVKey =
 
 ; Logging level: DEBUG, INFO, WARNING, ERROR
 LogLevel = INFO
+
+; Optional Features
+; Enable overlay detection and automatic camera switching
+EnableOverlayFeature = true
+
+; Custom FOV for third-person view (degrees)
+; Valid range: 0-180 degrees, or empty to use default
+TpvFovDegrees = 68.75
 [/code]
 
 [size=5]Using with Controllers[/size]
@@ -88,6 +98,18 @@ Both options allow you to map any controller button to the F3 key (or your prefe
 The default FPV keys (M, P, I, J, N) were specifically chosen because they correspond to important in-game UI interactions. These keys automatically switch the view to first-person when pressed because many game UI elements and menus can appear buggy or non-functional when accessed in third-person view.
 
 This provides a seamless experience where pressing any UI key will automatically ensure you're in the correct camera mode for that interface. If you've remapped these keys in your game settings, you may want to update the FPV key settings to match your custom keybinds.
+
+[size=5]Optional Features[/size]
+[b]Overlay Detection:[/b]
+When EnableOverlayFeature is set to true, the mod will:
+[list]
+[*] Automatically switch to first-person view when menus/dialogs open
+[*] Restore the previous view when menus/dialogs close
+[*] Filter scroll wheel input during overlays to prevent camera movement
+[/list]
+
+[b]Custom FOV:[/b]
+Set TpvFovDegrees to any value between 0-180 to override the default third-person field of view. Common values are 60-90 degrees (game default is approximately 68.75).
 
 [size=5]Empty Key Settings[/size]
 For each key type, you can leave the setting empty to disable that functionality:
@@ -108,7 +130,7 @@ For a complete list of key codes, see [url=https://docs.microsoft.com/en-us/wind
 [*] Camera may clip through objects in third-person view (no collision detection)
 [*] Some game events or menus may temporarily be buggy in third-person view (menus, map, dialog...)
 [list]
-[*] [b]Workaround:[/b] Use the default FPV keys (M, P, I, J, N) to automatically switch to first-person view when using these features
+[*] [b]Workaround:[/b] Use the default FPV keys (M, P, I, J, N) to automatically switch to first-person view when using these features, or enable the overlay detection feature
 [/list]
 [/list]
 
@@ -146,13 +168,17 @@ If you encounter issues:
 [list]
 [*] Set LogLevel = DEBUG in the INI file
 [*] Check the log file in your game directory (KCD2_TPVToggle.log)
-[*] After a game update, you may need to update the AOB pattern in the INI file
 [*] If using JoyToKey or Steam Input, verify your controller mappings are correct
+[*] For memory pattern errors, the mod needs an update for the current game version
 [/list]
+
+[b]After a game update:[/b] The AOB (Array-of-Bytes) pattern scanning system automatically adapts to minor game changes, but major updates may require mod updates if core game functions have been modified.
 
 [size=5]Credits[/size]
 [list]
-[*] [url=https://github.com/ThirteenAG]ThirteenAG[/url] for the Ultimate ASI Loader, without which this mod would not be possible
+[*] [url=https://github.com/ThirteenAG]ThirteenAG[/url] for the Ultimate ASI Loader
+[*] TsudaKageyu for MinHook
+[*] Brodie Thiesfield for SimpleIni
 [*] Frans 'Otis_Inf' Bouma for his camera tools and inspiration
 [*] Warhorse Studios for creating this amazing game
 [/list]
