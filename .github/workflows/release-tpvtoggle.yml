@@ -115,12 +115,12 @@ jobs:
         uses: actions/cache@v3
         with:
           path: C:\ProgramData\chocolatey\lib\mingw
-          key: ${{ runner.os }}-mingw-8.1.0
+          key: ${{ runner.os }}-mingw-11.2.0
 
       - name: Install MinGW
         if: steps.cache-mingw.outputs.cache-hit != 'true'
         run: |
-          choco install mingw --version=8.1.0 -y
+          choco install mingw --version=11.2.0 -y
         shell: powershell
 
       - name: Set MinGW path
