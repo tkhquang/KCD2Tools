@@ -1,0 +1,9 @@
+[submodule "TPVToggle/external/minhook"]
+	path = TPVToggle/external/minhook
+	url = https://github.com/TsudaKageyu/minhook.git
+[submodule "TPVToggle/external/simpleini"]
+	path = TPVToggle/external/simpleini
+	url = git@github.com:brofield/simpleini.git
+[submodule "TPVToggle/external/cryengine"]
+	path = TPVToggle/external/cryengine
+	url = git@github.com:ValtoGameEngines/CryEngine.git

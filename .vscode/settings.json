@@ -100,7 +100,12 @@
     "netfwd": "cpp",
     "cfenv": "cpp",
     "typeindex": "cpp",
-    "csignal": "cpp"
+    "csignal": "cpp",
+    "regex": "cpp",
+    "rope": "cpp",
+    "slist": "cpp",
+    "future": "cpp",
+    "valarray": "cpp"
   },
   "C_Cpp_Runner.cCompilerPath": "gcc",
   "C_Cpp_Runner.cppCompilerPath": "g++",

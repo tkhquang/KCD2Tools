@@ -5,7 +5,7 @@ TPVToggle Version Updater
 This script provides a complete solution for version management:
 1. Bumps the version in version.h (the single source of truth)
 2. Updates the CHANGELOG.md file with new release information
-3. Updates version in README.txt
+3. Updates version in KCD2_TPVToggle_Readme.txt
 4. Can be run manually or through GitHub Actions
 
 Usage:
@@ -25,7 +25,7 @@ from datetime import datetime
 BASE_DIR = Path(__file__).parent.parent
 VERSION_HEADER = BASE_DIR / "src" / "version.h"
 CHANGELOG_MD = BASE_DIR / "CHANGELOG.md"
-README_TXT = BASE_DIR / "build" / "README.txt"
+README_TXT = BASE_DIR / "build" / "KCD2_TPVToggle_Readme.txt"
 
 def get_current_version():
     """Parse version.h to extract version information."""
@@ -101,7 +101,7 @@ def bump_version(part):
     return version_str
 
 def update_readme_txt(version):
-    """Update version in README.txt using string operations instead of regex."""
+    """Update version in KCD2_TPVToggle_Readme.txt using string operations instead of regex."""
     if not README_TXT.exists():
         print(f"Warning: {README_TXT} not found, skipping.")
         return
@@ -123,7 +123,7 @@ def update_readme_txt(version):
         print(f"Updated {README_TXT}")
 
     except Exception as e:
-        print(f"Error updating README.txt: {str(e)}")
+        print(f"Error updating KCD2_TPVToggle_Readme.txt: {str(e)}")
         # Print the exception traceback for debugging
         import traceback
         traceback.print_exc()
@@ -253,7 +253,7 @@ def main():
 
     if args.command == "bump":
         version = bump_version(args.part)
-        # Update README.txt with the new version
+        # Update KCD2_TPVToggle_Readme.txt with the new version
         update_readme_txt(version)
         if args.changelog:
             update_changelog(version, args.title, args.changelog)

@@ -3,39 +3,41 @@
 
 #include <string>
 #include <fstream>
+#include <mutex>
 
 enum LogLevel
 {
-    LOG_DEBUG,   // Detailed diagnostic information for debugging
-    LOG_INFO,    // General operational information
-    LOG_WARNING, // Indications of potential issues
-    LOG_ERROR    // Critical failures requiring attention
+    LOG_DEBUG = 0,
+    LOG_INFO = 1,
+    LOG_WARNING = 2,
+    LOG_ERROR = 3
 };
 
 class Logger
 {
 public:
-    // Returns the singleton instance of the Logger
-    static Logger &getInstance();
+    static Logger &getInstance()
+    {
+        static Logger instance;
+        return instance;
+    }
 
-    // Sets the minimum log level; messages below this level are ignored
     void setLogLevel(LogLevel level);
-
-    // Logs a message with the specified level if it meets or exceeds the current level
+    bool isDebugEnabled() const;
     void log(LogLevel level, const std::string &message);
 
 private:
-    Logger();  // Private constructor to enforce singleton pattern
-    ~Logger(); // Destructor to close the log file
+    Logger();
+    ~Logger();
+    Logger(const Logger &) = delete;
+    Logger &operator=(const Logger &) = delete;
 
-    // Returns the current timestamp in "YYYY-MM-DD HH:MM:SS" format
     std::string getTimestamp() const;
+    std::string generateLogFilePath() const;
 
-    // Returns the log file name based on the current DLL's name (e.g., "KCD2_TPVToggle.log")
-    std::string getLogFileName() const;
-
-    std::ofstream log_file; // Output stream to the dynamically named log file
-    LogLevel current_level; // Minimum level for logging
+    std::ofstream log_file_stream;
+    LogLevel current_log_level;
+    std::mutex log_mutex;
 };
 
 #endif // LOGGER_H

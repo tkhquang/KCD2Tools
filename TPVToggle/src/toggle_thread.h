@@ -1,58 +1,31 @@
+/**
+ * @file toggle_thread.h
+ * @brief Header for background threads managing TPV toggle and optional features.
+ */
 #ifndef TOGGLE_THREAD_H
 #define TOGGLE_THREAD_H
 
 #include <windows.h>
 #include <vector>
+#include <atomic>
 
-/**
- * @brief Data structure passed to the toggle thread
- *
- * Contains the lists of virtual key codes to monitor for different view modes
- */
+// Thread data structure
 struct ToggleData
 {
-    std::vector<int> toggle_keys; // Keys that toggle between FPV and TPV
-    std::vector<int> fpv_keys;    // Keys that force first-person view
-    std::vector<int> tpv_keys;    // Keys that force third-person view
+    std::vector<int> toggle_keys;
+    std::vector<int> fpv_keys;
+    std::vector<int> tpv_keys;
 };
 
-/**
- * @brief Thread function that monitors keys and changes the view based on key type
- *
- * @param param Pointer to a ToggleData structure
- * @return DWORD Thread exit code
- */
-DWORD WINAPI ToggleThread(LPVOID param);
+// Thread communication variables
+extern std::atomic<bool> g_isOverlayActive;
+extern std::atomic<bool> g_overlayFpvRequest;
+extern std::atomic<bool> g_overlayTpvRestoreRequest;
+extern std::atomic<bool> g_wasTpvBeforeOverlay;
+extern std::atomic<bool> g_accumulatorWriteNOPped;
 
-/**
- * @brief Safely toggles the view state with error handling
- *
- * @return bool True if toggle was successful, false otherwise
- */
-bool safeToggleViewState();
-
-/**
- * @brief Sets the view state to first-person (0)
- *
- * @return bool True if change was successful, false otherwise
- */
-bool setFirstPersonView();
-
-/**
- * @brief Sets the view state to third-person (1)
- *
- * @return bool True if change was successful, false otherwise
- */
-bool setThirdPersonView();
-
-/**
- * @brief Gets the current view state (0 for FPV, 1 for TPV)
- *
- * @return BYTE Current view state value
- */
-BYTE getViewState();
-
-// Make the toggle_addr variable accessible to other modules through a getter
-volatile BYTE *getToggleAddr();
+// Thread function prototypes
+DWORD WINAPI MonitorThread(LPVOID param);
+DWORD WINAPI OverlayMonitorThread(LPVOID param);
 
 #endif // TOGGLE_THREAD_H
