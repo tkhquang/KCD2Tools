@@ -2,6 +2,15 @@
 
 All notable changes to the TPVToggle mod will be documented in this file.
 
+## [0.3.2] - [0.3.2] - Overlay Detection and Complete Architecture Overhaul
+
+- Complete code rewrite for better stability and performance
+- Now uses SimpleIni library for configuration
+- Switched from memory breakpoints to proper function hooks (MinHook)
+- **Overlay Detection**: Automatically switches to first-person when menus open
+- **Scroll Lock**: Disables mouse wheel during menu/dialog screens
+- **Custom TPV FOV**: Set your preferred third-person field of view
+
 ## [0.3.0] - Experimental Overlay Detection and Project Structure Improvements
 
 
@@ -86,6 +95,8 @@ All notable changes to the TPVToggle mod will be documented in this file.
 - Exception-based hooking for minimal game modification
 - Logging system for troubleshooting
 KCD
+
+[0.3.2]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.3.2
 [0.3.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.3.0
 [0.2.3]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.2.3
 [0.2.2]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.2.2
