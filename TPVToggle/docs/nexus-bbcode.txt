@@ -132,6 +132,8 @@ For a complete list of key codes, see [url=https://docs.microsoft.com/en-us/wind
 [list]
 [*] [b]Workaround:[/b] Use the default FPV keys (M, P, I, J, N) to automatically switch to first-person view when using these features, or enable the overlay detection feature
 [/list]
+[*] Camera distance may shift unexpectedly in certain game situations. This behavior is inherent to the experimental (debug) third person mode the game provides
+[*] Camera appears slightly tilted when riding a horse
 [/list]
 
 [b]Rare Camera Behavior in Specific Scene:[/b]

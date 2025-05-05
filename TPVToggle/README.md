@@ -147,6 +147,8 @@ Common issues:
 - Camera may clip through objects in third-person view (no collision detection)
 - Some game events or menus may temporarily be buggy in third-person view (menus, map, dialog...)
   - **Workaround**: Use the default FPV keys (M, P, I, J, N) to automatically switch to first-person view when using these features
+- Camera distance may shift unexpectedly in certain game situations. This behavior is inherent to the experimental (debug) third person mode the game provides
+- Camera appears slightly tilted when riding a horse
 
 ### Rare Camera Behavior Issue in Specific Scene
 
