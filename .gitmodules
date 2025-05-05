@@ -4,6 +4,3 @@
 [submodule "TPVToggle/external/simpleini"]
 	path = TPVToggle/external/simpleini
 	url = https://github.com/brofield/simpleini.git
-[submodule "TPVToggle/external/cryengine"]
-	path = TPVToggle/external/cryengine
-	url = https://github.com/ValtoGameEngines/CryEngine.git
