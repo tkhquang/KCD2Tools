@@ -30,9 +30,11 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: "recursive"
+          token: ${{ secrets.PAT }}
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -47,10 +49,10 @@ jobs:
             $content = Get-Content "TPVToggle\docs\NEXT_CHANGELOG.md" -Raw
 
             # Extract title from first line (removing ## prefix)
-            $title = ($content -split "\n")[0] -replace "^##\s+", ""
+            $title = ($content -split "`r?`n")[0] -replace "^##\s+", ""
 
-            # Get the rest as changelog content (skip first line)
-            $changelogLines = ($content -split "\n" | Select-Object -Skip 1) -join "%0A"
+            # Get the rest as changelog content (skip first line, handle Windows/Unix newlines)
+            $changelogLines = ($content -split "`r?`n" | Select-Object -Skip 1) -join "%0A"
 
             echo "SUGGESTED_TITLE=$title" >> $env:GITHUB_OUTPUT
             echo "CHANGELOG=$changelogLines" >> $env:GITHUB_OUTPUT
@@ -72,18 +74,26 @@ jobs:
           } else {
             echo "Using provided title: $titleToUse"
           }
-          echo "TITLE=$titleToUse" >> $env:GITHUB_OUTPUT
+          # Trim potential whitespace/newlines from title
+          $trimmedTitle = $titleToUse.Trim()
+          echo "TITLE=$trimmedTitle" >> $env:GITHUB_OUTPUT
+          echo "Final Title: $trimmedTitle" # Added for debugging
         shell: pwsh
 
       - name: Bump version and update changelog
         id: bump
         run: |
           # Create a temporary file for the changelog to avoid command line escaping issues
+          # Replace %0A with actual newlines using PowerShell's backtick escape
           $changelogContent = '${{ steps.read-changelog.outputs.CHANGELOG }}' -replace '%0A', "`n"
           Set-Content -Path "temp_changelog.txt" -Value $changelogContent
 
+          # Ensure the title passed doesn't have unwanted characters
+          $safeTitle = '${{ steps.determine-title.outputs.TITLE }}'
+
           # Run the version updater script with changelog from file
-          python TPVToggle/scripts/version_updater.py bump ${{ inputs.version_part }} --title "${{ steps.determine-title.outputs.TITLE }}" --changelog (Get-Content -Path "temp_changelog.txt" -Raw)
+          echo "Running Python script with title: $safeTitle" # Debugging line
+          python TPVToggle/scripts/version_updater.py bump ${{ inputs.version_part }} --title "$safeTitle" --changelog (Get-Content -Path "temp_changelog.txt" -Raw)
 
           # Extract the new version from version.h
           $version_h = Get-Content TPVToggle\src\version.h -Raw
@@ -120,40 +130,60 @@ jobs:
 
       - name: Build ASI plugin
         run: |
+          # Verify submodules checked out by actions/checkout@v4
+          echo "--- Verifying submodule checkout ---"
+          ls -l TPVToggle/external/minhook/include/MinHook.h # Check specific crucial file
+          ls -l TPVToggle/external/minhook   # List directory
+          ls -l TPVToggle/external/simpleini # List directory
+          echo "--- Changing to TPVToggle directory ---"
           cd TPVToggle
+          pwd # Confirm current directory
+          echo "--- Running make clean ---"
           make clean
+          echo "--- Running make ---"
           make
         shell: bash
 
       - name: Display build output
         run: |
           dir TPVToggle\build
-        shell: cmd
+        shell: cmd # cmd is fine for dir
 
       - name: Create ZIP archive
+        # Ensure 7z is available (it usually is on windows runners) or install it
+        # Example using PowerShell's built-in Compress-Archive if 7z isn't guaranteed
+        # run: Compress-Archive -Path TPVToggle\build\* -DestinationPath ${{ env.ARTIFACT_NAME }} -Force
         run: |
           cd TPVToggle\build
           7z a ..\..\${{ env.ARTIFACT_NAME }} *
-        shell: pwsh
+        shell: pwsh # Use PowerShell as it's good with paths/env vars
 
       - name: Commit version changes
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
+          # Ensure submodule changes are also staged if they occurred (less likely now)
+          # git add TPVToggle/external/* # Be cautious with this, usually not needed if just building
           git add TPVToggle/src/version.h TPVToggle/CHANGELOG.md TPVToggle/build/KCD2_TPVToggle_Readme.txt
+          # Check git status before committing
+          git status
           git commit -m "Bump version to ${{ env.NEW_VERSION }}"
-          git tag -a TPVToggle-${{ env.VERSION_TAG }} -m "Release ${{ env.VERSION_TAG }}"
-          git push origin main --tags
+          git tag -a TPVToggle-${{ env.VERSION_TAG }} -m "Release ${{ env.VERSION_TAG }}" # Use unique tag name
+          git push origin main # Push main branch first
+          git push origin TPVToggle-${{ env.VERSION_TAG }} # Push the specific tag
         shell: bash
 
       - name: Prepare release body
         id: prepare-release
         run: |
+          # Replace the placeholder '%0A' correctly for multiline body
           $changelog = '${{ steps.read-changelog.outputs.CHANGELOG }}' -replace '%0A', "`n"
+          # Trim title just in case
+          $releaseTitle = '${{ steps.determine-title.outputs.TITLE }}'
           $releaseBody = @"
           # Kingdom Come: Deliverance II - Third Person View Toggle
 
-          ## Release ${{ env.VERSION_TAG }}
+          ## Release ${{ env.VERSION_TAG }} - $releaseTitle
 
           This mod enables toggling between first-person and third-person views in Kingdom Come: Deliverance II using customizable hotkeys.
 
@@ -177,51 +207,70 @@ jobs:
 
           Edit the `KCD2_TPVToggle.ini` file to customize hotkeys and other settings.
 
-          See the [README](https://github.com/tkhquang/KCD2Tools/blob/main/TPVToggle/README.md) for detailed instructions.
+          See the [README](https://github.com/${{ github.repository }}/blob/main/TPVToggle/README.md) for detailed instructions.
           "@
 
-          # Save to a file to preserve formatting
+          # Escape characters that might interfere with JSON or downstream processing? Unlikely here, but good practice.
+          # For action-gh-release, raw multiline text is fine for body_path.
           Set-Content -Path "release_body.txt" -Value $releaseBody -Encoding UTF8
           echo "RELEASE_BODY_PATH=release_body.txt" >> $env:GITHUB_OUTPUT
         shell: pwsh
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Explicitly pass token if needed, though often inferred
         with:
           files: ${{ env.ARTIFACT_NAME }}
-          name: KCD2 TPVToggle ${{ env.VERSION_TAG }}
-          tag_name: TPVToggle-${{ env.VERSION_TAG }}
+          name: KCD2 TPVToggle ${{ env.VERSION_TAG }} # Release name
+          tag_name: TPVToggle-${{ env.VERSION_TAG }} # The unique tag name created earlier
           body_path: ${{ steps.prepare-release.outputs.RELEASE_BODY_PATH }}
           draft: false
           prerelease: ${{ inputs.prerelease }}
 
       - name: Archive NEXT_CHANGELOG.md
-        if: success()
+        # This step assumes the push in "Commit version changes" completed successfully and main is updated
+        if: success() # Only run if previous steps succeeded
         run: |
-          # Create archive directory if it doesn't exist
+          git pull origin main # Ensure we have the absolute latest main before modifying/archiving
+
           $archiveDir = "TPVToggle\docs\archive"
+          $nextChangelogPath = "TPVToggle\docs\NEXT_CHANGELOG.md"
+
+          # Check if NEXT_CHANGELOG.md exists before trying to archive
+          if (-not (Test-Path $nextChangelogPath)) {
+            echo "$nextChangelogPath not found, cannot archive."
+            # Optionally create a new template anyway or exit
+             exit 1 # Or just warn and proceed
+          }
+
+          # Create archive directory if it doesn't exist
           if (-not (Test-Path $archiveDir)) {
             New-Item -Path $archiveDir -ItemType Directory
           }
 
-          # Move the changelog to archive with a timestamped name
-          $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-          Move-Item "TPVToggle\docs\NEXT_CHANGELOG.md" "$archiveDir\CHANGELOG_$timestamp.md"
+          # Move the changelog to archive with a versioned name for clarity
+          $archiveFileName = "CHANGELOG_${{ env.VERSION_TAG }}.md" # Use version tag
+          Move-Item $nextChangelogPath "$archiveDir\$archiveFileName"
+          echo "Archived changelog to $archiveDir\$archiveFileName"
 
           # Create an empty NEXT_CHANGELOG.md template for the next update
           $template = @'
           ## [Title for next release]
 
-          -
-          -
-          -
+          - New feature
+          - Bug fix
+          - Improvement
           '@
-          Set-Content -Path "TPVToggle\docs\NEXT_CHANGELOG.md" -Value $template
+          Set-Content -Path $nextChangelogPath -Value $template
+          echo "Created new $nextChangelogPath template."
 
           # Commit the changes
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add "TPVToggle\docs\NEXT_CHANGELOG.md" "$archiveDir\CHANGELOG_$timestamp.md"
-          git commit -m "Archive changelog and prepare for next release"
+          git add "$nextChangelogPath" "$archiveDir\$archiveFileName"
+          # Check status before committing
+          git status
+          git commit -m "Chore: Archive changelog for ${{ env.VERSION_TAG }} and prepare for next release"
           git push origin main
         shell: pwsh

@@ -3,7 +3,7 @@
 	url = https://github.com/TsudaKageyu/minhook.git
 [submodule "TPVToggle/external/simpleini"]
 	path = TPVToggle/external/simpleini
-	url = git@github.com:brofield/simpleini.git
+	url = https://github.com/brofield/simpleini.git
 [submodule "TPVToggle/external/cryengine"]
 	path = TPVToggle/external/cryengine
-	url = git@github.com:ValtoGameEngines/CryEngine.git
+	url = https://github.com/ValtoGameEngines/CryEngine.git
