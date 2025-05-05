@@ -155,6 +155,7 @@ jobs:
         # run: Compress-Archive -Path TPVToggle\build\* -DestinationPath ${{ env.ARTIFACT_NAME }} -Force
         run: |
           cd TPVToggle\build
+          Remove-Item -LiteralPath "obj" -Force -Recurse
           7z a ..\..\${{ env.ARTIFACT_NAME }} *
         shell: pwsh # Use PowerShell as it's good with paths/env vars
 
