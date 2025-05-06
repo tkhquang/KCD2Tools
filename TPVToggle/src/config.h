@@ -33,12 +33,17 @@ struct Config
     bool enable_overlay_feature; /**< Enable overlay detection and handling. */
     float tpv_fov_degrees;       /**< Custom TPV FOV in degrees; -1.0f if disabled. */
 
+    // TPV Camera Offset Settings
+    float tpv_offset_x;
+    float tpv_offset_y;
+    float tpv_offset_z;
+
     /**
      * @brief Default constructor. Initializes members to default states
      *        (empty vectors, default settings). The loading function is
      *        responsible for populating with defaults or INI values.
      */
-    Config() : enable_overlay_feature(true), tpv_fov_degrees(-1.0f) {}
+    Config() : enable_overlay_feature(true), tpv_fov_degrees(-1.0f), tpv_offset_x(0.0f), tpv_offset_y(0.0f), tpv_offset_z(0.0f) {}
 };
 
 /**

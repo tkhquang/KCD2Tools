@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <atomic>
 #include "constants.h"
+#include "math_utils.h"
 
 // Forward declare Logger to avoid circular dependencies
 class Logger;
@@ -47,5 +48,7 @@ extern std::atomic<bool> g_overlayFpvRequest;
 extern std::atomic<bool> g_overlayTpvRestoreRequest;
 extern std::atomic<bool> g_wasTpvBeforeOverlay;
 extern std::atomic<bool> g_accumulatorWriteNOPped;
+
+extern Vector3 g_latestTpvCameraForward;
 
 #endif // GLOBAL_STATE_H

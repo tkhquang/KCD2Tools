@@ -70,3 +70,5 @@ std::atomic<bool> g_overlayFpvRequest(false);
 std::atomic<bool> g_overlayTpvRestoreRequest(false);
 std::atomic<bool> g_wasTpvBeforeOverlay(false);
 std::atomic<bool> g_accumulatorWriteNOPped(false);
+
+Vector3 g_latestTpvCameraForward = {0.0f, 1.0f, 0.0f};

@@ -1,15 +1,15 @@
 {
   "configurations": [
     {
-      "name": "windows-gcc-x64",
+      "name": "MinGW-w64 GCC",
       "includePath": [
+        "${workspaceFolder}/TPVToggle/src",
+        "${workspaceFolder}/TPVToggle/external/minhook/include",
+        "${workspaceFolder}/TPVToggle/external/DirectXMath/Inc",
+        // "${workspaceFolder}/TPVToggle/external/cryengine/Code/SDKs/Lua/src",
         "${workspaceFolder}/**"
       ],
-      "defines": [
-        "_DEBUG",
-        "UNICODE",
-        "_UNICODE"
-      ],
+      "defines": ["_DEBUG", "UNICODE", "_UNICODE"],
       "compilerPath": "C:/msys64/mingw64/bin/gcc.exe",
       "cStandard": "${default}",
       "cppStandard": "${default}",
