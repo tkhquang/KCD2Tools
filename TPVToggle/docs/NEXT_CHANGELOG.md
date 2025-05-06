@@ -1,3 +1,5 @@
-## Fix FPS drop
+## [Title for next release]
 
-- Reduce aggressive timing intervals. It was made aggressively to debug and mistakenly left in the code.
+- New feature
+- Bug fix
+- Improvement
