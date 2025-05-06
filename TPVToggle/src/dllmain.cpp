@@ -16,6 +16,9 @@
 #include "hooks/overlay_hook.h"
 #include "hooks/event_hooks.h"
 #include "hooks/fov_hook.h"
+#include "hooks/tpv_camera_hook.h"
+// #include "hooks/tpv_input_hook.h"
+// #include "hooks/player_state_hook.h"
 #include "MinHook.h"
 
 #include <windows.h>
@@ -78,6 +81,9 @@ void cleanupResources()
     cleanupFovHook();
     cleanupOverlayHook();
     cleanupGameInterface();
+    cleanupTpvCameraHook();
+    // cleanupPlayerStateHook();
+    // cleanupTpvInputHook();
 
     // Uninitialize MinHook
     MH_Uninitialize();
@@ -188,6 +194,26 @@ bool initializeHooks()
             logger.log(LOG_WARNING, "FOV hook initialization failed - FOV modification disabled");
             g_config.tpv_fov_degrees = -1.0f;
         }
+    }
+
+    // if (!initializeTpvInputHook(g_ModuleBase, g_ModuleSize))
+    // {
+    //     logger.log(LOG_ERROR, "Critical: TPV Input Hook initialization failed - Orbital camera cannot function.");
+    //     // cleanupHooksOnError(); // Call a helper to clean up initialized hooks
+    //     return false;
+    // }
+    // if (!initializePlayerStateHook(g_ModuleBase, g_ModuleSize))
+    // {
+    //     logger.log(LOG_ERROR, "Critical: Player State Hook initialization failed - Orbital camera cannot function.");
+    //     // cleanupHooksOnError(); // Call a helper to clean up initialized hooks
+    //     return false;
+    // }
+
+    if (!initializeTpvCameraHook(g_ModuleBase, g_ModuleSize))
+    {
+        logger.log(LOG_WARNING, "TPV Camera Offset Hook initialization failed - Offset feature disabled.");
+        // This is likely not critical, so we don't 'return false', just log warning.
+        // If it IS critical, change to LOG_ERROR, call cleanupHooksOnError, return false.
     }
 
     return true;

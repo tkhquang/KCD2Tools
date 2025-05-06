@@ -15,6 +15,8 @@
 #include <filesystem>
 #include <cctype>
 #include <algorithm>
+#include <string>
+#include <stdexcept>
 
 // SimpleIni headers
 #include "SimpleIni.h"
@@ -265,6 +267,24 @@ Config loadConfig(const std::string &ini_filename)
                 }
             }
         }
+
+        auto parseFloat = [&](const char *key, float &target)
+        {
+            const char *val = ini.GetValue("Settings", key, "0.0");
+            try
+            {
+                target = std::stof(val);
+            }
+            catch (const std::exception &e)
+            {
+                logger.log(LOG_WARNING, "Config: Failed to parse float value for '" + std::string(key) + "': " + std::string(val) + ". Using default 0.0. Error: " + e.what());
+                target = 0.0f;
+            }
+        };
+
+        parseFloat("TpvOffsetX", config.tpv_offset_x);
+        parseFloat("TpvOffsetY", config.tpv_offset_y);
+        parseFloat("TpvOffsetZ", config.tpv_offset_z);
     }
 
     // Validate log level
@@ -296,6 +316,8 @@ Config loadConfig(const std::string &ini_filename)
     {
         logger.log(LOG_INFO, "Config: TPV FOV feature: DISABLED");
     }
+
+    logger.log(LOG_INFO, "Config: TPV Offset (X, Y, Z): (" + std::to_string(config.tpv_offset_x) + ", " + std::to_string(config.tpv_offset_y) + ", " + std::to_string(config.tpv_offset_z) + ")");
 
     logger.log(LOG_INFO, "Config: Loaded hotkeys (Toggle:" + std::to_string(config.toggle_keys.size()) +
                              "/FPV:" + std::to_string(config.fpv_keys.size()) +
