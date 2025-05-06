@@ -150,9 +150,6 @@ jobs:
         shell: cmd # cmd is fine for dir
 
       - name: Create ZIP archive
-        # Ensure 7z is available (it usually is on windows runners) or install it
-        # Example using PowerShell's built-in Compress-Archive if 7z isn't guaranteed
-        # run: Compress-Archive -Path TPVToggle\build\* -DestinationPath ${{ env.ARTIFACT_NAME }} -Force
         run: |
           cd TPVToggle\build
           Remove-Item -LiteralPath "obj" -Force -Recurse
@@ -163,15 +160,15 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          # Ensure submodule changes are also staged if they occurred (less likely now)
-          # git add TPVToggle/external/* # Be cautious with this, usually not needed if just building
           git add TPVToggle/src/version.h TPVToggle/CHANGELOG.md TPVToggle/build/KCD2_TPVToggle_Readme.txt
-          # Check git status before committing
           git status
           git commit -m "Bump version to ${{ env.NEW_VERSION }}"
-          git tag -a TPVToggle-${{ env.VERSION_TAG }} -m "Release ${{ env.VERSION_TAG }}" # Use unique tag name
-          git push origin main # Push main branch first
-          git push origin TPVToggle-${{ env.VERSION_TAG }} # Push the specific tag
+          git tag -a TPVToggle-${{ env.VERSION_TAG }} -m "Release ${{ env.VERSION_TAG }}"
+
+          # Just push to the current branch directly
+          git push origin feat/support-camera-offsets  # REPLACE WITH YOUR ACTUAL BRANCH NAME
+
+          git push origin TPVToggle-${{ env.VERSION_TAG }}
         shell: bash
 
       - name: Prepare release body
@@ -230,10 +227,20 @@ jobs:
           prerelease: ${{ inputs.prerelease }}
 
       - name: Archive NEXT_CHANGELOG.md
-        # This step assumes the push in "Commit version changes" completed successfully and main is updated
+        # This step assumes the push in "Commit version changes" completed successfully
         if: success() # Only run if previous steps succeeded
         run: |
-          git pull origin main # Ensure we have the absolute latest main before modifying/archiving
+          # Get the correct branch to pull from
+          $branchName = ""
+          if ($env:GITHUB_REF -match "refs/heads/(.+)") {
+            $branchName = $matches[1]
+          } else {
+            $branchName = (git branch --show-current)
+          }
+          Write-Output "Current branch for archiving: $branchName"
+
+          # Pull latest changes from the correct branch
+          git pull origin $branchName
 
           $archiveDir = "TPVToggle\docs\archive"
           $nextChangelogPath = "TPVToggle\docs\NEXT_CHANGELOG.md"
@@ -266,12 +273,11 @@ jobs:
           Set-Content -Path $nextChangelogPath -Value $template
           echo "Created new $nextChangelogPath template."
 
-          # Commit the changes
+          # Commit the changes to the current branch
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add "$nextChangelogPath" "$archiveDir\$archiveFileName"
-          # Check status before committing
           git status
           git commit -m "Chore: Archive changelog for ${{ env.VERSION_TAG }} and prepare for next release"
-          git push origin main
+          git push origin $branchName
         shell: pwsh
