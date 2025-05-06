@@ -2,6 +2,10 @@
 
 All notable changes to the TPVToggle mod will be documented in this file.
 
+## [0.3.3] - Fix FPS drop
+
+- Reduce aggressive timing intervals. It was made aggressively to debug and mistakenly left in the code.
+
 ## [0.3.2] - Overlay Detection and Complete Architecture Overhaul
 
 - Complete code rewrite for better stability and performance
@@ -96,6 +100,7 @@ All notable changes to the TPVToggle mod will be documented in this file.
 - Logging system for troubleshooting
 KCD
 
+[0.3.3]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.3.3
 [0.3.2]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.3.2
 [0.3.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.3.0
 [0.2.3]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.2.3
