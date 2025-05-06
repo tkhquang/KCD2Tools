@@ -1,5 +1,3 @@
-## [Title for next release]
+## [EXPERIMENTAL] Support Camera Offset Manipulation
 
-- New feature
-- Bug fix
-- Improvement
+- Create simple camera offset manipulation
