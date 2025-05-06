@@ -2,7 +2,7 @@
 
 All notable changes to the TPVToggle mod will be documented in this file.
 
-## [0.3.2] - [0.3.2] - Overlay Detection and Complete Architecture Overhaul
+## [0.3.2] - Overlay Detection and Complete Architecture Overhaul
 
 - Complete code rewrite for better stability and performance
 - Now uses SimpleIni library for configuration
