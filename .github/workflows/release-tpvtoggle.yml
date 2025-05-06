@@ -156,7 +156,9 @@ jobs:
           7z a ..\..\${{ env.ARTIFACT_NAME }} *
         shell: pwsh # Use PowerShell as it's good with paths/env vars
 
+      # Only commit changes if this is NOT a pre-release
       - name: Commit version changes
+        if: ${{ !inputs.prerelease }}
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
@@ -165,9 +167,29 @@ jobs:
           git commit -m "Bump version to ${{ env.NEW_VERSION }}"
           git tag -a TPVToggle-${{ env.VERSION_TAG }} -m "Release ${{ env.VERSION_TAG }}"
 
-          # Just push to the current branch directly
-          git push origin feat/support-camera-offsets  # REPLACE WITH YOUR ACTUAL BRANCH NAME
+          # Get current branch name - for GitHub Actions environments
+          BRANCH_NAME=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
+          echo "Current branch: $BRANCH_NAME"
 
+          # Push to the appropriate branch
+          if [ "$BRANCH_NAME" = "main" ]; then
+            git push origin main
+          else
+            # We're on a feature branch
+            git push origin $BRANCH_NAME
+          fi
+
+          # Always push the tag
+          git push origin TPVToggle-${{ env.VERSION_TAG }}
+        shell: bash
+
+      # For pre-releases, just create the tag without committing changes
+      - name: Create tag for pre-release
+        if: ${{ inputs.prerelease }}
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git tag -a TPVToggle-${{ env.VERSION_TAG }} -m "Pre-release ${{ env.VERSION_TAG }}"
           git push origin TPVToggle-${{ env.VERSION_TAG }}
         shell: bash
 
@@ -208,6 +230,11 @@ jobs:
           See the [README](https://github.com/${{ github.repository }}/blob/main/TPVToggle/README.md) for detailed instructions.
           "@
 
+          # Add pre-release notice if applicable
+          if ('${{ inputs.prerelease }}' -eq 'true') {
+            $releaseBody = "## ⚠️ PRE-RELEASE VERSION ⚠️`n`nThis is a pre-release build for testing purposes. It may contain bugs or incomplete features.`n`n" + $releaseBody
+          }
+
           # Escape characters that might interfere with JSON or downstream processing? Unlikely here, but good practice.
           # For action-gh-release, raw multiline text is fine for body_path.
           Set-Content -Path "release_body.txt" -Value $releaseBody -Encoding UTF8
@@ -217,7 +244,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Explicitly pass token if needed, though often inferred
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           files: ${{ env.ARTIFACT_NAME }}
           name: KCD2 TPVToggle ${{ env.VERSION_TAG }} # Release name
@@ -226,16 +253,16 @@ jobs:
           draft: false
           prerelease: ${{ inputs.prerelease }}
 
+      # Only archive the changelog if this is NOT a pre-release
       - name: Archive NEXT_CHANGELOG.md
-        # This step assumes the push in "Commit version changes" completed successfully
-        if: success() # Only run if previous steps succeeded
+        if: ${{ !inputs.prerelease && success() }}
         run: |
-          # Get the correct branch to pull from
-          $branchName = ""
-          if ($env:GITHUB_REF -match "refs/heads/(.+)") {
-            $branchName = $matches[1]
-          } else {
-            $branchName = (git branch --show-current)
+          # Get current branch name - for GitHub Actions environments
+          $branchName = $env:GITHUB_HEAD_REF
+          if ([string]::IsNullOrEmpty($branchName)) {
+            if ($env:GITHUB_REF -match "refs/heads/(.+)") {
+              $branchName = $matches[1]
+            }
           }
           Write-Output "Current branch for archiving: $branchName"
 
@@ -248,8 +275,7 @@ jobs:
           # Check if NEXT_CHANGELOG.md exists before trying to archive
           if (-not (Test-Path $nextChangelogPath)) {
             echo "$nextChangelogPath not found, cannot archive."
-            # Optionally create a new template anyway or exit
-             exit 1 # Or just warn and proceed
+            exit 1 # Or just warn and proceed
           }
 
           # Create archive directory if it doesn't exist
