@@ -150,28 +150,47 @@ jobs:
         shell: cmd # cmd is fine for dir
 
       - name: Create ZIP archive
-        # Ensure 7z is available (it usually is on windows runners) or install it
-        # Example using PowerShell's built-in Compress-Archive if 7z isn't guaranteed
-        # run: Compress-Archive -Path TPVToggle\build\* -DestinationPath ${{ env.ARTIFACT_NAME }} -Force
         run: |
           cd TPVToggle\build
           Remove-Item -LiteralPath "obj" -Force -Recurse
           7z a ..\..\${{ env.ARTIFACT_NAME }} *
         shell: pwsh # Use PowerShell as it's good with paths/env vars
 
+      # Only commit changes if this is NOT a pre-release
       - name: Commit version changes
+        if: ${{ !inputs.prerelease }}
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          # Ensure submodule changes are also staged if they occurred (less likely now)
-          # git add TPVToggle/external/* # Be cautious with this, usually not needed if just building
           git add TPVToggle/src/version.h TPVToggle/CHANGELOG.md TPVToggle/build/KCD2_TPVToggle_Readme.txt
-          # Check git status before committing
           git status
           git commit -m "Bump version to ${{ env.NEW_VERSION }}"
-          git tag -a TPVToggle-${{ env.VERSION_TAG }} -m "Release ${{ env.VERSION_TAG }}" # Use unique tag name
-          git push origin main # Push main branch first
-          git push origin TPVToggle-${{ env.VERSION_TAG }} # Push the specific tag
+          git tag -a TPVToggle-${{ env.VERSION_TAG }} -m "Release ${{ env.VERSION_TAG }}"
+
+          # Get current branch name - for GitHub Actions environments
+          BRANCH_NAME=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
+          echo "Current branch: $BRANCH_NAME"
+
+          # Push to the appropriate branch
+          if [ "$BRANCH_NAME" = "main" ]; then
+            git push origin main
+          else
+            # We're on a feature branch
+            git push origin $BRANCH_NAME
+          fi
+
+          # Always push the tag
+          git push origin TPVToggle-${{ env.VERSION_TAG }}
+        shell: bash
+
+      # For pre-releases, just create the tag without committing changes
+      - name: Create tag for pre-release
+        if: ${{ inputs.prerelease }}
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git tag -a TPVToggle-${{ env.VERSION_TAG }} -m "Pre-release ${{ env.VERSION_TAG }}"
+          git push origin TPVToggle-${{ env.VERSION_TAG }}
         shell: bash
 
       - name: Prepare release body
@@ -211,6 +230,11 @@ jobs:
           See the [README](https://github.com/${{ github.repository }}/blob/main/TPVToggle/README.md) for detailed instructions.
           "@
 
+          # Add pre-release notice if applicable
+          if ('${{ inputs.prerelease }}' -eq 'true') {
+            $releaseBody = "## ⚠️ PRE-RELEASE VERSION ⚠️`n`nThis is a pre-release build for testing purposes. It may contain bugs or incomplete features.`n`n" + $releaseBody
+          }
+
           # Escape characters that might interfere with JSON or downstream processing? Unlikely here, but good practice.
           # For action-gh-release, raw multiline text is fine for body_path.
           Set-Content -Path "release_body.txt" -Value $releaseBody -Encoding UTF8
@@ -220,7 +244,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Explicitly pass token if needed, though often inferred
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           files: ${{ env.ARTIFACT_NAME }}
           name: KCD2 TPVToggle ${{ env.VERSION_TAG }} # Release name
@@ -229,11 +253,21 @@ jobs:
           draft: false
           prerelease: ${{ inputs.prerelease }}
 
+      # Only archive the changelog if this is NOT a pre-release
       - name: Archive NEXT_CHANGELOG.md
-        # This step assumes the push in "Commit version changes" completed successfully and main is updated
-        if: success() # Only run if previous steps succeeded
+        if: ${{ !inputs.prerelease && success() }}
         run: |
-          git pull origin main # Ensure we have the absolute latest main before modifying/archiving
+          # Get current branch name - for GitHub Actions environments
+          $branchName = $env:GITHUB_HEAD_REF
+          if ([string]::IsNullOrEmpty($branchName)) {
+            if ($env:GITHUB_REF -match "refs/heads/(.+)") {
+              $branchName = $matches[1]
+            }
+          }
+          Write-Output "Current branch for archiving: $branchName"
+
+          # Pull latest changes from the correct branch
+          git pull origin $branchName
 
           $archiveDir = "TPVToggle\docs\archive"
           $nextChangelogPath = "TPVToggle\docs\NEXT_CHANGELOG.md"
@@ -241,8 +275,7 @@ jobs:
           # Check if NEXT_CHANGELOG.md exists before trying to archive
           if (-not (Test-Path $nextChangelogPath)) {
             echo "$nextChangelogPath not found, cannot archive."
-            # Optionally create a new template anyway or exit
-             exit 1 # Or just warn and proceed
+            exit 1 # Or just warn and proceed
           }
 
           # Create archive directory if it doesn't exist
@@ -266,12 +299,11 @@ jobs:
           Set-Content -Path $nextChangelogPath -Value $template
           echo "Created new $nextChangelogPath template."
 
-          # Commit the changes
+          # Commit the changes to the current branch
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add "$nextChangelogPath" "$archiveDir\$archiveFileName"
-          # Check status before committing
           git status
           git commit -m "Chore: Archive changelog for ${{ env.VERSION_TAG }} and prepare for next release"
-          git push origin main
+          git push origin $branchName
         shell: pwsh
