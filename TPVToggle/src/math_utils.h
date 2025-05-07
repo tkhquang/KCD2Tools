@@ -146,4 +146,14 @@ struct Quaternion
 
         return Quaternion::FromXMVector(rotationQuat);
     }
+
+    // Static function for spherical linear interpolation between quaternions
+    static Quaternion Slerp(const Quaternion &q1, const Quaternion &q2, float t)
+    {
+        // Using DirectXMath for the actual implementation
+        DirectX::XMVECTOR v1 = q1.ToXMVector();
+        DirectX::XMVECTOR v2 = q2.ToXMVector();
+        DirectX::XMVECTOR result = DirectX::XMQuaternionSlerp(v1, v2, t);
+        return Quaternion::FromXMVector(result);
+    }
 };

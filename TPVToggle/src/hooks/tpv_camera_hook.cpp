@@ -4,24 +4,17 @@
 #include "utils.h"
 #include "aob_scanner.h"
 #include "global_state.h"
-#include "game_interface.h" // For getViewState potentially, although maybe not needed
+#include "game_interface.h"
 #include "math_utils.h"
-#include "config.h" // Include config to access g_config offsets
+#include "config.h"
+#include "transition_manager.h"
+
 #include "MinHook.h"
 
-#include <DirectXMath.h> // For XMVector etc.
+#include <DirectXMath.h>
 #include <sstream>
 #include <iomanip>
-#include <stdexcept> // For exception handling
-
-// Helper to log quaternion
-static std::string QuatToString(const Quaternion &q)
-{
-    std::ostringstream oss;
-    oss << std::fixed << std::setprecision(4)
-        << "Q(" << q.x << ", " << q.y << ", " << q.z << ", " << q.w << ")";
-    return oss.str();
-}
+#include <stdexcept>
 
 // Function Signature for FUN_18392509c
 // void FUN_18392509c(longlong param_1,undefined8 *param_2)
@@ -36,13 +29,12 @@ static BYTE *g_tpvCameraHookAddress = nullptr;
 // Global Config defined in dllmain.cpp
 extern Config g_config;
 
-// Detour
 void __fastcall Detour_TpvCameraUpdate(uintptr_t thisPtr, uintptr_t outputPosePtr)
 {
     Logger &logger = Logger::getInstance();
     bool original_called = false;
 
-    // 1. Call original function first to calculate default pose
+    // Call original function first
     if (fpTpvCameraUpdateOriginal)
     {
         try
@@ -53,90 +45,69 @@ void __fastcall Detour_TpvCameraUpdate(uintptr_t thisPtr, uintptr_t outputPosePt
         catch (...)
         {
             logger.log(LOG_ERROR, "TpvCameraHook: Exception calling original function!");
-            // Depending on severity, might want to just return or try to continue carefully
-            return; // Safest is usually to return
+            return;
         }
     }
     else
     {
         logger.log(LOG_ERROR, "TpvCameraHook: Original function pointer NULL!");
-        return; // Can't proceed
+        return;
     }
 
-    // Proceed only if original succeeded and we have a valid output pointer
-    if (!original_called || outputPosePtr == 0)
+    // Skip if original failed or TPV mode not active
+    if (!original_called || outputPosePtr == 0 || getViewState() != 1)
     {
         return;
     }
 
-    // Check if we are actually in TPV mode - Belt and suspenders check
-    if (getViewState() != 1)
-    {
-        return; // Only apply offset in TPV
-    }
-
-    // Check if offsets are non-zero (minor optimization)
-    if (g_config.tpv_offset_x == 0.0f && g_config.tpv_offset_y == 0.0f && g_config.tpv_offset_z == 0.0f)
-    {
-        return; // No offset to apply
-    }
-
-    // Rate limit logging
-    static std::chrono::steady_clock::time_point last_log_time_cam;
-    bool enableDetailedLogging = false;
-    auto now = std::chrono::steady_clock::now();
-    if (logger.isDebugEnabled() && (now - last_log_time_cam > std::chrono::milliseconds(100)))
-    { // Log max ~10 times/sec
-        enableDetailedLogging = true;
-        last_log_time_cam = now;
-    }
-
     try
     {
-        // 2. Read necessary data from outputPose (Check Readability!)
-        // Adjust required size based on VERIFIED offsets
+        // Check if output pose buffer is readable
         if (!isMemoryReadable((void *)outputPosePtr, Constants::TPV_OUTPUT_POSE_REQUIRED_SIZE))
         {
-            if (enableDetailedLogging)
-                logger.log(LOG_WARNING, "TpvCameraHook: Output Pose buffer not readable: " + format_address(outputPosePtr));
             return;
         }
 
-        // Pointers to data within the output structure (USING PLACEHOLDER OFFSETS)
+        // Pointers to data within the output structure
         Vector3 *currentPosPtr = reinterpret_cast<Vector3 *>(outputPosePtr + Constants::TPV_OUTPUT_POSE_POSITION_OFFSET);
         Quaternion *currentRotPtr = reinterpret_cast<Quaternion *>(outputPosePtr + Constants::TPV_OUTPUT_POSE_ROTATION_OFFSET);
 
         Vector3 currentPos = *currentPosPtr;
-        Quaternion currentRot = *currentRotPtr; // Assuming XYZW
+        Quaternion currentRot = *currentRotPtr;
 
-        if (enableDetailedLogging)
+        // Get active offset - either from transition, profile system, or config
+        Vector3 localOffset;
+
+        // Check if transition is active and update if needed
+        Vector3 transitionPosition;
+        Quaternion transitionRotation;
+        if (g_config.enable_camera_profiles &&
+            TransitionManager::getInstance().updateTransition(0.016f, transitionPosition, transitionRotation))
         {
-            std::ostringstream oss;
-            oss << "TpvCameraHook: Read Original Pose: Pos(" << currentPos.x << "," << currentPos.y << "," << currentPos.z << ") "
-                << QuatToString(currentRot); // Using helper from previous step
-            logger.log(LOG_DEBUG, oss.str());
+            // Use transitioning offset
+            localOffset = transitionPosition;
+        }
+        else if (g_config.enable_camera_profiles)
+        {
+            // Use profile system offset
+            localOffset = g_currentCameraOffset;
+        }
+        else
+        {
+            // Use static config offset
+            localOffset = Vector3(g_config.tpv_offset_x, g_config.tpv_offset_y, g_config.tpv_offset_z);
         }
 
-        // 3. Calculate World Offset
-        Vector3 localOffset(g_config.tpv_offset_x, g_config.tpv_offset_y, g_config.tpv_offset_z);
-        Vector3 worldOffset = currentRot.Rotate(localOffset); // Rotate local offset by world rotation
+        // Calculate World Offset by rotating local offset by camera rotation
+        Vector3 worldOffset = currentRot.Rotate(localOffset);
 
-        // 4. Calculate New Position
+        // Apply offset to position
         Vector3 newPos = currentPos + worldOffset;
 
-        // 5. Write New Position Back (Check Writable!)
-        if (!isMemoryWritable((void *)currentPosPtr, sizeof(Vector3)))
+        // Write back if writable
+        if (isMemoryWritable((void *)currentPosPtr, sizeof(Vector3)))
         {
-            if (enableDetailedLogging)
-                logger.log(LOG_WARNING, "TpvCameraHook: Output Pose Position buffer not writable: " + format_address((uintptr_t)currentPosPtr));
-            return;
-        }
-
-        *currentPosPtr = newPos;
-
-        if (enableDetailedLogging)
-        {
-            logger.log(LOG_DEBUG, "TpvCameraHook: Applied Offset: (" + std::to_string(worldOffset.x) + "," + std::to_string(worldOffset.y) + "," + std::to_string(worldOffset.z) + ") -> NewPos: (" + std::to_string(newPos.x) + "," + std::to_string(newPos.y) + "," + std::to_string(newPos.z) + ")");
+            *currentPosPtr = newPos;
         }
     }
     catch (const std::exception &e)
@@ -153,6 +124,13 @@ void __fastcall Detour_TpvCameraUpdate(uintptr_t thisPtr, uintptr_t outputPosePt
 bool initializeTpvCameraHook(uintptr_t moduleBase, size_t moduleSize)
 {
     Logger &logger = Logger::getInstance();
+
+    if (!g_config.enable_camera_profiles && g_config.tpv_offset_x == 0.0f && g_config.tpv_offset_y == 0.0f && g_config.tpv_offset_z == 0.0f)
+    {
+        logger.log(LOG_INFO, "TpvCameraHook: Feature disabled (X,Y,Z = 0 and Profiles Enabled = false)");
+        return true; // Not an error condition
+    }
+
     logger.log(LOG_INFO, "Initializing TPV Camera Update Hook..."); // Added info log
 
     std::vector<BYTE> pattern = parseAOB(Constants::TPV_CAMERA_UPDATE_AOB_PATTERN);

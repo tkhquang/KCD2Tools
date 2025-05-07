@@ -13,12 +13,13 @@
 #include "toggle_thread.h"
 #include "game_interface.h"
 #include "global_state.h"
+#include "camera_profile.h"
+#include "camera_profile_thread.h"
 #include "hooks/overlay_hook.h"
 #include "hooks/event_hooks.h"
 #include "hooks/fov_hook.h"
 #include "hooks/tpv_camera_hook.h"
-// #include "hooks/tpv_input_hook.h"
-// #include "hooks/player_state_hook.h"
+
 #include "MinHook.h"
 
 #include <windows.h>
@@ -196,24 +197,9 @@ bool initializeHooks()
         }
     }
 
-    // if (!initializeTpvInputHook(g_ModuleBase, g_ModuleSize))
-    // {
-    //     logger.log(LOG_ERROR, "Critical: TPV Input Hook initialization failed - Orbital camera cannot function.");
-    //     // cleanupHooksOnError(); // Call a helper to clean up initialized hooks
-    //     return false;
-    // }
-    // if (!initializePlayerStateHook(g_ModuleBase, g_ModuleSize))
-    // {
-    //     logger.log(LOG_ERROR, "Critical: Player State Hook initialization failed - Orbital camera cannot function.");
-    //     // cleanupHooksOnError(); // Call a helper to clean up initialized hooks
-    //     return false;
-    // }
-
     if (!initializeTpvCameraHook(g_ModuleBase, g_ModuleSize))
     {
         logger.log(LOG_WARNING, "TPV Camera Offset Hook initialization failed - Offset feature disabled.");
-        // This is likely not critical, so we don't 'return false', just log warning.
-        // If it IS critical, change to LOG_ERROR, call cleanupHooksOnError, return false.
     }
 
     return true;
@@ -316,6 +302,47 @@ DWORD WINAPI MainThread(LPVOID hModule_param)
         if (!startMonitorThreads())
         {
             throw std::runtime_error("Failed to start monitor threads");
+        }
+
+        // Initialize and start camera profile system if enabled
+        if (g_config.enable_camera_profiles)
+        {
+            logger.log(LOG_INFO, "Initializing camera profile system...");
+
+            // Initialize the camera profile manager
+            CameraProfileManager::getInstance().loadProfiles(g_config.profile_directory);
+
+            // Set initial global camera offset from config
+            g_currentCameraOffset = Vector3(g_config.tpv_offset_x, g_config.tpv_offset_y, g_config.tpv_offset_z);
+
+            // Configure transition settings
+            CameraProfileManager::getInstance().setTransitionSettings(
+                g_config.transition_duration,
+                g_config.use_spring_physics,
+                g_config.spring_strength,
+                g_config.spring_damping);
+
+            // Start camera profile thread
+            CameraProfileThreadData *profile_data = new (std::nothrow) CameraProfileThreadData{
+                g_config.offset_adjustment_step};
+
+            if (!profile_data)
+            {
+                logger.log(LOG_ERROR, "Failed to allocate memory for camera profile thread data");
+            }
+            else
+            {
+                g_hCameraProfileThread = CreateThread(NULL, 0, CameraProfileThread, profile_data, 0, NULL);
+                if (!g_hCameraProfileThread)
+                {
+                    delete profile_data;
+                    logger.log(LOG_ERROR, "Failed to create camera profile thread: " + std::to_string(GetLastError()));
+                }
+                else
+                {
+                    logger.log(LOG_INFO, "Camera profile thread started successfully");
+                }
+            }
         }
 
         logger.log(LOG_INFO, "Initialization completed successfully");
