@@ -1,5 +1,5 @@
-## Camera Profiles and Performance Improvements
+## [Title for next release]
 
-- Added camera profile system with customizable positions, saving/loading profiles, and smooth transitions
-- Implemented memory cache management for VirtualQuery calls to improve performance
-- Added configuration options for all new features in the INI file
+- New feature
+- Bug fix
+- Improvement
