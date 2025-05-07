@@ -2,6 +2,12 @@
 
 All notable changes to the TPVToggle mod will be documented in this file.
 
+## [0.3.5] - Camera Profiles and Performance Improvements
+
+- Added camera profile system with customizable positions, saving/loading profiles, and smooth transitions
+- Implemented memory cache management for VirtualQuery calls to improve performance
+- Added configuration options for all new features in the INI file
+
 ## [0.3.4] - [EXPERIMENTAL] Support Camera Offset Manipulation
 
 - Create simple camera offset manipulation
@@ -104,6 +110,7 @@ All notable changes to the TPVToggle mod will be documented in this file.
 - Logging system for troubleshooting
 KCD
 
+[0.3.5]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.3.5
 [0.3.3]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.3.3
 [0.3.2]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.3.2
 [0.3.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.3.0
