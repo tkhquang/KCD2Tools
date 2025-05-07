@@ -48,8 +48,8 @@ LDLIBS := -lpsapi -luser32 -lkernel32 -lshell32
 # Find C++ source files
 CPP_SRCS := $(wildcard $(SRC_DIR)/*.cpp) \
             $(wildcard $(SRC_DIR)/hooks/*.cpp)
-# Explicitly list Assembly source files
-ASM_SRCS := $(ASM_DIR)/overlay_hook.S
+# List Assembly source files
+ASM_SRCS := $(wildcard $(ASM_DIR)/*.S)
 
 # Find MinHook C source files
 MINHOOK_C_SRCS := $(wildcard $(MINHOOK_SRC_DIR)/*.c)
