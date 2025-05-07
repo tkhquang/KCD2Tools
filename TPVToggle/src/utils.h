@@ -15,6 +15,8 @@
 #include <cstdint>
 #include <algorithm>
 #include <cstddef>
+#include <chrono>
+#include <windows.h>
 
 // --- String Formatting Utilities ---
 
@@ -82,6 +84,33 @@ inline std::string trim(const std::string &s)
     size_t last = s.find_last_not_of(WHITESPACE);
     return s.substr(first, (last - first + 1));
 }
+
+// --- Memory Region Cache System ---
+
+/**
+ * @brief Structure to hold cached memory region information.
+ */
+struct MemoryRegionInfo
+{
+    uintptr_t baseAddress;                           // Region base address
+    size_t regionSize;                               // Size of the region in bytes
+    DWORD protection;                                // Memory protection flags
+    std::chrono::steady_clock::time_point timestamp; // When this entry was created/updated
+    bool valid;                                      // Whether this entry is valid (to avoid checking timestamp constantly)
+
+    MemoryRegionInfo()
+        : baseAddress(0), regionSize(0), protection(0), valid(false) {}
+};
+
+/**
+ * @brief Initializes the memory region cache system.
+ */
+void initMemoryCache();
+
+/**
+ * @brief Clears all entries from the memory region cache.
+ */
+void clearMemoryCache();
 
 // --- Memory Validation Utilities ---
 
