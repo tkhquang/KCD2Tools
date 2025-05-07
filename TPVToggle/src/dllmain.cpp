@@ -34,6 +34,9 @@ void cleanupResources()
     Logger &logger = Logger::getInstance();
     logger.log(LOG_INFO, "Cleanup: Starting cleanup process...");
 
+    // Clear the memory cache
+    clearMemoryCache();
+
     // Signal threads to exit
     if (g_exitEvent)
     {
@@ -259,6 +262,10 @@ DWORD WINAPI MainThread(LPVOID hModule_param)
         else if (g_config.log_level == "ERROR")
             log_level = LOG_ERROR;
         logger.setLogLevel(log_level);
+
+        // Initialize memory cache
+        initMemoryCache();
+        logger.log(LOG_INFO, "Memory cache system initialized");
 
         // Create exit event for thread signaling
         g_exitEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
