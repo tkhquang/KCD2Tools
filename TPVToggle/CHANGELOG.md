@@ -2,6 +2,10 @@
 
 All notable changes to the TPVToggle mod will be documented in this file.
 
+## [0.3.4] - [EXPERIMENTAL] Support Camera Offset Manipulation
+
+- Create simple camera offset manipulation
+
 ## [0.3.3] - Fix FPS drop
 
 - Reduce aggressive timing intervals. It was made aggressively to debug and mistakenly left in the code.
