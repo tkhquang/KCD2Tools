@@ -1,6 +1,6 @@
 /**
  * @file utils.cpp
- * @brief Implements utility functions including thread-safe memory validation.
+ * @brief Implements utility functions including optimized thread-safe memory validation.
  */
 
 #include "utils.h"
@@ -20,8 +20,8 @@ constexpr unsigned int CACHE_EXPIRY_MS = 5000; // Cache entry expiry time (5 sec
 
 // Memory region cache and synchronization
 static std::array<MemoryRegionInfo, MEMORY_CACHE_SIZE> g_memoryCache;
-static std::mutex g_cacheMutex; // Mutex for thread-safe cache access
-static std::atomic<bool> g_memoryCacheInitialized{false};
+static std::mutex g_cacheMutex;       // Mutex for thread-safe cache access
+std::once_flag g_memoryCacheInitFlag; // For std::call_once initialization
 
 // Optional cache statistics for tuning (debug only)
 #ifdef _DEBUG
@@ -29,37 +29,43 @@ static std::atomic<uint64_t> g_cacheHits{0};
 static std::atomic<uint64_t> g_cacheMisses{0};
 #endif
 
+/**
+ * @brief Initialize the memory region cache.
+ * @details Thread-safe, one-time initialization using std::call_once.
+ */
 void initMemoryCache()
 {
-    // Use mutex to ensure thread-safe initialization
-    std::lock_guard<std::mutex> lock(g_cacheMutex);
+    std::call_once(g_memoryCacheInitFlag, []()
+                   {
+         std::lock_guard<std::mutex> lock(g_cacheMutex);
 
-    if (!g_memoryCacheInitialized)
-    {
-        for (auto &entry : g_memoryCache)
-        {
-            entry.valid = false;
-        }
-        g_memoryCacheInitialized.store(true, std::memory_order_release);
-        Logger::getInstance().log(LOG_DEBUG, "Memory region cache initialized with " +
-                                                 std::to_string(MEMORY_CACHE_SIZE) + " entries");
-    }
+         for (auto& entry : g_memoryCache) {
+             entry.valid = false;
+         }
+
+         Logger::getInstance().log(LOG_DEBUG, "Memory region cache initialized with " +
+                                              std::to_string(MEMORY_CACHE_SIZE) + " entries"); });
 }
 
+/**
+ * @brief Clears all cache entries.
+ * @details Thread-safe clearing operation for cleanup.
+ */
 void clearMemoryCache()
 {
     std::lock_guard<std::mutex> lock(g_cacheMutex);
 
-    if (g_memoryCacheInitialized)
+    for (auto &entry : g_memoryCache)
     {
-        for (auto &entry : g_memoryCache)
-        {
-            entry.valid = false;
-        }
-        Logger::getInstance().log(LOG_DEBUG, "Memory region cache cleared");
+        entry.valid = false;
     }
+    Logger::getInstance().log(LOG_DEBUG, "Memory region cache cleared");
 }
 
+/**
+ * @brief Get cache performance statistics.
+ * @return String with hit/miss counts and hit rate percentage.
+ */
 std::string getMemoryCacheStats()
 {
 #ifdef _DEBUG
@@ -89,8 +95,6 @@ std::string getMemoryCacheStats()
  */
 static MemoryRegionInfo *findCacheEntry(uintptr_t address, size_t size)
 {
-    // No need to check g_memoryCacheInitialized here - caller must ensure cache is initialized
-
     uintptr_t endAddress = address + size;
 
     // Check expiry time for cache entries
@@ -130,8 +134,6 @@ static MemoryRegionInfo *findCacheEntry(uintptr_t address, size_t size)
  */
 static void updateCacheEntry(const MEMORY_BASIC_INFORMATION &mbi)
 {
-    // No need to check g_memoryCacheInitialized here - caller must ensure cache is initialized
-
     auto now = std::chrono::steady_clock::now();
 
     // First, try to find an invalid entry to reuse
@@ -157,22 +159,30 @@ static void updateCacheEntry(const MEMORY_BASIC_INFORMATION &mbi)
     it->valid = true;
 }
 
+/**
+ * @brief Checks if memory at the specified address is readable.
+ * @details Uses a hybrid approach for thread safety: checks cache with minimal locking,
+ *          performs VirtualQuery outside lock, then updates cache with minimal locking.
+ * @param address Starting address to check (const volatile to indicate memory
+ *                might change even though function doesn't modify it).
+ * @param size Number of bytes to check.
+ * @return true if all bytes are readable, false otherwise.
+ */
 bool isMemoryReadable(const volatile void *address, size_t size)
 {
     if (!address || size == 0)
         return false;
 
-    // Ensure cache is initialized
-    if (!g_memoryCacheInitialized.load(std::memory_order_acquire))
-    {
-        // Someone else may have initialized the cache between the load and this check
-        // That's fine - we just need to ensure it's initialized
-        initMemoryCache();
-    }
+    // Ensure cache is initialized (thread-safe, executes only once)
+    std::call_once(g_memoryCacheInitFlag, initMemoryCache);
 
     uintptr_t addrValue = reinterpret_cast<uintptr_t>(address);
 
-    // Lock for thread-safe cache access
+    // Create a local copy to store cache result if found
+    bool cacheHit = false;
+    bool isRegionReadable = false;
+
+    // First lock scope - cache lookup only
     {
         std::lock_guard<std::mutex> lock(g_cacheMutex);
 
@@ -183,23 +193,24 @@ bool isMemoryReadable(const volatile void *address, size_t size)
             // Check if the region is readable based on cached protection flags
             const DWORD READ_FLAGS = (PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY |
                                       PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY);
-            if ((cachedInfo->protection & READ_FLAGS) &&
-                !(cachedInfo->protection & PAGE_NOACCESS) &&
-                !(cachedInfo->protection & PAGE_GUARD))
-            {
-#ifdef _DEBUG
-                g_cacheHits.fetch_add(1, std::memory_order_relaxed);
-#endif
-                return true;
-            }
+            isRegionReadable = ((cachedInfo->protection & READ_FLAGS) &&
+                                !(cachedInfo->protection & PAGE_NOACCESS) &&
+                                !(cachedInfo->protection & PAGE_GUARD));
+            cacheHit = true;
+
 #ifdef _DEBUG
             g_cacheHits.fetch_add(1, std::memory_order_relaxed);
 #endif
-            return false;
         }
     }
 
-    // Cache miss, perform actual VirtualQuery
+    // If cache hit, return result immediately
+    if (cacheHit)
+    {
+        return isRegionReadable;
+    }
+
+    // Cache miss, perform actual VirtualQuery outside of lock
 #ifdef _DEBUG
     g_cacheMisses.fetch_add(1, std::memory_order_relaxed);
 #endif
@@ -236,20 +247,30 @@ bool isMemoryReadable(const volatile void *address, size_t size)
     return result;
 }
 
+/**
+ * @brief Checks if memory at the specified address is writable.
+ * @details Uses a hybrid approach for thread safety: checks cache with minimal locking,
+ *          performs VirtualQuery outside lock, then updates cache with minimal locking.
+ * @param address Starting address to check (volatile to indicate memory
+ *                might change even though function doesn't modify it).
+ * @param size Number of bytes to check.
+ * @return true if all bytes are writable, false otherwise.
+ */
 bool isMemoryWritable(volatile void *address, size_t size)
 {
     if (!address || size == 0)
         return false;
 
-    // Ensure cache is initialized
-    if (!g_memoryCacheInitialized.load(std::memory_order_acquire))
-    {
-        initMemoryCache();
-    }
+    // Ensure cache is initialized (thread-safe, executes only once)
+    std::call_once(g_memoryCacheInitFlag, initMemoryCache);
 
     uintptr_t addrValue = reinterpret_cast<uintptr_t>(address);
 
-    // Lock for thread-safe cache access
+    // Create a local copy to store cache result if found
+    bool cacheHit = false;
+    bool isRegionWritable = false;
+
+    // First lock scope - cache lookup only
     {
         std::lock_guard<std::mutex> lock(g_cacheMutex);
 
@@ -260,23 +281,24 @@ bool isMemoryWritable(volatile void *address, size_t size)
             // Check if the region is writable based on cached protection flags
             const DWORD WRITE_FLAGS = (PAGE_READWRITE | PAGE_WRITECOPY |
                                        PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY);
-            if ((cachedInfo->protection & WRITE_FLAGS) &&
-                !(cachedInfo->protection & PAGE_NOACCESS) &&
-                !(cachedInfo->protection & PAGE_GUARD))
-            {
-#ifdef _DEBUG
-                g_cacheHits.fetch_add(1, std::memory_order_relaxed);
-#endif
-                return true;
-            }
+            isRegionWritable = ((cachedInfo->protection & WRITE_FLAGS) &&
+                                !(cachedInfo->protection & PAGE_NOACCESS) &&
+                                !(cachedInfo->protection & PAGE_GUARD));
+            cacheHit = true;
+
 #ifdef _DEBUG
             g_cacheHits.fetch_add(1, std::memory_order_relaxed);
 #endif
-            return false;
         }
     }
 
-    // Cache miss, perform actual VirtualQuery
+    // If cache hit, return result immediately
+    if (cacheHit)
+    {
+        return isRegionWritable;
+    }
+
+    // Cache miss, perform actual VirtualQuery outside of lock
 #ifdef _DEBUG
     g_cacheMisses.fetch_add(1, std::memory_order_relaxed);
 #endif

@@ -3,7 +3,7 @@
  * @brief Header for utility functions including memory validation.
  *
  * Includes inline functions for formatting values (addresses, hex, keys),
- * string manipulation (trimming), and memory safety checks with caching.
+ * string manipulation (trimming), and thread-safe memory safety checks with caching.
  */
 #ifndef UTILS_H
 #define UTILS_H
@@ -104,20 +104,24 @@ struct MemoryRegionInfo
         : baseAddress(0), regionSize(0), protection(0), valid(false) {}
 };
 
+// Thread-safe, one-time initialization flag for memory cache
+extern std::once_flag g_memoryCacheInitFlag;
+
 /**
  * @brief Initializes the memory region cache system.
- * @details Must be called once during DLL initialization before any memory checks.
+ * @details Thread-safe initialization using std::call_once.
+ *          Should be called once during DLL initialization.
  */
 void initMemoryCache();
 
 /**
  * @brief Clears all entries from the memory region cache.
- * @details Should be called during cleanup to release resources.
+ * @details Thread-safe operation. Called during cleanup.
  */
 void clearMemoryCache();
 
 /**
- * @brief Get current cache statistics (optional, for debugging)
+ * @brief Get current cache statistics (for tuning and debugging)
  * @return String containing hit/miss count and hit rate percentage.
  */
 std::string getMemoryCacheStats();
@@ -126,7 +130,13 @@ std::string getMemoryCacheStats();
 
 /**
  * @brief Checks if memory at the specified address is readable.
- * @param address Starting address to check.
+ * @details Thread-safe implementation with memory region caching to minimize
+ *          VirtualQuery calls. Uses a hybrid locking approach to minimize
+ *          contention while ensuring cache consistency.
+ *
+ * @param address Starting address to check. Marked const volatile to indicate
+ *                that while this function won't modify the memory, the memory
+ *                might change unexpectedly from other threads.
  * @param size Number of bytes to check.
  * @return true if all bytes are readable, false otherwise.
  */
@@ -134,7 +144,12 @@ bool isMemoryReadable(const volatile void *address, size_t size);
 
 /**
  * @brief Checks if memory at the specified address is writable.
- * @param address Starting address to check.
+ * @details Thread-safe implementation with memory region caching to minimize
+ *          VirtualQuery calls. Uses a hybrid locking approach to minimize
+ *          contention while ensuring cache consistency.
+ *
+ * @param address Starting address to check. Marked volatile to indicate
+ *                that the memory might change unexpectedly from other threads.
  * @param size Number of bytes to check.
  * @return true if all bytes are writable, false otherwise.
  */
