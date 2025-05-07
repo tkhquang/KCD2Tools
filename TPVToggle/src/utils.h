@@ -3,7 +3,7 @@
  * @brief Header for utility functions including memory validation.
  *
  * Includes inline functions for formatting values (addresses, hex, keys),
- * string manipulation (trimming), and memory safety checks with caching.
+ * string manipulation (trimming), and thread-safe memory safety checks with caching.
  */
 #ifndef UTILS_H
 #define UTILS_H
@@ -17,8 +17,91 @@
 #include <cstddef>
 #include <chrono>
 #include <windows.h>
+#include <filesystem>
 #include <mutex>
 #include <atomic>
+#include <iostream>
+
+#include "constants.h"
+#include "logger.h"
+#include "math_utils.h"
+
+inline std::string getRuntimeDirectory()
+{
+    HMODULE h_self = NULL;
+    char module_path_buffer[MAX_PATH] = {0};
+    std::string result_path = "";
+    try
+    {
+        if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                (LPCSTR)&getRuntimeDirectory, &h_self) ||
+            h_self == NULL)
+        {
+            throw std::runtime_error("GetModuleHandleExA failed: " + std::to_string(GetLastError()));
+        }
+
+        DWORD path_len = GetModuleFileNameA(h_self, module_path_buffer, MAX_PATH);
+        if (path_len == 0)
+            throw std::runtime_error("GetModuleFileNameA failed: " + std::to_string(GetLastError()));
+        if (path_len == MAX_PATH && GetLastError() == ERROR_INSUFFICIENT_BUFFER)
+            throw std::runtime_error("GetModuleFileNameA failed: Buffer too small");
+
+        std::filesystem::path module_full_path(module_path_buffer);
+        result_path = module_full_path.parent_path().string();
+
+        Logger::getInstance().log(LOG_DEBUG, "getRuntimeDirectory: Found module directory: " + result_path);
+    }
+    catch (const std::exception &e)
+    {
+        // Get current working directory as fallback
+        char current_dir[MAX_PATH] = {0};
+        if (GetCurrentDirectoryA(MAX_PATH, current_dir))
+        {
+            result_path = current_dir;
+        }
+        else
+        {
+            // Last resort fallback
+            result_path = ".";
+        }
+
+        std::cerr << "[" << Constants::MOD_NAME << " WARNING] Failed to get module dir: "
+                  << e.what() << ". Using fallback: " << result_path << std::endl;
+
+        Logger::getInstance().log(LOG_WARNING, "getRuntimeDirectory: Failed to get module directory: " +
+                                                   std::string(e.what()) + ". Using fallback: " + result_path);
+    }
+    catch (...)
+    {
+        // Get current working directory as fallback
+        char current_dir[MAX_PATH] = {0};
+        if (GetCurrentDirectoryA(MAX_PATH, current_dir))
+        {
+            result_path = current_dir;
+        }
+        else
+        {
+            // Last resort fallback
+            result_path = ".";
+        }
+
+        std::cerr << "[" << Constants::MOD_NAME << " WARNING] Unknown exception getting module path. Using fallback: "
+                  << result_path << std::endl;
+
+        Logger::getInstance().log(LOG_WARNING, "getRuntimeDirectory: Unknown exception getting module directory. Using fallback: " + result_path);
+    }
+
+    return result_path;
+}
+
+// Helper to log quaternion
+inline static std::string QuatToString(const Quaternion &q)
+{
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(4)
+        << "Q(" << q.x << ", " << q.y << ", " << q.z << ", " << q.w << ")";
+    return oss.str();
+}
 
 // --- String Formatting Utilities ---
 
@@ -104,20 +187,24 @@ struct MemoryRegionInfo
         : baseAddress(0), regionSize(0), protection(0), valid(false) {}
 };
 
+// Thread-safe, one-time initialization flag for memory cache
+extern std::once_flag g_memoryCacheInitFlag;
+
 /**
  * @brief Initializes the memory region cache system.
- * @details Must be called once during DLL initialization before any memory checks.
+ * @details Thread-safe initialization using std::call_once.
+ *          Should be called once during DLL initialization.
  */
 void initMemoryCache();
 
 /**
  * @brief Clears all entries from the memory region cache.
- * @details Should be called during cleanup to release resources.
+ * @details Thread-safe operation. Called during cleanup.
  */
 void clearMemoryCache();
 
 /**
- * @brief Get current cache statistics (optional, for debugging)
+ * @brief Get current cache statistics (for tuning and debugging)
  * @return String containing hit/miss count and hit rate percentage.
  */
 std::string getMemoryCacheStats();
@@ -126,7 +213,13 @@ std::string getMemoryCacheStats();
 
 /**
  * @brief Checks if memory at the specified address is readable.
- * @param address Starting address to check.
+ * @details Thread-safe implementation with memory region caching to minimize
+ *          VirtualQuery calls. Uses a hybrid locking approach to minimize
+ *          contention while ensuring cache consistency.
+ *
+ * @param address Starting address to check. Marked const volatile to indicate
+ *                that while this function won't modify the memory, the memory
+ *                might change unexpectedly from other threads.
  * @param size Number of bytes to check.
  * @return true if all bytes are readable, false otherwise.
  */
@@ -134,7 +227,12 @@ bool isMemoryReadable(const volatile void *address, size_t size);
 
 /**
  * @brief Checks if memory at the specified address is writable.
- * @param address Starting address to check.
+ * @details Thread-safe implementation with memory region caching to minimize
+ *          VirtualQuery calls. Uses a hybrid locking approach to minimize
+ *          contention while ensuring cache consistency.
+ *
+ * @param address Starting address to check. Marked volatile to indicate
+ *                that the memory might change unexpectedly from other threads.
  * @param size Number of bytes to check.
  * @return true if all bytes are writable, false otherwise.
  */

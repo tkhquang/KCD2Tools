@@ -116,6 +116,27 @@ namespace Constants
     constexpr const char *EVENT_HANDLER_AOB_PATTERN =
         "48 89 5C 24 10 48 89 74 24 18 55 57 41 54 41 56 41 57 48 8B EC 48 83 EC 60 48 8D 99";
 
+    // AOB for FUN_183924908 (TPV Camera Input Processing)
+    constexpr const char *TPV_INPUT_PROCESS_AOB_PATTERN = "48 8B C4 48 89 58 08 48 89 78 10 55 48 8B EC 48 83 EC 70 80 3A 01";
+    // AOB for FUN_18036059c (Player State Copy Function)
+    constexpr const char *PLAYER_STATE_COPY_AOB_PATTERN = "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 41 56 48 83 EC 20 49 8B 01";
+
+    // AOB for TPV Camera Update Function
+    // WHGame.DLL+392509C - 48 8B C4              - mov rax,rsp
+    // WHGame.DLL+392509F - 48 89 58 08           - mov [rax+08],rbx
+    // WHGame.DLL+39250A3 - 48 89 70 10           - mov [rax+10],rsi
+    // WHGame.DLL+39250A7 - 48 89 78 18           - mov [rax+18],rdi
+    // WHGame.DLL+39250AB - 55                    - push rbp
+    // WHGame.DLL+39250AC - 41 56                 - push r14
+    // WHGame.DLL+39250AE - 41 57                 - push r15
+    // WHGame.DLL+39250B0 - 48 8D 68 A1           - lea rbp,[rax-5F]
+    // WHGame.DLL+39250B4 - 48 81 EC D0000000     - sub rsp,000000D0 { 208 }
+    // WHGame.DLL+39250BB - 0F29 70 D8            - movaps [rax-28],xmm6
+    // WHGame.DLL+39250BF - 4C 8B F9              - mov r15,rcx
+    // WHGame.DLL+39250C2 - 48 8B 0D E716AC01     - mov rcx,[WHGame.DLL+53E67B0] { (7FFE73DB90A0) }
+    // WHGame.DLL+39250C9 - 48 8B F2              - mov rsi,rdx
+    constexpr const char *TPV_CAMERA_UPDATE_AOB_PATTERN = "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 41 56 41 57 48 8D 68 ?? 48 81 EC ?? ?? ?? ?? 0F 29 70 ?? 4C 8B F9 48 8B 0D ?? ?? ?? ?? 48 8B F2";
+
     // --- AOB Hook Offsets ---
     constexpr int OVERLAY_HOOK_OFFSET = 0;
     constexpr int EVENT_HANDLER_HOOK_OFFSET = 0;
@@ -127,6 +148,18 @@ namespace Constants
     constexpr ptrdiff_t OVERLAY_FLAG_OFFSET = 0xD8;           // UI module to overlay flag
     constexpr ptrdiff_t OFFSET_ScrollAccumulatorFloat = 0x1C; // Scroll state to accumulator
     constexpr ptrdiff_t OFFSET_TpvFovWrite = 0x30;            // FOV calculation offset
+
+    constexpr ptrdiff_t TPV_CAMERA_QUATERNION_OFFSET = 0x10; // Confirmed XYZW quaternion start in C_CameraThirdPerson object
+
+    constexpr ptrdiff_t PLAYER_STATE_POSITION_OFFSET = 0x0;  // Verified (part of first MOVUPS)
+    constexpr ptrdiff_t PLAYER_STATE_ROTATION_OFFSET = 0x10; // Verified
+    constexpr size_t PLAYER_STATE_SIZE = 0xD4;               // Verified from assembly (212 bytes)
+
+    // Offsets relative to the outputPosePtr (RDX) in FUN_18392509c
+    // ASSUMING standard Pos(XYZ) followed by Quat(XYZW) layout. VERIFY WITH DEBUGGER.
+    constexpr ptrdiff_t TPV_OUTPUT_POSE_POSITION_OFFSET = 0x0;  // Base Offset (X, Y, Z = 12 bytes)
+    constexpr ptrdiff_t TPV_OUTPUT_POSE_ROTATION_OFFSET = 0x0C; // Base Offset (Assuming starts right after Pos. Z = 0x8+0x4) (X, Y, Z, W = 16 bytes)
+    constexpr size_t TPV_OUTPUT_POSE_REQUIRED_SIZE = 0x1C;      // Minimum size needed: Pos(12) + Quat(16) = 28 bytes (0x1C). Let's use 0x20 for alignment.
 
     // --- Input Event Offsets ---
     constexpr ptrdiff_t INPUT_EVENT_TYPE_OFFSET = 0x04;

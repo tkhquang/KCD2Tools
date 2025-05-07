@@ -33,12 +33,42 @@ struct Config
     bool enable_overlay_feature; /**< Enable overlay detection and handling. */
     float tpv_fov_degrees;       /**< Custom TPV FOV in degrees; -1.0f if disabled. */
 
+    // TPV Camera Offset Settings
+    float tpv_offset_x;
+    float tpv_offset_y;
+    float tpv_offset_z;
+
+    // Camera profile system
+    bool enable_camera_profiles;         // Master toggle for camera profile system
+    std::vector<int> master_toggle_keys; // Keys to enable/disable adjustment mode
+    std::vector<int> profile_save_keys;  // Keys to save current profile
+    std::vector<int> profile_cycle_keys; // Keys to cycle through profiles
+    std::vector<int> profile_reset_keys; // Keys to reset offsets to 0
+
+    // Offset adjustment keys
+    std::vector<int> offset_x_inc_keys; // Keys to increase X offset
+    std::vector<int> offset_x_dec_keys; // Keys to decrease X offset
+    std::vector<int> offset_y_inc_keys; // Keys to increase Y offset
+    std::vector<int> offset_y_dec_keys; // Keys to decrease Y offset
+    std::vector<int> offset_z_inc_keys; // Keys to increase Z offset
+    std::vector<int> offset_z_dec_keys; // Keys to decrease Z offset
+
+    // Adjustment settings
+    float offset_adjustment_step;  // How much to adjust per keypress
+    std::string profile_directory; // Directory to store camera profiles
+
+    // Transition settings
+    float transition_duration;
+    bool use_spring_physics;
+    float spring_strength;
+    float spring_damping;
+
     /**
      * @brief Default constructor. Initializes members to default states
      *        (empty vectors, default settings). The loading function is
      *        responsible for populating with defaults or INI values.
      */
-    Config() : enable_overlay_feature(true), tpv_fov_degrees(-1.0f) {}
+    Config() : enable_overlay_feature(true), tpv_fov_degrees(-1.0f), tpv_offset_x(0.0f), tpv_offset_y(0.0f), tpv_offset_z(0.0f) {}
 };
 
 /**

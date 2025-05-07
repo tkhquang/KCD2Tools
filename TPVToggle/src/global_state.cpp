@@ -46,6 +46,7 @@ HANDLE g_exitEvent = NULL;
 // Thread handles
 HANDLE g_hMonitorThread = NULL;
 HANDLE g_hOverlayThread = NULL;
+HANDLE g_hCameraProfileThread = NULL;
 
 // Game interface globals
 extern "C"
@@ -70,3 +71,8 @@ std::atomic<bool> g_overlayFpvRequest(false);
 std::atomic<bool> g_overlayTpvRestoreRequest(false);
 std::atomic<bool> g_wasTpvBeforeOverlay(false);
 std::atomic<bool> g_accumulatorWriteNOPped(false);
+
+Vector3 g_latestTpvCameraForward = {0.0f, 1.0f, 0.0f};
+
+Vector3 g_currentCameraOffset(0.0f, 0.0f, 0.0f);
+std::atomic<bool> g_cameraAdjustmentMode(false);

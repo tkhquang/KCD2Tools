@@ -134,6 +134,7 @@ For a complete list of key codes, see [url=https://docs.microsoft.com/en-us/wind
 [/list]
 [*] Camera distance may shift unexpectedly in certain game situations. This behavior is inherent to the experimental (debug) third person mode the game provides
 [*] Camera appears slightly tilted when riding a horse
+[*] Camera offset manipulation feature currently don't align with the interactive raycast (crosshair-dot will be misaligned)
 [/list]
 
 [b]Rare Camera Behavior in Specific Scene:[/b]

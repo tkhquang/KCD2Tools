@@ -4,3 +4,6 @@
 [submodule "TPVToggle/external/simpleini"]
 	path = TPVToggle/external/simpleini
 	url = https://github.com/brofield/simpleini.git
+[submodule "TPVToggle/external/DirectXMath"]
+	path = TPVToggle/external/DirectXMath
+	url = https://github.com/microsoft/DirectXMath.git
