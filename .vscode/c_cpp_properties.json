@@ -1,7 +1,7 @@
 {
   "configurations": [
     {
-      "name": "MinGW-w64 GCC",
+      "name": "windows-gcc-x64",
       "includePath": [
         "${workspaceFolder}/TPVToggle/src",
         "${workspaceFolder}/TPVToggle/external/minhook/include",
