@@ -3,7 +3,7 @@
  * @brief Header for utility functions including memory validation.
  *
  * Includes inline functions for formatting values (addresses, hex, keys),
- * string manipulation (trimming), and memory safety checks.
+ * string manipulation (trimming), and memory safety checks with caching.
  */
 #ifndef UTILS_H
 #define UTILS_H
@@ -17,6 +17,8 @@
 #include <cstddef>
 #include <chrono>
 #include <windows.h>
+#include <mutex>
+#include <atomic>
 
 // --- String Formatting Utilities ---
 
@@ -96,7 +98,7 @@ struct MemoryRegionInfo
     size_t regionSize;                               // Size of the region in bytes
     DWORD protection;                                // Memory protection flags
     std::chrono::steady_clock::time_point timestamp; // When this entry was created/updated
-    bool valid;                                      // Whether this entry is valid (to avoid checking timestamp constantly)
+    bool valid;                                      // Whether this entry is valid
 
     MemoryRegionInfo()
         : baseAddress(0), regionSize(0), protection(0), valid(false) {}
@@ -104,13 +106,21 @@ struct MemoryRegionInfo
 
 /**
  * @brief Initializes the memory region cache system.
+ * @details Must be called once during DLL initialization before any memory checks.
  */
 void initMemoryCache();
 
 /**
  * @brief Clears all entries from the memory region cache.
+ * @details Should be called during cleanup to release resources.
  */
 void clearMemoryCache();
+
+/**
+ * @brief Get current cache statistics (optional, for debugging)
+ * @return String containing hit/miss count and hit rate percentage.
+ */
+std::string getMemoryCacheStats();
 
 // --- Memory Validation Utilities ---
 
