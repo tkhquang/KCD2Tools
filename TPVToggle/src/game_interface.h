@@ -64,6 +64,6 @@ long long getOverlayState();
  * @details Used for FOV and other camera operations.
  * @return Pointer to camera manager, or 0 if not available.
  */
-uintptr_t getCameraManagerInstance();
+extern "C" uintptr_t __cdecl getCameraManagerInstance();
 
 #endif // GAME_INTERFACE_H

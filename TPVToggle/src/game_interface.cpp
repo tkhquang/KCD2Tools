@@ -195,7 +195,7 @@ long long getOverlayState()
     return static_cast<long long>(*addr);
 }
 
-uintptr_t getCameraManagerInstance()
+extern "C" uintptr_t __cdecl getCameraManagerInstance()
 {
     if (!isValidated())
         return 0;
