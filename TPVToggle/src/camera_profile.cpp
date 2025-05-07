@@ -215,30 +215,36 @@ bool CameraProfileManager::setProfileByIndex(size_t index)
 
 void CameraProfileManager::resetToDefault()
 {
-    // // Look for the default profile or use the first one
-    // for (size_t i = 0; i < m_profiles.size(); i++)
-    // {
-    //     if (m_profiles[i].name == "Default")
-    //     {
-    //         m_currentProfileIndex = i;
-    //         Logger::getInstance().log(LOG_INFO, "CameraProfileManager: Reset to Default profile");
-    //         return;
-    //     }
-    // }
+    // Look for the default profile or use the first one
+    for (size_t i = 0; i < m_profiles.size(); i++)
+    {
+        if (m_profiles[i].name == "Default")
+        {
+            m_currentProfileIndex = i;
+            Logger::getInstance().log(LOG_INFO, "CameraProfileManager: Reset to Default profile");
 
-    // // If no default found, create one
-    // if (!m_profiles.empty())
-    // {
-    //     m_currentProfileIndex = 0;
-    // }
-    // else
-    // {
-    //     m_profiles.push_back(CameraProfile("Default", Vector3(0.0f, 0.0f, 0.0f)));
-    //     m_currentProfileIndex = 0;
-    //     Logger::getInstance().log(LOG_INFO, "CameraProfileManager: Created Default profile");
-    // }
+            // Set new profile with transition
+            setActiveProfile(m_currentProfileIndex, true);
+            setOffset(0.0f, 0.0f, 0.0f);
+            return;
+        }
+    }
 
-    adjustOffset(0.0f, 0.0f, 0.0f);
+    // If no default found, create one
+    if (!m_profiles.empty())
+    {
+        m_currentProfileIndex = 0;
+    }
+    else
+    {
+        m_profiles.push_back(CameraProfile("Default", Vector3(0.0f, 0.0f, 0.0f)));
+        m_currentProfileIndex = 0;
+        Logger::getInstance().log(LOG_INFO, "CameraProfileManager: Created Default profile");
+    }
+
+    // Set new profile with transition
+    setActiveProfile(m_currentProfileIndex, true);
+    setOffset(0.0f, 0.0f, 0.0f);
 }
 
 const CameraProfile &CameraProfileManager::getCurrentProfile() const
@@ -278,6 +284,27 @@ void CameraProfileManager::adjustOffset(float x, float y, float z)
 
         // If this is verbose, we could limit to debug level or add rate limiting
         Logger::getInstance().log(LOG_DEBUG, "CameraProfileManager: Adjusted offset to (" +
+                                                 std::to_string(offset.x) + ", " +
+                                                 std::to_string(offset.y) + ", " +
+                                                 std::to_string(offset.z) + ")");
+
+        // Update the global state - this is what the camera hook uses
+        g_currentCameraOffset = offset;
+    }
+}
+
+void CameraProfileManager::setOffset(float x, float y, float z)
+{
+    // We modify the current profile directly for live adjustment
+    if (!m_profiles.empty())
+    {
+        Vector3 &offset = m_profiles[m_currentProfileIndex].offset;
+        offset.x = x;
+        offset.y = y;
+        offset.z = z;
+
+        // If this is verbose, we could limit to debug level or add rate limiting
+        Logger::getInstance().log(LOG_DEBUG, "CameraProfileManager: Set offset to (" +
                                                  std::to_string(offset.x) + ", " +
                                                  std::to_string(offset.y) + ", " +
                                                  std::to_string(offset.z) + ")");

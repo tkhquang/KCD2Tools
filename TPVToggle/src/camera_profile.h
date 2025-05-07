@@ -38,6 +38,7 @@ public:
 
     // Live adjustment
     void adjustOffset(float x, float y, float z);
+    void setOffset(float x, float y, float z);
 
     void setActiveProfile(size_t index, bool useTransition = true);
     void setTransitionSettings(float duration, bool useSpringPhysics, float springStrength, float springDamping);
