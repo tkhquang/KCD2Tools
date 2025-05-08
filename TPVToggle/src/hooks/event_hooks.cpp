@@ -11,8 +11,12 @@
 #include "game_interface.h"
 #include "global_state.h"
 #include "MinHook.h"
+#include "config.h"
 
 #include <stdexcept>
+
+// External config reference
+extern Config g_config;
 
 // Function typedefs
 typedef uint64_t(__fastcall *EventHandlerType)(uintptr_t listenerMgrPtr, char *inputEventPtr);
@@ -60,27 +64,55 @@ static uint64_t __fastcall EventHandlerDetour(uintptr_t listenerMgrPtr, char *in
         int eventID = *reinterpret_cast<int *>(inputEventPtr + Constants::INPUT_EVENT_ID_OFFSET);
         if (eventID == Constants::MOUSE_WHEEL_EVENT_ID)
         {
-            // Check overlay state
-            long long overlayState = getOverlayState();
-            if (overlayState > 0)
-            { // Overlay is active
-                // Zero out the scroll delta in the original event
-                volatile float *delta_ptr = reinterpret_cast<volatile float *>(inputEventPtr + Constants::INPUT_EVENT_VALUE_OFFSET);
-                if (isMemoryWritable(delta_ptr, sizeof(float)))
+            // Check if hold-to-scroll is in use
+            if (!g_config.hold_scroll_keys.empty())
+            {
+                // Allow scrolling only when hold key is pressed
+                bool holdKeyPressed = g_holdToScrollActive.load(std::memory_order_relaxed);
+
+                if (!holdKeyPressed)
                 {
-                    float original_delta = *delta_ptr;
-                    if (original_delta != 0.0f)
-                    { // Avoid unnecessary writes
-                        *delta_ptr = 0.0f;
-                        if (logger.isDebugEnabled())
-                        {
-                            logger.log(LOG_DEBUG, "EventHandler: Zeroed scroll delta (was " + std::to_string(original_delta) + ") in original event due to ACTIVE overlay");
+                    // Zero out the scroll delta in the original event
+                    volatile float *delta_ptr = reinterpret_cast<volatile float *>(inputEventPtr + Constants::INPUT_EVENT_VALUE_OFFSET);
+                    if (isMemoryWritable(delta_ptr, sizeof(float)))
+                    {
+                        float original_delta = *delta_ptr;
+                        if (original_delta != 0.0f)
+                        { // Avoid unnecessary writes
+                            *delta_ptr = 0.0f;
+                            if (logger.isDebugEnabled())
+                            {
+                                logger.log(LOG_DEBUG, "EventHandler: Zeroed scroll delta (was " + std::to_string(original_delta) + ") due to hold key not pressed");
+                            }
                         }
                     }
                 }
-                else
-                {
-                    logger.log(LOG_ERROR, "EventHandler: Cannot write to zero event delta!");
+            }
+            // Standard overlay check - applies when hold-to-scroll is not in use or when overlay is active
+            else
+            {
+                // Check overlay state
+                long long overlayState = getOverlayState();
+                if (overlayState > 0)
+                { // Overlay is active
+                    // Zero out the scroll delta in the original event
+                    volatile float *delta_ptr = reinterpret_cast<volatile float *>(inputEventPtr + Constants::INPUT_EVENT_VALUE_OFFSET);
+                    if (isMemoryWritable(delta_ptr, sizeof(float)))
+                    {
+                        float original_delta = *delta_ptr;
+                        if (original_delta != 0.0f)
+                        { // Avoid unnecessary writes
+                            *delta_ptr = 0.0f;
+                            if (logger.isDebugEnabled())
+                            {
+                                logger.log(LOG_DEBUG, "EventHandler: Zeroed scroll delta (was " + std::to_string(original_delta) + ") in original event due to ACTIVE overlay");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        logger.log(LOG_ERROR, "EventHandler: Cannot write to zero event delta!");
+                    }
                 }
             }
         }
@@ -137,6 +169,16 @@ bool initializeEventHooks(uintptr_t module_base, size_t module_size)
                 {
                     memcpy(g_originalAccumulatorWriteBytes, g_accumulatorWriteAddress, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH);
                     logger.log(LOG_DEBUG, "EventHooks: Saved original accumulator write bytes");
+
+                    // For hold-to-scroll feature - NOP it by default if enabled
+                    if (!g_config.hold_scroll_keys.empty())
+                    {
+                        logger.log(LOG_INFO, "EventHooks: Hold-to-scroll feature enabled, applying NOP by default");
+                        if (WriteBytes(g_accumulatorWriteAddress, NOP_PATTERN, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
+                        {
+                            g_accumulatorWriteNOPped.store(true);
+                        }
+                    }
                 }
                 else
                 {
@@ -150,6 +192,7 @@ bool initializeEventHooks(uintptr_t module_base, size_t module_size)
             }
         }
 
+        // Disabled for now
         // // Create and enable the event handler hook
         // MH_STATUS status = MH_CreateHook(g_eventHookAddress,
         //                                  reinterpret_cast<LPVOID>(EventHandlerDetour),

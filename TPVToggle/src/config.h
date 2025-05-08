@@ -33,6 +33,9 @@ struct Config
     bool enable_overlay_feature; /**< Enable overlay detection and handling. */
     float tpv_fov_degrees;       /**< Custom TPV FOV in degrees; -1.0f if disabled. */
 
+    // Hold-key-to-scroll feature
+    std::vector<int> hold_scroll_keys; /**< Keys that, when held, enable mouse wheel scrolling. */
+
     // TPV Camera Offset Settings
     float tpv_offset_x;
     float tpv_offset_y;

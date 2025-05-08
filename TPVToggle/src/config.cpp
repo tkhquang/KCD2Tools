@@ -284,6 +284,18 @@ Config loadConfig(const std::string &ini_filename)
             }
         }
 
+        // New feature: Hold-Key-to-Scroll
+        value = ini.GetValue("Settings", "HoldKeyToScroll", nullptr);
+        if (value)
+        {
+            std::vector<int> keys = parseKeyList(value, logger, "HoldKeyToScroll");
+            if (!keys.empty())
+            {
+                config.hold_scroll_keys = keys;
+                logger.log(LOG_INFO, "Config: Hold-to-scroll key configured: " + format_vkcode_list(keys));
+            }
+        }
+
         auto parseFloat = [&](const char *key, float &target)
         {
             const char *val = ini.GetValue("Settings", key, "0.0");
@@ -331,17 +343,6 @@ Config loadConfig(const std::string &ini_filename)
             config.offset_adjustment_step = 0.05f; // Default
         }
 
-        // // Load profile directory
-        // value = ini.GetValue("CameraProfiles", "ProfileDirectory", "KCD2_TPVToggle_Profiles");
-        // if (value)
-        // {
-        //     config.profile_directory = value;
-        // }
-        // else
-        // {
-        //     config.profile_directory = "KCD2_TPVToggle_Profiles";
-        // }
-
         std::string runtimeDirectory = getRuntimeDirectory();
 
         if (!runtimeDirectory.empty())
@@ -354,19 +355,19 @@ Config loadConfig(const std::string &ini_filename)
             config.profile_directory = "KCD2_TPVToggle_Profiles";
         }
 
-        // Parse key lists for camera profile system
-        config.master_toggle_keys = parseKeyList(ini.GetValue("CameraProfiles", "MasterToggleKey", "0x7A"), logger, "MasterToggleKey"); // Default: F11
-        config.profile_save_keys = parseKeyList(ini.GetValue("CameraProfiles", "ProfileSaveKey", "0x6B"), logger, "ProfileSaveKey");    // Default: Numpad +
-        config.profile_cycle_keys = parseKeyList(ini.GetValue("CameraProfiles", "ProfileCycleKey", "0x6D"), logger, "ProfileCycleKey"); // Default: Numpad -
-        config.profile_reset_keys = parseKeyList(ini.GetValue("CameraProfiles", "ProfileResetKey", "0x6A"), logger, "ProfileResetKey"); // Default: Numpad *
+        // Parse key lists for camera profile system - With corrected defaults matching the INI file
+        config.master_toggle_keys = parseKeyList(ini.GetValue("CameraProfiles", "MasterToggleKey", "0x7A"), logger, "MasterToggleKey"); // F11
+        config.profile_save_keys = parseKeyList(ini.GetValue("CameraProfiles", "ProfileSaveKey", "0x61"), logger, "ProfileSaveKey");    // Numpad 1
+        config.profile_cycle_keys = parseKeyList(ini.GetValue("CameraProfiles", "ProfileCycleKey", "0x63"), logger, "ProfileCycleKey"); // Numpad 3
+        config.profile_reset_keys = parseKeyList(ini.GetValue("CameraProfiles", "ProfileResetKey", "0x65"), logger, "ProfileResetKey"); // Numpad 5
 
-        // Numpad arrow keys for adjustments (Numpad 4/6 for X, 2/8 for Y, 1/7 for Z)
+        // Adjustment keys for X, Y, Z offsets
         config.offset_x_inc_keys = parseKeyList(ini.GetValue("CameraProfiles", "OffsetXIncKey", "0x66"), logger, "OffsetXIncKey"); // Numpad 6
         config.offset_x_dec_keys = parseKeyList(ini.GetValue("CameraProfiles", "OffsetXDecKey", "0x64"), logger, "OffsetXDecKey"); // Numpad 4
-        config.offset_y_inc_keys = parseKeyList(ini.GetValue("CameraProfiles", "OffsetYIncKey", "0x68"), logger, "OffsetYIncKey"); // Numpad 8
-        config.offset_y_dec_keys = parseKeyList(ini.GetValue("CameraProfiles", "OffsetYDecKey", "0x62"), logger, "OffsetYDecKey"); // Numpad 2
-        config.offset_z_inc_keys = parseKeyList(ini.GetValue("CameraProfiles", "OffsetZIncKey", "0x67"), logger, "OffsetZIncKey"); // Numpad 7
-        config.offset_z_dec_keys = parseKeyList(ini.GetValue("CameraProfiles", "OffsetZDecKey", "0x61"), logger, "OffsetZDecKey"); // Numpad 1
+        config.offset_y_inc_keys = parseKeyList(ini.GetValue("CameraProfiles", "OffsetYIncKey", "0x6B"), logger, "OffsetYIncKey"); // Numpad Plus
+        config.offset_y_dec_keys = parseKeyList(ini.GetValue("CameraProfiles", "OffsetYDecKey", "0x6D"), logger, "OffsetYDecKey"); // Numpad Minus
+        config.offset_z_inc_keys = parseKeyList(ini.GetValue("CameraProfiles", "OffsetZIncKey", "0x68"), logger, "OffsetZIncKey"); // Numpad 8
+        config.offset_z_dec_keys = parseKeyList(ini.GetValue("CameraProfiles", "OffsetZDecKey", "0x62"), logger, "OffsetZDecKey"); // Numpad 2
 
         // Load transition settings
         config.transition_duration = 0.5f; // Default 0.5 seconds
@@ -453,6 +454,15 @@ Config loadConfig(const std::string &ini_filename)
     }
 
     logger.log(LOG_INFO, "Config: TPV Offset (X, Y, Z): (" + std::to_string(config.tpv_offset_x) + ", " + std::to_string(config.tpv_offset_y) + ", " + std::to_string(config.tpv_offset_z) + ")");
+
+    if (!config.hold_scroll_keys.empty())
+    {
+        logger.log(LOG_INFO, "Config: Hold-to-scroll feature ENABLED with key(s): " + format_vkcode_list(config.hold_scroll_keys));
+    }
+    else
+    {
+        logger.log(LOG_INFO, "Config: Hold-to-scroll feature DISABLED");
+    }
 
     logger.log(LOG_INFO, "Config: Loaded hotkeys (Toggle:" + std::to_string(config.toggle_keys.size()) +
                              "/FPV:" + std::to_string(config.fpv_keys.size()) +

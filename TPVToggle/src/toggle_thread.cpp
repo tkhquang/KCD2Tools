@@ -11,12 +11,16 @@
 #include "constants.h"
 #include "game_interface.h"
 #include "global_state.h"
+#include "config.h"
 
 #include <windows.h>
 #include <vector>
 #include <unordered_map>
 #include <string>
 #include <cmath>
+
+// External config declaration
+extern Config g_config;
 
 /**
  * @brief Main hotkey monitoring thread.
@@ -60,6 +64,12 @@ DWORD WINAPI MonitorThread(LPVOID param)
     initialize_keys(toggle_keys);
     initialize_keys(fpv_keys);
     initialize_keys(tpv_keys);
+
+    // Also initialize hold-to-scroll keys if configured
+    if (!g_config.hold_scroll_keys.empty())
+    {
+        initialize_keys(g_config.hold_scroll_keys);
+    }
 
     logger.log(LOG_INFO, "MonitorThread: Hotkeys " + std::string(hotkeys_active ? "ENABLED" : "DISABLED"));
 
@@ -131,6 +141,24 @@ DWORD WINAPI MonitorThread(LPVOID param)
                 process_keys(tpv_keys, [](int *vk)
                              { setViewState(1, vk); });
             }
+
+            // Process hold-to-scroll keys if configured
+            if (!g_config.hold_scroll_keys.empty())
+            {
+                bool anyHoldKeyPressed = false;
+
+                for (int vk : g_config.hold_scroll_keys)
+                {
+                    if (vk != 0 && (GetAsyncKeyState(vk) & 0x8000) != 0)
+                    {
+                        anyHoldKeyPressed = true;
+                        break;
+                    }
+                }
+
+                // Set the global flag to be used by event handling
+                g_holdToScrollActive.store(anyHoldKeyPressed, std::memory_order_relaxed);
+            }
         }
         catch (const std::exception &e)
         {
@@ -175,10 +203,46 @@ DWORD WINAPI OverlayMonitorThread(LPVOID param)
 
     logger.log(LOG_INFO, "OverlayMonitor: Initial overlay state: " + std::string(prevActiveState ? "ACTIVE" : "INACTIVE"));
 
+    // If hold-to-scroll feature is enabled, NOP by default
+    if (!g_config.hold_scroll_keys.empty() && g_accumulatorWriteAddress)
+    {
+        logger.log(LOG_INFO, "OverlayMonitor: Hold-to-scroll feature enabled, applying NOP by default");
+        if (WriteBytes(g_accumulatorWriteAddress, nopSequence, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
+        {
+            g_accumulatorWriteNOPped.store(true);
+        }
+    }
+
     while (WaitForSingleObject(g_exitEvent, Constants::OVERLAY_MONITOR_INTERVAL_MS) != WAIT_OBJECT_0)
     {
         try
         {
+            // Always handle Hold-to-Scroll functionality if enabled
+            if (!g_config.hold_scroll_keys.empty() && g_accumulatorWriteAddress)
+            {
+                bool isHoldActive = g_holdToScrollActive.load(std::memory_order_relaxed);
+
+                // If hold key is pressed but accumulator is currently NOPped, restore original bytes
+                if (isHoldActive && g_accumulatorWriteNOPped.load())
+                {
+                    if (WriteBytes(g_accumulatorWriteAddress, g_originalAccumulatorWriteBytes, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
+                    {
+                        g_accumulatorWriteNOPped.store(false);
+                        logger.log(LOG_DEBUG, "OverlayMonitor: Restored accumulator write due to hold key press");
+                    }
+                }
+                // If hold key is released but accumulator is not NOPped, NOP it
+                else if (!isHoldActive && !g_accumulatorWriteNOPped.load() && !prevActiveState)
+                {
+                    if (WriteBytes(g_accumulatorWriteAddress, nopSequence, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
+                    {
+                        g_accumulatorWriteNOPped.store(true);
+                        logger.log(LOG_DEBUG, "OverlayMonitor: NOPped accumulator write due to hold key release");
+                    }
+                }
+            }
+
+            // Next, handle overlay state changes
             long long overlayState = getOverlayState();
             if (overlayState != -1)
             {
@@ -211,15 +275,19 @@ DWORD WINAPI OverlayMonitorThread(LPVOID param)
                         // Overlay closed
                         Sleep(500); // Give UI time to settle
 
-                        // Restore accumulator write if it was NOPed
-                        if (g_accumulatorWriteNOPped.load())
+                        // If we're not using Hold-to-Scroll, restore accumulator write when overlay closes
+                        if (g_config.hold_scroll_keys.empty())
                         {
-                            if (g_accumulatorWriteAddress && g_originalAccumulatorWriteBytes[0] != 0)
+                            // Restore accumulator write if it was NOPed
+                            if (g_accumulatorWriteNOPped.load())
                             {
-                                logger.log(LOG_DEBUG, "OverlayMonitor: Restoring accumulator write");
-                                if (WriteBytes(g_accumulatorWriteAddress, g_originalAccumulatorWriteBytes, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
+                                if (g_accumulatorWriteAddress && g_originalAccumulatorWriteBytes[0] != 0)
                                 {
-                                    g_accumulatorWriteNOPped.store(false);
+                                    logger.log(LOG_DEBUG, "OverlayMonitor: Restoring accumulator write");
+                                    if (WriteBytes(g_accumulatorWriteAddress, g_originalAccumulatorWriteBytes, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
+                                    {
+                                        g_accumulatorWriteNOPped.store(false);
+                                    }
                                 }
                             }
                         }
@@ -244,6 +312,13 @@ DWORD WINAPI OverlayMonitorThread(LPVOID param)
             logger.log(LOG_ERROR, "OverlayMonitor: Unknown error");
             Sleep(1000);
         }
+    }
+
+    // Ensure accumulator write is restored on exit
+    if (g_accumulatorWriteNOPped.load() && g_accumulatorWriteAddress && g_originalAccumulatorWriteBytes[0] != 0)
+    {
+        logger.log(LOG_INFO, "OverlayMonitor: Restoring accumulator write before exit");
+        WriteBytes(g_accumulatorWriteAddress, g_originalAccumulatorWriteBytes, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger);
     }
 
     logger.log(LOG_INFO, "OverlayMonitor: Exiting");

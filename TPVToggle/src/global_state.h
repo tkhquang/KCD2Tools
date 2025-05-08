@@ -49,6 +49,7 @@ extern std::atomic<bool> g_overlayFpvRequest;
 extern std::atomic<bool> g_overlayTpvRestoreRequest;
 extern std::atomic<bool> g_wasTpvBeforeOverlay;
 extern std::atomic<bool> g_accumulatorWriteNOPped;
+extern std::atomic<bool> g_holdToScrollActive;
 
 extern Vector3 g_latestTpvCameraForward;
 
