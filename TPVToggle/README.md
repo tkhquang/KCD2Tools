@@ -71,9 +71,36 @@ TpvFovDegrees = 68.75
 ```
 
 The mod looks for the INI file in the following locations:
+
 - The game's executable directory (`Win64MasterMasterSteamPGO`)
 - The base game directory
 - The current working directory
+
+## Hold-to-Scroll Feature
+
+A new `HoldKeyToScroll` configuration option has been added to provide more granular control over mouse wheel scrolling in third-person view.
+
+### How It Works
+- When a specific key is configured, mouse wheel scrolling is disabled by default
+- Scrolling is ONLY enabled while holding down the specified key
+- If no key is specified, the default overlay detection behavior is used (scrolling disabled during overlays)
+
+### Configuration
+In the `KCD2_TPVToggle.ini` file, you can set the hold-to-scroll key using the virtual key code:
+
+```ini
+; Common key choices:
+; - Left Shift: 0x10
+; - Left Control: 0x11
+; - Left Alt: 0x12
+; - Space: 0x20
+HoldKeyToScroll = 0x10  ; Example: Left Shift key
+```
+
+### Benefits
+- Prevents accidental camera distance changes
+- Gives you precise control over when scrolling is allowed
+- Works seamlessly with existing overlay detection system
 
 ## Using with Controllers
 
