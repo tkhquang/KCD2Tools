@@ -156,7 +156,7 @@ namespace Constants
     constexpr size_t PLAYER_STATE_SIZE = 0xD4;               // Verified from assembly (212 bytes)
 
     // Offsets relative to the outputPosePtr (RDX) in FUN_18392509c
-    // ASSUMING standard Pos(XYZ) followed by Quat(XYZW) layout. VERIFY WITH DEBUGGER.
+    // Standard Pos(XYZ) followed by Quat(XYZW).
     constexpr ptrdiff_t TPV_OUTPUT_POSE_POSITION_OFFSET = 0x0;  // Base Offset (X, Y, Z = 12 bytes)
     constexpr ptrdiff_t TPV_OUTPUT_POSE_ROTATION_OFFSET = 0x0C; // Base Offset (Assuming starts right after Pos. Z = 0x8+0x4) (X, Y, Z, W = 16 bytes)
     constexpr size_t TPV_OUTPUT_POSE_REQUIRED_SIZE = 0x1C;      // Minimum size needed: Pos(12) + Quat(16) = 28 bytes (0x1C). Let's use 0x20 for alignment.
