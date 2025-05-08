@@ -234,11 +234,14 @@ DWORD WINAPI OverlayMonitorThread(LPVOID param)
                 // If hold key is released but accumulator is not NOPped, NOP it
                 else if (!isHoldActive && !g_accumulatorWriteNOPped.load() && !prevActiveState)
                 {
+
                     if (WriteBytes(g_accumulatorWriteAddress, nopSequence, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
                     {
                         g_accumulatorWriteNOPped.store(true);
                         logger.log(LOG_DEBUG, "OverlayMonitor: NOPped accumulator write due to hold key release");
                     }
+                    // If key state changed from pressed to released, reset the accumulator
+                    resetScrollAccumulator(true);
                 }
             }
 
@@ -268,6 +271,7 @@ DWORD WINAPI OverlayMonitorThread(LPVOID param)
                             {
                                 g_accumulatorWriteNOPped.store(true);
                             }
+                            resetScrollAccumulator(true);
                         }
                     }
                     else

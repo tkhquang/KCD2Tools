@@ -37,11 +37,14 @@ extern "C"
 {
     extern BYTE *g_global_context_ptr_address;
     extern uintptr_t *g_rbx_for_overlay_flag;
+    extern volatile BYTE *g_tpvFlagAddress;
 }
 
 // Event hook globals
 extern BYTE *g_accumulatorWriteAddress;
 extern BYTE g_originalAccumulatorWriteBytes[Constants::ACCUMULATOR_WRITE_INSTR_LENGTH];
+extern volatile uintptr_t *g_scrollAccumulatorAddress;
+extern volatile uintptr_t *g_scrollPtrStorageAddress;
 
 // Thread communication atomics
 extern std::atomic<bool> g_isOverlayActive;

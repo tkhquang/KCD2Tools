@@ -19,6 +19,144 @@ static bool isValidated()
     return g_global_context_ptr_address != nullptr;
 }
 
+/**
+ * @brief Locates the scroll accumulator in memory using pattern scanning and direct RVA
+ * @param module_base Base address of the target game module
+ * @param module_size Size of the target game module in bytes
+ * @return true if successfully located the accumulator, false otherwise
+ */
+bool findScrollAccumulator(uintptr_t module_base, size_t module_size)
+{
+    Logger &logger = Logger::getInstance();
+
+    logger.log(LOG_INFO, "Attempting to find Scroll Accumulator address via AOB scan...");
+
+    if (module_base == 0 || module_size == 0)
+    {
+        logger.log(LOG_ERROR, "findScrollAccumulator: Invalid module base/size provided.");
+        return false;
+    }
+
+    // Use the AOB pattern provided in constants.h
+    std::vector<BYTE> scroll_pat = parseAOB(Constants::SCROLL_STATE_BASE_AOB_PATTERN);
+    if (scroll_pat.empty())
+    {
+        logger.log(LOG_ERROR, "Failed to parse scroll state AOB pattern from constants.");
+        return false; // Cannot proceed without pattern
+    }
+
+    BYTE *scroll_aob_result = FindPattern(reinterpret_cast<BYTE *>(module_base), module_size, scroll_pat);
+
+    if (!scroll_aob_result)
+    {
+        logger.log(LOG_ERROR, "Scroll state AOB pattern not found in module. Cannot locate accumulator.");
+        return false; // Pattern not found, cannot proceed
+    }
+
+    // Found the pattern, now extract the RIP-relative address
+    logger.log(LOG_INFO, "Found scroll state AOB pattern at: " + format_address(reinterpret_cast<uintptr_t>(scroll_aob_result)));
+
+    // The instruction we targeted is '48 8B 15 offset' (7 bytes total)
+    // mov rdx, [rip + offset]
+    BYTE *instruction_address = scroll_aob_result; // Assuming AOB starts exactly at the MOV instruction
+
+    // Extract the 32-bit relative offset (starts at byte 3 of the instruction)
+    if (!isMemoryReadable(instruction_address + 3, sizeof(int32_t)))
+    {
+        logger.log(LOG_ERROR, "Cannot read relative offset from instruction at: " + format_address(reinterpret_cast<uintptr_t>(instruction_address + 3)));
+        return false;
+    }
+    int32_t relative_offset = *reinterpret_cast<int32_t *>(instruction_address + 3);
+
+    // Calculate the RIP value (address of the instruction *after* the MOV)
+    BYTE *rip_value = instruction_address + 7; // Instruction is 7 bytes long
+
+    // Calculate the absolute address where the pointer is stored
+    uintptr_t scroll_ptr_storage_addr_val = reinterpret_cast<uintptr_t>(rip_value) + relative_offset;
+    g_scrollPtrStorageAddress = reinterpret_cast<volatile uintptr_t *>(scroll_ptr_storage_addr_val);
+    logger.log(LOG_INFO, "Calculated scroll state pointer storage address: " + format_address(scroll_ptr_storage_addr_val));
+
+    return true;
+}
+
+volatile uintptr_t *getResolvedScrollAccumulatorAddress()
+{
+    Logger &logger = Logger::getInstance();
+    // Read the pointer value from this storage address safely
+    if (!isMemoryReadable(g_scrollPtrStorageAddress, sizeof(uintptr_t)))
+    {
+        logger.log(LOG_ERROR, "Cannot read scroll state base pointer from storage address!");
+        return nullptr;
+    }
+    uintptr_t scroll_state_base_ptr = *g_scrollPtrStorageAddress; // Read the pointer value
+
+    // Check if the base pointer is valid
+    if (scroll_state_base_ptr == 0)
+    {
+        logger.log(LOG_ERROR, "Scroll state base pointer read from storage is NULL.");
+        return nullptr; // Cannot proceed with NULL base pointer
+    }
+    logger.log(LOG_DEBUG, "Scroll state base structure located at: " + format_address(scroll_state_base_ptr));
+
+    // Calculate address of the accumulator float using the known offset
+    uintptr_t final_accum_addr_val = scroll_state_base_ptr + Constants::OFFSET_ScrollAccumulatorFloat; // +0x1C
+    volatile uintptr_t *final_accum_addr = reinterpret_cast<volatile uintptr_t *>(final_accum_addr_val);
+    logger.log(LOG_DEBUG, "Calculated final accumulator address: " + format_address(final_accum_addr_val));
+
+    // Final validation: Check if the target address is readable/writable
+    if (!isMemoryReadable(final_accum_addr, sizeof(float)))
+    {
+        logger.log(LOG_ERROR, "Final accumulator address is not readable!");
+        return nullptr;
+    }
+    if (!isMemoryWritable(final_accum_addr, sizeof(float)))
+    {
+        logger.log(LOG_ERROR, "Final accumulator address is not writable!");
+        return nullptr;
+    }
+
+    // Store the final, validated address globally
+    g_scrollAccumulatorAddress = final_accum_addr; // Use the correct global name
+
+    float currentValue = *g_scrollAccumulatorAddress; // Read current value for logging
+    logger.log(LOG_INFO, "Successfully located scroll accumulator via AOB at " +
+                             format_address(reinterpret_cast<uintptr_t>(g_scrollAccumulatorAddress)) +
+                             ", current value: " + std::to_string(currentValue));
+
+    return g_scrollAccumulatorAddress;
+}
+
+/**
+ * @brief Safely resets the scroll accumulator to zero
+ * @param logReset Whether to log successful resets (to avoid log spam)
+ * @return true if successfully reset, false if pointer invalid or memory not writable
+ */
+bool resetScrollAccumulator(bool logReset)
+{
+    Logger &logger = Logger::getInstance();
+
+    if (g_scrollAccumulatorAddress == nullptr)
+    {
+        g_scrollAccumulatorAddress = getResolvedScrollAccumulatorAddress();
+    }
+
+    if (g_scrollAccumulatorAddress != nullptr && isMemoryWritable(g_scrollAccumulatorAddress, sizeof(uintptr_t)))
+    {
+        float currentValue = *g_scrollAccumulatorAddress;
+        if (currentValue != 0.0f)
+        {
+            *g_scrollAccumulatorAddress = 0.0f;
+            if (logReset && Logger::getInstance().isDebugEnabled())
+            {
+                Logger::getInstance().log(LOG_DEBUG, "resetScrollAccumulator: Reset value from " +
+                                                         std::to_string(currentValue) + " to 0.0");
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
 bool initializeGameInterface(uintptr_t module_base, size_t module_size)
 {
     Logger &logger = Logger::getInstance();
@@ -57,6 +195,15 @@ bool initializeGameInterface(uintptr_t module_base, size_t module_size)
 
         logger.log(LOG_INFO, "GameInterface: Global context pointer storage at " + format_address(ctx_target_addr));
 
+        if (findScrollAccumulator(module_base, module_size))
+        {
+            logger.log(LOG_INFO, "Scroll accumulator locator initialized successfully");
+        }
+        else
+        {
+            logger.log(LOG_WARNING, "Could not locate scroll accumulator - hold-to-scroll feature may not work correctly");
+        }
+
         return true;
     }
     catch (const std::exception &e)
@@ -76,6 +223,11 @@ void cleanupGameInterface()
  */
 volatile BYTE *getResolvedTpvFlagAddress()
 {
+    if (g_tpvFlagAddress != nullptr)
+    {
+        return g_tpvFlagAddress;
+    }
+
     if (!g_global_context_ptr_address || !isMemoryReadable(g_global_context_ptr_address, sizeof(uintptr_t)))
         return nullptr;
 

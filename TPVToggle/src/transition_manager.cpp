@@ -1,4 +1,3 @@
-// transition_manager.cpp
 #include "transition_manager.h"
 #include "logger.h"
 #include "global_state.h"
@@ -12,13 +11,21 @@ TransitionManager &TransitionManager::getInstance()
 }
 
 TransitionManager::TransitionManager()
-    : m_isTransitioning(false), m_transitionProgress(0.0f), m_transitionDuration(0.5f), m_defaultDuration(0.5f), m_useSpringPhysics(false), m_springStrength(10.0f), m_springDamping(0.8f), m_springVelocity(0.0f, 0.0f, 0.0f)
+    : m_isTransitioning(false),
+      m_transitionProgress(0.0f),
+      m_transitionDuration(0.5f),
+      m_defaultDuration(0.5f),
+      m_useSpringPhysics(false),
+      m_springStrength(10.0f),
+      m_springDamping(0.8f),
+      m_springVelocity(0.0f, 0.0f, 0.0f)
 {
 }
 
-void TransitionManager::startTransition(const Vector3 &targetPosition,
-                                        const Quaternion &targetRotation,
-                                        float durationSeconds)
+void TransitionManager::startTransition(
+    const Vector3 &targetPosition,
+    const Quaternion &targetRotation,
+    float durationSeconds)
 {
     // Store the current camera state if we're not already transitioning
     if (!m_isTransitioning)

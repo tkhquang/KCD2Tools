@@ -53,6 +53,7 @@ extern "C"
 {
     BYTE *g_global_context_ptr_address = nullptr;
     uintptr_t *g_rbx_for_overlay_flag = nullptr;
+    volatile BYTE *g_tpvFlagAddress = nullptr;
 }
 
 // Hook globals
@@ -64,6 +65,8 @@ extern "C"
 // Event hook globals
 BYTE *g_accumulatorWriteAddress = nullptr;
 BYTE g_originalAccumulatorWriteBytes[Constants::ACCUMULATOR_WRITE_INSTR_LENGTH] = {0};
+volatile uintptr_t *g_scrollAccumulatorAddress = nullptr;
+volatile uintptr_t *g_scrollPtrStorageAddress = nullptr;
 
 // Thread communication atomics
 std::atomic<bool> g_isOverlayActive(false);

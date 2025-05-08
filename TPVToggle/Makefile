@@ -20,6 +20,9 @@ SIMPLEINI_DIR := $(EXTERNAL_DIR)/simpleini
 DIRECTXMATH_DIR := $(EXTERNAL_DIR)/DirectXMath
 DIRECTXMATH_INCLUDE_DIR := $(DIRECTXMATH_DIR)/Inc
 
+JSON_DIR := $(EXTERNAL_DIR)/json
+JSON_INCLUDE_DIR := $(JSON_DIR)/include
+
 # Output Directories
 OBJ_DIR := $(BUILD_DIR)/obj
 MINHOOK_OBJ_OUT_DIR := $(OBJ_DIR)/minhook
@@ -37,9 +40,12 @@ endif
 ifeq ($(wildcard $(DIRECTXMATH_INCLUDE_DIR)/DirectXMath.h),)
 $(error DirectXMath submodule not initialized. Please run 'git submodule update --init --recursive')
 endif
+ifeq ($(wildcard $(JSON_INCLUDE_DIR)/nlohmann/json.hpp),)
+$(error json submodule not initialized. Please run 'git submodule update --init --recursive')
+endif
 
 # --- Compiler and Linker Flags ---
-INCLUDE_PATHS := -I$(MINHOOK_INCLUDE_DIR) -I$(SIMPLEINI_DIR) -I$(DIRECTXMATH_INCLUDE_DIR) -I$(SRC_DIR)
+INCLUDE_PATHS := -I$(MINHOOK_INCLUDE_DIR) -I$(SIMPLEINI_DIR) -I$(DIRECTXMATH_INCLUDE_DIR) -I$(JSON_INCLUDE_DIR) -I$(SRC_DIR)
 # Use C++17 for std::filesystem, enable exceptions, common warnings, 64-bit, optimize for size
 CXXFLAGS := -std=c++17 -m64 -Os -Wall -Wextra $(INCLUDE_PATHS) -fexceptions \
             -DWINVER=0x0601 -D_WIN32_WINNT=0x0601 -fdata-sections -ffunction-sections \

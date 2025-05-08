@@ -20,6 +20,13 @@
 bool initializeGameInterface(uintptr_t module_base, size_t module_size);
 
 /**
+ * @brief Safely resets the scroll accumulator to zero
+ * @param logReset Whether to log successful resets (to avoid log spam)
+ * @return true if successfully reset, false if pointer invalid or memory not writable
+ */
+bool resetScrollAccumulator(bool logReset = false);
+
+/**
  * @brief Clean up game interface resources.
  */
 void cleanupGameInterface();

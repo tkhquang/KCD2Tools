@@ -203,293 +203,171 @@ Config loadConfig(const std::string &ini_filename)
     std::string ini_path = getIniFilePath(ini_filename);
     logger.log(LOG_INFO, "Config: Attempting to load configuration from: " + ini_path);
 
-    // Initialize SimpleIni
     CSimpleIniA ini;
-    ini.SetUnicode(false);
-    ini.SetMultiKey(false);
+    ini.SetUnicode(false);  // Assuming ASCII/MBCS INI file
+    ini.SetMultiKey(false); // Don't allow duplicate keys in sections
 
-    // Apply hardcoded defaults
+    // Apply hardcoded defaults explicitly BEFORE loading INI
+    // (Some defaults are now set in Config constructor, but can reiterate here)
     config.log_level = Constants::DEFAULT_LOG_LEVEL;
-    config.enable_overlay_feature = true; // Default enabled
-    config.tpv_fov_degrees = -1.0f;       // Default disabled
+    config.enable_overlay_feature = true;
+    config.tpv_fov_degrees = -1.0f;
+    // Camera profile defaults (might be better in constructor)
+    config.enable_camera_profiles = false;
+    config.offset_adjustment_step = 0.05f;
+    config.transition_duration = 0.5f;
+    config.use_spring_physics = false;
+    config.spring_strength = 8.0f; // Consistent default
+    config.spring_damping = 0.7f;  // Consistent default
 
-    // Load INI file
     SI_Error rc = ini.LoadFile(ini_path.c_str());
     if (rc < 0)
     {
         logger.log(LOG_ERROR, "Config: Failed to open INI file '" + ini_path + "'. Using default settings.");
+        // Fallback: Ensure profile directory is set even if INI fails
+        config.profile_directory = getRuntimeDirectory();
+        if (config.profile_directory.empty())
+        {
+            config.profile_directory = "."; // Fallback
+        }
     }
     else
     {
         logger.log(LOG_INFO, "Config: Successfully opened INI file.");
 
-        // Load key bindings
-        const char *value = ini.GetValue("Settings", "ToggleKey", nullptr);
-        if (value)
+        // Helper lambda to read key lists with defaults
+        auto load_key_list = [&](const char *key, std::vector<int> &target_vector, const char *default_value)
         {
-            config.toggle_keys = parseKeyList(value, logger, "ToggleKey");
-        }
-
-        value = ini.GetValue("Settings", "FPVKey", nullptr);
-        if (value)
-        {
-            config.fpv_keys = parseKeyList(value, logger, "FPVKey");
-        }
-
-        value = ini.GetValue("Settings", "TPVKey", nullptr);
-        if (value)
-        {
-            config.tpv_keys = parseKeyList(value, logger, "TPVKey");
-        }
-
-        // Load log level
-        value = ini.GetValue("Settings", "LogLevel", nullptr);
-        if (value)
-        {
-            config.log_level = value;
-        }
-
-        // Load optional features
-        value = ini.GetValue("Settings", "EnableOverlayFeature", nullptr);
-        if (value)
-        {
-            std::string val_str = value;
-            std::transform(val_str.begin(), val_str.end(), val_str.begin(), ::tolower);
-            config.enable_overlay_feature = (val_str == "true" || val_str == "1" || val_str == "yes");
-        }
-
-        value = ini.GetValue("Settings", "TpvFovDegrees", nullptr);
-        if (value)
-        {
-            std::string val_str = value;
-            std::string trimmed = trim(val_str);
-            if (!trimmed.empty())
+            const char *value = ini.GetValue("CameraProfiles", key, default_value);
+            if (value)
             {
-                try
-                {
-                    float fov_degrees = std::stof(trimmed);
-                    if (fov_degrees > 0.0f && fov_degrees <= 180.0f)
-                    {
-                        config.tpv_fov_degrees = fov_degrees;
-                    }
-                    else
-                    {
-                        logger.log(LOG_WARNING, "Config: Invalid TPV FOV value: " + trimmed + ". Must be between 0 and 180 degrees.");
-                    }
-                }
-                catch (const std::exception &e)
-                {
-                    logger.log(LOG_WARNING, "Config: Failed to parse TpvFovDegrees: " + std::string(e.what()));
-                }
+                target_vector = parseKeyList(value, logger, key);
             }
-        }
-
-        // New feature: Hold-Key-to-Scroll
-        value = ini.GetValue("Settings", "HoldKeyToScroll", nullptr);
-        if (value)
-        {
-            std::vector<int> keys = parseKeyList(value, logger, "HoldKeyToScroll");
-            if (!keys.empty())
+            else
             {
-                config.hold_scroll_keys = keys;
-                logger.log(LOG_INFO, "Config: Hold-to-scroll key configured: " + format_vkcode_list(keys));
-            }
-        }
-
-        auto parseFloat = [&](const char *key, float &target)
-        {
-            const char *val = ini.GetValue("Settings", key, "0.0");
-            try
-            {
-                target = std::stof(val);
-            }
-            catch (const std::exception &e)
-            {
-                logger.log(LOG_WARNING, "Config: Failed to parse float value for '" + std::string(key) + "': " + std::string(val) + ". Using default 0.0. Error: " + e.what());
-                target = 0.0f;
+                target_vector = parseKeyList(default_value, logger, std::string(key) + " (default)");
             }
         };
 
-        parseFloat("TpvOffsetX", config.tpv_offset_x);
-        parseFloat("TpvOffsetY", config.tpv_offset_y);
-        parseFloat("TpvOffsetZ", config.tpv_offset_z);
+        // --- [Settings] Section ---
+        // Basic Toggle/View keys
+        config.toggle_keys = parseKeyList(ini.GetValue("Settings", "ToggleKey", "0x72"), logger, "ToggleKey"); // F3 default
+        config.fpv_keys = parseKeyList(ini.GetValue("Settings", "FPVKey", ""), logger, "FPVKey");
+        config.tpv_keys = parseKeyList(ini.GetValue("Settings", "TPVKey", ""), logger, "TPVKey");
 
-        // Camera profile system configuration
-        bool enableProfiles = false;
-        value = ini.GetValue("CameraProfiles", "Enable", "false");
-        if (value)
-        {
-            std::string val_str = value;
-            std::transform(val_str.begin(), val_str.end(), val_str.begin(), ::tolower);
-            enableProfiles = (val_str == "true" || val_str == "1" || val_str == "yes");
-        }
-        config.enable_camera_profiles = enableProfiles;
+        // Log Level
+        config.log_level = ini.GetValue("Settings", "LogLevel", Constants::DEFAULT_LOG_LEVEL);
 
-        // Load adjustment step
-        value = ini.GetValue("CameraProfiles", "AdjustmentStep", "0.05");
-        if (value)
+        // Features
+        config.enable_overlay_feature = ini.GetBoolValue("Settings", "EnableOverlayFeature", true);
+        config.tpv_fov_degrees = (float)ini.GetDoubleValue("Settings", "TpvFovDegrees", -1.0);
+        config.hold_scroll_keys = parseKeyList(ini.GetValue("Settings", "HoldKeyToScroll", ""), logger, "HoldKeyToScroll");
+
+        // TPV Offsets (using new defaults from constructor now)
+        config.tpv_offset_x = (float)ini.GetDoubleValue("Settings", "TpvOffsetX", config.tpv_offset_x);
+        config.tpv_offset_y = (float)ini.GetDoubleValue("Settings", "TpvOffsetY", config.tpv_offset_y);
+        config.tpv_offset_z = (float)ini.GetDoubleValue("Settings", "TpvOffsetZ", config.tpv_offset_z);
+
+        // --- [CameraProfiles] Section ---
+        config.enable_camera_profiles = ini.GetBoolValue("CameraProfiles", "Enable", false);
+
+        // Only load profile-specific keys if the feature is enabled
+        if (config.enable_camera_profiles)
         {
-            try
-            {
-                config.offset_adjustment_step = std::stof(value);
-            }
-            catch (...)
-            {
-                config.offset_adjustment_step = 0.05f; // Default
+            // Basic profile actions
+            load_key_list("MasterToggleKey", config.master_toggle_keys, "0x7A"); // F11
+            load_key_list("ProfileSaveKey", config.profile_save_keys, "0x61");   // Numpad 1 (CREATE NEW)
+            load_key_list("ProfileCycleKey", config.profile_cycle_keys, "0x63"); // Numpad 3
+            load_key_list("ProfileResetKey", config.profile_reset_keys, "0x65"); // Numpad 5
+
+            // *** Load NEW Keys ***
+            load_key_list("ProfileUpdateKey", config.profile_update_keys, "0x67"); // Numpad 7 (UPDATE) - Assign default
+            load_key_list("ProfileDeleteKey", config.profile_delete_keys, "0x69"); // Numpad 9 (DELETE) - Assign default
+
+            // Offset adjustments
+            load_key_list("OffsetXIncKey", config.offset_x_inc_keys, "0x66"); // Numpad 6
+            load_key_list("OffsetXDecKey", config.offset_x_dec_keys, "0x64"); // Numpad 4
+            load_key_list("OffsetYIncKey", config.offset_y_inc_keys, "0x6B"); // Numpad +
+            load_key_list("OffsetYDecKey", config.offset_y_dec_keys, "0x6D"); // Numpad -
+            load_key_list("OffsetZIncKey", config.offset_z_inc_keys, "0x68"); // Numpad 8
+            load_key_list("OffsetZDecKey", config.offset_z_dec_keys, "0x62"); // Numpad 2
+
+            // Adjustment & Transition Settings
+            config.offset_adjustment_step = (float)ini.GetDoubleValue("CameraProfiles", "AdjustmentStep", 0.05);
+            config.transition_duration = (float)ini.GetDoubleValue("CameraProfiles", "TransitionDuration", 0.5);
+            config.use_spring_physics = ini.GetBoolValue("CameraProfiles", "UseSpringPhysics", false);
+            config.spring_strength = (float)ini.GetDoubleValue("CameraProfiles", "SpringStrength", 8.0);
+            config.spring_damping = (float)ini.GetDoubleValue("CameraProfiles", "SpringDamping", 0.7);
+
+            // Profile directory
+            config.profile_directory = ini.GetValue("CameraProfiles", "ProfileDirectory", "");
+            if (config.profile_directory.empty())
+            { // If not set in INI, use runtime dir
+                config.profile_directory = getRuntimeDirectory();
+                if (config.profile_directory.empty())
+                {
+                    config.profile_directory = "."; // Fallback if runtime dir fails
+                }
             }
         }
         else
         {
-            config.offset_adjustment_step = 0.05f; // Default
-        }
-
-        std::string runtimeDirectory = getRuntimeDirectory();
-
-        if (!runtimeDirectory.empty())
-        {
-            std::filesystem::path profilePath = std::filesystem::path(runtimeDirectory) / "KCD2_TPVToggle_Profiles";
-            config.profile_directory = profilePath.string();
-        }
-        else
-        {
-            config.profile_directory = "KCD2_TPVToggle_Profiles";
-        }
-
-        // Parse key lists for camera profile system - With corrected defaults matching the INI file
-        config.master_toggle_keys = parseKeyList(ini.GetValue("CameraProfiles", "MasterToggleKey", "0x7A"), logger, "MasterToggleKey"); // F11
-        config.profile_save_keys = parseKeyList(ini.GetValue("CameraProfiles", "ProfileSaveKey", "0x61"), logger, "ProfileSaveKey");    // Numpad 1
-        config.profile_cycle_keys = parseKeyList(ini.GetValue("CameraProfiles", "ProfileCycleKey", "0x63"), logger, "ProfileCycleKey"); // Numpad 3
-        config.profile_reset_keys = parseKeyList(ini.GetValue("CameraProfiles", "ProfileResetKey", "0x65"), logger, "ProfileResetKey"); // Numpad 5
-
-        // Adjustment keys for X, Y, Z offsets
-        config.offset_x_inc_keys = parseKeyList(ini.GetValue("CameraProfiles", "OffsetXIncKey", "0x66"), logger, "OffsetXIncKey"); // Numpad 6
-        config.offset_x_dec_keys = parseKeyList(ini.GetValue("CameraProfiles", "OffsetXDecKey", "0x64"), logger, "OffsetXDecKey"); // Numpad 4
-        config.offset_y_inc_keys = parseKeyList(ini.GetValue("CameraProfiles", "OffsetYIncKey", "0x6B"), logger, "OffsetYIncKey"); // Numpad Plus
-        config.offset_y_dec_keys = parseKeyList(ini.GetValue("CameraProfiles", "OffsetYDecKey", "0x6D"), logger, "OffsetYDecKey"); // Numpad Minus
-        config.offset_z_inc_keys = parseKeyList(ini.GetValue("CameraProfiles", "OffsetZIncKey", "0x68"), logger, "OffsetZIncKey"); // Numpad 8
-        config.offset_z_dec_keys = parseKeyList(ini.GetValue("CameraProfiles", "OffsetZDecKey", "0x62"), logger, "OffsetZDecKey"); // Numpad 2
-
-        // Load transition settings
-        config.transition_duration = 0.5f; // Default 0.5 seconds
-        config.use_spring_physics = false; // Default disabled
-        config.spring_strength = 10.0f;    // Default spring strength
-        config.spring_damping = 0.8f;      // Default damping factor
-
-        value = ini.GetValue("CameraProfiles", "TransitionDuration", "0.5");
-        if (value)
-        {
-            try
+            // Ensure profile directory is still set even if feature disabled, for logger etc.
+            config.profile_directory = getRuntimeDirectory();
+            if (config.profile_directory.empty())
             {
-                config.transition_duration = std::stof(value);
-            }
-            catch (...)
-            {
-                config.transition_duration = 0.5f;
+                config.profile_directory = ".";
             }
         }
+    } // end else (INI loaded successfully)
 
-        // value = ini.GetValue("CameraProfiles", "UseSpringPhysics", "false");
-        // if (value)
-        // {
-        //     std::string val_str = value;
-        //     std::transform(val_str.begin(), val_str.end(), val_str.begin(), ::tolower);
-        //     config.use_spring_physics = (val_str == "true" || val_str == "1" || val_str == "yes");
-        // }
-
-        // value = ini.GetValue("CameraProfiles", "SpringStrength", "10.0");
-        // if (value)
-        // {
-        //     try
-        //     {
-        //         config.spring_strength = std::stof(value);
-        //     }
-        //     catch (...)
-        //     {
-        //         config.spring_strength = 10.0f;
-        //     }
-        // }
-
-        // value = ini.GetValue("CameraProfiles", "SpringDamping", "0.8");
-        // if (value)
-        // {
-        //     try
-        //     {
-        //         config.spring_damping = std::stof(value);
-        //     }
-        //     catch (...)
-        //     {
-        //         config.spring_damping = 0.8f;
-        //     }
-        // }
-    }
-
-    // Validate log level
-    std::string effective_log_level = config.log_level;
-    std::transform(effective_log_level.begin(), effective_log_level.end(), effective_log_level.begin(), ::toupper);
-    if (effective_log_level == "DEBUG")
+    // Validate Log Level
+    std::string upper_log_level = config.log_level;
+    std::transform(upper_log_level.begin(), upper_log_level.end(), upper_log_level.begin(), ::toupper);
+    if (upper_log_level == "DEBUG")
         config.log_level = "DEBUG";
-    else if (effective_log_level == "INFO")
+    else if (upper_log_level == "INFO")
         config.log_level = "INFO";
-    else if (effective_log_level == "WARNING")
+    else if (upper_log_level == "WARNING")
         config.log_level = "WARNING";
-    else if (effective_log_level == "ERROR")
+    else if (upper_log_level == "ERROR")
         config.log_level = "ERROR";
     else
     {
-        logger.log(LOG_WARNING, "Config: Invalid LogLevel value '" + config.log_level + "'. Using default: '" + Constants::DEFAULT_LOG_LEVEL + "'.");
+        logger.log(LOG_WARNING, "Config: Invalid LogLevel '" + config.log_level + "'. Using default: '" + Constants::DEFAULT_LOG_LEVEL + "'.");
         config.log_level = Constants::DEFAULT_LOG_LEVEL;
     }
 
-    // Log summary
+    // --- Log Summary ---
     logger.log(LOG_INFO, "Config: Log level set to: " + config.log_level);
     logger.log(LOG_INFO, "Config: Overlay feature: " + std::string(config.enable_overlay_feature ? "ENABLED" : "DISABLED"));
-
     if (config.tpv_fov_degrees > 0.0f)
-    {
-        logger.log(LOG_INFO, "Config: TPV FOV set to: " + std::to_string(config.tpv_fov_degrees) + " degrees");
-    }
+        logger.log(LOG_INFO, "Config: TPV FOV: " + std::to_string(config.tpv_fov_degrees) + " deg");
     else
-    {
-        logger.log(LOG_INFO, "Config: TPV FOV feature: DISABLED");
-    }
+        logger.log(LOG_INFO, "Config: TPV FOV: DISABLED");
+    logger.log(LOG_INFO, "Config: Base TPV Offset (X, Y, Z): (" + std::to_string(config.tpv_offset_x) + ", " + std::to_string(config.tpv_offset_y) + ", " + std::to_string(config.tpv_offset_z) + ")");
+    logger.log(LOG_INFO, "Config: Hold-to-scroll keys: " + format_vkcode_list(config.hold_scroll_keys));
+    logger.log(LOG_INFO, "Config: TPV/FPV keys (Toggle:" + format_vkcode_list(config.toggle_keys) +
+                             "/FPV:" + format_vkcode_list(config.fpv_keys) +
+                             "/TPV:" + format_vkcode_list(config.tpv_keys) + ")");
 
-    logger.log(LOG_INFO, "Config: TPV Offset (X, Y, Z): (" + std::to_string(config.tpv_offset_x) + ", " + std::to_string(config.tpv_offset_y) + ", " + std::to_string(config.tpv_offset_z) + ")");
-
-    if (!config.hold_scroll_keys.empty())
-    {
-        logger.log(LOG_INFO, "Config: Hold-to-scroll feature ENABLED with key(s): " + format_vkcode_list(config.hold_scroll_keys));
-    }
-    else
-    {
-        logger.log(LOG_INFO, "Config: Hold-to-scroll feature DISABLED");
-    }
-
-    logger.log(LOG_INFO, "Config: Loaded hotkeys (Toggle:" + std::to_string(config.toggle_keys.size()) +
-                             "/FPV:" + std::to_string(config.fpv_keys.size()) +
-                             "/TPV:" + std::to_string(config.tpv_keys.size()) + ")");
-
-    // Log camera profile config
+    // Camera profile system summary
+    logger.log(LOG_INFO, "Config: Camera Profile System: " + std::string(config.enable_camera_profiles ? "ENABLED" : "DISABLED"));
     if (config.enable_camera_profiles)
     {
-        logger.log(LOG_INFO, "Config: Camera profile system ENABLED");
-        logger.log(LOG_INFO, "Config: Camera profile directory: " + config.profile_directory);
-        logger.log(LOG_INFO, "Config: Camera adjustment step: " + std::to_string(config.offset_adjustment_step));
-    }
-    else
-    {
-        logger.log(LOG_INFO, "Config: Camera profile system DISABLED");
-    }
-
-    // Log transition settings if camera profiles enabled
-    if (config.enable_camera_profiles)
-    {
-        logger.log(LOG_INFO, "Config: Transition duration: " + std::to_string(config.transition_duration) + "s");
-        logger.log(LOG_INFO, "Config: Spring physics: " + std::string(config.use_spring_physics ? "ENABLED" : "DISABLED"));
-        if (config.use_spring_physics)
-        {
-            logger.log(LOG_INFO, "Config: Spring strength: " + std::to_string(config.spring_strength));
-            logger.log(LOG_INFO, "Config: Spring damping: " + std::to_string(config.spring_damping));
-        }
+        logger.log(LOG_INFO, "  Profile Dir: " + config.profile_directory);
+        logger.log(LOG_INFO, "  Adjustment Step: " + std::to_string(config.offset_adjustment_step));
+        logger.log(LOG_INFO, "  Master Toggle: " + format_vkcode_list(config.master_toggle_keys));
+        logger.log(LOG_INFO, "  Create New Profile: " + format_vkcode_list(config.profile_save_keys));
+        logger.log(LOG_INFO, "  Update Active Profile: " + format_vkcode_list(config.profile_update_keys)); // Log new key
+        logger.log(LOG_INFO, "  Delete Active Profile: " + format_vkcode_list(config.profile_delete_keys)); // Log new key
+        logger.log(LOG_INFO, "  Cycle Profiles: " + format_vkcode_list(config.profile_cycle_keys));
+        logger.log(LOG_INFO, "  Reset to Default: " + format_vkcode_list(config.profile_reset_keys));
+        logger.log(LOG_INFO, "  Adjust X +/-: " + format_vkcode_list(config.offset_x_inc_keys) + "/" + format_vkcode_list(config.offset_x_dec_keys));
+        logger.log(LOG_INFO, "  Adjust Y +/-: " + format_vkcode_list(config.offset_y_inc_keys) + "/" + format_vkcode_list(config.offset_y_dec_keys));
+        logger.log(LOG_INFO, "  Adjust Z +/-: " + format_vkcode_list(config.offset_z_inc_keys) + "/" + format_vkcode_list(config.offset_z_dec_keys));
+        logger.log(LOG_INFO, "  Transition: " + std::to_string(config.transition_duration) + "s, Spring: " +
+                                 (config.use_spring_physics ? "ON (Str:" + std::to_string(config.spring_strength) + ", Damp:" + std::to_string(config.spring_damping) + ")" : "OFF"));
     }
 
     logger.log(LOG_INFO, "Config: Configuration loading completed.");

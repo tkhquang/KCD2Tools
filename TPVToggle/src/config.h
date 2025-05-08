@@ -42,11 +42,13 @@ struct Config
     float tpv_offset_z;
 
     // Camera profile system
-    bool enable_camera_profiles;         // Master toggle for camera profile system
-    std::vector<int> master_toggle_keys; // Keys to enable/disable adjustment mode
-    std::vector<int> profile_save_keys;  // Keys to save current profile
-    std::vector<int> profile_cycle_keys; // Keys to cycle through profiles
-    std::vector<int> profile_reset_keys; // Keys to reset offsets to 0
+    bool enable_camera_profiles;          // Master toggle for camera profile system
+    std::vector<int> master_toggle_keys;  // Keys to enable/disable adjustment mode
+    std::vector<int> profile_save_keys;   // Keys to save current profile
+    std::vector<int> profile_cycle_keys;  // Keys to cycle through profiles
+    std::vector<int> profile_reset_keys;  // Keys to reset offsets to 0
+    std::vector<int> profile_update_keys; // Keys to cycle through profiles UPDATE the currently active non-Default profile with live offset.
+    std::vector<int> profile_delete_keys; // Keys to DELETE the currently active non-Default profile.
 
     // Offset adjustment keys
     std::vector<int> offset_x_inc_keys; // Keys to increase X offset
@@ -71,7 +73,20 @@ struct Config
      *        (empty vectors, default settings). The loading function is
      *        responsible for populating with defaults or INI values.
      */
-    Config() : enable_overlay_feature(true), tpv_fov_degrees(-1.0f), tpv_offset_x(0.0f), tpv_offset_y(0.0f), tpv_offset_z(0.0f) {}
+    Config() : log_level("INFO"),
+               enable_overlay_feature(true),
+               tpv_fov_degrees(-1.0f),
+               tpv_offset_x(0.0f),
+               tpv_offset_y(0.0f),
+               tpv_offset_z(0.0f),
+               enable_camera_profiles(false),
+               offset_adjustment_step(0.05f),
+               transition_duration(0.5f),
+               use_spring_physics(false),
+               spring_strength(10.0f),
+               spring_damping(0.8f)
+    {
+    }
 };
 
 /**

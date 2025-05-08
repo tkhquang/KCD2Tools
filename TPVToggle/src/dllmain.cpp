@@ -309,11 +309,11 @@ DWORD WINAPI MainThread(LPVOID hModule_param)
         {
             logger.log(LOG_INFO, "Initializing camera profile system...");
 
-            // Initialize the camera profile manager
-            CameraProfileManager::getInstance().loadProfiles(g_config.profile_directory);
-
             // Set initial global camera offset from config
             g_currentCameraOffset = Vector3(g_config.tpv_offset_x, g_config.tpv_offset_y, g_config.tpv_offset_z);
+
+            // Initialize the camera profile manager with JSON-based persistence
+            CameraProfileManager::getInstance().loadProfiles(g_config.profile_directory);
 
             // Configure transition settings
             CameraProfileManager::getInstance().setTransitionSettings(

@@ -6,6 +6,7 @@
         "${workspaceFolder}/TPVToggle/src",
         "${workspaceFolder}/TPVToggle/external/minhook/include",
         "${workspaceFolder}/TPVToggle/external/DirectXMath/Inc",
+        "${workspaceFolder}/TPVToggle/external/json/include",
         // "${workspaceFolder}/TPVToggle/external/cryengine/Code/SDKs/Lua/src",
         "${workspaceFolder}/**"
       ],
