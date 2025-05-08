@@ -2,6 +2,25 @@
 
 All notable changes to the TPVToggle mod will be documented in this file.
 
+## [0.3.6] - Camera Profile System and Hold-to-Scroll Feature
+
+### New Features
+- **Camera Profile System**
+  - Create, update, and manage camera profiles
+  - Real-time camera offset adjustments
+  - Smooth transitions between profiles
+  - Persistent profile storage
+
+- **Hold-to-Scroll Feature**
+  - Optional key-based scroll wheel control
+  - Prevent accidental camera distance changes
+  - Configurable scroll activation key
+
+### Improvements
+- Enhanced input handling
+- More granular camera control
+- Improved transition interpolation
+
 ## [0.3.5] - Camera Profiles and Performance Improvements
 
 - Added camera profile system with customizable positions, saving/loading profiles, and smooth transitions
@@ -110,6 +129,7 @@ All notable changes to the TPVToggle mod will be documented in this file.
 - Logging system for troubleshooting
 KCD
 
+[0.3.6]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.3.6
 [0.3.5]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.3.5
 [0.3.3]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.3.3
 [0.3.2]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.3.2
