@@ -59,4 +59,18 @@ extern Vector3 g_latestTpvCameraForward;
 extern Vector3 g_currentCameraOffset;
 extern std::atomic<bool> g_cameraAdjustmentMode;
 
+// Orbital Camera
+extern std::atomic<bool> g_orbitalModeActive;
+extern float g_orbitalCameraYaw;           // Radians
+extern float g_orbitalCameraPitch;         // Radians
+extern Quaternion g_orbitalCameraRotation; // Combined final rotation
+extern float g_orbitalCameraDistance;
+
+extern Vector3 g_playerWorldPosition;
+extern Quaternion g_playerWorldOrientation;
+
+extern uintptr_t g_GlobalGameCVarsStructAddr;
+
+extern std::atomic<bool> g_nativeOrbitCVarsEnabled;
+
 #endif // GLOBAL_STATE_H

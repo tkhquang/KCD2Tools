@@ -32,91 +32,209 @@ extern Config g_config;
 void __fastcall Detour_TpvCameraUpdate(uintptr_t thisPtr, uintptr_t outputPosePtr)
 {
     Logger &logger = Logger::getInstance();
-    bool original_called = false;
+    bool original_function_called_successfully = false;
 
-    // Call original function first
-    if (fpTpvCameraUpdateOriginal)
-    {
-        try
+    if (g_nativeOrbitCVarsEnabled.load())
+    { // If game's native orbit is supposed to be active
+        if (fpTpvCameraUpdateOriginal)
         {
-            fpTpvCameraUpdateOriginal(thisPtr, outputPosePtr);
-            original_called = true;
+            fpTpvCameraUpdateOriginal(thisPtr, outputPosePtr); // Let game do its full TPV update
         }
-        catch (...)
+        // Optionally, AFTER original, read values from outputPosePtr and CVars to see if they match
+        // Or just return and let game handle it fully.
+        return;
+    }
+
+    if (g_config.enable_orbital_camera_mode && g_orbitalModeActive.load())
+    {
+        logger.log(LOG_DEBUG, "TpvCamUpdate: ORBITAL PATH - SKIPPING ORIGINAL");
+        if (outputPosePtr == 0 || getViewState() != 1 ||
+            !isMemoryWritable(reinterpret_cast<void *>(outputPosePtr), Constants::TPV_OUTPUT_POSE_REQUIRED_SIZE))
         {
-            logger.log(LOG_ERROR, "TpvCameraHook: Exception calling original function!");
+            // Still call original if we can't do our work, or game might stall
+            if (fpTpvCameraUpdateOriginal)
+                fpTpvCameraUpdateOriginal(thisPtr, outputPosePtr);
             return;
         }
+        Vector3 *outPosPtr = reinterpret_cast<Vector3 *>(outputPosePtr + Constants::TPV_OUTPUT_POSE_POSITION_OFFSET);
+        Quaternion *outRotPtr = reinterpret_cast<Quaternion *>(outputPosePtr + Constants::TPV_OUTPUT_POSE_ROTATION_OFFSET);
+
+        Vector3 playerFocusPoint = g_playerWorldPosition; // Assumes g_playerWorldPosition is fresh
+        // playerFocusPoint.z += 1.5f; // Optional head offset
+
+        Vector3 cameraForwardInWorld = g_orbitalCameraRotation.Rotate(Vector3(0.0f, 1.0f, 0.0f));
+        Vector3 orbitalCameraBasePosition = playerFocusPoint - (cameraForwardInWorld * g_orbitalCameraDistance);
+        Vector3 worldScreenOffset = g_orbitalCameraRotation.Rotate(g_currentCameraOffset);
+
+        *outPosPtr = orbitalCameraBasePosition + worldScreenOffset;
+        *outRotPtr = g_orbitalCameraRotation;
     }
     else
     {
-        logger.log(LOG_ERROR, "TpvCameraHook: Original function pointer NULL!");
-        return;
-    }
-
-    // Skip if original failed or TPV mode not active
-    if (!original_called || outputPosePtr == 0 || getViewState() != 1)
-    {
-        return;
-    }
-
-    try
-    {
-        // Check if output pose buffer is readable
-        if (!isMemoryReadable((void *)outputPosePtr, Constants::TPV_OUTPUT_POSE_REQUIRED_SIZE))
+        logger.log(LOG_DEBUG, "TpvCamUpdate: STANDARD PATH - CALLING ORIGINAL");
+        if (fpTpvCameraUpdateOriginal)
         {
-            return;
-        }
+            // 1. --- Call Original Game Function ---
+            // This is usually important because the original function might:
+            // - Initialize or prepare the outputPosePtr structure.
+            // - Update other game systems that rely on it being called.
+            // - Provide a base position/rotation if our specific mode isn't active.
 
-        // Pointers to data within the output structure
-        Vector3 *currentPosPtr = reinterpret_cast<Vector3 *>(outputPosePtr + Constants::TPV_OUTPUT_POSE_POSITION_OFFSET);
-        Quaternion *currentRotPtr = reinterpret_cast<Quaternion *>(outputPosePtr + Constants::TPV_OUTPUT_POSE_ROTATION_OFFSET);
+            try
+            {
+                fpTpvCameraUpdateOriginal(thisPtr, outputPosePtr);
+                original_function_called_successfully = true;
+            }
+            catch (const std::exception &e)
+            {
+                logger.log(LOG_ERROR, "TpvCameraHook: Exception calling original TpvCameraUpdate func: " + std::string(e.what()));
+                return; // Critical error, don't proceed
+            }
+            catch (...)
+            {
+                logger.log(LOG_ERROR, "TpvCameraHook: Unknown exception calling original TpvCameraUpdate func.");
+                return; // Critical error, don't proceed
+            }
 
-        Vector3 currentPos = *currentPosPtr;
-        Quaternion currentRot = *currentRotPtr;
+            // 2. --- Early Exit Conditions ---
+            // If original didn't run, output pointer is bad, or we aren't in TPV render state, do nothing further.
+            if (!original_function_called_successfully || outputPosePtr == 0 || getViewState() != 1)
+            {
+                return;
+            }
 
-        // Get active offset - either from transition, profile system, or config
-        Vector3 localOffset;
+            // 3. --- Validate Memory Accessibility ---
+            // Ensure we can read from and write to the outputPosePtr structure.
+            if (!isMemoryWritable(reinterpret_cast<void *>(outputPosePtr), Constants::TPV_OUTPUT_POSE_REQUIRED_SIZE)) // Changed to isMemoryWritable as we will write
+            {
+                // Log this warning less frequently to avoid spam if it's a persistent issue
+                static int write_perm_warn_count = 0;
+                if (++write_perm_warn_count % 100 == 0 && logger.isDebugEnabled())
+                {
+                    logger.log(LOG_WARNING, "TpvCameraHook: outputPosePtr at " + format_address(outputPosePtr) + " is not writable or fully accessible.");
+                }
+                return;
+            }
 
-        // Check if transition is active and update if needed
-        Vector3 transitionPosition;
-        Quaternion transitionRotation;
-        if (g_config.enable_camera_profiles &&
-            TransitionManager::getInstance().updateTransition(0.016f, transitionPosition, transitionRotation))
-        {
-            // Use transitioning offset
-            localOffset = transitionPosition;
-        }
-        else if (g_config.enable_camera_profiles)
-        {
-            // Use profile system offset
-            localOffset = g_currentCameraOffset;
+            // 4. --- Define Pointers to Position and Rotation in outputPosePtr ---
+            Vector3 *outPosPtr = reinterpret_cast<Vector3 *>(outputPosePtr + Constants::TPV_OUTPUT_POSE_POSITION_OFFSET);
+            Quaternion *outRotPtr = reinterpret_cast<Quaternion *>(outputPosePtr + Constants::TPV_OUTPUT_POSE_ROTATION_OFFSET);
+
+            // 5. --- MODE-SPECIFIC LOGIC ---
+            try
+            {
+                if (g_config.enable_orbital_camera_mode && g_orbitalModeActive.load())
+                {
+                    // ===== ORBITAL CAMERA MODE ACTIVE =====
+                    // The renderer should use our fully custom orbital camera pose.
+
+                    // Player's world position is the focus point for the orbital camera.
+                    // This global should be updated by your player_state_hook.
+                    Vector3 playerFocusPoint = g_playerWorldPosition;
+
+                    // You might want to add a slight vertical offset to focus on the player's head/chest
+                    // instead of their feet, depending on what g_playerWorldPosition represents.
+                    // Example: playerFocusPoint.z += 1.5f; // Adjust as needed.
+
+                    // Calculate the orbital camera's position:
+                    // Start at the player focus point.
+                    // Move backward along the orbital camera's current view direction by g_orbitalCameraDistance.
+                    // The orbital camera's "forward" is typically its local +Y or +Z depending on convention.
+                    // If using Quaternion::Rotate with (0,1,0) for forward:
+                    Vector3 cameraForwardInWorld = g_orbitalCameraRotation.Rotate(Vector3(0.0f, 1.0f, 0.0f)); // Assumes Y-forward in camera space
+                    Vector3 orbitalCameraBasePosition = playerFocusPoint - (cameraForwardInWorld * g_orbitalCameraDistance);
+
+                    // Apply screen-space offsets (g_currentCameraOffset from profiles/live adjustments)
+                    // These offsets should be relative to the *orbital camera's* orientation.
+                    Vector3 worldScreenOffset = g_orbitalCameraRotation.Rotate(g_currentCameraOffset);
+
+                    // Final position and rotation for orbital camera
+                    *outPosPtr = orbitalCameraBasePosition + worldScreenOffset;
+                    *outRotPtr = g_orbitalCameraRotation;
+
+                    // Optional: Logging for orbital mode values
+                    if (logger.isDebugEnabled())
+                    {
+                        static int orbital_log_count = 0;
+                        if (++orbital_log_count % 60 == 0)
+                        { // Log about once per second if 60fps
+                            logger.log(LOG_DEBUG, "TpvCameraHook (Orbital): Applied Pose. Pos=" + Vector3ToString(*outPosPtr) +
+                                                      " Rot=" + QuatToString(*outRotPtr) + " Dist=" + std::to_string(g_orbitalCameraDistance));
+                        }
+                    }
+                }
+                else
+                {
+                    // ===== STANDARD TPV OFFSET MODE (Orbital is OFF or Disabled) =====
+                    // This is your original logic for applying g_currentCameraOffset or static config offsets.
+
+                    // Read the game's calculated position and rotation (already in *outPosPtr, *outRotPtr from original call)
+                    Vector3 gameCalculatedPos = *outPosPtr;
+                    Quaternion gameCalculatedRot = *outRotPtr;
+
+                    Vector3 activeOffset; // This will be g_currentCameraOffset or the static config one.
+
+                    // Transition Manager logic (only relevant for standard TPV profiles, not typically for global static offset)
+                    // Note: If TransitionManager directly sets g_currentCameraOffset, this block might be simplified.
+                    bool isTransitioning = false;
+                    if (g_config.enable_camera_profiles)
+                    { // Check if profiles (and thus transitions) are enabled
+                        Vector3 transitionPosition;
+                        Quaternion transitionRotation; // Orbital camera won't use transitionRotation here.
+                                                       // Standard TPV might, but it's unusual to transition TPV offsets' rotation.
+
+                        // Delta time for transition - needs to be actual frame delta for smoothness
+                        // For simplicity here, using a fixed small step, but ideally, pass actual game's deltaTime.
+                        // The 0.016f here implies roughly 60fps.
+                        if (TransitionManager::getInstance().updateTransition(0.016f, transitionPosition, transitionRotation))
+                        {
+                            activeOffset = transitionPosition; // Use the offset value from the transition
+                            isTransitioning = true;
+                        }
+                        else
+                        {
+                            activeOffset = g_currentCameraOffset; // Use the active profile's offset
+                        }
+                    }
+                    else // Profiles (and transitions) disabled, use static config offset
+                    {
+                        activeOffset = Vector3(g_config.tpv_offset_x, g_config.tpv_offset_y, g_config.tpv_offset_z);
+                    }
+
+                    // Apply the 'activeOffset' (which is a local camera-space offset)
+                    // by rotating it with the game's calculated TPV camera rotation.
+                    Vector3 worldOffset = gameCalculatedRot.Rotate(activeOffset);
+
+                    // Final position for standard TPV offset mode
+                    *outPosPtr = gameCalculatedPos + worldOffset;
+                    // Rotation remains as gameCalculatedRot (i.e., *outRotPtr is not changed from game's value)
+
+                    // Optional: Logging for standard TPV offset mode
+                    if (logger.isDebugEnabled() && !isTransitioning)
+                    { // Log less when transitioning to avoid spam
+                        static int standard_tpv_log_count = 0;
+                        if (++standard_tpv_log_count % 60 == 0)
+                        {
+                            logger.log(LOG_DEBUG, "TpvCameraHook (Standard): Applied Offset. NewPos=" + Vector3ToString(*outPosPtr) +
+                                                      " GameRot=" + QuatToString(*outRotPtr) + " OffsetUsed=" + Vector3ToString(activeOffset));
+                        }
+                    }
+                }
+            }
+            catch (const std::exception &e)
+            {
+                logger.log(LOG_ERROR, "TpvCameraHook: Exception applying camera modifications: " + std::string(e.what()));
+            }
+            catch (...)
+            {
+                logger.log(LOG_ERROR, "TpvCameraHook: Unknown exception applying camera modifications.");
+            }
         }
         else
         {
-            // Use static config offset
-            localOffset = Vector3(g_config.tpv_offset_x, g_config.tpv_offset_y, g_config.tpv_offset_z);
+            logger.log(LOG_ERROR, "TpvCameraHook: Original TpvCameraUpdate function pointer is NULL!");
+            return; // Cannot proceed
         }
-
-        // Calculate World Offset by rotating local offset by camera rotation
-        Vector3 worldOffset = currentRot.Rotate(localOffset);
-
-        // Apply offset to position
-        Vector3 newPos = currentPos + worldOffset;
-
-        // Write back if writable
-        if (isMemoryWritable((void *)currentPosPtr, sizeof(Vector3)))
-        {
-            *currentPosPtr = newPos;
-        }
-    }
-    catch (const std::exception &e)
-    {
-        logger.log(LOG_ERROR, "TpvCameraHook: Exception applying offset: " + std::string(e.what()));
-    }
-    catch (...)
-    {
-        logger.log(LOG_ERROR, "TpvCameraHook: Unknown exception applying offset.");
     }
 }
 

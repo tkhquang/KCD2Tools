@@ -68,6 +68,18 @@ struct Config
     float spring_strength;
     float spring_damping;
 
+    // Orbital camera
+    bool enable_orbital_camera_mode; // Master toggle for this feature
+    std::vector<int> orbital_mode_toggle_keys;
+    float orbit_sensitivity_yaw;
+    float orbit_sensitivity_pitch;
+    bool orbit_invert_pitch; // For Y-axis inversion option
+    float orbit_zoom_sensitivity;
+    float orbit_min_distance;
+    float orbit_max_distance;
+    float orbit_pitch_min_degrees; // e.g., -85
+    float orbit_pitch_max_degrees; // e.g., +85
+
     /**
      * @brief Default constructor. Initializes members to default states
      *        (empty vectors, default settings). The loading function is
@@ -84,7 +96,16 @@ struct Config
                transition_duration(0.5f),
                use_spring_physics(false),
                spring_strength(10.0f),
-               spring_damping(0.8f)
+               spring_damping(0.8f),
+               enable_orbital_camera_mode(false),
+               orbit_sensitivity_yaw(0.002f),
+               orbit_sensitivity_pitch(0.002f),
+               orbit_invert_pitch(false),
+               orbit_zoom_sensitivity(0.002f),
+               orbit_min_distance(1.0f),
+               orbit_max_distance(15.0f),
+               orbit_pitch_min_degrees(-85.0f),
+               orbit_pitch_max_degrees(85.0f)
     {
     }
 };

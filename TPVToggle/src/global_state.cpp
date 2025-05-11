@@ -80,3 +80,16 @@ Vector3 g_latestTpvCameraForward = {0.0f, 1.0f, 0.0f};
 
 Vector3 g_currentCameraOffset(0.0f, 0.0f, 0.0f);
 std::atomic<bool> g_cameraAdjustmentMode(false);
+
+// Orbital Camera
+std::atomic<bool> g_orbitalModeActive(false);
+float g_orbitalCameraYaw = 0.0f;
+float g_orbitalCameraPitch = 0.0f;
+Quaternion g_orbitalCameraRotation = Quaternion::Identity();
+float g_orbitalCameraDistance = 3.0f; // Default starting distance
+
+Vector3 g_playerWorldPosition(0.0f, 0.0f, 0.0f);
+Quaternion g_playerWorldOrientation = Quaternion::Identity();
+
+uintptr_t g_GlobalGameCVarsStructAddr = 0;
+std::atomic<bool> g_nativeOrbitCVarsEnabled(false);

@@ -19,6 +19,8 @@
 #include "hooks/event_hooks.h"
 #include "hooks/fov_hook.h"
 #include "hooks/tpv_camera_hook.h"
+#include "hooks/tpv_input_hook.h"
+#include "hooks/player_state_hook.h"
 
 #include "MinHook.h"
 
@@ -83,8 +85,9 @@ void cleanupResources()
     cleanupOverlayHook();
     cleanupGameInterface();
     cleanupTpvCameraHook();
-    // cleanupPlayerStateHook();
-    // cleanupTpvInputHook();
+    cleanupTpvInputHook();
+    cleanupTpvCameraHook();
+    cleanupPlayerStateHook();
 
     // Uninitialize MinHook
     MH_Uninitialize();
@@ -242,6 +245,26 @@ bool startMonitorThreads()
         {
             logger.log(LOG_WARNING, "Failed to create overlay monitor thread - overlay features disabled");
             g_config.enable_overlay_feature = false;
+        }
+    }
+
+    // Initialize TPV Input Hook for orbital camera control (if enabled in config)
+    // This hook should be initialized IF Orbital Camera is desired OR potentially
+    // if other TPV camera state modifications need to intercept input.
+    // The hook function itself checks g_orbitalModeActive.
+    if (g_config.enable_orbital_camera_mode || g_config.enable_camera_profiles) // Condition it based on relevant features
+    {
+        if (!initializeTpvInputHook(g_ModuleBase, g_ModuleSize))
+        {
+            // Log warning, but perhaps not fatal? Depends on how critical orbital mode is.
+            logger.log(LOG_WARNING, "TPV Input Hook (for orbital camera) initialization failed. Orbital mouse control may not work.");
+            // You might choose to disable orbital mode if its input hook fails:
+            // g_config.enable_orbital_camera_mode = false;
+        }
+
+        if (!initializePlayerStateHook(g_ModuleBase, g_ModuleSize))
+        {
+            logger.log(LOG_WARNING, "Player state hook initialization failed.");
         }
     }
 

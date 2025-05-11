@@ -319,6 +319,18 @@ Config loadConfig(const std::string &ini_filename)
                 config.profile_directory = ".";
             }
         }
+
+        // [OrbitalCamera] section
+        config.enable_orbital_camera_mode = ini.GetBoolValue("OrbitalCamera", "Enable", true);
+        load_key_list("OrbitalModeToggleKey", config.orbital_mode_toggle_keys, "0x73"); // F4
+        config.orbit_sensitivity_yaw = (float)ini.GetDoubleValue("OrbitalCamera", "SensitivityYaw", 0.002);
+        config.orbit_sensitivity_pitch = (float)ini.GetDoubleValue("OrbitalCamera", "SensitivityPitch", 0.002);
+        config.orbit_invert_pitch = ini.GetBoolValue("OrbitalCamera", "InvertPitch", false);
+        config.orbit_zoom_sensitivity = (float)ini.GetDoubleValue("OrbitalCamera", "ZoomSensitivity", 0.002);
+        config.orbit_min_distance = (float)ini.GetDoubleValue("OrbitalCamera", "MinDistance", 1.0);
+        config.orbit_max_distance = (float)ini.GetDoubleValue("OrbitalCamera", "MaxDistance", 15.0);
+        config.orbit_pitch_min_degrees = (float)ini.GetDoubleValue("OrbitalCamera", "MinPitchDegrees", -85.0);
+        config.orbit_pitch_max_degrees = (float)ini.GetDoubleValue("OrbitalCamera", "MaxPitchDegrees", 85.0);
     } // end else (INI loaded successfully)
 
     // Validate Log Level
@@ -368,6 +380,20 @@ Config loadConfig(const std::string &ini_filename)
         logger.log(LOG_INFO, "  Adjust Z +/-: " + format_vkcode_list(config.offset_z_inc_keys) + "/" + format_vkcode_list(config.offset_z_dec_keys));
         logger.log(LOG_INFO, "  Transition: " + std::to_string(config.transition_duration) + "s, Spring: " +
                                  (config.use_spring_physics ? "ON (Str:" + std::to_string(config.spring_strength) + ", Damp:" + std::to_string(config.spring_damping) + ")" : "OFF"));
+    }
+
+    logger.log(LOG_INFO, "Config: Orbital Camera Mode: " + std::string(config.enable_orbital_camera_mode ? "ENABLED" : "DISABLED"));
+    if (config.enable_orbital_camera_mode)
+    {
+        logger.log(LOG_INFO, "  Orbital Mode Toggle Keys: " + format_vkcode_list(config.orbital_mode_toggle_keys));
+        logger.log(LOG_INFO, "  Orbital Sensitivity Yaw: " + std::to_string(config.orbit_sensitivity_yaw));
+        logger.log(LOG_INFO, "  Orbital Sensitivity Pitch: " + std::to_string(config.orbit_sensitivity_pitch));
+        logger.log(LOG_INFO, "  Orbital Invert Pitch: " + std::string(config.orbit_invert_pitch ? "ENABLED" : "DISABLED"));
+        logger.log(LOG_INFO, "  Orbital Zoom Sensitivity: " + std::to_string(config.orbit_zoom_sensitivity));
+        logger.log(LOG_INFO, "  Orbital Min Distance: " + std::to_string(config.orbit_min_distance));
+        logger.log(LOG_INFO, "  Orbital Max Distance: " + std::to_string(config.orbit_max_distance));
+        logger.log(LOG_INFO, "  Orbital Min Pitch Degrees: " + std::to_string(config.orbit_pitch_min_degrees));
+        logger.log(LOG_INFO, "  Orbital Max Pitch Degrees: " + std::to_string(config.orbit_pitch_max_degrees));
     }
 
     logger.log(LOG_INFO, "Config: Configuration loading completed.");

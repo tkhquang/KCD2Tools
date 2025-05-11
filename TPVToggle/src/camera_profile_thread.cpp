@@ -4,6 +4,7 @@
 #include "utils.h"
 #include "global_state.h"
 #include "config.h"
+#include "hooks/tpv_input_hook.h"
 
 #include <unordered_map>
 #include <bitset>
@@ -38,7 +39,9 @@ struct KeyBitMapInfo
     uint64_t offsetZIncMask = 0;
     uint64_t offsetZDecMask = 0;
 
-    // Add more masks here if total unique keys > 64 bits supported by uint64_t
+    uint64_t orbitalModeToggleMask = 0;
+
+    uint64_t nativeOrbitTestToggleMask = 0;
 };
 
 /**
@@ -90,6 +93,11 @@ KeyBitMapInfo createKeyBitMap(const Config &config)
     registerKeys(config.offset_y_dec_keys, info.offsetYDecMask);
     registerKeys(config.offset_z_inc_keys, info.offsetZIncMask);
     registerKeys(config.offset_z_dec_keys, info.offsetZDecMask);
+
+    registerKeys(config.orbital_mode_toggle_keys, info.orbitalModeToggleMask);
+
+    std::vector<int> native_orbit_test_keys = {VK_F2};
+    registerKeys(native_orbit_test_keys, info.nativeOrbitTestToggleMask);
 
     return info;
 }
@@ -168,6 +176,51 @@ DWORD WINAPI CameraProfileThread(LPVOID param)
         logger.log(LOG_DEBUG, "CameraProfileThread: Registered " + std::to_string(keyInfo.keyCount) + " unique keys for monitoring.");
     }
 
+    typedef uintptr_t (*GetSystemInterfaceFunc)();
+    uintptr_t funcAddr = g_ModuleBase + (0xA27DE0);
+    GetSystemInterfaceFunc pfnGetSystemInterface = (GetSystemInterfaceFunc)funcAddr;
+
+    logger.log(LOG_INFO, "CameraProfileThread: Attempting to acquire CVar struct address...");
+    int cvar_init_attempts = 0;
+    while (g_GlobalGameCVarsStructAddr == 0 && cvar_init_attempts < 60 && WaitForSingleObject(g_exitEvent, 0) != WAIT_OBJECT_0)
+    { // Try for up to 60 seconds
+        // (Copy the logic to call pfnGetSystemInterface and read pSystemInterface + 0x20 here)
+        // Make sure to use g_ModuleBase for calculating funcAddr
+        uintptr_t func_180a27de0_offset = 0xA27DE0; // VERIFY THIS OFFSET
+        uintptr_t funcAddr = g_ModuleBase + func_180a27de0_offset;
+        GetSystemInterfaceFunc pfnGetSystemInterface = (GetSystemInterfaceFunc)funcAddr;
+        uintptr_t pSystemInterface_temp = 0;
+
+        if (isMemoryReadable((void *)funcAddr, 8))
+        {
+            try
+            {
+                pSystemInterface_temp = pfnGetSystemInterface();
+            }
+            catch (...)
+            {
+                pSystemInterface_temp = 0;
+            }
+        }
+
+        if (pSystemInterface_temp != 0 && isMemoryReadable((void *)(pSystemInterface_temp + 0x20), sizeof(uintptr_t)))
+        {
+            g_GlobalGameCVarsStructAddr = *(uintptr_t *)(pSystemInterface_temp + 0x20);
+            if (g_GlobalGameCVarsStructAddr != 0)
+            {
+                logger.log(LOG_INFO, "CameraProfileThread: Successfully acquired pSystemInterface: " + format_address(pSystemInterface_temp));
+                logger.log(LOG_INFO, "CameraProfileThread: Successfully acquired g_GlobalGameCVarsStructAddr: " + format_address(g_GlobalGameCVarsStructAddr));
+                break; // Success
+            }
+        }
+        cvar_init_attempts++;
+        Sleep(1000); // Wait 1 second before retrying
+    }
+    if (g_GlobalGameCVarsStructAddr == 0)
+    {
+        logger.log(LOG_ERROR, "CameraProfileThread: FAILED to acquire CVar struct address after multiple attempts.");
+    }
+
     // Main loop
     while (WaitForSingleObject(g_exitEvent, 16) != WAIT_OBJECT_0) // ~60 Hz check
     {
@@ -175,6 +228,51 @@ DWORD WINAPI CameraProfileThread(LPVOID param)
         {
             // Get current state of all monitored keys
             uint64_t currentKeyState = getKeyStateBitmap(keyInfo.allKeys, keyInfo.keyMap);
+
+            static bool nativeOrbitCVarsEnabled = false; // Track state
+
+            if (isNewKeyPress(currentKeyState, previousKeyState, keyInfo.nativeOrbitTestToggleMask))
+            {
+                if (g_GlobalGameCVarsStructAddr != 0)
+                {
+                    nativeOrbitCVarsEnabled = !nativeOrbitCVarsEnabled;
+
+                    bool *p_cl_cam_debug = (bool *)(g_GlobalGameCVarsStructAddr + 0x1C0); // cl_cam_debug
+                    bool *p_cl_cam_orbit = (bool *)(g_GlobalGameCVarsStructAddr + 0x1A8); // cl_cam_orbit
+
+                    if (isMemoryWritable(p_cl_cam_debug, sizeof(bool)) && isMemoryWritable(p_cl_cam_orbit, sizeof(bool)))
+                    {
+                        *p_cl_cam_debug = nativeOrbitCVarsEnabled; // Enable debug cam features
+                        *p_cl_cam_orbit = nativeOrbitCVarsEnabled; // Enable orbit mode specifically
+
+                        logger.log(LOG_INFO, "Native Orbit Test: cl_cam_debug set to " + std::string(nativeOrbitCVarsEnabled ? "true" : "false"));
+                        logger.log(LOG_INFO, "Native Orbit Test: cl_cam_orbit set to " + std::string(nativeOrbitCVarsEnabled ? "true" : "false"));
+
+                        if (nativeOrbitCVarsEnabled)
+                        {
+                            // Optional: Set some default distances/offsets
+                            float *p_dist = (float *)(g_GlobalGameCVarsStructAddr + 0x1BC); // cl_cam_orbit_distance
+                            float *p_offX = (float *)(g_GlobalGameCVarsStructAddr + 0x1B4); // cl_cam_orbit_offsetX
+                            float *p_offZ = (float *)(g_GlobalGameCVarsStructAddr + 0x1B8); // cl_cam_orbit_offsetZ
+                            if (isMemoryWritable(p_dist, sizeof(float)))
+                                *p_dist = 5.0f;
+                            if (isMemoryWritable(p_offX, sizeof(float)))
+                                *p_offX = 0.5f;
+                            if (isMemoryWritable(p_offZ, sizeof(float)))
+                                *p_offZ = 1.5f;
+                            logger.log(LOG_INFO, "Native Orbit Test: Set default distance/offsets.");
+                        }
+                    }
+                    else
+                    {
+                        logger.log(LOG_ERROR, "Native Orbit Test: Cannot write to CVar memory locations!");
+                    }
+                }
+                else
+                {
+                    logger.log(LOG_ERROR, "Native Orbit Test: g_GlobalGameCVarsStructAddr is NULL!");
+                }
+            }
 
             // --- Process Keys ---
 
@@ -224,6 +322,67 @@ DWORD WINAPI CameraProfileThread(LPVOID param)
                 {
                     logger.log(LOG_DEBUG, "CameraProfileThread: Reset to Default key press detected.");
                     CameraProfileManager::getInstance().resetToDefault();
+                }
+
+                if (isNewKeyPress(currentKeyState, previousKeyState, keyInfo.orbitalModeToggleMask))
+                {
+                    // Only if feature itself is enabled in config
+                    if (g_config.enable_orbital_camera_mode)
+                    {
+                        logger.log(LOG_INFO, "CPT: Orbital Mode Toggle Key Press DETECTED! (Mask: " + std::to_string(keyInfo.orbitalModeToggleMask) + ")");
+                        bool newOrbitalMode = !g_orbitalModeActive.load();
+                        g_orbitalModeActive.store(newOrbitalMode);
+                        logger.log(LOG_INFO, "Orbital Camera Mode " + std::string(newOrbitalMode ? "ENABLED" : "DISABLED"));
+                        if (newOrbitalMode)
+                        {
+                            logger.log(LOG_INFO, "Orbital Camera Mode ENABLED");
+                            // Initialize orbital angles from current game TPV camera to prevent jump
+                            uintptr_t tpvCamObjAddr = 0; // How to get this here? See below.
+
+                            // Method 1: Expose a function from tpv_input_hook.cpp or game_interface.cpp
+                            // that can read the current C_CameraThirdPerson instance's quaternion.
+                            // This is cleaner but requires passing 'thisPtr' around or storing it globally (carefully).
+                            // Quaternion currentGameTpvQuat = getCurrentGameTpvQuaternion(); // Needs implementation
+
+                            // Method 2: If difficult to get live 'thisPtr' here,
+                            // the jump might be unavoidable initially, or smooth in via TransitionManager.
+                            // For now, let's assume you might need to read it before Detour_TpvInputProcess starts suppressing.
+                            // A simple approach might be to just use the LAST known g_latestTpvCameraForward to approximate.
+                            // Not perfect for full quaternion.
+
+                            // Ideal (if you can get currentGameTpvQuat somehow):
+                            // Quaternion currentGameTpvQuat = ... ;
+                            // Convert currentGameTpvQuat to Euler (yaw, pitch) -> update g_orbitalCameraYaw, g_orbitalCameraPitch
+                            // DirectX::XMFLOAT4 current بازی_quat_xmfloat4 = { currentGameTpvQuat.x, currentGameTpvQuat.y, currentGameTpvQuat.z, currentGameTpvQuat.w };
+                            // DirectX::XMFLOAT3 eulerAngles; // Will hold pitch, yaw, roll
+                            // DirectX::XMStoreFloat3(&eulerAngles, DirectX::XMQuaternionToEulerAngles(XMLoadFloat4(¤t_game_quat_xmfloat4)));
+                            // g_orbitalCameraPitch = eulerAngles.x; // DirectX order might be X=Pitch, Y=Yaw, Z=Roll
+                            // g_orbitalCameraYaw = eulerAngles.y;
+                            // g_orbitalCameraRoll = eulerAngles.z; // If you use roll
+
+                            // Simpler for now (might still jump a bit but better than pure 0,0):
+                            // If g_latestTpvCameraForward is somewhat fresh from non-orbital mode
+                            if (g_latestTpvCameraForward.MagnitudeSquared() > 0.1f)
+                            {
+                                // Approximate yaw from forward vector's XZ components
+                                g_orbitalCameraYaw = atan2f(g_latestTpvCameraForward.x, g_latestTpvCameraForward.y); // If Y is forward, X is right
+                                // Approximate pitch from forward vector's Y (or Z) and its XZ magnitude
+                                float xz_dist = sqrtf(g_latestTpvCameraForward.x * g_latestTpvCameraForward.x + g_latestTpvCameraForward.y * g_latestTpvCameraForward.y);
+                                g_orbitalCameraPitch = atan2f(-g_latestTpvCameraForward.z, xz_dist);
+                            }
+                            else
+                            {
+                                // Fallback if no good previous camera state
+                                g_orbitalCameraYaw = 0.0f; // Or read from player orientation
+                                g_orbitalCameraPitch = 0.0f;
+                            }
+                            update_orbital_camera_rotation_from_euler(); // Important to calculate initial g_orbitalCameraRotation
+                        }
+                        else
+                        {
+                            logger.log(LOG_INFO, "Orbital Camera Mode DISABLED");
+                        }
+                    }
                 }
 
                 // --- Continuous Adjustment Handling (Check current state, not just new presses) ---
