@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <string>
 #include <stdexcept>
+#include <sstream>
 
 // SimpleIni headers
 #include "SimpleIni.h"
@@ -207,19 +208,6 @@ Config loadConfig(const std::string &ini_filename)
     ini.SetUnicode(false);  // Assuming ASCII/MBCS INI file
     ini.SetMultiKey(false); // Don't allow duplicate keys in sections
 
-    // Apply hardcoded defaults explicitly BEFORE loading INI
-    // (Some defaults are now set in Config constructor, but can reiterate here)
-    config.log_level = Constants::DEFAULT_LOG_LEVEL;
-    config.enable_overlay_feature = true;
-    config.tpv_fov_degrees = -1.0f;
-    // Camera profile defaults (might be better in constructor)
-    config.enable_camera_profiles = false;
-    config.offset_adjustment_step = 0.05f;
-    config.transition_duration = 0.5f;
-    config.use_spring_physics = false;
-    config.spring_strength = 8.0f; // Consistent default
-    config.spring_damping = 0.7f;  // Consistent default
-
     SI_Error rc = ini.LoadFile(ini_path.c_str());
     if (rc < 0)
     {
@@ -268,6 +256,13 @@ Config loadConfig(const std::string &ini_filename)
         config.tpv_offset_y = (float)ini.GetDoubleValue("Settings", "TpvOffsetY", config.tpv_offset_y);
         config.tpv_offset_z = (float)ini.GetDoubleValue("Settings", "TpvOffsetZ", config.tpv_offset_z);
 
+        // --- [CameraSensitivity] Section ---
+        config.tpv_pitch_sensitivity = (float)ini.GetDoubleValue("CameraSensitivity", "PitchSensitivity", 1.0);
+        config.tpv_yaw_sensitivity = (float)ini.GetDoubleValue("CameraSensitivity", "YawSensitivity", 1.0);
+        config.tpv_pitch_limits_enabled = ini.GetBoolValue("CameraSensitivity", "EnablePitchLimits", false);
+        config.tpv_pitch_min = (float)ini.GetDoubleValue("CameraSensitivity", "PitchMin", -180.0);
+        config.tpv_pitch_max = (float)ini.GetDoubleValue("CameraSensitivity", "PitchMax", 180.0);
+
         // --- [CameraProfiles] Section ---
         config.enable_camera_profiles = ini.GetBoolValue("CameraProfiles", "Enable", false);
 
@@ -275,14 +270,12 @@ Config loadConfig(const std::string &ini_filename)
         if (config.enable_camera_profiles)
         {
             // Basic profile actions
-            load_key_list("MasterToggleKey", config.master_toggle_keys, "0x7A"); // F11
-            load_key_list("ProfileSaveKey", config.profile_save_keys, "0x61");   // Numpad 1 (CREATE NEW)
-            load_key_list("ProfileCycleKey", config.profile_cycle_keys, "0x63"); // Numpad 3
-            load_key_list("ProfileResetKey", config.profile_reset_keys, "0x65"); // Numpad 5
-
-            // *** Load NEW Keys ***
-            load_key_list("ProfileUpdateKey", config.profile_update_keys, "0x67"); // Numpad 7 (UPDATE) - Assign default
-            load_key_list("ProfileDeleteKey", config.profile_delete_keys, "0x69"); // Numpad 9 (DELETE) - Assign default
+            load_key_list("MasterToggleKey", config.master_toggle_keys, "0x7A");   // F11
+            load_key_list("ProfileSaveKey", config.profile_save_keys, "0x61");     // Numpad 1 (CREATE NEW)
+            load_key_list("ProfileCycleKey", config.profile_cycle_keys, "0x63");   // Numpad 3
+            load_key_list("ProfileResetKey", config.profile_reset_keys, "0x65");   // Numpad 5
+            load_key_list("ProfileUpdateKey", config.profile_update_keys, "0x67"); // Numpad 7 (UPDATE)
+            load_key_list("ProfileDeleteKey", config.profile_delete_keys, "0x69"); // Numpad 9 (DELETE)
 
             // Offset adjustments
             load_key_list("OffsetXIncKey", config.offset_x_inc_keys, "0x66"); // Numpad 6
@@ -350,6 +343,21 @@ Config loadConfig(const std::string &ini_filename)
     logger.log(LOG_INFO, "Config: TPV/FPV keys (Toggle:" + format_vkcode_list(config.toggle_keys) +
                              "/FPV:" + format_vkcode_list(config.fpv_keys) +
                              "/TPV:" + format_vkcode_list(config.tpv_keys) + ")");
+
+    // Camera sensitivity system summary
+    logger.log(LOG_INFO, "Config: Camera Sensitivity Settings:");
+    logger.log(LOG_INFO, "  Pitch Sensitivity: " + std::to_string(config.tpv_pitch_sensitivity));
+    logger.log(LOG_INFO, "  Yaw Sensitivity: " + std::to_string(config.tpv_yaw_sensitivity));
+
+    if (config.tpv_pitch_limits_enabled)
+    {
+        logger.log(LOG_INFO, "  Pitch Limits: " + std::to_string(config.tpv_pitch_min) + "° to " +
+                                 std::to_string(config.tpv_pitch_max) + "° (ENABLED)");
+    }
+    else
+    {
+        logger.log(LOG_INFO, "  Pitch Limits: DISABLED");
+    }
 
     // Camera profile system summary
     logger.log(LOG_INFO, "Config: Camera Profile System: " + std::string(config.enable_camera_profiles ? "ENABLED" : "DISABLED"));

@@ -2,7 +2,7 @@
  * @file hooks/fov_hook.cpp
  * @brief Implementation of TPV FOV hook functionality.
  */
-
+#define _USE_MATH_DEFINES
 #include "fov_hook.h"
 #include "logger.h"
 #include "constants.h"

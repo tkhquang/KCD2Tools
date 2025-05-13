@@ -8,6 +8,7 @@
 #include "game_interface.h"
 #include "logger.h"
 #include "constants.h"
+#include "game_structures.h"
 #include "utils.h"
 #include "aob_scanner.h"
 #include "global_state.h"
@@ -366,4 +367,68 @@ extern "C" uintptr_t __cdecl getCameraManagerInstance()
     uintptr_t cam_manager_ptr = *reinterpret_cast<uintptr_t *>(cam_manager_ptr_addr);
 
     return cam_manager_ptr;
+}
+
+bool GetPlayerWorldTransform(::Vector3 &outPosition, ::Quaternion &outOrientation)
+{
+    Logger &logger = Logger::getInstance();
+
+    if (!g_thePlayerEntity)
+    {
+        if (logger.isDebugEnabled())
+        {
+            logger.log(LOG_DEBUG, "GetPlayerWorldTransform: Called but g_thePlayerEntity is currently NULL.");
+        }
+        return false;
+    }
+
+    uintptr_t matrix_address = reinterpret_cast<uintptr_t>(g_thePlayerEntity) + Constants::OFFSET_ENTITY_WORLD_MATRIX_MEMBER;
+
+    if (!isMemoryReadable(reinterpret_cast<void *>(matrix_address), sizeof(GameStructures::Matrix34f)))
+    {
+        if (logger.isDebugEnabled())
+        {
+            logger.log(LOG_WARNING, "GetPlayerWorldTransform: Cannot read CEntity's m_worldTransform at " +
+                                        format_address(matrix_address) + " for entity " +
+                                        format_address(reinterpret_cast<uintptr_t>(g_thePlayerEntity)));
+        }
+        return false;
+    }
+
+    const GameStructures::Matrix34f &playerMatrix =
+        *reinterpret_cast<const GameStructures::Matrix34f *>(matrix_address);
+
+    // Extract position
+    outPosition.x = playerMatrix.m[0][3];
+    outPosition.y = playerMatrix.m[1][3];
+    outPosition.z = playerMatrix.m[2][3];
+
+    // Extract rotation from the 3x3 part and convert to Quaternion
+    DirectX::XMMATRIX dxRotMatrix = DirectX::XMMatrixSet(
+        playerMatrix.m[0][0], playerMatrix.m[0][1], playerMatrix.m[0][2], 0.0f,
+        playerMatrix.m[1][0], playerMatrix.m[1][1], playerMatrix.m[1][2], 0.0f,
+        playerMatrix.m[2][0], playerMatrix.m[2][1], playerMatrix.m[2][2], 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f);
+    // Note: CRYENGINE matrices (Matrix34_tpl specifically) store basis vectors as ROWS.
+    // m00, m01, m02 is the X-basis vector (Right).
+    // m10, m11, m12 is the Y-basis vector (Forward for CryEngine).
+    // m20, m21, m22 is the Z-basis vector (Up for CryEngine).
+    // The DirectX::XMMatrixSet function takes arguments row by row.
+    // So, the current mapping directly forms a matrix whose rows are these basis vectors.
+    // This is standard for creating a rotation matrix for DirectXMath.
+    outOrientation = ::Quaternion::FromXMVector(DirectX::XMQuaternionRotationMatrix(dxRotMatrix));
+
+    if (logger.isDebugEnabled())
+    {
+        std::ostringstream matrix_dump;
+        matrix_dump << std::fixed << std::setprecision(4);
+        matrix_dump << "\n  Matrix Read from Entity " << format_address(reinterpret_cast<uintptr_t>(g_thePlayerEntity)) << " @ offset " << format_hex(Constants::OFFSET_ENTITY_WORLD_MATRIX_MEMBER) << " (Addr: " << format_address(matrix_address) << "):";
+        matrix_dump << "\n    R0: [" << playerMatrix.m[0][0] << ", " << playerMatrix.m[0][1] << ", " << playerMatrix.m[0][2] << "] T.x: " << playerMatrix.m[0][3];
+        matrix_dump << "\n    R1: [" << playerMatrix.m[1][0] << ", " << playerMatrix.m[1][1] << ", " << playerMatrix.m[1][2] << "] T.y: " << playerMatrix.m[1][3];
+        matrix_dump << "\n    R2: [" << playerMatrix.m[2][0] << ", " << playerMatrix.m[2][1] << ", " << playerMatrix.m[2][2] << "] T.z: " << playerMatrix.m[2][3];
+
+        logger.log(LOG_DEBUG, "GetPlayerWorldTransform SUCCESS:" + matrix_dump.str());
+        logger.log(LOG_DEBUG, "  Converted Pos: " + Vector3ToString(outPosition) + " | Converted Rot: " + QuatToString(outOrientation));
+    }
+    return true;
 }

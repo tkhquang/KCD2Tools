@@ -5,13 +5,13 @@
  * Includes version info, filenames, default settings, AOB patterns, and memory offsets.
  * All hardcoded memory addresses have been replaced with AOB patterns for robustness.
  */
-#define _USE_MATH_DEFINES
 #ifndef CONSTANTS_H
 #define CONSTANTS_H
 
 #include <string>
 #include <math.h>
-#include "version.h" // Mod versioning definitions
+
+#include "version.h"
 
 /**
  * @namespace Constants
@@ -109,17 +109,43 @@ namespace Constants
     constexpr int ACCUMULATOR_WRITE_HOOK_OFFSET = 0;     // Hook starts at movss
     constexpr size_t ACCUMULATOR_WRITE_INSTR_LENGTH = 5; // Size of 'movss [rdx+1c], xmm0'
 
+    // WHGame.DLL+6186A8 - 48 89 5C 24 10        - mov [rsp+10],rbx
+    // WHGame.DLL+6186AD - 48 89 74 24 18        - mov [rsp+18],rsi
+    // WHGame.DLL+6186B2 - 55                    - push rbp
+    // WHGame.DLL+6186B3 - 57                    - push rdi
+    // WHGame.DLL+6186B4 - 41 54                 - push r12
+    // WHGame.DLL+6186B6 - 41 56                 - push r14
+    // WHGame.DLL+6186B8 - 41 57                 - push r15
+    // WHGame.DLL+6186BA - 48 8B EC              - mov rbp,rsp
+    // WHGame.DLL+6186BD - 48 83 EC 60           - sub rsp,60 { 96 }
+    // WHGame.DLL+6186C1 - 48 8D 99 80000000     - lea rbx,[rcx+00000080]
+    // WHGame.DLL+6186C8 - 40 32 FF              - xor dil,dil
     /**
      * @brief AOB pattern for the event handler function that processes input events.
      *        Used to intercept and filter scroll wheel events during overlay display.
      */
     constexpr const char *EVENT_HANDLER_AOB_PATTERN =
-        "48 89 5C 24 10 48 89 74 24 18 55 57 41 54 41 56 41 57 48 8B EC 48 83 EC 60 48 8D 99";
+        "48 89 5C 24 10 48 89 74 24 18 55 57 41 54 41 56 41 57 48 8B EC 48 83 EC ?? 48 8D 99 80 00 00 00";
 
+    // WHGame.DLL+3924908 - 48 8B C4              - mov rax,rsp
+    // WHGame.DLL+392490B - 48 89 58 08           - mov [rax+08],rbx
+    // WHGame.DLL+392490F - 48 89 78 10           - mov [rax+10],rdi
+    // WHGame.DLL+3924913 - 55                    - push rbp
+    // WHGame.DLL+3924914 - 48 8B EC              - mov rbp,rsp
+    // WHGame.DLL+3924917 - 48 83 EC 70           - sub rsp,70 { 112 }
+    // WHGame.DLL+392491B - 80 3A 01              - cmp byte ptr [rdx],01 { 1 }
     // AOB for FUN_183924908 (TPV Camera Input Processing)
-    constexpr const char *TPV_INPUT_PROCESS_AOB_PATTERN = "48 8B C4 48 89 58 08 48 89 78 10 55 48 8B EC 48 83 EC 70 80 3A 01";
+    constexpr const char *TPV_INPUT_PROCESS_AOB_PATTERN = "48 8B C4 48 89 58 08 48 89 78 10 55 48 8B EC 48 83 EC ?? 80 3A 01";
+
+    // WHGame.DLL+36059C - 48 89 5C 24 08        - mov [rsp+08],rbx
+    // WHGame.DLL+3605A1 - 48 89 74 24 10        - mov [rsp+10],rsi
+    // WHGame.DLL+3605A6 - 48 89 7C 24 18        - mov [rsp+18],rdi
+    // WHGame.DLL+3605AB - 41 56                 - push r14
+    // WHGame.DLL+3605AD - 48 83 EC 20           - sub rsp,20 { 32 }
+    // WHGame.DLL+3605B1 - 49 8B 01              - mov rax,[r9]
+    // WHGame.DLL+3605B4 - 48 8B FA              - mov rdi,rdx
     // AOB for FUN_18036059c (Player State Copy Function)
-    constexpr const char *PLAYER_STATE_COPY_AOB_PATTERN = "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 41 56 48 83 EC 20 49 8B 01";
+    constexpr const char *PLAYER_STATE_COPY_AOB_PATTERN = "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 41 56 48 83 EC ?? 49 8B 01 48 8B FA";
 
     // AOB for TPV Camera Update Function
     // WHGame.DLL+392509C - 48 8B C4              - mov rax,rsp
@@ -154,6 +180,8 @@ namespace Constants
     constexpr ptrdiff_t PLAYER_STATE_POSITION_OFFSET = 0x0;  // Verified (part of first MOVUPS)
     constexpr ptrdiff_t PLAYER_STATE_ROTATION_OFFSET = 0x10; // Verified
     constexpr size_t PLAYER_STATE_SIZE = 0xD4;               // Verified from assembly (212 bytes)
+    // For CEntity World Transform Member (relative to CEntity* base)
+    constexpr ptrdiff_t OFFSET_ENTITY_WORLD_MATRIX_MEMBER = 0x58;
 
     // Offsets relative to the outputPosePtr (RDX) in FUN_18392509c
     // Standard Pos(XYZ) followed by Quat(XYZW).
@@ -176,6 +204,5 @@ namespace Constants
 
     /** @brief Name of the target game module. */
     constexpr const char *MODULE_NAME = "WHGame.dll";
-
 } // namespace Constants
 #endif // CONSTANTS_H

@@ -68,6 +68,13 @@ struct Config
     float spring_strength;
     float spring_damping;
 
+    // TPV Camera sensitivity settings
+    float tpv_pitch_sensitivity;   // Vertical mouse sensitivity multiplier (0.0-2.0)
+    float tpv_yaw_sensitivity;     // Horizontal mouse sensitivity multiplier (0.0-2.0)
+    bool tpv_pitch_limits_enabled; // Whether to enforce pitch limits
+    float tpv_pitch_min;           // Minimum pitch in degrees (negative = looking down)
+    float tpv_pitch_max;           // Maximum pitch in degrees (positive = looking up)
+
     /**
      * @brief Default constructor. Initializes members to default states
      *        (empty vectors, default settings). The loading function is
@@ -80,11 +87,16 @@ struct Config
                tpv_offset_y(0.0f),
                tpv_offset_z(0.0f),
                enable_camera_profiles(false),
-               offset_adjustment_step(0.05f),
-               transition_duration(0.5f),
+               offset_adjustment_step(0.01f),
+               transition_duration(0.3f),
                use_spring_physics(false),
                spring_strength(10.0f),
-               spring_damping(0.8f)
+               spring_damping(0.8f),
+               tpv_pitch_sensitivity(1.0f),
+               tpv_yaw_sensitivity(1.0f),
+               tpv_pitch_limits_enabled(false),
+               tpv_pitch_min(-180.0f),
+               tpv_pitch_max(180.0f)
     {
     }
 };

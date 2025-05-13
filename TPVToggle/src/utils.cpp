@@ -334,3 +334,44 @@ bool isMemoryWritable(volatile void *address, size_t size)
 
     return result;
 }
+
+/**
+ * @brief Safely writes bytes to a memory location with proper protection handling.
+ * @details This function temporarily modifies memory protection to allow writing,
+ *          performs the write operation, restores original protection, and flushes
+ *          the instruction cache. It includes comprehensive error logging.
+ *
+ * @param targetAddress Pointer to the memory location to write to.
+ * @param sourceBytes Pointer to the source data to be written.
+ * @param numBytes Number of bytes to write.
+ * @param logger Reference to the logger for error reporting.
+ * @return true if the write operation was successful, false if any step failed
+ *         (invalid parameters, VirtualProtect failure, or cache flush failure).
+ */
+bool WriteBytes(BYTE *targetAddress, const BYTE *sourceBytes, size_t numBytes, Logger &logger)
+{
+    if (!targetAddress || !sourceBytes || numBytes == 0)
+        return false;
+
+    DWORD oldProtect;
+    if (!VirtualProtect(targetAddress, numBytes, PAGE_EXECUTE_READWRITE, &oldProtect))
+    {
+        logger.log(LOG_ERROR, "WriteBytes: VP (RW) fail: " + std::to_string(GetLastError()) + " @ " + format_address(reinterpret_cast<uintptr_t>(targetAddress)));
+        return false;
+    }
+
+    memcpy(targetAddress, sourceBytes, numBytes);
+
+    DWORD temp;
+    if (!VirtualProtect(targetAddress, numBytes, oldProtect, &temp))
+    {
+        logger.log(LOG_WARNING, "WriteBytes: VP (Restore) fail: " + std::to_string(GetLastError()) + " @ " + format_address(reinterpret_cast<uintptr_t>(targetAddress)));
+    }
+
+    if (!FlushInstructionCache(GetCurrentProcess(), targetAddress, numBytes))
+    {
+        logger.log(LOG_WARNING, "WriteBytes: Cache flush failed after writing bytes to " + format_address(reinterpret_cast<uintptr_t>(targetAddress)));
+    }
+
+    return true;
+}

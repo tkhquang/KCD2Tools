@@ -6,35 +6,8 @@
 #include "global_state.h"
 #include "logger.h"
 #include "utils.h"
-
-// Define the WriteBytes function here since it's used in multiple places
-bool WriteBytes(BYTE *targetAddress, const BYTE *sourceBytes, size_t numBytes, Logger &logger)
-{
-    if (!targetAddress || !sourceBytes || numBytes == 0)
-        return false;
-
-    DWORD oldProtect;
-    if (!VirtualProtect(targetAddress, numBytes, PAGE_EXECUTE_READWRITE, &oldProtect))
-    {
-        logger.log(LOG_ERROR, "WriteBytes: VP (RW) fail: " + std::to_string(GetLastError()) + " @ " + format_address(reinterpret_cast<uintptr_t>(targetAddress)));
-        return false;
-    }
-
-    memcpy(targetAddress, sourceBytes, numBytes);
-
-    DWORD temp;
-    if (!VirtualProtect(targetAddress, numBytes, oldProtect, &temp))
-    {
-        logger.log(LOG_WARNING, "WriteBytes: VP (Restore) fail: " + std::to_string(GetLastError()) + " @ " + format_address(reinterpret_cast<uintptr_t>(targetAddress)));
-    }
-
-    if (!FlushInstructionCache(GetCurrentProcess(), targetAddress, numBytes))
-    {
-        logger.log(LOG_WARNING, "WriteBytes: Cache flush failed after writing bytes to " + format_address(reinterpret_cast<uintptr_t>(targetAddress)));
-    }
-
-    return true;
-}
+#include "game_structures.h"
+#include "constants.h"
 
 // Module information
 uintptr_t g_ModuleBase = 0;
@@ -80,3 +53,9 @@ Vector3 g_latestTpvCameraForward = {0.0f, 1.0f, 0.0f};
 
 Vector3 g_currentCameraOffset(0.0f, 0.0f, 0.0f);
 std::atomic<bool> g_cameraAdjustmentMode(false);
+
+Vector3 g_playerWorldPosition(0.0f, 0.0f, 0.0f);
+Quaternion g_playerWorldOrientation = Quaternion::Identity();
+
+GameStructures::CEntity *g_thePlayerEntity = nullptr;
+CEntity_SetWorldTM_Func_t g_funcCEntitySetWorldTM = nullptr;

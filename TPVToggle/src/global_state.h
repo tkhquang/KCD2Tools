@@ -11,14 +11,9 @@
 #include <windows.h>
 #include <cstdint>
 #include <atomic>
+#include "game_structures.h"
 #include "constants.h"
 #include "math_utils.h"
-
-// Forward declare Logger to avoid circular dependencies
-class Logger;
-
-// External function declarations
-extern bool WriteBytes(BYTE *targetAddress, const BYTE *sourceBytes, size_t numBytes, Logger &logger);
 
 // Global module information
 extern uintptr_t g_ModuleBase;
@@ -58,5 +53,12 @@ extern Vector3 g_latestTpvCameraForward;
 
 extern Vector3 g_currentCameraOffset;
 extern std::atomic<bool> g_cameraAdjustmentMode;
+
+extern Vector3 g_playerWorldPosition;
+extern Quaternion g_playerWorldOrientation;
+
+extern GameStructures::CEntity *g_thePlayerEntity;
+typedef void (*CEntity_SetWorldTM_Func_t)(GameStructures::CEntity *this_ptr, float *tm_3x4, int flags);
+extern CEntity_SetWorldTM_Func_t g_funcCEntitySetWorldTM;
 
 #endif // GLOBAL_STATE_H
