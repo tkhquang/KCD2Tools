@@ -15,12 +15,6 @@
 #include "constants.h"
 #include "math_utils.h"
 
-// Forward declare Logger to avoid circular dependencies
-class Logger;
-
-// External function declarations
-extern bool WriteBytes(BYTE *targetAddress, const BYTE *sourceBytes, size_t numBytes, Logger &logger);
-
 // Global module information
 extern uintptr_t g_ModuleBase;
 extern size_t g_ModuleSize;

@@ -1,9 +1,10 @@
 /**
  * @file utils.h
- * @brief Header for utility functions including memory validation.
+ * @brief Header for utility functions including memory validation and manipulation.
  *
  * Includes inline functions for formatting values (addresses, hex, keys),
- * string manipulation (trimming), and thread-safe memory safety checks with caching.
+ * string manipulation (trimming), thread-safe memory safety checks with caching,
+ * and memory writing utilities.
  */
 #ifndef UTILS_H
 #define UTILS_H
@@ -26,6 +27,63 @@
 #include "logger.h"
 #include "math_utils.h"
 
+// Forward declaration
+class Logger;
+
+// --- Memory Manipulation Functions ---
+
+/**
+ * @brief Safely writes bytes to a memory location with proper protection handling.
+ * @details This function temporarily modifies memory protection to allow writing,
+ *          performs the write operation, restores original protection, and flushes
+ *          the instruction cache. It includes comprehensive error logging.
+ *
+ * @param targetAddress Pointer to the memory location to write to.
+ * @param sourceBytes Pointer to the source data to be written.
+ * @param numBytes Number of bytes to write.
+ * @param logger Reference to the logger for error reporting.
+ * @return true if the write operation was successful, false if any step failed
+ *         (invalid parameters, VirtualProtect failure, or cache flush failure).
+ *
+ * @note This function is typically used for:
+ *       - Patching game code at runtime
+ *       - NOPing instructions (replacing with 0x90)
+ *       - Modifying function prologues/epilogues
+ *
+ * @warning Modifying executable memory can cause crashes if done incorrectly.
+ *          Always ensure the target address and size are valid.
+ *
+ * @example
+ * @code
+ * // NOP 5 bytes of code
+ * BYTE nopBytes[5] = {0x90, 0x90, 0x90, 0x90, 0x90};
+ * if (WriteBytes(targetAddr, nopBytes, 5, logger)) {
+ *     logger.log(LOG_INFO, "Successfully NOPed instruction");
+ * }
+ * @endcode
+ */
+bool WriteBytes(BYTE *targetAddress, const BYTE *sourceBytes, size_t numBytes, Logger &logger);
+
+// --- File System Utilities ---
+
+/**
+ * @brief Gets the directory containing the currently executing module (DLL/EXE).
+ * @details Uses Windows API to determine the full path of the current module
+ *          and extracts its parent directory. Falls back to current working
+ *          directory if module path detection fails.
+ *
+ * @return std::string The directory path of the current module.
+ *         Falls back to current working directory on error, or "." as last resort.
+ *
+ * @note This is useful for finding configuration files and resources that are
+ *       stored alongside the mod DLL.
+ *
+ * @example
+ * @code
+ * std::string modDir = getRuntimeDirectory();
+ * std::string configPath = modDir + "/config.ini";
+ * @endcode
+ */
 inline std::string getRuntimeDirectory()
 {
     HMODULE h_self = NULL;
@@ -94,16 +152,26 @@ inline std::string getRuntimeDirectory()
     return result_path;
 }
 
-// Helper to log quaternion
+// --- Math Type String Conversion Utilities ---
+
+/**
+ * @brief Converts a Quaternion to a readable string format.
+ * @param q The quaternion to convert.
+ * @return std::string Formatted string: "Q(X=0.0000 Y=0.0000 Z=0.0000 W=1.0000)"
+ */
 inline std::string QuatToString(const ::Quaternion &q)
-{ // Use :: if Quaternion is global
+{
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(4)
-        << "Q(X=" << q.x << " Y=" << q.y << " Z=" << q.z << " W=" << q.w << ")"; // Explicit W
+        << "Q(X=" << q.x << " Y=" << q.y << " Z=" << q.z << " W=" << q.w << ")";
     return oss.str();
 }
 
-// Helper to log Vector3
+/**
+ * @brief Converts a Vector3 to a readable string format.
+ * @param v The vector to convert.
+ * @return std::string Formatted string: "V(0.0000, 0.0000, 0.0000)"
+ */
 inline std::string Vector3ToString(const Vector3 &v)
 {
     std::ostringstream oss;
@@ -116,6 +184,9 @@ inline std::string Vector3ToString(const Vector3 &v)
 
 /**
  * @brief Formats a memory address into a standard hex string.
+ * @param address The memory address to format.
+ * @return std::string Formatted hex string with prefix (e.g., "0x7FFE12345678").
+ * @note Always returns uppercase hex with zero-padding for consistent width.
  */
 inline std::string format_address(uintptr_t address)
 {
@@ -126,7 +197,11 @@ inline std::string format_address(uintptr_t address)
 }
 
 /**
- * @brief Formats an integer as a 2-digit uppercase hex string.
+ * @brief Formats an integer as an uppercase hex string.
+ * @param value The integer value to format.
+ * @param width Optional width for zero-padding (0 = no padding).
+ * @return std::string Formatted hex string with "0x" prefix.
+ * @example format_hex(255) returns "0xFF", format_hex(10, 4) returns "0x000A"
  */
 inline std::string format_hex(int value, int width = 0)
 {
@@ -142,6 +217,9 @@ inline std::string format_hex(int value, int width = 0)
 
 /**
  * @brief Formats a Virtual Key (VK) code as a standard 2-digit hex string.
+ * @param vk_code The virtual key code to format.
+ * @return std::string Formatted VK code (e.g., "0x72" for F3 key).
+ * @note Convenience wrapper around format_hex for key codes.
  */
 inline std::string format_vkcode(int vk_code)
 {
@@ -150,6 +228,9 @@ inline std::string format_vkcode(int vk_code)
 
 /**
  * @brief Formats a vector of VK codes into a human-readable hex list string.
+ * @param keys Vector of virtual key codes.
+ * @return std::string Comma-separated list (e.g., "0x72, 0x73") or "(None)" if empty.
+ * @example Used for logging configured hotkeys in a readable format.
  */
 inline std::string format_vkcode_list(const std::vector<int> &keys)
 {
@@ -172,6 +253,9 @@ inline std::string format_vkcode_list(const std::vector<int> &keys)
 
 /**
  * @brief Trims leading and trailing whitespace characters from a string.
+ * @param s The string to trim.
+ * @return std::string The trimmed string.
+ * @note Removes spaces, tabs, newlines, carriage returns, form feeds, and vertical tabs.
  */
 inline std::string trim(const std::string &s)
 {
@@ -187,14 +271,15 @@ inline std::string trim(const std::string &s)
 
 /**
  * @brief Structure to hold cached memory region information.
+ * @details Used by the memory validation system to reduce VirtualQuery calls.
  */
 struct MemoryRegionInfo
 {
-    uintptr_t baseAddress;                           // Region base address
-    size_t regionSize;                               // Size of the region in bytes
-    DWORD protection;                                // Memory protection flags
-    std::chrono::steady_clock::time_point timestamp; // When this entry was created/updated
-    bool valid;                                      // Whether this entry is valid
+    uintptr_t baseAddress;                           ///< Region base address
+    size_t regionSize;                               ///< Size of the region in bytes
+    DWORD protection;                                ///< Memory protection flags (PAGE_*)
+    std::chrono::steady_clock::time_point timestamp; ///< When this entry was created/updated
+    bool valid;                                      ///< Whether this entry is valid
 
     MemoryRegionInfo()
         : baseAddress(0), regionSize(0), protection(0), valid(false) {}
@@ -207,18 +292,21 @@ extern std::once_flag g_memoryCacheInitFlag;
  * @brief Initializes the memory region cache system.
  * @details Thread-safe initialization using std::call_once.
  *          Should be called once during DLL initialization.
+ * @note The cache improves performance by reducing system calls to VirtualQuery.
  */
 void initMemoryCache();
 
 /**
  * @brief Clears all entries from the memory region cache.
  * @details Thread-safe operation. Called during cleanup.
+ * @warning After calling this, memory checks will be slower until cache rebuilds.
  */
 void clearMemoryCache();
 
 /**
- * @brief Get current cache statistics (for tuning and debugging)
+ * @brief Get current cache statistics (for tuning and debugging).
  * @return String containing hit/miss count and hit rate percentage.
+ * @note Only available in debug builds (#ifdef _DEBUG).
  */
 std::string getMemoryCacheStats();
 
@@ -235,6 +323,17 @@ std::string getMemoryCacheStats();
  *                might change unexpectedly from other threads.
  * @param size Number of bytes to check.
  * @return true if all bytes are readable, false otherwise.
+ *
+ * @note This function is used throughout the mod to validate pointers before
+ *       dereferencing them, preventing access violations.
+ *
+ * @example
+ * @code
+ * if (isMemoryReadable(gamePtr, sizeof(GameStruct))) {
+ *     GameStruct* data = reinterpret_cast<GameStruct*>(gamePtr);
+ *     // Safe to read from data
+ * }
+ * @endcode
  */
 bool isMemoryReadable(const volatile void *address, size_t size);
 
@@ -248,6 +347,18 @@ bool isMemoryReadable(const volatile void *address, size_t size);
  *                that the memory might change unexpectedly from other threads.
  * @param size Number of bytes to check.
  * @return true if all bytes are writable, false otherwise.
+ *
+ * @note This function checks memory protection flags to determine writability.
+ *       It does not attempt to write to the memory.
+ *
+ * @example
+ * @code
+ * if (isMemoryWritable(targetAddr, 4)) {
+ *     *reinterpret_cast<int*>(targetAddr) = newValue;
+ * } else {
+ *     // Need to use WriteBytes() to change protection first
+ * }
+ * @endcode
  */
 bool isMemoryWritable(volatile void *address, size_t size);
 

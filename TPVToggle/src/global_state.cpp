@@ -9,35 +9,6 @@
 #include "game_structures.h"
 #include "constants.h"
 
-// Define the WriteBytes function here since it's used in multiple places
-bool WriteBytes(BYTE *targetAddress, const BYTE *sourceBytes, size_t numBytes, Logger &logger)
-{
-    if (!targetAddress || !sourceBytes || numBytes == 0)
-        return false;
-
-    DWORD oldProtect;
-    if (!VirtualProtect(targetAddress, numBytes, PAGE_EXECUTE_READWRITE, &oldProtect))
-    {
-        logger.log(LOG_ERROR, "WriteBytes: VP (RW) fail: " + std::to_string(GetLastError()) + " @ " + format_address(reinterpret_cast<uintptr_t>(targetAddress)));
-        return false;
-    }
-
-    memcpy(targetAddress, sourceBytes, numBytes);
-
-    DWORD temp;
-    if (!VirtualProtect(targetAddress, numBytes, oldProtect, &temp))
-    {
-        logger.log(LOG_WARNING, "WriteBytes: VP (Restore) fail: " + std::to_string(GetLastError()) + " @ " + format_address(reinterpret_cast<uintptr_t>(targetAddress)));
-    }
-
-    if (!FlushInstructionCache(GetCurrentProcess(), targetAddress, numBytes))
-    {
-        logger.log(LOG_WARNING, "WriteBytes: Cache flush failed after writing bytes to " + format_address(reinterpret_cast<uintptr_t>(targetAddress)));
-    }
-
-    return true;
-}
-
 // Module information
 uintptr_t g_ModuleBase = 0;
 size_t g_ModuleSize = 0;
