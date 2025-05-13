@@ -17,7 +17,7 @@
 #include <algorithm>
 #include <string>
 #include <stdexcept>
-#include <sstream> // Added for istringstream
+#include <sstream>
 
 // SimpleIni headers
 #include "SimpleIni.h"
@@ -257,11 +257,11 @@ Config loadConfig(const std::string &ini_filename)
         config.tpv_offset_z = (float)ini.GetDoubleValue("Settings", "TpvOffsetZ", config.tpv_offset_z);
 
         // --- [CameraSensitivity] Section ---
-        config.tpv_pitch_sensitivity = (float)ini.GetDoubleValue("CameraSensitivity", "PitchSensitivity", 0.7);
+        config.tpv_pitch_sensitivity = (float)ini.GetDoubleValue("CameraSensitivity", "PitchSensitivity", 1.0);
         config.tpv_yaw_sensitivity = (float)ini.GetDoubleValue("CameraSensitivity", "YawSensitivity", 1.0);
         config.tpv_pitch_limits_enabled = ini.GetBoolValue("CameraSensitivity", "EnablePitchLimits", false);
-        config.tpv_pitch_min = (float)ini.GetDoubleValue("CameraSensitivity", "PitchMin", -80.0);
-        config.tpv_pitch_max = (float)ini.GetDoubleValue("CameraSensitivity", "PitchMax", 80.0);
+        config.tpv_pitch_min = (float)ini.GetDoubleValue("CameraSensitivity", "PitchMin", -180.0);
+        config.tpv_pitch_max = (float)ini.GetDoubleValue("CameraSensitivity", "PitchMax", 180.0);
 
         // --- [CameraProfiles] Section ---
         config.enable_camera_profiles = ini.GetBoolValue("CameraProfiles", "Enable", false);
@@ -270,14 +270,12 @@ Config loadConfig(const std::string &ini_filename)
         if (config.enable_camera_profiles)
         {
             // Basic profile actions
-            load_key_list("MasterToggleKey", config.master_toggle_keys, "0x7A"); // F11
-            load_key_list("ProfileSaveKey", config.profile_save_keys, "0x61");   // Numpad 1 (CREATE NEW)
-            load_key_list("ProfileCycleKey", config.profile_cycle_keys, "0x63"); // Numpad 3
-            load_key_list("ProfileResetKey", config.profile_reset_keys, "0x65"); // Numpad 5
-
-            // *** Load NEW Keys ***
-            load_key_list("ProfileUpdateKey", config.profile_update_keys, "0x67"); // Numpad 7 (UPDATE) - Assign default
-            load_key_list("ProfileDeleteKey", config.profile_delete_keys, "0x69"); // Numpad 9 (DELETE) - Assign default
+            load_key_list("MasterToggleKey", config.master_toggle_keys, "0x7A");   // F11
+            load_key_list("ProfileSaveKey", config.profile_save_keys, "0x61");     // Numpad 1 (CREATE NEW)
+            load_key_list("ProfileCycleKey", config.profile_cycle_keys, "0x63");   // Numpad 3
+            load_key_list("ProfileResetKey", config.profile_reset_keys, "0x65");   // Numpad 5
+            load_key_list("ProfileUpdateKey", config.profile_update_keys, "0x67"); // Numpad 7 (UPDATE)
+            load_key_list("ProfileDeleteKey", config.profile_delete_keys, "0x69"); // Numpad 9 (DELETE)
 
             // Offset adjustments
             load_key_list("OffsetXIncKey", config.offset_x_inc_keys, "0x66"); // Numpad 6
