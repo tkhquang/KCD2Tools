@@ -53,10 +53,7 @@ static std::vector<PatternByte> parseAOBInternal(const std::string &aob_str)
         return pattern_elements;
     }
 
-    if (logger.isDebugEnabled())
-    {
-        logger.log(LOG_DEBUG, "AOB Parser: Parsing string: '" + trimmed_aob + "'");
-    }
+    logger.log(LOG_DEBUG, "AOB Parser: Parsing string: '" + trimmed_aob + "'");
 
     while (iss >> token)
     {
@@ -97,7 +94,7 @@ static std::vector<PatternByte> parseAOBInternal(const std::string &aob_str)
     {
         logger.log(LOG_ERROR, "AOB Parser: Processed tokens but found no valid elements.");
     }
-    else if (!pattern_elements.empty() && logger.isDebugEnabled())
+    else if (!pattern_elements.empty())
     {
         logger.log(LOG_DEBUG, "AOB Parser: Parsed " + std::to_string(pattern_elements.size()) + " elements.");
     }
@@ -114,6 +111,8 @@ static std::vector<PatternByte> parseAOBInternal(const std::string &aob_str)
  */
 std::vector<BYTE> parseAOB(const std::string &aob_str)
 {
+    Logger &logger = Logger::getInstance();
+
     std::vector<PatternByte> internal_pattern = parseAOBInternal(aob_str);
     std::vector<BYTE> byte_vector;
 
@@ -121,7 +120,7 @@ std::vector<BYTE> parseAOB(const std::string &aob_str)
     {
         if (!trim(aob_str).empty())
         {
-            Logger::getInstance().log(LOG_ERROR, "AOB: Parsing resulted in empty pattern.");
+            logger.log(LOG_ERROR, "AOB: Parsing resulted in empty pattern.");
         }
         return byte_vector;
     }
@@ -132,10 +131,7 @@ std::vector<BYTE> parseAOB(const std::string &aob_str)
         byte_vector.push_back(element.is_wildcard ? 0xCC : element.value);
     }
 
-    if (Logger::getInstance().isDebugEnabled())
-    { // Log only if debug enabled
-        Logger::getInstance().log(LOG_DEBUG, "AOB: Converted pattern for scanning (0xCC = wildcard).");
-    }
+    logger.log(LOG_DEBUG, "AOB: Converted pattern for scanning (0xCC = wildcard).");
     return byte_vector;
 }
 
@@ -171,11 +167,8 @@ BYTE *FindPattern(BYTE *start_address, size_t region_size,
         return nullptr;
     }
 
-    if (logger.isDebugEnabled())
-    {
-        logger.log(LOG_DEBUG, "FindPattern: Scanning " + std::to_string(region_size) + " bytes from " +
-                                  format_address(reinterpret_cast<uintptr_t>(start_address)) + " for " + std::to_string(pattern_size) + " byte pattern.");
-    }
+    logger.log(LOG_DEBUG, "FindPattern: Scanning " + std::to_string(region_size) + " bytes from " +
+                              format_address(reinterpret_cast<uintptr_t>(start_address)) + " for " + std::to_string(pattern_size) + " byte pattern.");
 
     // Prepare Wildcard Mask
     std::vector<bool> is_wildcard(pattern_size);
@@ -187,7 +180,7 @@ BYTE *FindPattern(BYTE *start_address, size_t region_size,
             wildcard_count++;
         }
     }
-    if (wildcard_count > 0 && logger.isDebugEnabled())
+    if (wildcard_count > 0)
     {
         logger.log(LOG_DEBUG, "FindPattern: Pattern has " + std::to_string(wildcard_count) + " wildcards.");
     }

@@ -163,10 +163,7 @@ DWORD WINAPI CameraProfileThread(LPVOID param)
     // Initialize key state tracker (all keys initially up)
     uint64_t previousKeyState = 0;
 
-    if (logger.isDebugEnabled())
-    {
-        logger.log(LOG_DEBUG, "CameraProfileThread: Registered " + std::to_string(keyInfo.keyCount) + " unique keys for monitoring.");
-    }
+    logger.log(LOG_DEBUG, "CameraProfileThread: Registered " + std::to_string(keyInfo.keyCount) + " unique keys for monitoring.");
 
     // Main loop
     while (WaitForSingleObject(g_exitEvent, 16) != WAIT_OBJECT_0) // ~60 Hz check

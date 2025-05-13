@@ -68,10 +68,7 @@ static std::string getIniFilePath(const std::string &ini_filename)
             std::filesystem::path(dll_path_buf).parent_path() / ini_filename;
 
         std::string full_path = ini_path.string();
-        if (logger.isDebugEnabled())
-        {
-            logger.log(LOG_DEBUG, "Config: Determined INI path: " + full_path);
-        }
+        logger.log(LOG_DEBUG, "Config: Determined INI path: " + full_path);
         return full_path;
     }
     catch (const std::exception &e)
@@ -120,10 +117,7 @@ static std::vector<int> parseKeyList(const std::string &value_str, Logger &logge
 
     std::istringstream iss(trimmed_val);
     std::string token;
-    if (logger.isDebugEnabled())
-    {
-        logger.log(LOG_DEBUG, "Config: Parsing '" + key_name + "': \"" + trimmed_val + "\"");
-    }
+    logger.log(LOG_DEBUG, "Config: Parsing '" + key_name + "': \"" + trimmed_val + "\"");
     int token_idx = 0;
 
     while (std::getline(iss, token, ','))
@@ -172,10 +166,7 @@ static std::vector<int> parseKeyList(const std::string &value_str, Logger &logge
             }
             int key_code = static_cast<int>(code_ul);
             keys.push_back(key_code);
-            if (logger.isDebugEnabled())
-            {
-                logger.log(LOG_DEBUG, "Config: Added key for '" + key_name + "': " + format_vkcode(key_code));
-            }
+            logger.log(LOG_DEBUG, "Config: Added key for '" + key_name + "': " + format_vkcode(key_code));
         }
         catch (const std::exception &e)
         {

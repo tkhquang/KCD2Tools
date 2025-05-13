@@ -147,7 +147,7 @@ bool resetScrollAccumulator(bool logReset)
         if (currentValue != 0.0f)
         {
             *g_scrollAccumulatorAddress = 0.0f;
-            if (logReset && Logger::getInstance().isDebugEnabled())
+            if (logReset)
             {
                 Logger::getInstance().log(LOG_DEBUG, "resetScrollAccumulator: Reset value from " +
                                                          std::to_string(currentValue) + " to 0.0");
@@ -375,10 +375,7 @@ bool GetPlayerWorldTransform(::Vector3 &outPosition, ::Quaternion &outOrientatio
 
     if (!g_thePlayerEntity)
     {
-        if (logger.isDebugEnabled())
-        {
-            logger.log(LOG_DEBUG, "GetPlayerWorldTransform: Called but g_thePlayerEntity is currently NULL.");
-        }
+        logger.log(LOG_DEBUG, "GetPlayerWorldTransform: Called but g_thePlayerEntity is currently NULL.");
         return false;
     }
 
@@ -386,12 +383,9 @@ bool GetPlayerWorldTransform(::Vector3 &outPosition, ::Quaternion &outOrientatio
 
     if (!isMemoryReadable(reinterpret_cast<void *>(matrix_address), sizeof(GameStructures::Matrix34f)))
     {
-        if (logger.isDebugEnabled())
-        {
-            logger.log(LOG_WARNING, "GetPlayerWorldTransform: Cannot read CEntity's m_worldTransform at " +
-                                        format_address(matrix_address) + " for entity " +
-                                        format_address(reinterpret_cast<uintptr_t>(g_thePlayerEntity)));
-        }
+        logger.log(LOG_WARNING, "GetPlayerWorldTransform: Cannot read CEntity's m_worldTransform at " +
+                                    format_address(matrix_address) + " for entity " +
+                                    format_address(reinterpret_cast<uintptr_t>(g_thePlayerEntity)));
         return false;
     }
 
@@ -418,17 +412,14 @@ bool GetPlayerWorldTransform(::Vector3 &outPosition, ::Quaternion &outOrientatio
     // This is standard for creating a rotation matrix for DirectXMath.
     outOrientation = ::Quaternion::FromXMVector(DirectX::XMQuaternionRotationMatrix(dxRotMatrix));
 
-    if (logger.isDebugEnabled())
-    {
-        std::ostringstream matrix_dump;
-        matrix_dump << std::fixed << std::setprecision(4);
-        matrix_dump << "\n  Matrix Read from Entity " << format_address(reinterpret_cast<uintptr_t>(g_thePlayerEntity)) << " @ offset " << format_hex(Constants::OFFSET_ENTITY_WORLD_MATRIX_MEMBER) << " (Addr: " << format_address(matrix_address) << "):";
-        matrix_dump << "\n    R0: [" << playerMatrix.m[0][0] << ", " << playerMatrix.m[0][1] << ", " << playerMatrix.m[0][2] << "] T.x: " << playerMatrix.m[0][3];
-        matrix_dump << "\n    R1: [" << playerMatrix.m[1][0] << ", " << playerMatrix.m[1][1] << ", " << playerMatrix.m[1][2] << "] T.y: " << playerMatrix.m[1][3];
-        matrix_dump << "\n    R2: [" << playerMatrix.m[2][0] << ", " << playerMatrix.m[2][1] << ", " << playerMatrix.m[2][2] << "] T.z: " << playerMatrix.m[2][3];
+    std::ostringstream matrix_dump;
+    matrix_dump << std::fixed << std::setprecision(4);
+    matrix_dump << "\n  Matrix Read from Entity " << format_address(reinterpret_cast<uintptr_t>(g_thePlayerEntity)) << " @ offset " << format_hex(Constants::OFFSET_ENTITY_WORLD_MATRIX_MEMBER) << " (Addr: " << format_address(matrix_address) << "):";
+    matrix_dump << "\n    R0: [" << playerMatrix.m[0][0] << ", " << playerMatrix.m[0][1] << ", " << playerMatrix.m[0][2] << "] T.x: " << playerMatrix.m[0][3];
+    matrix_dump << "\n    R1: [" << playerMatrix.m[1][0] << ", " << playerMatrix.m[1][1] << ", " << playerMatrix.m[1][2] << "] T.y: " << playerMatrix.m[1][3];
+    matrix_dump << "\n    R2: [" << playerMatrix.m[2][0] << ", " << playerMatrix.m[2][1] << ", " << playerMatrix.m[2][2] << "] T.z: " << playerMatrix.m[2][3];
 
-        logger.log(LOG_DEBUG, "GetPlayerWorldTransform SUCCESS:" + matrix_dump.str());
-        logger.log(LOG_DEBUG, "  Converted Pos: " + Vector3ToString(outPosition) + " | Converted Rot: " + QuatToString(outOrientation));
-    }
+    logger.log(LOG_TRACE, "GetPlayerWorldTransform SUCCESS:" + matrix_dump.str());
+    logger.log(LOG_TRACE, "  Converted Pos: " + Vector3ToString(outPosition) + " | Converted Rot: " + QuatToString(outOrientation));
     return true;
 }

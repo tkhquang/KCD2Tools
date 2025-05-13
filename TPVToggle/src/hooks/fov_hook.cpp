@@ -54,11 +54,7 @@ static void __fastcall Detour_TpvFovCalculate(float *pViewStruct, float deltaTim
                 if (isMemoryWritable(reinterpret_cast<void *>(fovWriteAddress), sizeof(float)))
                 {
                     *reinterpret_cast<float *>(fovWriteAddress) = g_desiredFovRadians;
-                    // Disbabled for now due to spammy
-                    // if (logger.isDebugEnabled())
-                    // {
-                    //     logger.log(LOG_DEBUG, "FovHook: Applied FOV " + std::to_string(g_desiredFovRadians) + " radians");
-                    // }
+                    logger.log(LOG_TRACE, "FovHook: Applied FOV " + std::to_string(g_desiredFovRadians) + " radians");
                 }
             }
         }

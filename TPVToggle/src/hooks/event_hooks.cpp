@@ -40,10 +40,7 @@ static uint64_t __fastcall EventHandlerDetour(uintptr_t listenerMgrPtr, char *in
     constexpr size_t required_size = Constants::INPUT_EVENT_VALUE_OFFSET + sizeof(float);
     if (!isMemoryReadable(inputEventPtr, required_size))
     {
-        if (logger.isDebugEnabled())
-        {
-            logger.log(LOG_DEBUG, "EventHandler: Input event pointer unreadable");
-        }
+        logger.log(LOG_DEBUG, "EventHandler: Input event pointer unreadable");
         // Early exit pattern - no goto needed
         return fpEventHandlerOriginal ? fpEventHandlerOriginal(listenerMgrPtr, inputEventPtr) : 0;
     }
@@ -80,10 +77,7 @@ static uint64_t __fastcall EventHandlerDetour(uintptr_t listenerMgrPtr, char *in
                         if (original_delta != 0.0f)
                         { // Avoid unnecessary writes
                             *delta_ptr = 0.0f;
-                            if (logger.isDebugEnabled())
-                            {
-                                logger.log(LOG_DEBUG, "EventHandler: Zeroed scroll delta (was " + std::to_string(original_delta) + ") due to hold key not pressed");
-                            }
+                            logger.log(LOG_DEBUG, "EventHandler: Zeroed scroll delta (was " + std::to_string(original_delta) + ") due to hold key not pressed");
                         }
                     }
                 }
@@ -103,10 +97,7 @@ static uint64_t __fastcall EventHandlerDetour(uintptr_t listenerMgrPtr, char *in
                         if (original_delta != 0.0f)
                         { // Avoid unnecessary writes
                             *delta_ptr = 0.0f;
-                            if (logger.isDebugEnabled())
-                            {
-                                logger.log(LOG_DEBUG, "EventHandler: Zeroed scroll delta (was " + std::to_string(original_delta) + ") in original event due to ACTIVE overlay");
-                            }
+                            logger.log(LOG_DEBUG, "EventHandler: Zeroed scroll delta (was " + std::to_string(original_delta) + ") in original event due to ACTIVE overlay");
                         }
                     }
                     else

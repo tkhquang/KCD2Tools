@@ -43,6 +43,9 @@ void Logger::setLogLevel(LogLevel level)
     std::string oldLevelStr = "UNKNOWN";
     switch (current_log_level)
     {
+    case LOG_TRACE:
+        oldLevelStr = "TRACE";
+        break;
     case LOG_DEBUG:
         oldLevelStr = "DEBUG";
         break;
@@ -60,6 +63,9 @@ void Logger::setLogLevel(LogLevel level)
     std::string newLevelStr = "UNKNOWN";
     switch (current_log_level)
     {
+    case LOG_TRACE:
+        newLevelStr = "TRACE";
+        break;
     case LOG_DEBUG:
         newLevelStr = "DEBUG";
         break;
@@ -76,11 +82,6 @@ void Logger::setLogLevel(LogLevel level)
     log(LOG_INFO, "Log level changed from " + oldLevelStr + " to " + newLevelStr);
 }
 
-bool Logger::isDebugEnabled() const
-{
-    return current_log_level <= LOG_DEBUG;
-}
-
 void Logger::log(LogLevel level, const std::string &message)
 {
     if (level >= current_log_level)
@@ -88,6 +89,9 @@ void Logger::log(LogLevel level, const std::string &message)
         std::string level_str = "UNKNOWN";
         switch (level)
         {
+        case LOG_TRACE:
+            level_str = "TRACE";
+            break;
         case LOG_DEBUG:
             level_str = "DEBUG";
             break;

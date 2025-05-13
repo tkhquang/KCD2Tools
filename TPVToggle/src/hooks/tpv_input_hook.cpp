@@ -81,7 +81,7 @@ void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEventPtr)
         // Debug logging of raw input
         if (std::abs(event->deltaValue) > 1e-5f)
         {
-            logger.log(LOG_DEBUG, "TPVInput RAW: EventID=" + format_hex(event->eventId) +
+            logger.log(LOG_TRACE, "TPVInput RAW: EventID=" + format_hex(event->eventId) +
                                       " Delta=" + std::to_string(event->deltaValue));
         }
 
@@ -102,7 +102,7 @@ void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEventPtr)
 
             if (modifiedInput)
             {
-                logger.log(LOG_DEBUG, "TPVInput: Yaw adjusted with sensitivity " +
+                logger.log(LOG_TRACE, "TPVInput: Yaw adjusted with sensitivity " +
                                           std::to_string(sensitivity));
             }
             break;
@@ -147,7 +147,7 @@ void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEventPtr)
                     // Update stored pitch
                     g_currentPitch.store(clampedPitch);
 
-                    logger.log(LOG_DEBUG, "TPVInput PITCH: Original=" + std::to_string(originalDelta) +
+                    logger.log(LOG_TRACE, "TPVInput PITCH: Original=" + std::to_string(originalDelta) +
                                               " Sens=" + std::to_string(sensitivity) +
                                               " AdjustedDelta=" + std::to_string(adjustedDelta) +
                                               " Current=" + std::to_string(currentPitch) + "°" +
@@ -158,7 +158,7 @@ void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEventPtr)
                 }
                 else
                 {
-                    logger.log(LOG_DEBUG, "TPVInput PITCH: Original=" + std::to_string(originalDelta) +
+                    logger.log(LOG_TRACE, "TPVInput PITCH: Original=" + std::to_string(originalDelta) +
                                               " Sens=" + std::to_string(sensitivity) +
                                               " Adjusted=" + std::to_string(adjustedDelta) +
                                               " (No limits)");
@@ -183,7 +183,7 @@ void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEventPtr)
         // Log significant modifications
         if (modifiedInput)
         {
-            logger.log(LOG_DEBUG, "TPVInput MODIFIED: EventID=" + format_hex(event->eventId) +
+            logger.log(LOG_TRACE, "TPVInput MODIFIED: EventID=" + format_hex(event->eventId) +
                                       " FinalDelta=" + std::to_string(event->deltaValue));
         }
     }
