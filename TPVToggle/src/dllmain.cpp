@@ -19,6 +19,8 @@
 #include "hooks/event_hooks.h"
 #include "hooks/fov_hook.h"
 #include "hooks/tpv_camera_hook.h"
+#include "hooks/tpv_input_hook.h"
+// #include "hooks/entity_hooks.h"
 
 #include "MinHook.h"
 
@@ -83,8 +85,8 @@ void cleanupResources()
     cleanupOverlayHook();
     cleanupGameInterface();
     cleanupTpvCameraHook();
-    // cleanupPlayerStateHook();
-    // cleanupTpvInputHook();
+    cleanupTpvInputHook();
+    // cleanupEntityHooks();
 
     // Uninitialize MinHook
     MH_Uninitialize();
@@ -167,6 +169,11 @@ bool initializeHooks()
         return false;
     }
 
+    // if (!initializeEntityHooks(g_ModuleBase, g_ModuleSize))
+    // {
+    //     logger.log(LOG_WARNING, "Entity Hooks (for Player & SetWorldTM) initialization failed.");
+    // }
+
     // Initialize optional overlay system
     if (g_config.enable_overlay_feature)
     {
@@ -200,6 +207,14 @@ bool initializeHooks()
     if (!initializeTpvCameraHook(g_ModuleBase, g_ModuleSize))
     {
         logger.log(LOG_WARNING, "TPV Camera Offset Hook initialization failed - Offset feature disabled.");
+    }
+
+    if (g_config.tpv_pitch_sensitivity != 1.0f || g_config.tpv_yaw_sensitivity != 1.0f || g_config.tpv_pitch_limits_enabled)
+    {
+        if (!initializeTpvInputHook(g_ModuleBase, g_ModuleSize))
+        {
+            logger.log(LOG_WARNING, "TPV Input Hook initialization failed - Camera sensitivity control disabled");
+        }
     }
 
     return true;

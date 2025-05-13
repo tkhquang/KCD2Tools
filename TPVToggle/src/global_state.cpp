@@ -6,6 +6,8 @@
 #include "global_state.h"
 #include "logger.h"
 #include "utils.h"
+#include "game_structures.h"
+#include "constants.h"
 
 // Define the WriteBytes function here since it's used in multiple places
 bool WriteBytes(BYTE *targetAddress, const BYTE *sourceBytes, size_t numBytes, Logger &logger)
@@ -80,3 +82,9 @@ Vector3 g_latestTpvCameraForward = {0.0f, 1.0f, 0.0f};
 
 Vector3 g_currentCameraOffset(0.0f, 0.0f, 0.0f);
 std::atomic<bool> g_cameraAdjustmentMode(false);
+
+Vector3 g_playerWorldPosition(0.0f, 0.0f, 0.0f);
+Quaternion g_playerWorldOrientation = Quaternion::Identity();
+
+GameStructures::CEntity *g_thePlayerEntity = nullptr;
+CEntity_SetWorldTM_Func_t g_funcCEntitySetWorldTM = nullptr;

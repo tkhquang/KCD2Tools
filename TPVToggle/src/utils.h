@@ -95,11 +95,20 @@ inline std::string getRuntimeDirectory()
 }
 
 // Helper to log quaternion
-inline static std::string QuatToString(const Quaternion &q)
+inline std::string QuatToString(const ::Quaternion &q)
+{ // Use :: if Quaternion is global
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(4)
+        << "Q(X=" << q.x << " Y=" << q.y << " Z=" << q.z << " W=" << q.w << ")"; // Explicit W
+    return oss.str();
+}
+
+// Helper to log Vector3
+inline std::string Vector3ToString(const Vector3 &v)
 {
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(4)
-        << "Q(" << q.x << ", " << q.y << ", " << q.z << ", " << q.w << ")";
+        << "V(" << v.x << ", " << v.y << ", " << v.z << ")";
     return oss.str();
 }
 
@@ -119,11 +128,15 @@ inline std::string format_address(uintptr_t address)
 /**
  * @brief Formats an integer as a 2-digit uppercase hex string.
  */
-inline std::string format_hex(int value)
+inline std::string format_hex(int value, int width = 0)
 {
     std::ostringstream oss;
-    oss << "0x" << std::uppercase << std::hex
-        << std::setw(2) << std::setfill('0') << (value & 0xFF);
+    oss << "0x" << std::uppercase << std::hex;
+    if (width > 0)
+    {
+        oss << std::setw(width) << std::setfill('0');
+    }
+    oss << value;
     return oss.str();
 }
 

@@ -11,6 +11,8 @@
 #include <windows.h>
 #include <cstdint>
 
+#include "math_utils.h"
+
 /**
  * @brief Initialize game interface with dynamic AOB scanning.
  * @param module_base Base address of the target game module.
@@ -72,5 +74,7 @@ long long getOverlayState();
  * @return Pointer to camera manager, or 0 if not available.
  */
 extern "C" uintptr_t __cdecl getCameraManagerInstance();
+
+bool GetPlayerWorldTransform(Vector3 &outPosition, Quaternion &outOrientation);
 
 #endif // GAME_INTERFACE_H

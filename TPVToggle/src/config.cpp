@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <string>
 #include <stdexcept>
+#include <sstream> // Added for istringstream
 
 // SimpleIni headers
 #include "SimpleIni.h"
@@ -219,6 +220,12 @@ Config loadConfig(const std::string &ini_filename)
     config.use_spring_physics = false;
     config.spring_strength = 8.0f; // Consistent default
     config.spring_damping = 0.7f;  // Consistent default
+    // Camera sensitivity defaults
+    config.tpv_pitch_sensitivity = 0.7f;
+    config.tpv_yaw_sensitivity = 1.0f;
+    config.tpv_pitch_limits_enabled = false;
+    config.tpv_pitch_min = -80.0f;
+    config.tpv_pitch_max = 80.0f;
 
     SI_Error rc = ini.LoadFile(ini_path.c_str());
     if (rc < 0)
@@ -267,6 +274,13 @@ Config loadConfig(const std::string &ini_filename)
         config.tpv_offset_x = (float)ini.GetDoubleValue("Settings", "TpvOffsetX", config.tpv_offset_x);
         config.tpv_offset_y = (float)ini.GetDoubleValue("Settings", "TpvOffsetY", config.tpv_offset_y);
         config.tpv_offset_z = (float)ini.GetDoubleValue("Settings", "TpvOffsetZ", config.tpv_offset_z);
+
+        // --- [CameraSensitivity] Section ---
+        config.tpv_pitch_sensitivity = (float)ini.GetDoubleValue("CameraSensitivity", "PitchSensitivity", 0.7);
+        config.tpv_yaw_sensitivity = (float)ini.GetDoubleValue("CameraSensitivity", "YawSensitivity", 1.0);
+        config.tpv_pitch_limits_enabled = ini.GetBoolValue("CameraSensitivity", "EnablePitchLimits", false);
+        config.tpv_pitch_min = (float)ini.GetDoubleValue("CameraSensitivity", "PitchMin", -80.0);
+        config.tpv_pitch_max = (float)ini.GetDoubleValue("CameraSensitivity", "PitchMax", 80.0);
 
         // --- [CameraProfiles] Section ---
         config.enable_camera_profiles = ini.GetBoolValue("CameraProfiles", "Enable", false);
@@ -350,6 +364,21 @@ Config loadConfig(const std::string &ini_filename)
     logger.log(LOG_INFO, "Config: TPV/FPV keys (Toggle:" + format_vkcode_list(config.toggle_keys) +
                              "/FPV:" + format_vkcode_list(config.fpv_keys) +
                              "/TPV:" + format_vkcode_list(config.tpv_keys) + ")");
+
+    // Camera sensitivity system summary
+    logger.log(LOG_INFO, "Config: Camera Sensitivity Settings:");
+    logger.log(LOG_INFO, "  Pitch Sensitivity: " + std::to_string(config.tpv_pitch_sensitivity));
+    logger.log(LOG_INFO, "  Yaw Sensitivity: " + std::to_string(config.tpv_yaw_sensitivity));
+
+    if (config.tpv_pitch_limits_enabled)
+    {
+        logger.log(LOG_INFO, "  Pitch Limits: " + std::to_string(config.tpv_pitch_min) + "° to " +
+                                 std::to_string(config.tpv_pitch_max) + "° (ENABLED)");
+    }
+    else
+    {
+        logger.log(LOG_INFO, "  Pitch Limits: DISABLED");
+    }
 
     // Camera profile system summary
     logger.log(LOG_INFO, "Config: Camera Profile System: " + std::string(config.enable_camera_profiles ? "ENABLED" : "DISABLED"));
