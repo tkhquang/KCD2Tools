@@ -5,6 +5,8 @@
 #include "global_state.h"
 #include "config.h"
 #include "hooks/tpv_input_hook.h"
+#include "game_interface.h"
+#include "constants.h"
 
 #include <unordered_map>
 #include <bitset>
@@ -12,6 +14,7 @@
 #include <algorithm>
 #include <chrono>
 #include <iomanip>
+#include <math.h>
 
 // External config reference
 extern Config g_config;
@@ -155,7 +158,6 @@ DWORD WINAPI CameraProfileThread(LPVOID param)
     Logger &logger = Logger::getInstance();
     logger.log(LOG_INFO, "CameraProfileThread: Started");
 
-    // Read thread parameters (adjustment step)
     CameraProfileThreadData *data = static_cast<CameraProfileThreadData *>(param);
     if (!data)
     {
@@ -163,252 +165,296 @@ DWORD WINAPI CameraProfileThread(LPVOID param)
         return 1;
     }
     float adjustmentStep = data->adjustmentStep;
-    delete data; // Clean up thread data structure
+    delete data;
 
-    // Create key mappings based on loaded config
     KeyBitMapInfo keyInfo = createKeyBitMap(g_config);
-
-    // Initialize key state tracker (all keys initially up)
     uint64_t previousKeyState = 0;
+
+    // Initialize orbital camera parameters (once at thread start)
+    g_orbitalCameraDistance.store(g_config.orbit_default_distance, std::memory_order_relaxed);
+    g_orbitalCameraYaw.store(0.0f, std::memory_order_relaxed);
+    // Convert default pitch from degrees (if that's how you think of it) to radians
+    g_orbitalCameraPitch.store(g_config.orbit_pitch_min_degrees * (static_cast<float>(M_PI) / 180.0f), std::memory_order_relaxed); // Example: start at min pitch
+    update_orbital_camera_rotation_from_euler();
 
     if (logger.isDebugEnabled())
     {
         logger.log(LOG_DEBUG, "CameraProfileThread: Registered " + std::to_string(keyInfo.keyCount) + " unique keys for monitoring.");
     }
 
-    typedef uintptr_t (*GetSystemInterfaceFunc)();
-    uintptr_t funcAddr = g_ModuleBase + (0xA27DE0);
-    GetSystemInterfaceFunc pfnGetSystemInterface = (GetSystemInterfaceFunc)funcAddr;
+    // --- CVar Address Acquisition Logic (from your snippet) ---
+    // Typedef for GetSystemInterface from KCD2 mod loader seems to point to FUN_180a27de0
+    typedef uintptr_t (*GetSystemInterfaceFunc_t)(); // Assuming it returns uintptr_t to ISystem or similar
+    uintptr_t func_180a27de0_offset = 0xA27DE0;      // Ensure this is the correct RVA for FUN_180a27de0
 
-    logger.log(LOG_INFO, "CameraProfileThread: Attempting to acquire CVar struct address...");
-    int cvar_init_attempts = 0;
-    while (g_GlobalGameCVarsStructAddr == 0 && cvar_init_attempts < 60 && WaitForSingleObject(g_exitEvent, 0) != WAIT_OBJECT_0)
-    { // Try for up to 60 seconds
-        // (Copy the logic to call pfnGetSystemInterface and read pSystemInterface + 0x20 here)
-        // Make sure to use g_ModuleBase for calculating funcAddr
-        uintptr_t func_180a27de0_offset = 0xA27DE0; // VERIFY THIS OFFSET
-        uintptr_t funcAddr = g_ModuleBase + func_180a27de0_offset;
-        GetSystemInterfaceFunc pfnGetSystemInterface = (GetSystemInterfaceFunc)funcAddr;
-        uintptr_t pSystemInterface_temp = 0;
+    // Important: Check if g_ModuleBase is valid before using it
+    GetSystemInterfaceFunc_t pfnGetSystemInterface = nullptr;
+    if (g_ModuleBase != 0)
+    {
+        pfnGetSystemInterface = reinterpret_cast<GetSystemInterfaceFunc_t>(g_ModuleBase + func_180a27de0_offset);
+    }
+    else
+    {
+        logger.log(LOG_ERROR, "CameraProfileThread: g_ModuleBase is NULL, cannot get pfnGetSystemInterface.");
+    }
 
-        if (isMemoryReadable((void *)funcAddr, 8))
+    if (pfnGetSystemInterface) // Proceed only if function pointer is valid
+    {
+        logger.log(LOG_INFO, "CameraProfileThread: Attempting to acquire CVar struct address via pfnGetSystemInterface at " + format_address(reinterpret_cast<uintptr_t>(pfnGetSystemInterface)));
+        int cvar_init_attempts = 0;
+        while (g_GlobalGameCVarsStructAddr == 0 && cvar_init_attempts < 60 && WaitForSingleObject(g_exitEvent, 0) != WAIT_OBJECT_0)
         {
+            uintptr_t pSystemInterface_temp = 0;
             try
             {
+                // Call the function to get the ISystem (or equivalent) pointer
                 pSystemInterface_temp = pfnGetSystemInterface();
             }
             catch (...)
             {
-                pSystemInterface_temp = 0;
+                pSystemInterface_temp = 0; // Catch potential crashes if function is wrong
+                logger.log(LOG_ERROR, "CameraProfileThread: Exception calling pfnGetSystemInterface.");
             }
-        }
 
-        if (pSystemInterface_temp != 0 && isMemoryReadable((void *)(pSystemInterface_temp + 0x20), sizeof(uintptr_t)))
-        {
-            g_GlobalGameCVarsStructAddr = *(uintptr_t *)(pSystemInterface_temp + 0x20);
-            if (g_GlobalGameCVarsStructAddr != 0)
+            if (pSystemInterface_temp != 0)
             {
-                logger.log(LOG_INFO, "CameraProfileThread: Successfully acquired pSystemInterface: " + format_address(pSystemInterface_temp));
-                logger.log(LOG_INFO, "CameraProfileThread: Successfully acquired g_GlobalGameCVarsStructAddr: " + format_address(g_GlobalGameCVarsStructAddr));
-                break; // Success
+                // The CVar struct seems to be at offset 0x20 from the returned ISystem pointer
+                uintptr_t cvar_struct_candidate_addr = pSystemInterface_temp + 0x20; // ISystem + 0x20
+                if (isMemoryReadable(reinterpret_cast<void *>(cvar_struct_candidate_addr), sizeof(uintptr_t)))
+                {
+                    g_GlobalGameCVarsStructAddr = *reinterpret_cast<uintptr_t *>(cvar_struct_candidate_addr);
+                    if (g_GlobalGameCVarsStructAddr != 0)
+                    {
+                        logger.log(LOG_INFO, "CameraProfileThread: Successfully acquired pSystemInterface: " + format_address(pSystemInterface_temp));
+                        logger.log(LOG_INFO, "CameraProfileThread: Successfully acquired g_GlobalGameCVarsStructAddr: " + format_address(g_GlobalGameCVarsStructAddr));
+                        break;
+                    }
+                }
             }
+            cvar_init_attempts++;
+            Sleep(1000);
         }
-        cvar_init_attempts++;
-        Sleep(1000); // Wait 1 second before retrying
-    }
-    if (g_GlobalGameCVarsStructAddr == 0)
-    {
-        logger.log(LOG_ERROR, "CameraProfileThread: FAILED to acquire CVar struct address after multiple attempts.");
+        if (g_GlobalGameCVarsStructAddr == 0)
+        {
+            logger.log(LOG_ERROR, "CameraProfileThread: FAILED to acquire CVar struct address after multiple attempts.");
+        }
     }
 
-    // Main loop
-    while (WaitForSingleObject(g_exitEvent, 16) != WAIT_OBJECT_0) // ~60 Hz check
+    // --- Main Loop ---
+    while (WaitForSingleObject(g_exitEvent, 16) != WAIT_OBJECT_0)
     {
         try
         {
-            // Get current state of all monitored keys
             uint64_t currentKeyState = getKeyStateBitmap(keyInfo.allKeys, keyInfo.keyMap);
 
-            static bool nativeOrbitCVarsEnabled = false; // Track state
+            // --- Section 1: Global Toggles ---
 
+            // Toggle for testing native game CVars (F2 by default)
             if (isNewKeyPress(currentKeyState, previousKeyState, keyInfo.nativeOrbitTestToggleMask))
             {
                 if (g_GlobalGameCVarsStructAddr != 0)
                 {
-                    nativeOrbitCVarsEnabled = !nativeOrbitCVarsEnabled;
+                    bool newNativeOrbitState = !g_nativeOrbitCVarsEnabled.load(std::memory_order_relaxed);
+                    g_nativeOrbitCVarsEnabled.store(newNativeOrbitState, std::memory_order_relaxed);
 
-                    bool *p_cl_cam_debug = (bool *)(g_GlobalGameCVarsStructAddr + 0x1C0); // cl_cam_debug
-                    bool *p_cl_cam_orbit = (bool *)(g_GlobalGameCVarsStructAddr + 0x1A8); // cl_cam_orbit
+                    // Example CVar offsets from your previous log (ensure these are correct for KCD2)
+                    // bool* p_cl_cam_debug = reinterpret_cast<bool*>(g_GlobalGameCVarsStructAddr + 0x1C0); // Example
+                    // bool* p_cl_cam_orbit = reinterpret_cast<bool*>(g_GlobalGameCVarsStructAddr + 0x1A8); // Example
 
-                    if (isMemoryWritable(p_cl_cam_debug, sizeof(bool)) && isMemoryWritable(p_cl_cam_orbit, sizeof(bool)))
-                    {
-                        *p_cl_cam_debug = nativeOrbitCVarsEnabled; // Enable debug cam features
-                        *p_cl_cam_orbit = nativeOrbitCVarsEnabled; // Enable orbit mode specifically
-
-                        logger.log(LOG_INFO, "Native Orbit Test: cl_cam_debug set to " + std::string(nativeOrbitCVarsEnabled ? "true" : "false"));
-                        logger.log(LOG_INFO, "Native Orbit Test: cl_cam_orbit set to " + std::string(nativeOrbitCVarsEnabled ? "true" : "false"));
-
-                        if (nativeOrbitCVarsEnabled)
-                        {
-                            // Optional: Set some default distances/offsets
-                            float *p_dist = (float *)(g_GlobalGameCVarsStructAddr + 0x1BC); // cl_cam_orbit_distance
-                            float *p_offX = (float *)(g_GlobalGameCVarsStructAddr + 0x1B4); // cl_cam_orbit_offsetX
-                            float *p_offZ = (float *)(g_GlobalGameCVarsStructAddr + 0x1B8); // cl_cam_orbit_offsetZ
-                            if (isMemoryWritable(p_dist, sizeof(float)))
-                                *p_dist = 5.0f;
-                            if (isMemoryWritable(p_offX, sizeof(float)))
-                                *p_offX = 0.5f;
-                            if (isMemoryWritable(p_offZ, sizeof(float)))
-                                *p_offZ = 1.5f;
-                            logger.log(LOG_INFO, "Native Orbit Test: Set default distance/offsets.");
-                        }
-                    }
-                    else
-                    {
-                        logger.log(LOG_ERROR, "Native Orbit Test: Cannot write to CVar memory locations!");
-                    }
+                    // For KCD1, Crysis games: cl_tpvYaw=xxx; cl_tpvDist=xxx; cl_cam_orbit=1;
+                    // It's highly probable these are float or int console variables.
+                    // A more robust way is to use game's console command execution if you find it,
+                    // or find the ICVar interface to set them by name.
+                    // Directly writing to memory based on struct offsets from another game is risky.
+                    // Placeholder for direct CVar write if offsets are known AND VERIFIED FOR KCD2:
+                    // if (isMemoryWritable(p_cl_cam_orbit, sizeof(bool))) {
+                    //    *p_cl_cam_orbit = newNativeOrbitState;
+                    //    logger.log(LOG_INFO, "Native Orbit Test: Game CVar cl_cam_orbit set to " + std::string(newNativeOrbitState ? "true" : "false"));
+                    // }
+                    logger.log(LOG_INFO, "Native Orbit Test Toggle: " + std::string(newNativeOrbitState ? "Requesting ENABLED (manual CVar set needed)" : "Requesting DISABLED"));
                 }
                 else
                 {
-                    logger.log(LOG_ERROR, "Native Orbit Test: g_GlobalGameCVarsStructAddr is NULL!");
+                    logger.log(LOG_WARNING, "Native Orbit Test: g_GlobalGameCVarsStructAddr is NULL, cannot toggle game CVars.");
                 }
             }
 
-            // --- Process Keys ---
+            // Toggle for Orbital Camera Mode (e.g., F5)
+            if (isNewKeyPress(currentKeyState, previousKeyState, keyInfo.orbitalModeToggleMask))
+            {
+                if (g_config.enable_orbital_camera_mode) // Check if feature is enabled in INI
+                {
+                    bool newOrbitalState = !g_orbitalModeActive.load(std::memory_order_relaxed);
+                    g_orbitalModeActive.store(newOrbitalState, std::memory_order_relaxed);
+                    logger.log(LOG_INFO, "Orbital Camera Mode: " + std::string(newOrbitalState ? "ENABLED" : "DISABLED"));
 
-            // Master toggle: Always check regardless of adjustment mode
+                    if (newOrbitalState) // Just enabled orbital mode
+                    {
+                        logger.log(LOG_INFO, "Orbital Camera Mode: Initializing pose...");
+                        { // Scope for lock
+                            std::lock_guard<std::mutex> lock(g_orbitalCameraMutex);
+
+                            Quaternion playerRot = g_playerWorldOrientation; // Read once
+
+                            float targetYaw = 0.0f;
+                            // Attempt to get player's current world yaw to initially position camera behind them
+                            if (playerRot != Quaternion::Identity())
+                            {
+                                Vector3 playerForward = playerRot.Rotate(Vector3(0.0f, 1.0f, 0.0f)); // Player's local Y is forward
+                                if (playerForward.MagnitudeSquared() > 0.001f)
+                                {
+                                    playerForward.Normalize();
+                                    targetYaw = atan2f(playerForward.x, playerForward.y); // Yaw from player's forward
+                                }
+                            }
+
+                            g_orbitalCameraYaw.store(targetYaw + static_cast<float>(M_PI), std::memory_order_relaxed); // Place camera yaw 180 deg from player's current yaw
+
+                            // Set a default pitch (e.g., looking slightly down at player)
+                            float defaultPitchDegrees = -15.0f; // Configurable?
+                            float initialPitchClampedDeg = std::max(g_config.orbit_pitch_min_degrees, std::min(defaultPitchDegrees, g_config.orbit_pitch_max_degrees));
+                            g_orbitalCameraPitch.store(initialPitchClampedDeg * (static_cast<float>(M_PI) / 180.0f), std::memory_order_relaxed);
+
+                            g_orbitalCameraDistance.store(g_config.orbit_default_distance, std::memory_order_relaxed);
+                        } // lock released
+
+                        update_orbital_camera_rotation_from_euler(); // Calculate initial g_orbitalCameraRotation
+
+                        logger.log(LOG_DEBUG, "Orbital Mode ENABLED (New Init). TargetYaw=" + std::to_string(g_orbitalCameraYaw.load()) +
+                                                  " TargetPitch=" + std::to_string(g_orbitalCameraPitch.load()) +
+                                                  " TargetDist=" + std::to_string(g_orbitalCameraDistance.load()));
+                    }
+                }
+            }
+
+            // Toggle for Camera Profile Adjustment Mode (e.g., F11)
             if (isNewKeyPress(currentKeyState, previousKeyState, keyInfo.masterToggleMask))
             {
-                bool newMode = !g_cameraAdjustmentMode.load();
-                g_cameraAdjustmentMode.store(newMode);
-                logger.log(LOG_INFO, "CameraProfileThread: Adjustment mode " + std::string(newMode ? "ENABLED" : "DISABLED"));
+                bool newAdjMode = !g_cameraAdjustmentMode.load(std::memory_order_relaxed);
+                g_cameraAdjustmentMode.store(newAdjMode, std::memory_order_relaxed);
+                logger.log(LOG_INFO, "CameraProfileThread: Profile Adjustment mode " + std::string(newAdjMode ? "ENABLED" : "DISABLED"));
             }
 
-            // Check other keys only if adjustment mode is enabled
-            if (g_cameraAdjustmentMode.load())
+            // --- Section 2: Orbital Camera Player Movement & Orientation ---
+            if (g_config.enable_orbital_camera_mode && g_orbitalModeActive.load(std::memory_order_relaxed) && getViewState() == 1)
             {
-                // 1. CREATE NEW Profile key (e.g., Numpad 1)
-                if (isNewKeyPress(currentKeyState, previousKeyState, keyInfo.profileSaveMask))
-                {
-                    logger.log(LOG_DEBUG, "CameraProfileThread: Create New Profile key press detected.");
-                    CameraProfileManager::getInstance().createNewProfileFromLiveState("General");
-                }
+                Vector3 targetMoveInputLocal = {0.0f, 0.0f, 0.0f}; // X for strafe, Y for forward/back
+                bool isPlayerAttemptingToMove = false;
 
-                // 2. UPDATE ACTIVE Profile key (e.g., Numpad 7)
-                if (isNewKeyPress(currentKeyState, previousKeyState, keyInfo.profileUpdateMask))
+                if (GetAsyncKeyState(0x57) & 0x8000)
                 {
-                    logger.log(LOG_DEBUG, "CameraProfileThread: Update Active Profile key press detected.");
-                    // This function internally checks if active is "Default" and logs a warning if so.
-                    CameraProfileManager::getInstance().updateActiveProfileWithLiveState();
-                }
+                    targetMoveInputLocal.y += 1.0f;
+                    isPlayerAttemptingToMove = true;
+                } // W (Forward)
+                if (GetAsyncKeyState(0x53) & 0x8000)
+                {
+                    targetMoveInputLocal.y -= 1.0f;
+                    isPlayerAttemptingToMove = true;
+                } // S (Backward)
+                if (GetAsyncKeyState(0x41) & 0x8000)
+                {
+                    targetMoveInputLocal.x -= 1.0f;
+                    isPlayerAttemptingToMove = true;
+                } // A (Strafe Left)
+                if (GetAsyncKeyState(0x44) & 0x8000)
+                {
+                    targetMoveInputLocal.x += 1.0f;
+                    isPlayerAttemptingToMove = true;
+                } // D (Strafe Right)
 
-                // 3. DELETE ACTIVE Profile key (e.g., Numpad 9)
-                if (isNewKeyPress(currentKeyState, previousKeyState, keyInfo.profileDeleteMask))
+                // If player is moving, orient them.
+                // g_thePlayerEntity and g_funcCEntitySetWorldTM are resolved in entity_hooks.cpp
+                if (isPlayerAttemptingToMove && g_thePlayerEntity && g_funcCEntitySetWorldTM)
                 {
-                    logger.log(LOG_DEBUG, "CameraProfileThread: Delete Active Profile key press detected.");
-                    // This function internally checks if active is "Default" and prevents deletion if so.
-                    CameraProfileManager::getInstance().deleteActiveProfile();
-                }
+                    Quaternion cameraPureYawRotation;
+                    { // Brief scope for mutex to read g_orbitalCameraYaw
+                        std::lock_guard<std::mutex> lock(g_orbitalCameraMutex);
+                        // Player movement direction should be based on camera's YAW only (horizontal plane)
+                        cameraPureYawRotation = Quaternion::FromXMVector(
+                            DirectX::XMQuaternionRotationNormal(DirectX::XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f), // World Z-axis for yaw
+                                                                g_orbitalCameraYaw.load(std::memory_order_relaxed)));
+                    }
 
-                // 4. Cycle Profiles key (e.g., Numpad 3)
-                if (isNewKeyPress(currentKeyState, previousKeyState, keyInfo.profileCycleMask))
-                {
-                    logger.log(LOG_DEBUG, "CameraProfileThread: Cycle Profiles key press detected.");
-                    CameraProfileManager::getInstance().cycleToNextProfile();
-                }
+                    // Transform local input (camera-relative) to world direction based on camera's yaw
+                    Vector3 worldMoveDir = cameraPureYawRotation.Rotate(targetMoveInputLocal);
+                    worldMoveDir.z = 0.0f; // Movement is primarily horizontal plane
 
-                // 5. Reset to Default key (e.g., Numpad 5)
-                if (isNewKeyPress(currentKeyState, previousKeyState, keyInfo.profileResetMask))
-                {
-                    logger.log(LOG_DEBUG, "CameraProfileThread: Reset to Default key press detected.");
-                    CameraProfileManager::getInstance().resetToDefault();
-                }
-
-                if (isNewKeyPress(currentKeyState, previousKeyState, keyInfo.orbitalModeToggleMask))
-                {
-                    // Only if feature itself is enabled in config
-                    if (g_config.enable_orbital_camera_mode)
+                    if (worldMoveDir.MagnitudeSquared() > 0.001f) // If there's significant movement input
                     {
-                        logger.log(LOG_INFO, "CPT: Orbital Mode Toggle Key Press DETECTED! (Mask: " + std::to_string(keyInfo.orbitalModeToggleMask) + ")");
-                        bool newOrbitalMode = !g_orbitalModeActive.load();
-                        g_orbitalModeActive.store(newOrbitalMode);
-                        logger.log(LOG_INFO, "Orbital Camera Mode " + std::string(newOrbitalMode ? "ENABLED" : "DISABLED"));
-                        if (newOrbitalMode)
-                        {
-                            logger.log(LOG_INFO, "Orbital Camera Mode ENABLED");
-                            // Initialize orbital angles from current game TPV camera to prevent jump
-                            uintptr_t tpvCamObjAddr = 0; // How to get this here? See below.
+                        worldMoveDir.Normalize();
+                        // Player should face this worldMoveDir
+                        Quaternion playerTargetOrientation = Quaternion::LookRotation(worldMoveDir, Vector3(0.0f, 0.0f, 1.0f)); // Assuming Z-up world
 
-                            // Method 1: Expose a function from tpv_input_hook.cpp or game_interface.cpp
-                            // that can read the current C_CameraThirdPerson instance's quaternion.
-                            // This is cleaner but requires passing 'thisPtr' around or storing it globally (carefully).
-                            // Quaternion currentGameTpvQuat = getCurrentGameTpvQuaternion(); // Needs implementation
+                        Vector3 currentPlayerPos = g_playerWorldPosition; // Updated by PlayerStateHook
 
-                            // Method 2: If difficult to get live 'thisPtr' here,
-                            // the jump might be unavoidable initially, or smooth in via TransitionManager.
-                            // For now, let's assume you might need to read it before Detour_TpvInputProcess starts suppressing.
-                            // A simple approach might be to just use the LAST known g_latestTpvCameraForward to approximate.
-                            // Not perfect for full quaternion.
+                        Constants::Matrix34f playerTransform;
+                        playerTransform.Set(playerTargetOrientation, currentPlayerPos);
 
-                            // Ideal (if you can get currentGameTpvQuat somehow):
-                            // Quaternion currentGameTpvQuat = ... ;
-                            // Convert currentGameTpvQuat to Euler (yaw, pitch) -> update g_orbitalCameraYaw, g_orbitalCameraPitch
-                            // DirectX::XMFLOAT4 current بازی_quat_xmfloat4 = { currentGameTpvQuat.x, currentGameTpvQuat.y, currentGameTpvQuat.z, currentGameTpvQuat.w };
-                            // DirectX::XMFLOAT3 eulerAngles; // Will hold pitch, yaw, roll
-                            // DirectX::XMStoreFloat3(&eulerAngles, DirectX::XMQuaternionToEulerAngles(XMLoadFloat4(¤t_game_quat_xmfloat4)));
-                            // g_orbitalCameraPitch = eulerAngles.x; // DirectX order might be X=Pitch, Y=Yaw, Z=Roll
-                            // g_orbitalCameraYaw = eulerAngles.y;
-                            // g_orbitalCameraRoll = eulerAngles.z; // If you use roll
+                        // IMPORTANT: Determine correct flags for SetWorldTM for KCD2
+                        // 0x1 is a common "force update/teleport". May need to experiment.
+                        // KCD2ModLoader example for noclip used 0x400000.
+                        int setTmFlags = 0x1;
 
-                            // Simpler for now (might still jump a bit but better than pure 0,0):
-                            // If g_latestTpvCameraForward is somewhat fresh from non-orbital mode
-                            if (g_latestTpvCameraForward.MagnitudeSquared() > 0.1f)
-                            {
-                                // Approximate yaw from forward vector's XZ components
-                                g_orbitalCameraYaw = atan2f(g_latestTpvCameraForward.x, g_latestTpvCameraForward.y); // If Y is forward, X is right
-                                // Approximate pitch from forward vector's Y (or Z) and its XZ magnitude
-                                float xz_dist = sqrtf(g_latestTpvCameraForward.x * g_latestTpvCameraForward.x + g_latestTpvCameraForward.y * g_latestTpvCameraForward.y);
-                                g_orbitalCameraPitch = atan2f(-g_latestTpvCameraForward.z, xz_dist);
-                            }
-                            else
-                            {
-                                // Fallback if no good previous camera state
-                                g_orbitalCameraYaw = 0.0f; // Or read from player orientation
-                                g_orbitalCameraPitch = 0.0f;
-                            }
-                            update_orbital_camera_rotation_from_euler(); // Important to calculate initial g_orbitalCameraRotation
-                        }
-                        else
-                        {
-                            logger.log(LOG_INFO, "Orbital Camera Mode DISABLED");
+                        g_funcCEntitySetWorldTM(g_thePlayerEntity, playerTransform.AsFloatPtr(), setTmFlags);
+
+                        static int player_orient_log_count = 0;
+                        if (logger.isDebugEnabled() && (++player_orient_log_count % 30 == 0))
+                        { // Log less frequently
+                            logger.log(LOG_DEBUG, "CPT (OrbitalMove): SetPlayerTM. MoveDir=" + Vector3ToString(worldMoveDir) +
+                                                      " PlayerTargetRot=" + QuatToString(playerTargetOrientation));
                         }
                     }
                 }
+                // The critical "IDLE ROTATION PREVENTION" part needs to be handled by hooking
+                // the game function that forces player to face camera and conditionally skipping it
+                // if (g_orbitalModeActive && !isPlayerAttemptingToMove). This hook isn't defined here.
+            }
 
-                // --- Continuous Adjustment Handling (Check current state, not just new presses) ---
-                // Check adjustment keys only if they exist in the map (non-zero mask)
+            // --- Section 3: Camera Profile Adjustments (Only if adjustment mode is active) ---
+            if (g_cameraAdjustmentMode.load(std::memory_order_relaxed))
+            {
+                if (isNewKeyPress(currentKeyState, previousKeyState, keyInfo.profileSaveMask))
+                {
+                    CameraProfileManager::getInstance().createNewProfileFromLiveState("General");
+                }
+                if (isNewKeyPress(currentKeyState, previousKeyState, keyInfo.profileUpdateMask))
+                {
+                    CameraProfileManager::getInstance().updateActiveProfileWithLiveState();
+                }
+                if (isNewKeyPress(currentKeyState, previousKeyState, keyInfo.profileDeleteMask))
+                {
+                    CameraProfileManager::getInstance().deleteActiveProfile();
+                }
+                if (isNewKeyPress(currentKeyState, previousKeyState, keyInfo.profileCycleMask))
+                {
+                    CameraProfileManager::getInstance().cycleToNextProfile();
+                }
+                if (isNewKeyPress(currentKeyState, previousKeyState, keyInfo.profileResetMask))
+                {
+                    CameraProfileManager::getInstance().resetToDefault();
+                }
+
+                // Offset adjustments (continuous while key held)
                 if (keyInfo.offsetXIncMask && (currentKeyState & keyInfo.offsetXIncMask))
                     CameraProfileManager::getInstance().adjustOffset(adjustmentStep, 0.0f, 0.0f);
                 if (keyInfo.offsetXDecMask && (currentKeyState & keyInfo.offsetXDecMask))
                     CameraProfileManager::getInstance().adjustOffset(-adjustmentStep, 0.0f, 0.0f);
                 if (keyInfo.offsetYIncMask && (currentKeyState & keyInfo.offsetYIncMask))
-                    CameraProfileManager::getInstance().adjustOffset(0.0f, adjustmentStep, 0.0f);
+                    CameraProfileManager::getInstance().adjustOffset(0.0f, adjustmentStep, 0.0f); // Note: Y for screen offset could be up/down
                 if (keyInfo.offsetYDecMask && (currentKeyState & keyInfo.offsetYDecMask))
                     CameraProfileManager::getInstance().adjustOffset(0.0f, -adjustmentStep, 0.0f);
                 if (keyInfo.offsetZIncMask && (currentKeyState & keyInfo.offsetZIncMask))
-                    CameraProfileManager::getInstance().adjustOffset(0.0f, 0.0f, adjustmentStep);
+                    CameraProfileManager::getInstance().adjustOffset(0.0f, 0.0f, adjustmentStep); // Note: Z for screen offset could be depth/zoom
                 if (keyInfo.offsetZDecMask && (currentKeyState & keyInfo.offsetZDecMask))
                     CameraProfileManager::getInstance().adjustOffset(0.0f, 0.0f, -adjustmentStep);
+            }
 
-            } // end if(adjustment mode active)
-
-            // Remember current key state for the next loop iteration
             previousKeyState = currentKeyState;
         }
         catch (const std::exception &e)
         {
             logger.log(LOG_ERROR, "CameraProfileThread: Exception caught: " + std::string(e.what()));
-            Sleep(1000); // Prevent spamming errors
+            Sleep(1000);
         }
         catch (...)
         {

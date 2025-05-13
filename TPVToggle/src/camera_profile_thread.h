@@ -1,6 +1,8 @@
 #ifndef CAMERA_PROFILE_THREAD_H
 #define CAMERA_PROFILE_THREAD_H
+#define _USE_MATH_DEFINES
 
+#include <cmath>
 #include <windows.h>
 
 // Thread function prototype

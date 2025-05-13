@@ -21,6 +21,7 @@
 #include "hooks/tpv_camera_hook.h"
 #include "hooks/tpv_input_hook.h"
 #include "hooks/player_state_hook.h"
+#include "hooks/entity_hooks.h"
 
 #include "MinHook.h"
 
@@ -88,6 +89,7 @@ void cleanupResources()
     cleanupTpvInputHook();
     cleanupTpvCameraHook();
     cleanupPlayerStateHook();
+    cleanupEntityHooks();
 
     // Uninitialize MinHook
     MH_Uninitialize();
@@ -167,6 +169,13 @@ bool initializeHooks()
     if (!initializeGameInterface(g_ModuleBase, g_ModuleSize))
     {
         logger.log(LOG_ERROR, "Critical: Game interface initialization failed - mod cannot function");
+        return false;
+    }
+
+    if (!initializeEntityHooks(g_ModuleBase, g_ModuleSize)) // Initialize before player_state or input hooks if they depend on g_thePlayerEntity
+    {
+        logger.log(LOG_ERROR, "Critical: Entity Hooks (for Player & SetWorldTM) initialization failed.");
+        // This is critical. Orbital camera and potentially other features will not work.
         return false;
     }
 

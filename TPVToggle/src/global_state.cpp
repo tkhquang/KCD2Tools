@@ -83,13 +83,20 @@ std::atomic<bool> g_cameraAdjustmentMode(false);
 
 // Orbital Camera
 std::atomic<bool> g_orbitalModeActive(false);
-float g_orbitalCameraYaw = 0.0f;
-float g_orbitalCameraPitch = 0.0f;
+std::atomic<float> g_orbitalCameraYaw(0.0f);
+std::atomic<float> g_orbitalCameraPitch(0.0f); // Initialize to a slight downward angle maybe -0.2f
+std::atomic<float> g_orbitalCameraDistance(3.0f);
 Quaternion g_orbitalCameraRotation = Quaternion::Identity();
-float g_orbitalCameraDistance = 3.0f; // Default starting distance
+std::mutex g_orbitalCameraMutex;
 
+// Player State
 Vector3 g_playerWorldPosition(0.0f, 0.0f, 0.0f);
 Quaternion g_playerWorldOrientation = Quaternion::Identity();
 
+// std::atomic<uintptr_t> g_tpvCameraThisPtr(0);
+
 uintptr_t g_GlobalGameCVarsStructAddr = 0;
 std::atomic<bool> g_nativeOrbitCVarsEnabled(false);
+
+Constants::CEntity *g_thePlayerEntity = nullptr;
+CEntity_SetWorldTM_Func_t g_funcCEntitySetWorldTM = nullptr;

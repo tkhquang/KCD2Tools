@@ -20,181 +20,199 @@ static BYTE *g_tpvInputHookAddress = nullptr;
 // Reference to global configuration
 extern Config g_config;
 
-// Constants for known TPV mouse event IDs (based on your RE)
-constexpr int MOUSE_EVENT_ID_TPV_YAW = 0x10A;   // Horizontal movement
-constexpr int MOUSE_EVENT_ID_TPV_PITCH = 0x10B; // Vertical movement
-constexpr int MOUSE_EVENT_ID_TPV_ZOOM = 0x10C;  // Mouse Wheel
+// Define mouse event IDs based on RE findings. These were in your snippet:
+constexpr int MOUSE_EVENT_ID_TPV_YAW = 0x10A;   // Example value, adjust if different from global
+constexpr int MOUSE_EVENT_ID_TPV_PITCH = 0x10B; // Example value
+constexpr int MOUSE_EVENT_ID_TPV_ZOOM = 0x10C;  // Example value
 
-// Constants for input event structure offsets (based on your RE)
-// These are relative to 'inputEventPtr'
-constexpr ptrdiff_t TPV_INPUT_EVENT_TYPE_CHECK_BYTE0_OFFSET = 0x00; // Expected value 0x01
-constexpr ptrdiff_t TPV_INPUT_EVENT_TYPE_CHECK_INT4_OFFSET = 0x04;  // Expected value 0x08
-constexpr ptrdiff_t TPV_INPUT_EVENT_ID_OFFSET = 0x10;               // Event ID (e.g., 0x10A, 0x10B)
-constexpr ptrdiff_t TPV_INPUT_EVENT_DELTA_FLOAT_OFFSET = 0x18;      // Float delta for the event
+// Input event structure offsets - these should match what FUN_183924908 expects
+constexpr ptrdiff_t INPUT_EVENT_CHECK_BYTE0 = 0x00; // Expected: 0x01 for this event type
+constexpr ptrdiff_t INPUT_EVENT_CHECK_INT4 = 0x04;  // Expected: 0x08 for this event type
+constexpr ptrdiff_t INPUT_EVENT_ID_OFFSET = 0x10;
+constexpr ptrdiff_t INPUT_EVENT_DELTA_OFFSET = 0x18;
 
-/**
- * @brief Updates the global orbital camera rotation quaternion from the current yaw and pitch Euler angles.
- *        This function also applies pitch clamping based on configuration.
- */
-void update_orbital_camera_rotation_from_euler()
+// Helper function for atomic float addition
+inline void atomic_add_float(std::atomic<float> &atom, float val)
 {
-    // Convert configured degree limits to radians for clamping
-    Logger::getInstance().log(LOG_DEBUG, "UpdateEuler - PRE-CLAMP: g_orbitalCameraPitch=" + std::to_string(g_orbitalCameraPitch));
-    float pitchMinRadians = g_config.orbit_pitch_min_degrees * (M_PI / 180.0f);
-    float pitchMaxRadians = g_config.orbit_pitch_max_degrees * (M_PI / 180.0f);
-    g_orbitalCameraPitch = std::max(pitchMinRadians, std::min(g_orbitalCameraPitch, pitchMaxRadians));
-    Logger::getInstance().log(LOG_DEBUG, "UpdateEuler - POST-CLAMP: g_orbitalCameraPitch=" + std::to_string(g_orbitalCameraPitch) +
-                                             " (MinRad=" + std::to_string(pitchMinRadians) + ", MaxRad=" + std::to_string(pitchMaxRadians) + ")");
-
-    // Clamp the pitch
-    g_orbitalCameraPitch = std::max(pitchMinRadians, std::min(g_orbitalCameraPitch, pitchMaxRadians));
-
-    // Create quaternions for pitch and yaw
-    // Pitch is around the local X-axis of the camera
-    // Yaw is around the world Z-axis (assuming Z is up, adjust if KCD2 uses Y-up for world)
-    DirectX::XMVECTOR qPitch = DirectX::XMQuaternionRotationNormal(DirectX::XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f), g_orbitalCameraPitch);
-    DirectX::XMVECTOR qYaw = DirectX::XMQuaternionRotationNormal(DirectX::XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f), g_orbitalCameraYaw);
-
-    // Combine rotations: Apply world yaw first, then local pitch
-    // R_final = R_pitch * R_yaw
-    // (Order can be experimented with: R_yaw * R_pitch would mean yawing a camera that's already pitched)
-    DirectX::XMVECTOR finalRotationXm = DirectX::XMQuaternionMultiply(qPitch, qYaw);
-
-    // Normalize and store
-    g_orbitalCameraRotation = Quaternion::FromXMVector(DirectX::XMQuaternionNormalize(finalRotationXm));
-
-    Logger::getInstance().log(LOG_DEBUG, "UpdateEuler - FINAL g_orbitalCameraRotation: " + QuatToString(g_orbitalCameraRotation));
+    float old_val = atom.load(std::memory_order_relaxed);
+    float new_val;
+    do
+    {
+        new_val = old_val + val;
+    } while (!atom.compare_exchange_weak(old_val, new_val, std::memory_order_release, std::memory_order_relaxed));
 }
 
-/**
- * @brief Detour function for the TPV camera's input processing.
- *        If orbital camera mode is active, this function hijacks mouse input
- *        to control the orbital camera's yaw, pitch, and distance, preventing
- *        the game from processing these inputs for its default TPV behavior.
- *
- * @param thisPtr Pointer to the C_CameraThirdPerson instance (or similar TPV state object).
- * @param inputEventPtr Pointer to the raw input event structure.
- */
+void update_orbital_camera_rotation_from_euler()
+{
+    std::lock_guard<std::mutex> lock(g_orbitalCameraMutex);
+
+    Logger &logger = Logger::getInstance();
+
+    float currentPitchRad = g_orbitalCameraPitch.load(std::memory_order_relaxed);
+    float currentPitchDeg = currentPitchRad * (180.0f / static_cast<float>(M_PI));
+    float pitchMinDeg_float = static_cast<float>(g_config.orbit_pitch_min_degrees);
+    float pitchMaxDeg_float = static_cast<float>(g_config.orbit_pitch_max_degrees);
+
+    float pitchClampedDeg = std::max(pitchMinDeg_float, std::min(currentPitchDeg, pitchMaxDeg_float));
+    g_orbitalCameraPitch.store(pitchClampedDeg * (static_cast<float>(M_PI) / 180.0f), std::memory_order_relaxed);
+
+    DirectX::XMVECTOR qYaw = DirectX::XMQuaternionRotationNormal(DirectX::XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f), g_orbitalCameraYaw.load(std::memory_order_relaxed));
+    DirectX::XMVECTOR qPitch = DirectX::XMQuaternionRotationNormal(DirectX::XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f), g_orbitalCameraPitch.load(std::memory_order_relaxed));
+
+    DirectX::XMVECTOR finalRotationXm = DirectX::XMQuaternionMultiply(qPitch, qYaw);
+    g_orbitalCameraRotation = Quaternion::FromXMVector(DirectX::XMQuaternionNormalize(finalRotationXm));
+
+    // Conditional logging for debugging (reduce frequency)
+    // static int log_count_euler = 0;
+    // if (logger.isDebugEnabled() && (++log_count_euler % 60 == 0)) {
+    //     logger.log(LOG_DEBUG, "UpdateEuler: YawRad=" + std::to_string(g_orbitalCameraYaw.load()) +
+    //                           " PitchRadClamped=" + std::to_string(g_orbitalCameraPitch.load()) + " (~" + std::to_string(pitchClampedDeg) + " deg) " +
+    //                           " FinalQuat=" + QuatToString(g_orbitalCameraRotation));
+    // }
+}
 
 void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEventPtr)
 {
     Logger &logger = Logger::getInstance();
+    bool orbitalCurrentlyActive = g_orbitalModeActive.load(std::memory_order_relaxed);
 
-    if (g_nativeOrbitCVarsEnabled.load())
-    { // If game's native orbit is supposed to be active
-        if (fpTpvCameraInputOriginal)
-        {
-            fpTpvCameraInputOriginal(thisPtr, inputEventPtr); // Let game handle ALL TPV input
-        }
-        return; // Do nothing else in this hook
-    }
-
-    if (!g_config.enable_camera_profiles && !g_config.enable_orbital_camera_mode)
-    { // Early exit if neither feature needs this hook
+    if (g_nativeOrbitCVarsEnabled.load(std::memory_order_relaxed))
+    { // Native CVar test mode
         if (fpTpvCameraInputOriginal)
             fpTpvCameraInputOriginal(thisPtr, inputEventPtr);
         return;
     }
 
-    // Orbital Mode Logic
-    if (g_config.enable_orbital_camera_mode && g_orbitalModeActive.load())
+    if (!isMemoryReadable(inputEventPtr, INPUT_EVENT_DELTA_OFFSET + sizeof(float)))
     {
-        if (!isMemoryReadable(inputEventPtr, TPV_INPUT_EVENT_DELTA_FLOAT_OFFSET + sizeof(float)))
+        if (fpTpvCameraInputOriginal)
+            fpTpvCameraInputOriginal(thisPtr, inputEventPtr);
+        return;
+    }
+
+    unsigned char eventByte0 = *reinterpret_cast<unsigned char *>(inputEventPtr + INPUT_EVENT_CHECK_BYTE0);
+    int eventInt4 = *reinterpret_cast<int *>(inputEventPtr + INPUT_EVENT_CHECK_INT4);
+    int eventID = *reinterpret_cast<int *>(inputEventPtr + INPUT_EVENT_ID_OFFSET);
+    float deltaFromEvent = *reinterpret_cast<float *>(inputEventPtr + INPUT_EVENT_DELTA_OFFSET);
+
+    // --- Start: Combined Logging and Hijacking Logic for Orbital Mode ---
+    if (g_config.enable_orbital_camera_mode && orbitalCurrentlyActive)
+    {
+        // Check if it's the specific TPV mouse event type
+        if (eventByte0 == 0x01 && eventInt4 == 0x08) // VERIFY THIS PRE-FILTER FOR KCD2 MOUSE LOOK
         {
-            if (fpTpvCameraInputOriginal)
-                fpTpvCameraInputOriginal(thisPtr, inputEventPtr);
-            return;
-        }
+            bool inputWasHijacked = false;
+            bool eulerAnglesNeedUpdate = false;
 
-        unsigned char eventByte0 = *reinterpret_cast<unsigned char *>(inputEventPtr + TPV_INPUT_EVENT_TYPE_CHECK_BYTE0_OFFSET);
-        int eventInt4 = *reinterpret_cast<int *>(inputEventPtr + TPV_INPUT_EVENT_TYPE_CHECK_INT4_OFFSET);
-
-        if (eventByte0 == 0x01 && eventInt4 == 0x08)
-        {
-            int eventID = *reinterpret_cast<int *>(inputEventPtr + TPV_INPUT_EVENT_ID_OFFSET);
-            float deltaFromEvent = *reinterpret_cast<float *>(inputEventPtr + TPV_INPUT_EVENT_DELTA_FLOAT_OFFSET);
-            bool inputHijacked = false;
-            bool eulerAngleChanged = false; // Flag to see if we need to update combined quat
-
-            // Log BEFORE switch
-            logger.log(LOG_DEBUG, "Detour_TpvInputProcess (Orbital Active): Received EventID=" + format_hex(eventID, 4) + " Delta=" + std::to_string(deltaFromEvent));
+            // Log the event *before* deciding to hijack
+            // static int pre_hijack_log_count = 0;
+            // if (logger.isDebugEnabled() && (++pre_hijack_log_count % 10 == 0) ) { // Log less
+            //     logger.log(LOG_DEBUG, "TPV_INPUT_ORBITAL_CHECK: EventID=" + format_hex(eventID) + " Delta=" + std::to_string(deltaFromEvent));
+            // }
 
             switch (eventID)
             {
-            case MOUSE_EVENT_ID_TPV_YAW:
-                if (std::abs(deltaFromEvent) > 0.0001f)
-                { // Only update if delta is significant
-                    g_orbitalCameraYaw += deltaFromEvent * g_config.orbit_sensitivity_yaw;
-                    eulerAngleChanged = true;
+            case MOUSE_EVENT_ID_TPV_YAW: // Use your VERIFIED ID for KCD2
+                // logger.log(LOG_DEBUG, "DETECTED KCD2 YAW EVENT: ID=" + format_hex(eventID) + " Delta=" + std::to_string(deltaFromEvent));
+
+                if (std::abs(deltaFromEvent) > 1e-5f)
+                {
+                    atomic_add_float(g_orbitalCameraYaw, deltaFromEvent * g_config.orbit_sensitivity_yaw);
+                    eulerAnglesNeedUpdate = true;
                 }
-                inputHijacked = true;
+                inputWasHijacked = true;
                 break;
-            case MOUSE_EVENT_ID_TPV_PITCH:
-                if (std::abs(deltaFromEvent) > 0.0001f)
-                { // Only update if delta is significant
-                    float pitchDelta = deltaFromEvent;
+            case MOUSE_EVENT_ID_TPV_PITCH: // Use your VERIFIED ID for KCD2
+                // logger.log(LOG_DEBUG, "DETECTED KCD2 PITCH EVENT: ID=" + format_hex(eventID) + " Delta=" + std::to_string(deltaFromEvent));
+                if (std::abs(deltaFromEvent) > 1e-5f)
+                {
+                    float pitchAmount = deltaFromEvent * g_config.orbit_sensitivity_pitch;
                     if (g_config.orbit_invert_pitch)
-                        pitchDelta = -pitchDelta;
-                    g_orbitalCameraPitch -= pitchDelta * g_config.orbit_sensitivity_pitch;
-                    eulerAngleChanged = true;
+                        pitchAmount = -pitchAmount;
+                    atomic_add_float(g_orbitalCameraPitch, -pitchAmount);
+                    eulerAnglesNeedUpdate = true;
                 }
-                inputHijacked = true;
+                inputWasHijacked = true;
                 break;
-            case MOUSE_EVENT_ID_TPV_ZOOM: // 0x10C
-                g_orbitalCameraDistance -= deltaFromEvent * g_config.orbit_zoom_sensitivity;
-                g_orbitalCameraDistance = std::max(g_config.orbit_min_distance, std::min(g_orbitalCameraDistance, g_config.orbit_max_distance));
-                inputHijacked = true;
-                // No eulerAngleChanged = true; here
+            case MOUSE_EVENT_ID_TPV_ZOOM: // Use your VERIFIED ID for KCD2
+                // logger.log(LOG_DEBUG, "DETECTED KCD2 ZOOM EVENT: ID=" + format_hex(eventID) + " Delta=" + std::to_string(deltaFromEvent));
+                if (std::abs(deltaFromEvent) > 1e-5f)
+                {
+                    float currentDist = g_orbitalCameraDistance.load(std::memory_order_relaxed);
+                    float newDist = currentDist - (deltaFromEvent * g_config.orbit_zoom_sensitivity);
+                    newDist = std::max(static_cast<float>(g_config.orbit_min_distance), std::min(newDist, static_cast<float>(g_config.orbit_max_distance)));
+                    g_orbitalCameraDistance.store(newDist, std::memory_order_relaxed);
+                }
+                inputWasHijacked = true;
                 break;
             default:
-                // Not an event ID we handle for orbital controls
+                // Not a mouse look/zoom event we explicitly handle for orbital mode.
+                // Let it fall through to call original.
                 break;
             }
 
-            if (inputHijacked)
+            if (inputWasHijacked)
             {
-                if (eulerAngleChanged)
-                {                                                // Only update if yaw or pitch changed
-                    update_orbital_camera_rotation_from_euler(); // Called ONCE if needed
+                if (eulerAnglesNeedUpdate)
+                {
+                    update_orbital_camera_rotation_from_euler();
                 }
-                logger.log(LOG_DEBUG, "Detour_TpvInputProcess: HIJACKED Event ID " + format_hex(eventID, 4) + ". Suppressing original.");
-                return; // Suppress original
+                // static int hijack_log_count = 0;
+                // if (logger.isDebugEnabled() && (++hijack_log_count % 30 == 0) ) { // Log less
+                //     logger.log(LOG_DEBUG, "TPVInputHook (Orbital Active): HIJACKED EventID=" + format_hex(eventID) + ". New Yaw=" + std::to_string(g_orbitalCameraYaw.load()) + " Pitch=" + std::to_string(g_orbitalCameraPitch.load()));
+                // }
+                // logger.log(LOG_INFO, "ORBITAL_INPUT_HIJACK: EventID=" + format_hex(eventID) + " WAS HIJACKED.");
+                return; // CRITICAL: Suppress original game function call for these hijacked events.
             }
         }
-        // If not a hijacked mouse event but orbital mode is on, still call original for other inputs.
+        // If orbital mode is active, but the event was not one we hijack (e.g. controller input if it uses same path, or different eventByte0/Int4)
+        // then we should still call the original to let the game handle those other inputs.
         if (fpTpvCameraInputOriginal)
+        {
             fpTpvCameraInputOriginal(thisPtr, inputEventPtr);
-        // And then (importantly), after original runs (even if it did nothing due to no mouse input),
-        // update g_latestTpvCameraForward for NON-ORBITAL mode's use of player state.
-        // This part is tricky: if orbital is on, g_latestTpvCameraForward shouldn't be from the (stale) game camera.
-        // Let's skip updating g_latestTpvCameraForward if orbital is on and input was NOT hijacked,
-        // as the Detour_PlayerStateCopy will use g_orbitalCameraRotation's forward instead.
+        }
+        else
+        {
+            logger.log(LOG_ERROR, "TPVInputHook: Original function pointer NULL! Cannot process unhijacked event in orbital mode.");
+        }
+        // No g_latestTpvCameraForward update here if orbital is active, Detour_TpvCameraUpdate will set it based on orbital cam.
+        return; // End of orbital mode specific path
     }
-    else // Orbital Mode is OFF (or feature disabled) - Standard TPV behaviour
-    {
-        if (fpTpvCameraInputOriginal)
-        {
-            fpTpvCameraInputOriginal(thisPtr, inputEventPtr); // Let game process input normally for its TPV cam
-        }
-        else
-        {
-            logger.log(LOG_ERROR, "Detour_TpvInputProcess: Original function pointer NULL!");
-            return;
-        }
+    // --- End: Orbital Mode Logic ---
 
-        // After original game function has updated its TPV camera state (thisPtr+0x10),
-        // read it to update g_latestTpvCameraForward.
-        // This is for Detour_PlayerStateCopy when orbital is OFF.
-        if (isMemoryReadable((void *)(thisPtr + Constants::TPV_CAMERA_QUATERNION_OFFSET), sizeof(Quaternion)))
+    // --- Standard Mode (Orbital Disabled/Not Active) or Fallback Logging ---
+    // If orbital mode is OFF, OR if it's ON but the event wasn't of the specific type we check (eventByte0/Int4):
+
+    // General Logging for any TPV input when not in full orbital hijack
+    // (This includes the very first logs you had, but now after orbital hijack attempt)
+    // static int passthrough_log_count = 0;
+    // if (logger.isDebugEnabled() && (++passthrough_log_count % (orbitalCurrentlyActive ? 200:30) == 0) ) { // Log less if orbital on but not hijacking this event
+    //      logger.log(LOG_DEBUG, "TPV_INPUT_PASSTHROUGH (Orbital " + std::string(orbitalCurrentlyActive?"ON":"OFF") +
+    //                           "): Byte0=0x" + format_hex(eventByte0) +
+    //                           " Int4=0x" + format_hex(eventInt4) +
+    //                           " EventID=" + format_hex(eventID) +
+    //                           " Delta=" + std::to_string(deltaFromEvent) );
+    // }
+
+    if (fpTpvCameraInputOriginal)
+    {
+        fpTpvCameraInputOriginal(thisPtr, inputEventPtr);
+    }
+    else
+    {
+        logger.log(LOG_ERROR, "TPVInputHook: Original function pointer NULL! Cannot process event in standard mode.");
+        return;
+    }
+
+    // Update g_latestTpvCameraForward based on game's TPV camera state *only if orbital is NOT active*
+    if (!orbitalCurrentlyActive)
+    {
+        if (thisPtr != 0 && isMemoryReadable(reinterpret_cast<void *>(thisPtr + Constants::TPV_CAMERA_QUATERNION_OFFSET), sizeof(Quaternion)))
         {
-            float *quatData = reinterpret_cast<float *>(thisPtr + Constants::TPV_CAMERA_QUATERNION_OFFSET);
-            Quaternion gameTpvCamRot(quatData[0], quatData[1], quatData[2], quatData[3]);
-            g_latestTpvCameraForward = gameTpvCamRot.Rotate(Vector3(0.0f, 1.0f, 0.0f)); // Y-forward
-            g_latestTpvCameraForward.Normalize();
-        }
-        else
-        {
-            // logger.log(LOG_WARNING, "Detour_TpvInputProcess (Non-Orbital): Cannot read game TPV quat for g_latestTpvCameraForward.");
+            Quaternion gameTpvCamRot = *reinterpret_cast<Quaternion *>(thisPtr + Constants::TPV_CAMERA_QUATERNION_OFFSET);
+            // Assuming game's TPV camera Y-axis is forward, Z-axis is up for rotation basis.
+            Vector3 forwardVec = gameTpvCamRot.Rotate(Vector3(0.0f, 1.0f, 0.0f));
+            g_latestTpvCameraForward = forwardVec.Normalized();
         }
     }
 }

@@ -95,11 +95,11 @@ inline std::string getRuntimeDirectory()
 }
 
 // Helper to log quaternion
-inline static std::string QuatToString(const Quaternion &q)
-{
+inline std::string QuatToString(const ::Quaternion &q)
+{ // Use :: if Quaternion is global
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(4)
-        << "Q(" << q.x << ", " << q.y << ", " << q.z << ", " << q.w << ")";
+        << "Q(X=" << q.x << " Y=" << q.y << " Z=" << q.z << " W=" << q.w << ")"; // Explicit W
     return oss.str();
 }
 

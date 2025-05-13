@@ -68,17 +68,18 @@ struct Config
     float spring_strength;
     float spring_damping;
 
-    // Orbital camera
-    bool enable_orbital_camera_mode; // Master toggle for this feature
+    // Orbital Camera Settings
+    bool enable_orbital_camera_mode;
     std::vector<int> orbital_mode_toggle_keys;
     float orbit_sensitivity_yaw;
     float orbit_sensitivity_pitch;
-    bool orbit_invert_pitch; // For Y-axis inversion option
+    bool orbit_invert_pitch;
     float orbit_zoom_sensitivity;
+    float orbit_default_distance;
     float orbit_min_distance;
     float orbit_max_distance;
-    float orbit_pitch_min_degrees; // e.g., -85
-    float orbit_pitch_max_degrees; // e.g., +85
+    float orbit_pitch_min_degrees; // Pitch clamp min (e.g., -80 degrees)
+    float orbit_pitch_max_degrees; // Pitch clamp max (e.g., 80 degrees)
 
     /**
      * @brief Default constructor. Initializes members to default states
@@ -98,14 +99,15 @@ struct Config
                spring_strength(10.0f),
                spring_damping(0.8f),
                enable_orbital_camera_mode(false),
-               orbit_sensitivity_yaw(0.002f),
-               orbit_sensitivity_pitch(0.002f),
+               orbit_sensitivity_yaw(0.005f),
+               orbit_sensitivity_pitch(0.005f),
                orbit_invert_pitch(false),
-               orbit_zoom_sensitivity(0.002f),
+               orbit_zoom_sensitivity(0.01f),
+               orbit_default_distance(5.0f),
                orbit_min_distance(1.0f),
                orbit_max_distance(15.0f),
-               orbit_pitch_min_degrees(-85.0f),
-               orbit_pitch_max_degrees(85.0f)
+               orbit_pitch_min_degrees(-80.0f),
+               orbit_pitch_max_degrees(80.0f)
     {
     }
 };

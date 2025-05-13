@@ -107,7 +107,8 @@
     "future": "cpp",
     "valarray": "cpp",
     "any": "cpp",
-    "ranges": "cpp"
+    "ranges": "cpp",
+    "syncstream": "cpp"
   },
   "C_Cpp_Runner.cCompilerPath": "gcc",
   "C_Cpp_Runner.cppCompilerPath": "g++",

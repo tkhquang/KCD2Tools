@@ -1,3 +1,5 @@
+
+
 /**
  * @file constants.h
  * @brief Central definitions for constants used throughout the mod.
@@ -11,7 +13,10 @@
 
 #include <string>
 #include <math.h>
-#include "version.h" // Mod versioning definitions
+#include <DirectXMath.h>
+
+#include "math_utils.h"
+#include "version.h"
 
 /**
  * @namespace Constants
@@ -154,6 +159,8 @@ namespace Constants
     constexpr ptrdiff_t PLAYER_STATE_POSITION_OFFSET = 0x0;  // Verified (part of first MOVUPS)
     constexpr ptrdiff_t PLAYER_STATE_ROTATION_OFFSET = 0x10; // Verified
     constexpr size_t PLAYER_STATE_SIZE = 0xD4;               // Verified from assembly (212 bytes)
+    // For CEntity World Transform Member (relative to CEntity* base)
+    constexpr ptrdiff_t OFFSET_ENTITY_WORLD_MATRIX_MEMBER = 0x58;
 
     // Offsets relative to the outputPosePtr (RDX) in FUN_18392509c
     // Standard Pos(XYZ) followed by Quat(XYZW).
@@ -176,6 +183,67 @@ namespace Constants
 
     /** @brief Name of the target game module. */
     constexpr const char *MODULE_NAME = "WHGame.dll";
+
+    // --- GAME STRUCTURES (Minimal Definitions) ---
+    struct Matrix34f
+    {
+        float m[3][4]; // Stores matrix row by row. m[0] is row0, etc.
+
+        void Set(const ::Quaternion &q_orientation, const ::Vector3 &v_position)
+        {
+            // Assumes CryEngine default: Y-Forward, Z-Up, X-Right for entity's local axes
+            // Matrix rows store these basis vectors in world space.
+            ::Vector3 R = q_orientation.Rotate(::Vector3(1.0f, 0.0f, 0.0f)); // Local X axis (Right)
+            ::Vector3 F = q_orientation.Rotate(::Vector3(0.0f, 1.0f, 0.0f)); // Local Y axis (Forward)
+            ::Vector3 U = q_orientation.Rotate(::Vector3(0.0f, 0.0f, 1.0f)); // Local Z axis (Up)
+
+            // Row 0: Right vector components + Position X
+            m[0][0] = R.x;
+            m[0][1] = R.y;
+            m[0][2] = R.z;
+            m[0][3] = v_position.x;
+            // Row 1: Forward vector components + Position Y
+            m[1][0] = F.x;
+            m[1][1] = F.y;
+            m[1][2] = F.z;
+            m[1][3] = v_position.y;
+            // Row 2: Up vector components + Position Z
+            m[2][0] = U.x;
+            m[2][1] = U.y;
+            m[2][2] = U.z;
+            m[2][3] = v_position.z;
+        }
+        float *AsFloatPtr() { return &m[0][0]; }
+    };
+
+    struct CEntity
+    {
+        virtual ~CEntity() = default;
+        virtual uint32_t GetId() { return 0; };
+        virtual void UnknownVFunc1() {};
+        virtual class EntityClass *GetClass() { return nullptr; };
+        virtual void UnknownVFunc3() {};
+        virtual void UnknownVFunc4() {};
+        virtual void UnknownVFunc5() {};
+        virtual void UnknownVFunc6() {};
+        virtual void UnknownVFunc7() {};
+        virtual void UnknownVFunc8() {};
+        virtual void UnknownVFunc9() {};
+        virtual void UnknownVFunc10() {};
+        virtual void UnknownVFunc11() {};
+        virtual void UnknownVFunc12() {};
+        virtual void UnknownVFunc13() {};
+        virtual void UnknownVFunc14() {};
+        virtual void UnknownVFunc15() {};
+        virtual void UnknownVFunc16() {};
+        virtual const char *GetName() { return ""; }; // VTable index 18
+        // Based on common CryEngine entity layouts & SetWorldTM usage, Matrix34 is often around 0x50-0x60
+        // Let's assume the Matrix34f is at OFFSET_ENTITY_WORLD_MATRIX_MEMBER (0x58)
+        // Padding calculation: 0x58 (target offset) - 0x8 (vtable ptr size) = 0x50 (80 bytes)
+        char pading_to_matrix[OFFSET_ENTITY_WORLD_MATRIX_MEMBER - sizeof(void *)];
+        Matrix34f m_worldTransform;
+        // Remainder of structure (if any known members follow the matrix)
+    };
 
 } // namespace Constants
 #endif // CONSTANTS_H
