@@ -2,6 +2,25 @@
 
 All notable changes to the TPVToggle mod will be documented in this file.
 
+## [0.3.7] - Camera Sensitivity Control System
+
+### Added
+- **Camera Sensitivity Control System**
+  - Independent pitch and yaw sensitivity multipliers
+  - Configurable vertical pitch limits to restrict camera angles (WIP)
+  - New `[CameraSensitivity]` section in configuration
+  - Updated third-party licenses documentation
+
+### Configuration
+New INI settings under `[CameraSensitivity]`:
+```ini
+PitchSensitivity = 1.0      ; Vertical sensitivity (0.0-2.0)
+YawSensitivity = 1.0        ; Horizontal sensitivity (0.0-2.0)
+EnablePitchLimits = false   ; Enable pitch angle limits (WIP, has bugs)
+PitchMin = -180.0           ; Minimum pitch angle in degrees
+PitchMax = 180.0            ; Maximum pitch angle in degrees
+```
+
 ## [0.3.6] - Camera Profile System and Hold-to-Scroll Feature
 
 ### New Features
@@ -129,6 +148,7 @@ All notable changes to the TPVToggle mod will be documented in this file.
 - Logging system for troubleshooting
 KCD
 
+[0.3.7]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.3.7
 [0.3.6]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.3.6
 [0.3.5]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.3.5
 [0.3.3]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.3.3

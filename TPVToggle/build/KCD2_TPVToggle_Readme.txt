@@ -1,5 +1,5 @@
 KINGDOM COME: DELIVERANCE II - THIRD PERSON VIEW TOGGLE
-Version 0.3.6
+Version 0.3.7
 
 INSTALLATION:
 1. Extract all files to: <KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/
