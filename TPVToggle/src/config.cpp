@@ -208,25 +208,6 @@ Config loadConfig(const std::string &ini_filename)
     ini.SetUnicode(false);  // Assuming ASCII/MBCS INI file
     ini.SetMultiKey(false); // Don't allow duplicate keys in sections
 
-    // Apply hardcoded defaults explicitly BEFORE loading INI
-    // (Some defaults are now set in Config constructor, but can reiterate here)
-    config.log_level = Constants::DEFAULT_LOG_LEVEL;
-    config.enable_overlay_feature = true;
-    config.tpv_fov_degrees = -1.0f;
-    // Camera profile defaults (might be better in constructor)
-    config.enable_camera_profiles = false;
-    config.offset_adjustment_step = 0.05f;
-    config.transition_duration = 0.5f;
-    config.use_spring_physics = false;
-    config.spring_strength = 8.0f; // Consistent default
-    config.spring_damping = 0.7f;  // Consistent default
-    // Camera sensitivity defaults
-    config.tpv_pitch_sensitivity = 0.7f;
-    config.tpv_yaw_sensitivity = 1.0f;
-    config.tpv_pitch_limits_enabled = false;
-    config.tpv_pitch_min = -80.0f;
-    config.tpv_pitch_max = 80.0f;
-
     SI_Error rc = ini.LoadFile(ini_path.c_str());
     if (rc < 0)
     {
