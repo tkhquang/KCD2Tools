@@ -308,7 +308,9 @@ Config loadConfig(const std::string &ini_filename)
     // Validate Log Level
     std::string upper_log_level = config.log_level;
     std::transform(upper_log_level.begin(), upper_log_level.end(), upper_log_level.begin(), ::toupper);
-    if (upper_log_level == "DEBUG")
+    if (upper_log_level == "TRACE")
+        config.log_level = "TRACE";
+    else if (upper_log_level == "DEBUG")
         config.log_level = "DEBUG";
     else if (upper_log_level == "INFO")
         config.log_level = "INFO";
