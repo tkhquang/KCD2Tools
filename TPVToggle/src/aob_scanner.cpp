@@ -201,7 +201,11 @@ BYTE *FindPattern(BYTE *start_address, size_t region_size,
 
         if (match_found)
         {
-            logger.log(LOG_INFO, "FindPattern: Match found at address: " + format_address(reinterpret_cast<uintptr_t>(current_pos)));
+            uintptr_t absolute_match_address = reinterpret_cast<uintptr_t>(current_pos);
+            uintptr_t rva = absolute_match_address - reinterpret_cast<uintptr_t>(start_address);
+            logger.log(LOG_INFO, "FindPattern: Match found at address: " +
+                                     format_address(absolute_match_address) +
+                                     " (RVA: " + format_address(rva) + ")");
             return current_pos;
         }
     }
