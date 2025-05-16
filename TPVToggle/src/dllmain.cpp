@@ -282,7 +282,9 @@ DWORD WINAPI MainThread(LPVOID hModule_param)
 
         // Apply log level from config
         LogLevel log_level = LOG_INFO;
-        if (g_config.log_level == "DEBUG")
+        if (g_config.log_level == "TRACE")
+            log_level = LOG_TRACE;
+        else if (g_config.log_level == "DEBUG")
             log_level = LOG_DEBUG;
         else if (g_config.log_level == "WARNING")
             log_level = LOG_WARNING;
