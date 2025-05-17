@@ -2,6 +2,15 @@
 
 All notable changes to the TPVToggle mod will be documented in this file.
 
+## [0.4.0] - Improved UI Overlay Detection
+
+- Replaced polling-based overlay detection with direct hooks into the game's UI functions
+- Added direct hooks for UI overlay show/hide events
+- Removed legacy overlay polling thread
+- More responsive and reliable camera switching when menus appear
+- UI Menu hooks to detect in-game menu (pause) state
+- Automatic camera input suppression when game menu is active
+
 ## [0.3.7] - Camera Sensitivity Control System
 
 ### Added
@@ -148,6 +157,7 @@ PitchMax = 180.0            ; Maximum pitch angle in degrees
 - Logging system for troubleshooting
 KCD
 
+[0.4.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.4.0
 [0.3.7]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.3.7
 [0.3.6]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.3.6
 [0.3.5]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.3.5
