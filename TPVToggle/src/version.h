@@ -16,8 +16,8 @@
 //            >>> MODIFY ONLY THESE VALUES WHEN UPDATING VERSION <<<          //
 // ========================================================================== //
 #define VERSION_MAJOR 0
-#define VERSION_MINOR 3
-#define VERSION_PATCH 7
+#define VERSION_MINOR 4
+#define VERSION_PATCH 0
 // ========================================================================== //
 
 // Helper macros for stringification - DO NOT MODIFY
