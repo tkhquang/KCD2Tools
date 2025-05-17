@@ -1,4 +1,5 @@
-## Minor Fixes
+## [Title for next release]
 
-- Fixed conflicting logic when overlays open
-- Cleanup leftover code
+- New feature
+- Bug fix
+- Improvement
