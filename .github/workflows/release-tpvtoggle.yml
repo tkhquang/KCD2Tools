@@ -85,11 +85,11 @@ jobs:
         run: |
           # Create a temporary file for the changelog to avoid command line escaping issues
           # Replace %0A with actual newlines using PowerShell's backtick escape
-          $changelogContent = '${{ steps.read-changelog.outputs.CHANGELOG }}' -replace '%0A', "`n"
+          $changelogContent = "${{ steps.read-changelog.outputs.CHANGELOG }}" -replace '%0A', "`n"
           Set-Content -Path "temp_changelog.txt" -Value $changelogContent
 
           # Ensure the title passed doesn't have unwanted characters
-          $safeTitle = '${{ steps.determine-title.outputs.TITLE }}'
+          $safeTitle = "${{ steps.determine-title.outputs.TITLE }}"
 
           # Run the version updater script with changelog from file
           echo "Running Python script with title: $safeTitle" # Debugging line
@@ -196,24 +196,27 @@ jobs:
       - name: Prepare release body
         id: prepare-release
         run: |
-          # Replace the placeholder '%0A' correctly for multiline body
-          $changelog = '${{ steps.read-changelog.outputs.CHANGELOG }}' -replace '%0A', "`n"
-          # Trim title just in case
-          $releaseTitle = '${{ steps.determine-title.outputs.TITLE }}'
-          $releaseBody = @"
+          # Write the changelog to a file first to avoid any issues with special characters
+          "${{ steps.read-changelog.outputs.CHANGELOG }}" -replace '%0A', "`n" | Out-File -FilePath "changelog_content.txt" -Encoding utf8
+
+          # Read the changelog from file
+          $changelog = Get-Content -Path "changelog_content.txt" -Raw
+
+          # Create the release body
+          $releaseBody = @'
           # Kingdom Come: Deliverance II - Third Person View Toggle
 
-          ## Release ${{ env.VERSION_TAG }} - $releaseTitle
+          ## Release {0} - {1}
 
           This mod enables toggling between first-person and third-person views in Kingdom Come: Deliverance II using customizable hotkeys.
 
           ## Changelog
-          $changelog
+          {2}
 
           ### Installation
 
           1. Simply extract all files to your game directory:
-             `<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/`
+            `<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/`
           2. Launch the game and press F3 (default) to toggle the camera view
 
           ### Note
@@ -227,16 +230,24 @@ jobs:
 
           Edit the `KCD2_TPVToggle.ini` file to customize hotkeys and other settings.
 
-          See the [README](https://github.com/${{ github.repository }}/blob/main/TPVToggle/README.md) for detailed instructions.
-          "@
+          See the [README](https://github.com/{3}/blob/main/TPVToggle/README.md) for detailed instructions.
+          '@
+
+          # Format the release body with the values
+          $releaseBody = $releaseBody -f $env:VERSION_TAG, "${{ steps.determine-title.outputs.TITLE }}", $changelog, "${{ github.repository }}"
 
           # Add pre-release notice if applicable
           if ('${{ inputs.prerelease }}' -eq 'true') {
-            $releaseBody = "## ⚠️ PRE-RELEASE VERSION ⚠️`n`nThis is a pre-release build for testing purposes. It may contain bugs or incomplete features.`n`n" + $releaseBody
+            $preReleaseNotice = @'
+          ## ⚠️ PRE-RELEASE VERSION ⚠️
+
+          This is a pre-release build for testing purposes. It may contain bugs or incomplete features.
+
+          '@
+            $releaseBody = $preReleaseNotice + $releaseBody
           }
 
-          # Escape characters that might interfere with JSON or downstream processing? Unlikely here, but good practice.
-          # For action-gh-release, raw multiline text is fine for body_path.
+          # Write to file for the release action
           Set-Content -Path "release_body.txt" -Value $releaseBody -Encoding UTF8
           echo "RELEASE_BODY_PATH=release_body.txt" >> $env:GITHUB_OUTPUT
         shell: pwsh
