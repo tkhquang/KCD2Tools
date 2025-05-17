@@ -1,5 +1,6 @@
-## [Title for next release]
+## Improved UI Overlay Detection
 
-- New feature
-- Bug fix
-- Improvement
+- Replaced polling-based overlay detection with direct hooks into the game's UI functions
+- Added direct hooks for UI overlay show/hide events
+- Removed legacy overlay polling thread
+- More responsive and reliable camera switching when menus appear

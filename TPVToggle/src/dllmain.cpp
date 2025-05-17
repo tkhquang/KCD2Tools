@@ -15,11 +15,11 @@
 #include "global_state.h"
 #include "camera_profile.h"
 #include "camera_profile_thread.h"
-#include "hooks/overlay_hook.h"
 #include "hooks/event_hooks.h"
 #include "hooks/fov_hook.h"
 #include "hooks/tpv_camera_hook.h"
 #include "hooks/tpv_input_hook.h"
+#include "hooks/ui_overlay_hooks.h"
 // #include "hooks/entity_hooks.h"
 
 #include "MinHook.h"
@@ -50,39 +50,36 @@ void cleanupResources()
         Sleep(100); // Allow threads time to process exit signal
     }
 
-    // Wait for threads to complete (with timeout)
-    HANDLE threads[] = {g_hMonitorThread, g_hOverlayThread};
-    DWORD thread_count = 0;
+    // Wait for main monitor thread to complete (with timeout)
     if (g_hMonitorThread)
-        threads[thread_count++] = g_hMonitorThread;
-    if (g_hOverlayThread)
-        threads[thread_count++] = g_hOverlayThread;
-
-    if (thread_count > 0)
     {
-        DWORD wait_result = WaitForMultipleObjects(thread_count, threads, TRUE, 2000); // 2 second timeout
+        DWORD wait_result = WaitForSingleObject(g_hMonitorThread, 2000); // 2 second timeout
         if (wait_result == WAIT_TIMEOUT)
         {
-            logger.log(LOG_WARNING, "Cleanup: Thread wait timeout - some threads may not have exited cleanly");
+            logger.log(LOG_WARNING, "Cleanup: Monitor thread wait timeout - thread may not have exited cleanly");
         }
-    }
 
-    // Clean up thread handles
-    if (g_hMonitorThread)
-    {
         CloseHandle(g_hMonitorThread);
         g_hMonitorThread = NULL;
     }
-    if (g_hOverlayThread)
+
+    // Clean up camera profile thread if active
+    if (g_hCameraProfileThread)
     {
-        CloseHandle(g_hOverlayThread);
-        g_hOverlayThread = NULL;
+        DWORD wait_result = WaitForSingleObject(g_hCameraProfileThread, 2000);
+        if (wait_result == WAIT_TIMEOUT)
+        {
+            logger.log(LOG_WARNING, "Cleanup: Camera profile thread wait timeout");
+        }
+
+        CloseHandle(g_hCameraProfileThread);
+        g_hCameraProfileThread = NULL;
     }
 
     // Clean up hooks and interfaces in reverse order of initialization
+    cleanupUiOverlayHooks();
     cleanupEventHooks();
     cleanupFovHook();
-    cleanupOverlayHook();
     cleanupGameInterface();
     cleanupTpvCameraHook();
     cleanupTpvInputHook();
@@ -174,22 +171,22 @@ bool initializeHooks()
     //     logger.log(LOG_WARNING, "Entity Hooks (for Player & SetWorldTM) initialization failed.");
     // }
 
-    // Initialize optional overlay system
+    // Initialize UI Overlay hooks for overlay detection
     if (g_config.enable_overlay_feature)
     {
-        if (!initializeOverlayHook(g_ModuleBase, g_ModuleSize))
+        if (!initializeUiOverlayHooks(g_ModuleBase, g_ModuleSize))
         {
-            logger.log(LOG_WARNING, "Overlay hook initialization failed - overlay features disabled");
+            logger.log(LOG_ERROR, "UI Overlay hooks initialization failed - overlay features disabled");
             g_config.enable_overlay_feature = false;
         }
-
-        if (g_config.enable_overlay_feature)
+        else
         {
+            logger.log(LOG_INFO, "Using direct UI overlay hooks for overlay detection");
+
+            // Initialize event hooks for scroll input filtering - still needed even with direct hooks
             if (!initializeEventHooks(g_ModuleBase, g_ModuleSize))
             {
                 logger.log(LOG_WARNING, "Event hooks initialization failed - input filtering disabled");
-                cleanupOverlayHook();
-                g_config.enable_overlay_feature = false;
             }
         }
     }
@@ -221,10 +218,10 @@ bool initializeHooks()
 }
 
 /**
- * @brief Creates and starts the monitor threads.
- * @return true if all required threads started successfully, false otherwise.
+ * @brief Creates and starts the main monitor thread.
+ * @return true if main thread started successfully, false otherwise.
  */
-bool startMonitorThreads()
+bool startMonitorThread()
 {
     Logger &logger = Logger::getInstance();
 
@@ -240,7 +237,7 @@ bool startMonitorThreads()
         return false;
     }
 
-    // Start main monitor thread (always required)
+    // Start main monitor thread
     g_hMonitorThread = CreateThread(NULL, 0, MonitorThread, toggle_data, 0, NULL);
     if (!g_hMonitorThread)
     {
@@ -249,17 +246,7 @@ bool startMonitorThreads()
         return false;
     }
 
-    // Start overlay monitor thread (optional)
-    if (g_config.enable_overlay_feature)
-    {
-        g_hOverlayThread = CreateThread(NULL, 0, OverlayMonitorThread, NULL, 0, NULL);
-        if (!g_hOverlayThread)
-        {
-            logger.log(LOG_WARNING, "Failed to create overlay monitor thread - overlay features disabled");
-            g_config.enable_overlay_feature = false;
-        }
-    }
-
+    logger.log(LOG_INFO, "Main monitor thread started successfully");
     return true;
 }
 
@@ -315,10 +302,10 @@ DWORD WINAPI MainThread(LPVOID hModule_param)
             throw std::runtime_error("Hook initialization failed");
         }
 
-        // Start monitor threads
-        if (!startMonitorThreads())
+        // Start monitor thread
+        if (!startMonitorThread())
         {
-            throw std::runtime_error("Failed to start monitor threads");
+            throw std::runtime_error("Failed to start monitor thread");
         }
 
         // Initialize and start camera profile system if enabled

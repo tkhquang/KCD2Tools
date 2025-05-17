@@ -1,6 +1,6 @@
 /**
  * @file toggle_thread.h
- * @brief Header for background threads managing TPV toggle and optional features.
+ * @brief Header for background thread managing TPV toggle.
  */
 #ifndef TOGGLE_THREAD_H
 #define TOGGLE_THREAD_H
@@ -24,8 +24,7 @@ extern std::atomic<bool> g_overlayTpvRestoreRequest;
 extern std::atomic<bool> g_wasTpvBeforeOverlay;
 extern std::atomic<bool> g_accumulatorWriteNOPped;
 
-// Thread function prototypes
+// Thread function prototype - only main monitor thread is used now
 DWORD WINAPI MonitorThread(LPVOID param);
-DWORD WINAPI OverlayMonitorThread(LPVOID param);
 
 #endif // TOGGLE_THREAD_H

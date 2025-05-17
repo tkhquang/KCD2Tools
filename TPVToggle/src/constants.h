@@ -163,6 +163,29 @@ namespace Constants
     // WHGame.DLL+39250C9 - 48 8B F2              - mov rsi,rdx
     constexpr const char *TPV_CAMERA_UPDATE_AOB_PATTERN = "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 41 56 41 57 48 8D 68 ?? 48 81 EC ?? ?? ?? ?? 0F 29 70 ?? 4C 8B F9 48 8B 0D ?? ?? ?? ?? 48 8B F2";
 
+    // AOB patterns for direct UI overlay hooks
+    // WHGame.DLL+CCF1B4 (HideOverlays):
+    // WHGame.DLL+CCF1B4 - 44 88 44 24 18        - mov [rsp+18],r8b
+    // WHGame.DLL+CCF1B9 - 53                    - push rbx
+    // WHGame.DLL+CCF1BA - 48 83 EC 20           - sub rsp,20 { 32 }
+    // WHGame.DLL+CCF1BE - 0FB6 C2               - movzx eax,dl
+    // WHGame.DLL+CCF1C1 - 48 8B D9              - mov rbx,rcx
+    // WHGame.DLL+CCF1C4 - 48 8D 15 E50DDC02     - lea rdx,[WHGame.DLL+3A8FFB0] { ("HideOverlays") }
+    // WHGame.DLL+CCF1CB - C6 84 08 80000000 01  - mov byte ptr [rax+rcx+00000080],01 { 1 }
+    constexpr const char *UI_OVERLAY_HIDE_AOB_PATTERN =
+        "44 88 44 24 18 53 48 83 EC 20 0F B6 C2 48 8B D9 48 8D 15 ?? ?? ?? ?? C6 84 08 80 00 00 00 01";
+
+    // WHGame.DLL+CCF270 (ShowOverlays):
+    // WHGame.DLL+CCF270 - 44 88 44 24 18        - mov [rsp+18],r8b
+    // WHGame.DLL+CCF275 - 53                    - push rbx
+    // WHGame.DLL+CCF276 - 48 83 EC 20           - sub rsp,20 { 32 }
+    // WHGame.DLL+CCF27A - 0FB6 C2               - movzx eax,dl
+    // WHGame.DLL+CCF27D - 48 8B D9              - mov rbx,rcx
+    // WHGame.DLL+CCF280 - 80 BC 08 80000000 00  - cmp byte ptr [rax+rcx+00000080],00 { 0 }
+    // WHGame.DLL+CCF288 - 74 48                 - je WHGame.DLL+CCF2D2
+    constexpr const char *UI_OVERLAY_SHOW_AOB_PATTERN =
+        "44 88 44 24 18 53 48 83 EC 20 0F B6 C2 48 8B D9 80 BC 08 80 00 00 00 00 74 ??";
+
     // --- AOB Hook Offsets ---
     constexpr int OVERLAY_HOOK_OFFSET = 0;
     constexpr int EVENT_HANDLER_HOOK_OFFSET = 0;
