@@ -20,6 +20,7 @@
 #include "hooks/tpv_camera_hook.h"
 #include "hooks/tpv_input_hook.h"
 #include "hooks/ui_overlay_hooks.h"
+#include "hooks/ui_menu_hooks.h"
 // #include "hooks/entity_hooks.h"
 
 #include "MinHook.h"
@@ -77,6 +78,7 @@ void cleanupResources()
     }
 
     // Clean up hooks and interfaces in reverse order of initialization
+    cleanupUiMenuHooks();
     cleanupUiOverlayHooks();
     cleanupEventHooks();
     cleanupFovHook();
@@ -170,6 +172,16 @@ bool initializeHooks()
     // {
     //     logger.log(LOG_WARNING, "Entity Hooks (for Player & SetWorldTM) initialization failed.");
     // }
+
+    // Initialize UI Menu hooks for menu detection
+    if (!initializeUiMenuHooks(g_ModuleBase, g_ModuleSize))
+    {
+        logger.log(LOG_WARNING, "UI Menu hooks initialization failed - menu detection disabled");
+    }
+    else
+    {
+        logger.log(LOG_INFO, "UI Menu hooks successfully initialized");
+    }
 
     // Initialize UI Overlay hooks for overlay detection
     if (g_config.enable_overlay_feature)

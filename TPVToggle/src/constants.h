@@ -186,8 +186,40 @@ namespace Constants
     constexpr const char *UI_OVERLAY_SHOW_AOB_PATTERN =
         "44 88 44 24 18 53 48 83 EC 20 0F B6 C2 48 8B D9 80 BC 08 80 00 00 00 00 74 ??";
 
+    // --- UI Menu Hook Patterns ---
+    // WHGame.DLL+5457B0 - 48 89 5C 24 10        - mov [rsp+10],rbx
+    // WHGame.DLL+5457B5 - 48 89 74 24 18        - mov [rsp+18],rsi
+    // WHGame.DLL+5457BA - 55                    - push rbp
+    // WHGame.DLL+5457BB - 57                    - push rdi
+    // WHGame.DLL+5457BC - 41 56                 - push r14
+    // [snip]
+    // WHGame.DLL+5457F7 - 48 8B 41 B0           - mov rax,[rcx-50]
+    // WHGame.DLL+5457FB - 48 8B 48 30           - mov rcx,[rax+30]
+    // WHGame.DLL+5457FF - 48 8B 01              - mov rax,[rcx]
+    // WHGame.DLL+545802 - FF 10                 - call qword ptr [rax]
+    // WHGame.DLL+545804 - 48 8D 15 7D035D03     - lea rdx,[WHGame.DLL+3B15B88] { ("SetInputId") }
+    /**
+     * @brief AOB pattern for UI menu open function (vftable[1]).
+     *        Used to detect when the in-game menu is opened.
+     */
+    constexpr const char *UI_MENU_OPEN_AOB_PATTERN =
+        "48 8B 41 B0 48 8B 48 30 48 8B 01 FF 10 48 8D 15 ?? ?? ?? ??";
+
+    // WHGame.DLL+543E20 - 48 89 5C 24 18        - mov [rsp+18],rbx
+    // [snip]
+    // WHGame.DLL+544027 - 8A 57 48              - mov dl,[rdi+48]
+    // WHGame.DLL+54402A - 48 8D 4F 28           - lea rcx,[rdi+28]
+    // WHGame.DLL+54402E - C6 47 49 00           - mov byte ptr [rdi+49],00 { 0 }
+    // WHGame.DLL+544032 - E8 BD140000           - call WHGame.DLL+5454F4
+    // WHGame.DLL+544037 - C6 47 48 00           - mov byte ptr [rdi+48],00 { 0 }
+    /**
+     * @brief AOB pattern for UI menu close function (vftable[2]).
+     *        Used to detect when the in-game menu is closed.
+     */
+    constexpr const char *UI_MENU_CLOSE_AOB_PATTERN =
+        "8A 57 48 48 8D 4F 28 C6 47 49 00 E8 ?? ?? ?? ?? C6 47 48 00";
+
     // --- AOB Hook Offsets ---
-    constexpr int OVERLAY_HOOK_OFFSET = 0;
     constexpr int EVENT_HANDLER_HOOK_OFFSET = 0;
 
     // --- Memory Offsets ---

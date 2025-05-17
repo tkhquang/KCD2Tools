@@ -1,5 +1,5 @@
 /**
- * @file tpv_input_hook.cpp
+ * @file hooks/tpv_input_hook.cpp
  * @brief Implementation of TPV camera input processing hooks
  *
  * Intercepts third-person camera input events to provide customizable
@@ -14,6 +14,7 @@
 #include "aob_scanner.h"
 #include "global_state.h"
 #include "config.h"
+#include "ui_menu_hooks.h" // Add include for UI menu hooks
 #include "MinHook.h"
 
 #include <algorithm>
@@ -67,6 +68,13 @@ void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEventPtr)
     {
         if (fpTpvCameraInputOriginal)
             fpTpvCameraInputOriginal(thisPtr, inputEventPtr);
+        return;
+    }
+
+    // Skip camera input processing if in-game menu is open
+    if (isGameMenuOpen())
+    {
+        // When menu is open, just skip through
         return;
     }
 
