@@ -140,7 +140,7 @@ void __fastcall Detour_TpvCameraUpdate(uintptr_t thisPtr, uintptr_t outputPosePt
         {
             *positionPtr = newPosition;
 
-            logger.log(LOG_DEBUG, "TpvCameraHook: Applied offset - Local: " +
+            logger.log(LOG_TRACE, "TpvCameraHook: Applied offset - Local: " +
                                       Vector3ToString(localOffset) + " World: " + Vector3ToString(worldOffset));
         }
         else
