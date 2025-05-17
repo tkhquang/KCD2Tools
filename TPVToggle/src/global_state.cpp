@@ -25,7 +25,6 @@ HANDLE g_hCameraProfileThread = NULL;
 extern "C"
 {
     BYTE *g_global_context_ptr_address = nullptr;
-    uintptr_t *g_rbx_for_overlay_flag = nullptr;
     volatile BYTE *g_tpvFlagAddress = nullptr;
 }
 

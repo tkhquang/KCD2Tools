@@ -31,7 +31,6 @@ extern HANDLE g_hCameraProfileThread;
 extern "C"
 {
     extern BYTE *g_global_context_ptr_address;
-    extern uintptr_t *g_rbx_for_overlay_flag;
     extern volatile BYTE *g_tpvFlagAddress;
 }
 
