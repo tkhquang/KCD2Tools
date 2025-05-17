@@ -109,6 +109,10 @@ DWORD WINAPI MonitorThread(LPVOID param)
             if (g_overlayTpvRestoreRequest.load(std::memory_order_relaxed))
             {
                 logger.log(LOG_DEBUG, "MonitorThread: Processing TPV restore request");
+
+                // Give UI time to settle (important)
+                Sleep(200);
+
                 if (setViewState(1))
                 {
                     g_overlayTpvRestoreRequest.store(false, std::memory_order_relaxed);
@@ -120,9 +124,8 @@ DWORD WINAPI MonitorThread(LPVOID param)
                 }
             }
 
-            // Process hotkeys if overlay is not active
-            bool overlayActive = g_isOverlayActive.load(std::memory_order_relaxed);
-            if (hotkeys_active && !overlayActive)
+            // Process hotkeys
+            if (hotkeys_active)
             {
                 auto process_keys = [&](const auto &keys, auto callback)
                 {

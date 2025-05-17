@@ -86,8 +86,8 @@ static uint64_t __fastcall EventHandlerDetour(uintptr_t listenerMgrPtr, char *in
             else
             {
                 // Check overlay state
-                long long overlayState = getOverlayState();
-                if (overlayState > 0)
+                bool overlayState = g_isOverlayActive.load();
+                if (overlayState)
                 { // Overlay is active
                     // Zero out the scroll delta in the original event
                     volatile float *delta_ptr = reinterpret_cast<volatile float *>(inputEventPtr + Constants::INPUT_EVENT_VALUE_OFFSET);

@@ -72,7 +72,7 @@ void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEventPtr)
     }
 
     // Skip camera input processing if in-game menu is open
-    if (isGameMenuOpen())
+    if (isGameMenuOpen() || g_isOverlayActive.load())
     {
         // When menu is open, just skip through
         return;

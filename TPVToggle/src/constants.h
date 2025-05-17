@@ -254,7 +254,6 @@ namespace Constants
     constexpr int MOUSE_WHEEL_EVENT_ID = 0x10C;
 
     // --- Timing ---
-    constexpr unsigned long OVERLAY_MONITOR_INTERVAL_MS = 66;
     constexpr unsigned long MAIN_MONITOR_SLEEP_MS = 33;
 
     /** @brief Name of the target game module. */

@@ -52,41 +52,9 @@ static void __fastcall HideOverlaysDetour(void *thisPtr, uint8_t paramByte, char
 
     try
     {
-        // Before calling original - UI overlay is about to hide, which means
+        // UI overlay is about to hide, which means
         // another UI element (menu, dialog, etc.) is about to show
         logger.log(LOG_DEBUG, "UIOverlayHook: HideOverlays called - UI element will show");
-
-        // Remember if we're currently in TPV mode
-        int viewState = getViewState();
-        if (viewState == 1)
-        {
-            // We're in TPV - remember this for later restoration
-            g_wasTpvBeforeOverlay.store(true);
-            logger.log(LOG_DEBUG, "UIOverlayHook: Stored TPV state for later restoration");
-        }
-        else
-        {
-            // We're already in FPV or unknown state
-            g_wasTpvBeforeOverlay.store(false);
-        }
-
-        // Request switch to FPV when UI shows
-        // This will be processed by the monitor thread
-        g_overlayFpvRequest.store(true);
-
-        // Mark overlay as active
-        g_isOverlayActive.store(true);
-
-        // Handle scroll input by NOP'ing the accumulator write instruction
-        if (g_accumulatorWriteAddress && !g_accumulatorWriteNOPped.load())
-        {
-            logger.log(LOG_DEBUG, "UIOverlayHook: NOPping accumulator write on overlay open");
-            if (WriteBytes(g_accumulatorWriteAddress, nopSequence, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
-            {
-                g_accumulatorWriteNOPped.store(true);
-            }
-            resetScrollAccumulator(true);
-        }
 
         // Call the original function
         if (fpHideOverlaysOriginal)
@@ -96,6 +64,38 @@ static void __fastcall HideOverlaysDetour(void *thisPtr, uint8_t paramByte, char
         else
         {
             logger.log(LOG_ERROR, "UIOverlayHook: HideOverlays original function pointer is NULL");
+        }
+
+        // If is currently in overlays and open another overlay, skip
+        if (!g_isOverlayActive.load())
+        {
+            // Remember if we're currently in TPV mode
+            int viewState = getViewState();
+            if (viewState == 1)
+            {
+                // We're in TPV - remember this for later restoration
+                g_wasTpvBeforeOverlay.store(true);
+                logger.log(LOG_DEBUG, "UIOverlayHook: Stored TPV state for later restoration");
+            }
+            else
+            {
+                // We're already in FPV or unknown state
+                g_wasTpvBeforeOverlay.store(false);
+            }
+
+            // Request switch to FPV when UI shows
+            // This will be processed by the monitor thread
+            g_overlayFpvRequest.store(true);
+
+            resetScrollAccumulator(true);
+            // Mark overlay as active
+            g_isOverlayActive.store(true);
+        }
+        else
+        {
+            // Request switch to FPV when UI shows
+            // This will be processed by the monitor thread
+            g_overlayFpvRequest.store(true);
         }
     }
     catch (const std::exception &e)
@@ -149,25 +149,9 @@ static void __fastcall ShowOverlaysDetour(void *thisPtr, uint8_t paramByte, char
             logger.log(LOG_ERROR, "UIOverlayHook: ShowOverlays original function pointer is NULL");
         }
 
-        // Give UI time to settle
-        Sleep(50);
-
+        resetScrollAccumulator(true);
         // Mark overlay as inactive
         g_isOverlayActive.store(false);
-
-        // Handle scroll input restoration
-        // Only restore accumulator write if we're not using hold-to-scroll feature
-        if (g_config.hold_scroll_keys.empty())
-        {
-            if (g_accumulatorWriteNOPped.load() && g_accumulatorWriteAddress && g_originalAccumulatorWriteBytes[0] != 0)
-            {
-                logger.log(LOG_DEBUG, "UIOverlayHook: Restoring accumulator write on overlay close");
-                if (WriteBytes(g_accumulatorWriteAddress, g_originalAccumulatorWriteBytes, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
-                {
-                    g_accumulatorWriteNOPped.store(false);
-                }
-            }
-        }
 
         // Request restoration to TPV if that was the previous state
         if (g_wasTpvBeforeOverlay.load())

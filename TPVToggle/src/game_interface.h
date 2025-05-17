@@ -62,13 +62,6 @@ bool setViewState(BYTE new_state, int *key_pressed_vk = nullptr);
 bool safeToggleViewState(int *key_pressed_vk = nullptr);
 
 /**
- * @brief Gets the current overlay state.
- * @details Checks if any UI overlay (menu, inventory, dialog) is currently active.
- * @return >0 if overlay is active, 0 if inactive, -1 on error.
- */
-long long getOverlayState();
-
-/**
  * @brief Gets the camera manager instance.
  * @details Used for FOV and other camera operations.
  * @return Pointer to camera manager, or 0 if not available.

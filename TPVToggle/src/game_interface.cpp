@@ -334,20 +334,6 @@ bool safeToggleViewState(int *key_pressed_vk)
     }
 }
 
-long long getOverlayState()
-{
-    if (!g_rbx_for_overlay_flag || *g_rbx_for_overlay_flag == 0)
-        return -1;
-
-    uintptr_t rbx = *g_rbx_for_overlay_flag;
-    volatile uint64_t *addr = reinterpret_cast<volatile uint64_t *>(rbx + Constants::OVERLAY_FLAG_OFFSET);
-
-    if (!isMemoryReadable(addr, sizeof(uint64_t)))
-        return -1;
-
-    return static_cast<long long>(*addr);
-}
-
 extern "C" uintptr_t __cdecl getCameraManagerInstance()
 {
     if (!isValidated())
