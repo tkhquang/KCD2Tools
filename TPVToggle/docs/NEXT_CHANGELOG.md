@@ -1,3 +1,5 @@
-## Fix TPV input not being locked in Menu
+## [Title for next release]
 
-- Correct the condition to init input hooks
+- New feature
+- Bug fix
+- Improvement
