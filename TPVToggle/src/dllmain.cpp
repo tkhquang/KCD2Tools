@@ -218,7 +218,7 @@ bool initializeHooks()
         logger.log(LOG_WARNING, "TPV Camera Offset Hook initialization failed - Offset feature disabled.");
     }
 
-    if (g_config.tpv_pitch_sensitivity != 1.0f || g_config.tpv_yaw_sensitivity != 1.0f || g_config.tpv_pitch_limits_enabled)
+    if (g_config.tpv_pitch_sensitivity != 1.0f || g_config.tpv_yaw_sensitivity != 1.0f || g_config.tpv_pitch_limits_enabled || g_config.enable_overlay_feature)
     {
         if (!initializeTpvInputHook(g_ModuleBase, g_ModuleSize))
         {
