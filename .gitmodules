@@ -10,3 +10,6 @@
 [submodule "TPVToggle/external/json"]
 	path = TPVToggle/external/json
 	url = https://github.com/nlohmann/json.git
+[submodule "TPVToggle/external/safetyhook"]
+	path = TPVToggle/external/safetyhook
+	url = https://github.com/cursey/safetyhook.git
