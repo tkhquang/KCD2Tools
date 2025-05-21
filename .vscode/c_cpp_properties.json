@@ -7,13 +7,13 @@
         "${workspaceFolder}/TPVToggle/external/minhook/include",
         "${workspaceFolder}/TPVToggle/external/DirectXMath/Inc",
         "${workspaceFolder}/TPVToggle/external/json/include",
-        // "${workspaceFolder}/TPVToggle/external/cryengine/Code/SDKs/Lua/src",
+        "${workspaceFolder}/TPVToggle/external/safetyhook/include",
         "${workspaceFolder}/**"
       ],
       "defines": ["_DEBUG", "UNICODE", "_UNICODE"],
       "compilerPath": "C:/msys64/mingw64/bin/gcc.exe",
-      "cStandard": "${default}",
-      "cppStandard": "${default}",
+      "cStandard": "c23",
+      "cppStandard": "c++23",
       "intelliSenseMode": "windows-gcc-x64"
     }
   ],
