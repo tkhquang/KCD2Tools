@@ -4,44 +4,44 @@
  *
  * Implements hooks that directly intercept the game's UI overlay show and hide
  * functions rather than continuously polling for overlay state changes.
- *
- * This approach provides more reliable and immediate detection of UI state
- * changes with lower performance overhead than polling.
  */
 
 #include "ui_overlay_hooks.h"
 #include "logger.h"
 #include "constants.h"
 #include "utils.h"
-#include "aob_scanner.h"
-#include "game_interface.h"
+// #include "aob_scanner.h" // No longer needed here
+#include "game_interface.h" // For getViewState, setViewState, resetScrollAccumulator
 #include "global_state.h"
 #include "config.h"
-#include "MinHook.h"
+#include "hook_manager.hpp" // Use HookManager
+#include "ui_menu_hooks.h"
 
 #include <stdexcept>
+#include <string> // For std::string
 
 // External config reference
 extern Config g_config;
 
-// Function typedefs
+// Function typedefs for game's overlay functions
 typedef void(__fastcall *HideOverlaysFunc)(void *thisPtr, uint8_t paramByte, char paramChar);
 typedef void(__fastcall *ShowOverlaysFunc)(void *thisPtr, uint8_t paramByte, char paramChar);
 
 // Hook state
 static HideOverlaysFunc fpHideOverlaysOriginal = nullptr;
 static ShowOverlaysFunc fpShowOverlaysOriginal = nullptr;
-static BYTE *g_hideOverlaysHookAddress = nullptr;
-static BYTE *g_showOverlaysHookAddress = nullptr;
+// static BYTE *g_hideOverlaysHookAddress = nullptr; // Managed by HookManager
+// static BYTE *g_showOverlaysHookAddress = nullptr; // Managed by HookManager
+static std::string g_hideOverlaysHookId = "";
+static std::string g_showOverlaysHookId = "";
 
 // NOP pattern for accumulator write
 static const BYTE nopSequence[Constants::ACCUMULATOR_WRITE_INSTR_LENGTH] = {0x90, 0x90, 0x90, 0x90, 0x90};
 
 /**
  * @brief Detour function for the HideOverlays function
- * @details Intercepts when UI overlay is about to be hidden and requests a
- *          switch to first-person view before any UI elements appear.
- *          Also handles scroll state and NOP'ing scroll accumulator.
+ * @details Intercepts when UI overlay is about to be hidden (meaning another UI like menu/dialog is showing).
+ *          Requests a switch to FPV.
  * @param thisPtr Pointer to the UI overlay object
  * @param paramByte First parameter to the original function (byte)
  * @param paramChar Second parameter to the original function (char)
@@ -52,79 +52,75 @@ static void __fastcall HideOverlaysDetour(void *thisPtr, uint8_t paramByte, char
 
     try
     {
-        // UI overlay is about to hide, which means
-        // another UI element (menu, dialog, etc.) is about to show
-        logger.log(LOG_DEBUG, "UIOverlayHook: HideOverlays called - UI element will show");
+        // This function is called when the main game UI (HUD, crosshair) is hidden,
+        // typically because a menu, inventory, map, dialogue, or cutscene is about to appear.
+        logger.log(LOG_DEBUG, "UIOverlayHook: HideOverlaysDetour called - Main HUD hiding, UI element incoming.");
 
-        // Call the original function
+        // Important: Call the original function FIRST.
+        // This ensures the game correctly sets its internal states related to overlays hiding.
         if (fpHideOverlaysOriginal)
         {
             fpHideOverlaysOriginal(thisPtr, paramByte, paramChar);
         }
         else
         {
-            logger.log(LOG_ERROR, "UIOverlayHook: HideOverlays original function pointer is NULL");
+            logger.log(LOG_ERROR, "UIOverlayHook: fpHideOverlaysOriginal (trampoline) is NULL!");
+            // If trampoline is null, we can't proceed with game logic.
+            // This state should ideally be caught during hook initialization.
+            return;
         }
 
-        // If is currently in overlays and open another overlay, skip
-        if (!g_isOverlayActive.load())
+        // After original call, game state is now "overlays hidden".
+        // If we are not already marked as "overlay active" by our logic, this is the start of one.
+        if (!g_isOverlayActive.load(std::memory_order_relaxed))
         {
-            // Remember if we're currently in TPV mode
-            int viewState = getViewState();
-            if (viewState == 1)
+            int currentViewState = getViewState();
+            if (currentViewState == 1) // Currently in TPV
             {
-                // We're in TPV - remember this for later restoration
-                g_wasTpvBeforeOverlay.store(true);
-                logger.log(LOG_DEBUG, "UIOverlayHook: Stored TPV state for later restoration");
+                g_wasTpvBeforeOverlay.store(true, std::memory_order_relaxed);
+                logger.log(LOG_DEBUG, "UIOverlayHook: Was in TPV. Storing state for restore.");
+                // Request FPV. The actual switch is handled by MonitorThread.
+                g_overlayFpvRequest.store(true, std::memory_order_relaxed);
+                logger.log(LOG_DEBUG, "UIOverlayHook: Requested FPV due to overlay activation.");
             }
-            else
+            else // Already in FPV or unknown state
             {
-                // We're already in FPV or unknown state
-                g_wasTpvBeforeOverlay.store(false);
+                g_wasTpvBeforeOverlay.store(false, std::memory_order_relaxed);
+                logger.log(LOG_DEBUG, "UIOverlayHook: Was in FPV or unknown state. No FPV request needed if already FPV.");
             }
 
-            // Request switch to FPV when UI shows
-            // This will be processed by the monitor thread
-            g_overlayFpvRequest.store(true);
-
-            resetScrollAccumulator(true);
-            // Mark overlay as active
-            g_isOverlayActive.store(true);
+            g_isOverlayActive.store(true, std::memory_order_relaxed); // Mark our overlay state as active
+            logger.log(LOG_INFO, "UIOverlayHook: Overlay screen ACTIVATED.");
         }
         else
         {
-            // Request switch to FPV when UI shows
-            // This will be processed by the monitor thread
-            g_overlayFpvRequest.store(true);
+            logger.log(LOG_DEBUG, "UIOverlayHook: HideOverlays called, but g_isOverlayActive already true (e.g. nested menus).");
+            // Still might need to request FPV if the game didn't already switch for some reason,
+            // or if a new type of overlay appears that also needs FPV.
+            if (getViewState() == 1)
+            { // If somehow still in TPV despite overlay already active
+                g_overlayFpvRequest.store(true, std::memory_order_relaxed);
+            }
         }
+
+        resetScrollAccumulator(true); // Always reset scroll when overlays are involved
     }
     catch (const std::exception &e)
     {
-        logger.log(LOG_ERROR, "UIOverlayHook: Exception in HideOverlays detour: " + std::string(e.what()));
-
-        // Call the original function even if we had an exception
-        if (fpHideOverlaysOriginal)
-        {
-            fpHideOverlaysOriginal(thisPtr, paramByte, paramChar);
-        }
+        logger.log(LOG_ERROR, "UIOverlayHook: Exception in HideOverlaysDetour: " + std::string(e.what()));
+        // Try to call original even on exception in our logic, if not already called.
+        // However, in this new structure, original is called first.
     }
     catch (...)
     {
-        logger.log(LOG_ERROR, "UIOverlayHook: Unknown exception in HideOverlays detour");
-
-        // Call the original function even if we had an exception
-        if (fpHideOverlaysOriginal)
-        {
-            fpHideOverlaysOriginal(thisPtr, paramByte, paramChar);
-        }
+        logger.log(LOG_ERROR, "UIOverlayHook: Unknown exception in HideOverlaysDetour.");
     }
 }
 
 /**
  * @brief Detour function for the ShowOverlays function
- * @details Intercepts when UI overlay is about to be shown again and requests
- *          a switch back to third-person view if that was the previous state.
- *          Also handles restoring scroll accumulator functionality.
+ * @details Intercepts when UI overlay is about to be shown again (main HUD returning).
+ *          Requests a switch back to TPV if that was the previous state.
  * @param thisPtr Pointer to the UI overlay object
  * @param paramByte First parameter to the original function (byte)
  * @param paramChar Second parameter to the original function (char)
@@ -135,217 +131,239 @@ static void __fastcall ShowOverlaysDetour(void *thisPtr, uint8_t paramByte, char
 
     try
     {
-        // Before calling original - UI overlay is about to show, which means
-        // another UI element (menu, dialog, etc.) is about to hide
-        logger.log(LOG_DEBUG, "UIOverlayHook: ShowOverlays called - UI element will hide");
+        // This function is called when a menu/dialog/etc. is closing, and the main game UI (HUD)
+        // is about to be shown again.
+        logger.log(LOG_DEBUG, "UIOverlayHook: ShowOverlaysDetour called - Main HUD returning, UI element closing.");
 
-        // Call the original function first
+        // Important: Call the original function FIRST.
+        // Game needs to set its state to "overlays shown".
         if (fpShowOverlaysOriginal)
         {
             fpShowOverlaysOriginal(thisPtr, paramByte, paramChar);
         }
         else
         {
-            logger.log(LOG_ERROR, "UIOverlayHook: ShowOverlays original function pointer is NULL");
+            logger.log(LOG_ERROR, "UIOverlayHook: fpShowOverlaysOriginal (trampoline) is NULL!");
+            return; // Can't proceed with game logic if trampoline is null.
         }
 
-        resetScrollAccumulator(true);
-        // Mark overlay as inactive
-        g_isOverlayActive.store(false);
-
-        // Request restoration to TPV if that was the previous state
-        if (g_wasTpvBeforeOverlay.load())
+        // After original call, game state is "overlays shown".
+        // If our logic thinks an overlay was active, this is the end of it.
+        if (g_isOverlayActive.load(std::memory_order_relaxed))
         {
-            logger.log(LOG_DEBUG, "UIOverlayHook: Requesting TPV restoration");
-            g_overlayTpvRestoreRequest.store(true);
+            g_isOverlayActive.store(false, std::memory_order_relaxed); // Mark our overlay state as inactive
+            logger.log(LOG_INFO, "UIOverlayHook: Overlay screen DEACTIVATED.");
+
+            if (g_wasTpvBeforeOverlay.load(std::memory_order_relaxed))
+            {
+                g_overlayTpvRestoreRequest.store(true, std::memory_order_relaxed);
+                logger.log(LOG_DEBUG, "UIOverlayHook: Requested TPV restoration.");
+            }
+            else
+            {
+                logger.log(LOG_DEBUG, "UIOverlayHook: No TPV restoration needed (was FPV or never TPV).");
+            }
+            g_wasTpvBeforeOverlay.store(false, std::memory_order_relaxed); // Reset for next overlay cycle
         }
         else
         {
-            logger.log(LOG_DEBUG, "UIOverlayHook: No TPV restoration needed");
+            logger.log(LOG_DEBUG, "UIOverlayHook: ShowOverlays called, but g_isOverlayActive was already false. State sync issue or multiple calls?");
         }
 
-        // Reset restoration flag
-        g_wasTpvBeforeOverlay.store(false);
+        resetScrollAccumulator(true); // Reset scroll state when returning to game view
     }
     catch (const std::exception &e)
     {
-        logger.log(LOG_ERROR, "UIOverlayHook: Exception in ShowOverlays detour: " + std::string(e.what()));
-
-        // Call the original function even if we had an exception
-        if (fpShowOverlaysOriginal)
-        {
-            fpShowOverlaysOriginal(thisPtr, paramByte, paramChar);
-        }
+        logger.log(LOG_ERROR, "UIOverlayHook: Exception in ShowOverlaysDetour: " + std::string(e.what()));
     }
     catch (...)
     {
-        logger.log(LOG_ERROR, "UIOverlayHook: Unknown exception in ShowOverlays detour");
-
-        // Call the original function even if we had an exception
-        if (fpShowOverlaysOriginal)
-        {
-            fpShowOverlaysOriginal(thisPtr, paramByte, paramChar);
-        }
+        logger.log(LOG_ERROR, "UIOverlayHook: Unknown exception in ShowOverlaysDetour.");
     }
 }
 
-/**
- * @brief Handler for hold-to-scroll key state changes
- * @details Called by the main monitor thread when hold-to-scroll key state changes
- * @param holdKeyPressed Whether a hold key is currently pressed
- * @return true if the state was successfully handled, false otherwise
- */
 bool handleHoldToScrollKeyState(bool holdKeyPressed)
 {
     Logger &logger = Logger::getInstance();
 
-    // Skip if no accumulator address found or if overlay is active
-    if (!g_accumulatorWriteAddress || g_isOverlayActive.load())
+    // This function is called by MonitorThread when a hold-to-scroll key's state changes.
+    // It NOPs/Restores the game's scroll accumulator write instruction.
+
+    // Do nothing if the accumulator write address was not found during init.
+    if (g_accumulatorWriteAddress == nullptr)
     {
+        // logger.log(LOG_TRACE, "UIOverlayHook: handleHoldToScrollKeyState - Accumulator address not available.");
         return false;
     }
-
-    // If hold key is pressed but accumulator is currently NOPped, restore original bytes
-    if (holdKeyPressed && g_accumulatorWriteNOPped.load())
+    // Also, do nothing if an overlay is currently active (scroll should be NOPped by overlay logic anyway)
+    // or if menu is open (where TPVInputHook zeros out scroll values before they reach game).
+    // This function primarily manages NOP state when no overlay/menu is active.
+    if (g_isOverlayActive.load(std::memory_order_relaxed) || isGameMenuOpen())
     {
-        if (WriteBytes(g_accumulatorWriteAddress, g_originalAccumulatorWriteBytes, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
+        // If overlay becomes active while hold key is pressed, we want scroll to be NOPped by default.
+        // If currently NOPped, no change. If not NOPped (hold key was pressed), NOP it.
+        if (!g_accumulatorWriteNOPped.load(std::memory_order_relaxed))
         {
-            g_accumulatorWriteNOPped.store(false);
-            logger.log(LOG_DEBUG, "UIOverlayHook: Restored accumulator write due to hold key press");
-            return true;
+            if (WriteBytes(g_accumulatorWriteAddress, nopSequence, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
+            {
+                g_accumulatorWriteNOPped.store(true, std::memory_order_relaxed);
+                logger.log(LOG_DEBUG, "UIOverlayHook: NOPped accumulator (overlay/menu became active while scroll allowed).");
+                resetScrollAccumulator(true);
+            }
+            else
+            {
+                logger.log(LOG_ERROR, "UIOverlayHook: FAILED to NOP accumulator (overlay/menu became active).");
+            }
+        }
+        return false; // State handled by overlay/menu logic primarily
+    }
+
+    bool stateChanged = false;
+    if (holdKeyPressed)
+    {
+        // Hold key IS pressed. We want to ALLOW scrolling.
+        // If accumulator is currently NOPped, restore original bytes.
+        if (g_accumulatorWriteNOPped.load(std::memory_order_relaxed))
+        {
+            if (g_originalAccumulatorWriteBytes[0] != 0x00)
+            { // Basic check to see if original bytes are likely valid
+                if (WriteBytes(g_accumulatorWriteAddress, g_originalAccumulatorWriteBytes, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
+                {
+                    g_accumulatorWriteNOPped.store(false, std::memory_order_relaxed);
+                    logger.log(LOG_DEBUG, "UIOverlayHook: Restored accumulator write (Hold-Key PRESSED).");
+                    stateChanged = true;
+                }
+                else
+                {
+                    logger.log(LOG_ERROR, "UIOverlayHook: FAILED to restore accumulator write (Hold-Key PRESSED).");
+                }
+            }
+            else
+            {
+                logger.log(LOG_WARNING, "UIOverlayHook: Original accumulator bytes seem invalid, not restoring (Hold-Key PRESSED).");
+            }
         }
     }
-    // If hold key is released but accumulator is not NOPped, NOP it
-    else if (!holdKeyPressed && !g_accumulatorWriteNOPped.load())
+    else
     {
-        if (WriteBytes(g_accumulatorWriteAddress, nopSequence, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
+        // Hold key IS NOT pressed. We want to PREVENT scrolling by NOPping.
+        // If accumulator is not currently NOPped, NOP it.
+        if (!g_accumulatorWriteNOPped.load(std::memory_order_relaxed))
         {
-            g_accumulatorWriteNOPped.store(true);
-            logger.log(LOG_DEBUG, "UIOverlayHook: NOPped accumulator write due to hold key release");
-            resetScrollAccumulator(true);
-            return true;
+            if (WriteBytes(g_accumulatorWriteAddress, nopSequence, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
+            {
+                g_accumulatorWriteNOPped.store(true, std::memory_order_relaxed);
+                logger.log(LOG_DEBUG, "UIOverlayHook: NOPped accumulator write (Hold-Key RELEASED or not configured for hold).");
+                resetScrollAccumulator(true); // Reset any pending scroll when NOPping
+                stateChanged = true;
+            }
+            else
+            {
+                logger.log(LOG_ERROR, "UIOverlayHook: FAILED to NOP accumulator write (Hold-Key RELEASED).");
+            }
         }
     }
-
-    return false;
+    return stateChanged;
 }
 
 bool initializeUiOverlayHooks(uintptr_t module_base, size_t module_size)
 {
     Logger &logger = Logger::getInstance();
+    HookManager &hookManager = HookManager::getInstance();
+    bool all_hooks_successful = true;
 
     try
     {
-        logger.log(LOG_INFO, "UIOverlayHook: Initializing UI overlay hooks...");
+        logger.log(LOG_INFO, "UIOverlayHook: Initializing UI overlay direct hooks...");
 
-        // Pattern for HideOverlays (vftable[20])
-        std::vector<BYTE> hidePattern = parseAOB(Constants::UI_OVERLAY_HIDE_AOB_PATTERN);
-        if (hidePattern.empty())
+        // Hook HideOverlays
+        // No AOB_OFFSET needed if pattern points to function start.
+        g_hideOverlaysHookId = hookManager.create_inline_hook_aob(
+            "HideOverlays",
+            module_base,
+            module_size,
+            Constants::UI_OVERLAY_HIDE_AOB_PATTERN,
+            0, // AOB_OFFSET, assume pattern starts at function
+            reinterpret_cast<void *>(HideOverlaysDetour),
+            reinterpret_cast<void **>(&fpHideOverlaysOriginal));
+
+        if (g_hideOverlaysHookId.empty() || fpHideOverlaysOriginal == nullptr)
         {
-            throw std::runtime_error("Failed to parse HideOverlays AOB pattern");
+            logger.log(LOG_ERROR, "UIOverlayHook: Failed to create HideOverlays hook. Overlay detection will be unreliable.");
+            all_hooks_successful = false;
+            // This is critical, so we might return false or throw.
+            // For now, let's mark failure and continue trying ShowOverlays for completeness.
+        }
+        else
+        {
+            logger.log(LOG_INFO, "UIOverlayHook: HideOverlays hook installed (ID: " + g_hideOverlaysHookId + ").");
         }
 
-        // Pattern for ShowOverlays (vftable[21])
-        std::vector<BYTE> showPattern = parseAOB(Constants::UI_OVERLAY_SHOW_AOB_PATTERN);
-        if (showPattern.empty())
+        // Hook ShowOverlays
+        g_showOverlaysHookId = hookManager.create_inline_hook_aob(
+            "ShowOverlays",
+            module_base,
+            module_size,
+            Constants::UI_OVERLAY_SHOW_AOB_PATTERN,
+            0, // AOB_OFFSET
+            reinterpret_cast<void *>(ShowOverlaysDetour),
+            reinterpret_cast<void **>(&fpShowOverlaysOriginal));
+
+        if (g_showOverlaysHookId.empty() || fpShowOverlaysOriginal == nullptr)
         {
-            throw std::runtime_error("Failed to parse ShowOverlays AOB pattern");
+            logger.log(LOG_ERROR, "UIOverlayHook: Failed to create ShowOverlays hook. Overlay detection will be unreliable.");
+            all_hooks_successful = false;
+        }
+        else
+        {
+            logger.log(LOG_INFO, "UIOverlayHook: ShowOverlays hook installed (ID: " + g_showOverlaysHookId + ").");
         }
 
-        // Find HideOverlays function
-        g_hideOverlaysHookAddress = FindPattern(reinterpret_cast<BYTE *>(module_base), module_size, hidePattern);
-        if (!g_hideOverlaysHookAddress)
+        if (!all_hooks_successful)
         {
-            throw std::runtime_error("HideOverlays AOB pattern not found");
+            // If any hook failed, cleanup what might have been created and report failure
+            cleanupUiOverlayHooks(); // This will attempt to remove any partially created hooks
+            throw std::runtime_error("One or more UI overlay hooks failed to initialize.");
         }
 
-        // Find ShowOverlays function
-        g_showOverlaysHookAddress = FindPattern(reinterpret_cast<BYTE *>(module_base), module_size, showPattern);
-        if (!g_showOverlaysHookAddress)
-        {
-            throw std::runtime_error("ShowOverlays AOB pattern not found");
-        }
-
-        logger.log(LOG_INFO, "UIOverlayHook: Found HideOverlays at " +
-                                 format_address(reinterpret_cast<uintptr_t>(g_hideOverlaysHookAddress)));
-        logger.log(LOG_INFO, "UIOverlayHook: Found ShowOverlays at " +
-                                 format_address(reinterpret_cast<uintptr_t>(g_showOverlaysHookAddress)));
-
-        // Create HideOverlays hook
-        MH_STATUS hideStatus = MH_CreateHook(
-            g_hideOverlaysHookAddress,
-            reinterpret_cast<LPVOID>(HideOverlaysDetour),
-            reinterpret_cast<LPVOID *>(&fpHideOverlaysOriginal));
-
-        if (hideStatus != MH_OK)
-        {
-            throw std::runtime_error("MH_CreateHook for HideOverlays failed: " +
-                                     std::string(MH_StatusToString(hideStatus)));
-        }
-
-        if (!fpHideOverlaysOriginal)
-        {
-            MH_RemoveHook(g_hideOverlaysHookAddress);
-            throw std::runtime_error("MH_CreateHook for HideOverlays returned NULL trampoline");
-        }
-
-        // Create ShowOverlays hook
-        MH_STATUS showStatus = MH_CreateHook(
-            g_showOverlaysHookAddress,
-            reinterpret_cast<LPVOID>(ShowOverlaysDetour),
-            reinterpret_cast<LPVOID *>(&fpShowOverlaysOriginal));
-
-        if (showStatus != MH_OK)
-        {
-            MH_RemoveHook(g_hideOverlaysHookAddress);
-            throw std::runtime_error("MH_CreateHook for ShowOverlays failed: " +
-                                     std::string(MH_StatusToString(showStatus)));
-        }
-
-        if (!fpShowOverlaysOriginal)
-        {
-            MH_RemoveHook(g_hideOverlaysHookAddress);
-            MH_RemoveHook(g_showOverlaysHookAddress);
-            throw std::runtime_error("MH_CreateHook for ShowOverlays returned NULL trampoline");
-        }
-
-        // Enable both hooks
-        hideStatus = MH_EnableHook(g_hideOverlaysHookAddress);
-        if (hideStatus != MH_OK)
-        {
-            MH_RemoveHook(g_hideOverlaysHookAddress);
-            MH_RemoveHook(g_showOverlaysHookAddress);
-            throw std::runtime_error("MH_EnableHook for HideOverlays failed: " +
-                                     std::string(MH_StatusToString(hideStatus)));
-        }
-
-        showStatus = MH_EnableHook(g_showOverlaysHookAddress);
-        if (showStatus != MH_OK)
-        {
-            MH_DisableHook(g_hideOverlaysHookAddress);
-            MH_RemoveHook(g_hideOverlaysHookAddress);
-            MH_RemoveHook(g_showOverlaysHookAddress);
-            throw std::runtime_error("MH_EnableHook for ShowOverlays failed: " +
-                                     std::string(MH_StatusToString(showStatus)));
-        }
-
-        // Set initial hold-to-scroll state if feature is enabled
-        if (!g_config.hold_scroll_keys.empty() && g_accumulatorWriteAddress)
-        {
-            logger.log(LOG_INFO, "UIOverlayHook: Hold-to-scroll feature enabled, applying NOP by default");
-            if (WriteBytes(g_accumulatorWriteAddress, nopSequence, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
+        // Initial state for hold-to-scroll accumulator NOPping if applicable
+        // This must be done AFTER g_accumulatorWriteAddress and g_originalAccumulatorWriteBytes are populated
+        // by initializeEventHooks().
+        if (g_accumulatorWriteAddress != nullptr)
+        { // Check if EventHooks found it
+            if (!g_config.hold_scroll_keys.empty())
             {
-                g_accumulatorWriteNOPped.store(true);
+                // If hold-to-scroll is configured, ensure accumulator is NOPped initially
+                // as hold key is not pressed at startup.
+                handleHoldToScrollKeyState(false); // Force NOP if not pressed
+            }
+            else
+            {
+                // If hold-to-scroll is NOT configured, the NOP state depends on g_isOverlayActive.
+                // Generally, scroll should be allowed if no overlay, NOPped if overlay.
+                // The Detour functions handle this for overlay active state.
+                // Here, ensure it's NOT NOPped if no overlay and no hold key configured.
+                if (g_accumulatorWriteNOPped.load(std::memory_order_relaxed))
+                {
+                    if (g_originalAccumulatorWriteBytes[0] != 0x00)
+                    {
+                        if (WriteBytes(g_accumulatorWriteAddress, g_originalAccumulatorWriteBytes, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
+                        {
+                            g_accumulatorWriteNOPped.store(false, std::memory_order_relaxed);
+                            logger.log(LOG_DEBUG, "UIOverlayHook: Ensured accumulator is NOT NOPped (no hold-scroll, no overlay at init).");
+                        }
+                    }
+                }
             }
         }
 
-        logger.log(LOG_INFO, "UIOverlayHook: UI overlay hooks successfully installed");
+        logger.log(LOG_INFO, "UIOverlayHook: UI overlay direct hooks successfully installed.");
         return true;
     }
     catch (const std::exception &e)
     {
         logger.log(LOG_ERROR, "UIOverlayHook: Initialization failed: " + std::string(e.what()));
-        cleanupUiOverlayHooks();
+        cleanupUiOverlayHooks(); // Ensure cleanup on any exception
         return false;
     }
 }
@@ -353,38 +371,65 @@ bool initializeUiOverlayHooks(uintptr_t module_base, size_t module_size)
 void cleanupUiOverlayHooks()
 {
     Logger &logger = Logger::getInstance();
+    HookManager &hookManager = HookManager::getInstance();
 
-    // Disable and remove HideOverlays hook
-    if (g_hideOverlaysHookAddress && fpHideOverlaysOriginal)
+    if (!g_hideOverlaysHookId.empty())
     {
-        MH_DisableHook(g_hideOverlaysHookAddress);
-        MH_RemoveHook(g_hideOverlaysHookAddress);
-        g_hideOverlaysHookAddress = nullptr;
+        if (hookManager.remove_hook(g_hideOverlaysHookId))
+        {
+            logger.log(LOG_INFO, "UIOverlayHook: Hook '" + g_hideOverlaysHookId + "' removed.");
+        }
         fpHideOverlaysOriginal = nullptr;
+        g_hideOverlaysHookId = "";
     }
 
-    // Disable and remove ShowOverlays hook
-    if (g_showOverlaysHookAddress && fpShowOverlaysOriginal)
+    if (!g_showOverlaysHookId.empty())
     {
-        MH_DisableHook(g_showOverlaysHookAddress);
-        MH_RemoveHook(g_showOverlaysHookAddress);
-        g_showOverlaysHookAddress = nullptr;
+        if (hookManager.remove_hook(g_showOverlaysHookId))
+        {
+            logger.log(LOG_INFO, "UIOverlayHook: Hook '" + g_showOverlaysHookId + "' removed.");
+        }
         fpShowOverlaysOriginal = nullptr;
+        g_showOverlaysHookId = "";
     }
 
-    // Ensure accumulator write is restored on exit
-    if (g_accumulatorWriteNOPped.load() && g_accumulatorWriteAddress && g_originalAccumulatorWriteBytes[0] != 0)
+    // On cleanup, attempt to restore accumulator write if it was NOPped by this system
+    // and original bytes are valid.
+    if (g_accumulatorWriteAddress != nullptr && g_accumulatorWriteNOPped.load(std::memory_order_relaxed))
     {
-        logger.log(LOG_INFO, "UIOverlayHook: Restoring accumulator write before exit");
-        WriteBytes(g_accumulatorWriteAddress, g_originalAccumulatorWriteBytes, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger);
-        g_accumulatorWriteNOPped.store(false);
+        bool originalBytesValid = false;
+        for (size_t i = 0; i < Constants::ACCUMULATOR_WRITE_INSTR_LENGTH; ++i)
+        {
+            if (g_originalAccumulatorWriteBytes[i] != 0x00)
+            {
+                originalBytesValid = true;
+                break;
+            }
+        }
+        if (originalBytesValid)
+        {
+            logger.log(LOG_INFO, "UIOverlayHook: Restoring accumulator write before exit due to overlay hook cleanup.");
+            if (WriteBytes(g_accumulatorWriteAddress, g_originalAccumulatorWriteBytes, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
+            {
+                g_accumulatorWriteNOPped.store(false, std::memory_order_relaxed);
+            }
+            else
+            {
+                logger.log(LOG_ERROR, "UIOverlayHook: FAILED to restore accumulator write on cleanup.");
+            }
+        }
+        else if (Constants::ACCUMULATOR_WRITE_INSTR_LENGTH > 0)
+        {
+            logger.log(LOG_WARNING, "UIOverlayHook: Original accumulator bytes look invalid. Skipping restore on cleanup.");
+        }
     }
+    // Globals g_isOverlayActive and g_wasTpvBeforeOverlay will reset on next overlay event or game restart.
 
-    logger.log(LOG_DEBUG, "UIOverlayHook: Cleanup complete");
+    logger.log(LOG_DEBUG, "UIOverlayHook: Cleanup complete.");
 }
 
 bool areUiOverlayHooksActive()
 {
-    return (g_hideOverlaysHookAddress != nullptr && fpHideOverlaysOriginal != nullptr &&
-            g_showOverlaysHookAddress != nullptr && fpShowOverlaysOriginal != nullptr);
+    return (fpHideOverlaysOriginal != nullptr && !g_hideOverlaysHookId.empty() &&
+            fpShowOverlaysOriginal != nullptr && !g_showOverlaysHookId.empty());
 }

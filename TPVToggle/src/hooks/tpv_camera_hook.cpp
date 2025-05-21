@@ -9,19 +9,19 @@
 #include "tpv_camera_hook.h"
 #include "logger.h"
 #include "constants.h"
-#include "game_structures.h"
+#include "game_structures.h" // For TPVCameraData potentially, or just for context
 #include "utils.h"
-#include "aob_scanner.h"
+// #include "aob_scanner.h" // No longer needed here if HookManager handles AOB
 #include "global_state.h"
-#include "game_interface.h"
-#include "math_utils.h"
+#include "game_interface.h" // For getViewState
+#include "math_utils.h"     // For Vector3, Quaternion
 #include "config.h"
 #include "transition_manager.h"
-
-#include "MinHook.h"
+#include "hook_manager.hpp" // Use HookManager
 
 #include <DirectXMath.h>
 #include <stdexcept>
+#include <string> // For std::string
 
 // External configuration reference
 extern Config g_config;
@@ -33,32 +33,36 @@ typedef void(__fastcall *TpvCameraUpdateFunc)(uintptr_t thisPtr, uintptr_t outpu
 
 // Hook state
 static TpvCameraUpdateFunc fpTpvCameraUpdateOriginal = nullptr;
-static BYTE *g_tpvCameraHookAddress = nullptr;
+// static BYTE *g_tpvCameraHookAddress = nullptr; // Managed by HookManager
+static std::string g_tpvCameraHookId = ""; // To store the ID from HookManager
 
 /**
  * @brief Gets the currently active camera offset
  * @details Determines which offset source to use based on configuration
  * @return Vector3 The local space offset to apply
  */
-Vector3 GetActiveOffset()
+Vector3 GetActiveOffset() // This helper remains the same
 {
     // Priority 1: Active transition
     if (g_config.enable_camera_profiles)
     {
         Vector3 transitionPosition;
-        Quaternion transitionRotation;
+        Quaternion transitionRotation; // Rotation not used for offset here but part of updateTransition signature
 
-        // Check if a transition is in progress
+        // Check if a transition is in progress and get interpolated values
+        // deltaTime of 0.016f is approx 60FPS, adjust if your game loop for updates is different
+        // or pass a real delta time if available in this context.
+        // For now, assuming a fixed update for transition check.
         if (TransitionManager::getInstance().updateTransition(0.016f, transitionPosition, transitionRotation))
         {
+            // If transitioning, the transitionPosition IS the target g_currentCameraOffset for that frame
             return transitionPosition;
         }
-
-        // Priority 2: Camera profile system
+        // If transition finished or not active, use the current profile's offset (g_currentCameraOffset)
         return g_currentCameraOffset;
     }
 
-    // Priority 3: Static configuration offsets
+    // Priority 2: Static configuration offsets (if profiles not enabled)
     return Vector3(g_config.tpv_offset_x, g_config.tpv_offset_y, g_config.tpv_offset_z);
 }
 
@@ -73,10 +77,10 @@ void __fastcall Detour_TpvCameraUpdate(uintptr_t thisPtr, uintptr_t outputPosePt
 {
     Logger &logger = Logger::getInstance();
 
-    // Call original function first to get base camera position
+    // Call original function first to get base camera position and rotation
     if (!fpTpvCameraUpdateOriginal)
     {
-        logger.log(LOG_ERROR, "TpvCameraHook: Original function pointer is NULL");
+        logger.log(LOG_ERROR, "TpvCameraHook: fpTpvCameraUpdateOriginal (trampoline) is NULL!");
         return;
     }
 
@@ -86,25 +90,34 @@ void __fastcall Detour_TpvCameraUpdate(uintptr_t thisPtr, uintptr_t outputPosePt
     }
     catch (const std::exception &e)
     {
-        logger.log(LOG_ERROR, "TpvCameraHook: Exception in original function: " + std::string(e.what()));
+        logger.log(LOG_ERROR, "TpvCameraHook: Exception in original TPV camera update function: " + std::string(e.what()));
+        // Attempting to proceed might be risky, but not calling original is worse.
+        // If original crashes, this won't save it.
         return;
     }
     catch (...)
     {
-        logger.log(LOG_ERROR, "TpvCameraHook: Unknown exception in original function");
+        logger.log(LOG_ERROR, "TpvCameraHook: Unknown exception in original TPV camera update function.");
         return;
     }
 
     // Validate parameters and check if we're in TPV mode
-    if (outputPosePtr == 0 || getViewState() != 1)
+    if (outputPosePtr == 0)
     {
+        // logger.log(LOG_TRACE, "TpvCameraHook: outputPosePtr is NULL, skipping offset.");
+        return;
+    }
+    if (getViewState() != 1) // Ensure TPV mode
+    {
+        // logger.log(LOG_TRACE, "TpvCameraHook: Not in TPV mode, skipping offset.");
         return;
     }
 
-    // Validate output buffer is accessible
-    if (!isMemoryReadable(reinterpret_cast<void *>(outputPosePtr), Constants::TPV_OUTPUT_POSE_REQUIRED_SIZE))
+    // Validate output buffer is accessible for both reading current pose and writing new position
+    if (!isMemoryReadable(reinterpret_cast<void *>(outputPosePtr), Constants::TPV_OUTPUT_POSE_REQUIRED_SIZE) ||
+        !isMemoryWritable(reinterpret_cast<void *>(outputPosePtr + Constants::TPV_OUTPUT_POSE_POSITION_OFFSET), sizeof(Vector3)))
     {
-        logger.log(LOG_DEBUG, "TpvCameraHook: Output pose buffer not readable");
+        logger.log(LOG_DEBUG, "TpvCameraHook: Output pose buffer not readable/writable at required sections.");
         return;
     }
 
@@ -113,48 +126,46 @@ void __fastcall Detour_TpvCameraUpdate(uintptr_t thisPtr, uintptr_t outputPosePt
         // Get pointers to position and rotation in the output structure
         Vector3 *positionPtr = reinterpret_cast<Vector3 *>(
             outputPosePtr + Constants::TPV_OUTPUT_POSE_POSITION_OFFSET);
-        Quaternion *rotationPtr = reinterpret_cast<Quaternion *>(
+        Quaternion *rotationPtr = reinterpret_cast<Quaternion *>( // Read-only for current rotation
             outputPosePtr + Constants::TPV_OUTPUT_POSE_ROTATION_OFFSET);
 
-        // Read current camera state
+        // Read current camera state (after original function has run)
         Vector3 currentPosition = *positionPtr;
-        Quaternion currentRotation = *rotationPtr;
+        Quaternion currentRotation = *rotationPtr; // This is the camera's orientation
 
-        // Determine which offset to apply (priority order: transition > profile > config)
-        Vector3 localOffset = GetActiveOffset();
+        // Determine which offset to apply
+        Vector3 localOffsetToApply = GetActiveOffset();
 
-        // Skip if no offset to apply
-        if (localOffset.x == 0.0f && localOffset.y == 0.0f && localOffset.z == 0.0f)
+        // Skip if no offset is to be applied (all components zero)
+        if (localOffsetToApply.x == 0.0f && localOffsetToApply.y == 0.0f && localOffsetToApply.z == 0.0f)
         {
+            // logger.log(LOG_TRACE, "TpvCameraHook: No active offset to apply.");
             return;
         }
 
-        // Transform local offset to world space using camera rotation
-        Vector3 worldOffset = currentRotation.Rotate(localOffset);
+        // Transform local offset to world space using the camera's current rotation
+        Vector3 worldOffset = currentRotation.Rotate(localOffsetToApply);
 
         // Apply offset to camera position
         Vector3 newPosition = currentPosition + worldOffset;
 
-        // Write back the modified position if memory is writable
-        if (isMemoryWritable(positionPtr, sizeof(Vector3)))
-        {
-            *positionPtr = newPosition;
+        // Write back the modified position
+        *positionPtr = newPosition;
 
-            logger.log(LOG_TRACE, "TpvCameraHook: Applied offset - Local: " +
-                                      Vector3ToString(localOffset) + " World: " + Vector3ToString(worldOffset));
-        }
-        else
-        {
-            logger.log(LOG_WARNING, "TpvCameraHook: Cannot write to position buffer");
-        }
+        // Trace logging can be very verbose, use with caution or compile out in release builds
+        // logger.log(LOG_TRACE, "TpvCameraHook: Applied offset. OriginalPos: " + Vector3ToString(currentPosition) +
+        //                          " LocalOffset: " + Vector3ToString(localOffsetToApply) +
+        //                          " WorldOffset: " + Vector3ToString(worldOffset) +
+        //                          " NewPos: " + Vector3ToString(newPosition) +
+        //                          " CamRot: " + QuatToString(currentRotation));
     }
     catch (const std::exception &e)
     {
-        logger.log(LOG_ERROR, "TpvCameraHook: Exception applying offset: " + std::string(e.what()));
+        logger.log(LOG_ERROR, "TpvCameraHook: Exception while applying camera offset: " + std::string(e.what()));
     }
     catch (...)
     {
-        logger.log(LOG_ERROR, "TpvCameraHook: Unknown exception applying offset");
+        logger.log(LOG_ERROR, "TpvCameraHook: Unknown exception while applying camera offset.");
     }
 }
 
@@ -162,83 +173,52 @@ bool initializeTpvCameraHook(uintptr_t moduleBase, size_t moduleSize)
 {
     Logger &logger = Logger::getInstance();
 
-    // Check if feature is disabled (all offsets zero and profiles disabled)
+    // Check if feature is disabled by configuration
     if (!g_config.enable_camera_profiles &&
         g_config.tpv_offset_x == 0.0f &&
         g_config.tpv_offset_y == 0.0f &&
         g_config.tpv_offset_z == 0.0f)
     {
-        logger.log(LOG_INFO, "TpvCameraHook: Feature disabled (no offsets configured)");
-        return true;
+        logger.log(LOG_INFO, "TpvCameraHook: Feature disabled (no offsets configured and profiles disabled).");
+        return true; // Not an error, just not enabled.
     }
 
-    logger.log(LOG_INFO, "TpvCameraHook: Initializing camera position offset hook...");
+    logger.log(LOG_INFO, "TpvCameraHook: Initializing TPV camera position offset hook...");
 
     try
     {
-        // Parse AOB pattern
-        std::vector<BYTE> pattern = parseAOB(Constants::TPV_CAMERA_UPDATE_AOB_PATTERN);
-        if (pattern.empty())
+        HookManager &hookManager = HookManager::getInstance();
+        g_tpvCameraHookId = hookManager.create_inline_hook_aob(
+            "TpvCameraUpdate",
+            moduleBase,
+            moduleSize,
+            Constants::TPV_CAMERA_UPDATE_AOB_PATTERN,
+            0, // AOB_OFFSET, assume pattern starts at function
+            reinterpret_cast<void *>(Detour_TpvCameraUpdate),
+            reinterpret_cast<void **>(&fpTpvCameraUpdateOriginal));
+
+        if (g_tpvCameraHookId.empty() || fpTpvCameraUpdateOriginal == nullptr)
         {
-            throw std::runtime_error("Failed to parse TPV camera update AOB pattern");
+            throw std::runtime_error("Failed to create TPV Camera Update hook via HookManager.");
         }
 
-        // Find the target function
-        g_tpvCameraHookAddress = FindPattern(
-            reinterpret_cast<BYTE *>(moduleBase), moduleSize, pattern);
-        if (!g_tpvCameraHookAddress)
-        {
-            throw std::runtime_error("TPV camera update pattern not found");
-        }
-
-        logger.log(LOG_INFO, "TpvCameraHook: Found TPV camera update at " +
-                                 format_address(reinterpret_cast<uintptr_t>(g_tpvCameraHookAddress)));
-
-        // Create the hook
-        MH_STATUS status = MH_CreateHook(
-            g_tpvCameraHookAddress,
-            reinterpret_cast<LPVOID>(&Detour_TpvCameraUpdate),
-            reinterpret_cast<LPVOID *>(&fpTpvCameraUpdateOriginal));
-
-        if (status != MH_OK)
-        {
-            throw std::runtime_error("MH_CreateHook failed: " + std::string(MH_StatusToString(status)));
-        }
-
-        if (!fpTpvCameraUpdateOriginal)
-        {
-            MH_RemoveHook(g_tpvCameraHookAddress);
-            throw std::runtime_error("MH_CreateHook returned NULL trampoline");
-        }
-
-        // Enable the hook
-        status = MH_EnableHook(g_tpvCameraHookAddress);
-        if (status != MH_OK)
-        {
-            MH_RemoveHook(g_tpvCameraHookAddress);
-            throw std::runtime_error("MH_EnableHook failed: " + std::string(MH_StatusToString(status)));
-        }
-
-        // Log configuration
-        logger.log(LOG_INFO, "TpvCameraHook: Successfully installed with configuration:");
-
+        logger.log(LOG_INFO, "TpvCameraHook: TPV Camera Update hook successfully installed with ID: " + g_tpvCameraHookId);
         if (g_config.enable_camera_profiles)
         {
-            logger.log(LOG_INFO, "  - Camera profiles: ENABLED");
+            logger.log(LOG_INFO, "  - Camera profiles: ENABLED for dynamic offsets.");
         }
         else
         {
-            logger.log(LOG_INFO, "  - Static offset: X=" + std::to_string(g_config.tpv_offset_x) +
-                                     " Y=" + std::to_string(g_config.tpv_offset_y) +
-                                     " Z=" + std::to_string(g_config.tpv_offset_z));
+            logger.log(LOG_INFO, "  - Using static offset: X=" + std::to_string(g_config.tpv_offset_x) +
+                                     ", Y=" + std::to_string(g_config.tpv_offset_y) +
+                                     ", Z=" + std::to_string(g_config.tpv_offset_z));
         }
-
         return true;
     }
     catch (const std::exception &e)
     {
         logger.log(LOG_ERROR, "TpvCameraHook: Initialization failed: " + std::string(e.what()));
-        cleanupTpvCameraHook();
+        cleanupTpvCameraHook(); // Attempt cleanup
         return false;
     }
 }
@@ -247,23 +227,23 @@ void cleanupTpvCameraHook()
 {
     Logger &logger = Logger::getInstance();
 
-    if (g_tpvCameraHookAddress)
+    if (!g_tpvCameraHookId.empty())
     {
-        MH_STATUS disableStatus = MH_DisableHook(g_tpvCameraHookAddress);
-        MH_STATUS removeStatus = MH_RemoveHook(g_tpvCameraHookAddress);
-
-        if (disableStatus == MH_OK && removeStatus == MH_OK)
+        if (HookManager::getInstance().remove_hook(g_tpvCameraHookId))
         {
-            logger.log(LOG_INFO, "TpvCameraHook: Successfully removed");
+            logger.log(LOG_INFO, "TpvCameraHook: Hook '" + g_tpvCameraHookId + "' removed.");
         }
         else
         {
-            logger.log(LOG_WARNING, "TpvCameraHook: Cleanup issues - Disable: " +
-                                        std::string(MH_StatusToString(disableStatus)) +
-                                        ", Remove: " + std::string(MH_StatusToString(removeStatus)));
+            logger.log(LOG_WARNING, "TpvCameraHook: Failed to remove hook '" + g_tpvCameraHookId + "' via HookManager.");
         }
-
-        g_tpvCameraHookAddress = nullptr;
-        fpTpvCameraUpdateOriginal = nullptr;
+        fpTpvCameraUpdateOriginal = nullptr; // Clear trampoline
+        g_tpvCameraHookId = "";
     }
+    logger.log(LOG_DEBUG, "TpvCameraHook: Cleanup complete.");
+}
+
+bool isTpvCameraHookActive()
+{
+    return (fpTpvCameraUpdateOriginal != nullptr && !g_tpvCameraHookId.empty());
 }

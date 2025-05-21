@@ -27,3 +27,6 @@ void cleanupTpvInputHook();
  * @details Used when switching views or resetting camera state
  */
 void resetCameraAngles();
+
+// Optional: function to check if the hook is active
+bool isTpvInputHookActive();

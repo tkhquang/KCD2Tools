@@ -276,3 +276,10 @@ g++ $CXXFLAGS -c src/asm/overlay_hook.S -o obj/overlay_hook.o
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+
+cmake -S . -B build -G "MinGW Makefiles" \
+      -DCMAKE_MAKE_PROGRAM="C:\\msys64\\mingw64\\bin\\mingw32-make.exe" \
+      -DCMAKE_C_COMPILER="C:\\msys64\\mingw64\\bin\\gcc.exe" \
+      -DCMAKE_CXX_COMPILER="C:\\msys64\\mingw64\\bin\\g++.exe" \
+      -DCMAKE_BUILD_TYPE=Debug

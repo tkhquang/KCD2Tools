@@ -1,210 +1,197 @@
 # Makefile for building KCD2_TPVToggle.asi using g++ (MinGW)
 
+# --- Toolchain ---
 CXX := g++
+CC := gcc
+PROJECT_AS := $(CXX)
 WINDRES := windres
+MINGW_MAKE := mingw32-make
 
-# Base Directories
+
+# --- Base Project Directories ---
 SRC_DIR := src
 ASM_DIR := $(SRC_DIR)/asm
 EXTERNAL_DIR := external
 BUILD_DIR := build
 DEV_BUILD_DIR := build
+STATIC_DIR := static
 
-# MinHook and SimpleIni Directories
-MINHOOK_DIR := $(EXTERNAL_DIR)/minhook
-MINHOOK_INCLUDE_DIR := $(MINHOOK_DIR)/include
-MINHOOK_SRC_DIR := $(MINHOOK_DIR)/src
-MINHOOK_HDE_SRC_DIR := $(MINHOOK_SRC_DIR)/hde
+# --- Dependency Source and Include Directories ---
+SAFETYHOOK_DIR := $(EXTERNAL_DIR)/safetyhook
+SAFETYHOOK_BUILD_DIR := $(SAFETYHOOK_DIR)/build
+SAFETYHOOK_INCLUDE_DIR := $(SAFETYHOOK_DIR)/include
 
 SIMPLEINI_DIR := $(EXTERNAL_DIR)/simpleini
-
 DIRECTXMATH_DIR := $(EXTERNAL_DIR)/DirectXMath
 DIRECTXMATH_INCLUDE_DIR := $(DIRECTXMATH_DIR)/Inc
-
 JSON_DIR := $(EXTERNAL_DIR)/json
 JSON_INCLUDE_DIR := $(JSON_DIR)/include
 
-# Output Directories
+# --- Object File Output Directories ---
 OBJ_DIR := $(BUILD_DIR)/obj
 DEV_OBJ_DIR := $(DEV_BUILD_DIR)/obj
-MINHOOK_OBJ_OUT_DIR := $(OBJ_DIR)/minhook
-MINHOOK_DEV_OBJ_OUT_DIR := $(DEV_OBJ_DIR)/minhook
 
-# Final Targets
-TARGET := $(BUILD_DIR)/KCD2_TPVToggle.asi
-DEV_TARGET := $(DEV_BUILD_DIR)/KCD2_TPVToggle.asi
+# --- Final Target Executables ---
+TARGET_BASENAME := KCD2_TPVToggle
+TARGET := $(BUILD_DIR)/$(TARGET_BASENAME).asi
+DEV_TARGET := $(DEV_BUILD_DIR)/$(TARGET_BASENAME).asi
 
-# --- Sanity Check for Dependencies ---
-ifeq ($(wildcard $(MINHOOK_INCLUDE_DIR)/MinHook.h),)
-$(error MinHook submodule not initialized. Please run 'git submodule update --init --recursive')
+# --- Paths to Statically Built Libraries from SafetyHook's CMake process ---
+BUILT_SAFETYHOOK_LIB := $(SAFETYHOOK_BUILD_DIR)/libsafetyhook.a
+BUILT_ZYDIS_LIB := $(SAFETYHOOK_BUILD_DIR)/_deps/zydis-build/libZydis.a
+BUILT_ZYCORE_LIB := $(SAFETYHOOK_BUILD_DIR)/_deps/zydis-build/zycore/libZycore.a
+
+# --- Dependency list for convenient checking ---
+DEPS := $(SAFETYHOOK_BUILD_DIR) $(BUILT_ZYDIS_LIB) $(BUILT_ZYCORE_LIB)
+
+# --- Sanity Checks for Dependencies ---
+ifeq ($(wildcard $(SAFETYHOOK_DIR)/CMakeLists.txt),)
+$(error SafetyHook directory or its CMakeLists.txt not found at $(SAFETYHOOK_DIR). Please ensure the submodule is initialized.)
 endif
-ifeq ($(wildcard $(SIMPLEINI_DIR)/SimpleIni.h),)
-$(error SimpleIni submodule not initialized. Please run 'git submodule update --init --recursive')
-endif
-ifeq ($(wildcard $(DIRECTXMATH_INCLUDE_DIR)/DirectXMath.h),)
-$(error DirectXMath submodule not initialized. Please run 'git submodule update --init --recursive')
-endif
-ifeq ($(wildcard $(JSON_INCLUDE_DIR)/nlohmann/json.hpp),)
-$(error json submodule not initialized. Please run 'git submodule update --init --recursive')
+ifeq ($(wildcard $(SAFETYHOOK_INCLUDE_DIR)/safetyhook.hpp),)
+$(error SafetyHook project header not found. Expected: $(SAFETYHOOK_INCLUDE_DIR)/safetyhook.hpp)
 endif
 
 # --- Common Compiler Flags ---
-INCLUDE_PATHS := -I$(MINHOOK_INCLUDE_DIR) -I$(SIMPLEINI_DIR) -I$(DIRECTXMATH_INCLUDE_DIR) -I$(JSON_INCLUDE_DIR) -I$(SRC_DIR)
-COMMON_FLAGS := -std=c++17 -m64 -Wall -Wextra $(INCLUDE_PATHS) -fexceptions \
-                -DWINVER=0x0601 -D_WIN32_WINNT=0x0601
+INCLUDE_PATHS := \
+    -I$(SAFETYHOOK_INCLUDE_DIR) \
+    -I$(SIMPLEINI_DIR) \
+    -I$(DIRECTXMATH_INCLUDE_DIR) \
+    -I$(JSON_INCLUDE_DIR) \
+    -I$(SRC_DIR)
 
-# --- Production Build Flags ---
-# Optimize for size, remove unused sections, no RTTI
-PROD_CXXFLAGS := $(COMMON_FLAGS) -Os -fdata-sections -ffunction-sections -fno-rtti -fno-threadsafe-statics
-PROD_CFLAGS := $(PROD_CXXFLAGS)
-PROD_LDFLAGS := -static -static-libgcc -static-libstdc++ -shared -s -Wl,--gc-sections
+COMMON_DEFINES := \
+    -DWINVER=0x0601 \
+    -D_WIN32_WINNT=0x0601 \
+    -DSAFETYHOOK_NO_DLL \
+    -DZYDIS_STATIC_BUILD \
+    -DZYCORE_STATIC_BUILD
 
-# --- Development Build Flags ---
-# Optimize for speed, include debug symbols, keep RTTI
-DEV_CXXFLAGS := $(COMMON_FLAGS) -O0 -g -fno-omit-frame-pointer -D_DEBUG
-DEV_CFLAGS := $(DEV_CXXFLAGS)
-DEV_LDFLAGS := -static -static-libgcc -static-libstdc++ -shared -g
+SUPPRESS_WARNINGS := -Wno-unused-but-set-variable -Wno-reorder
 
-# Required Windows system libraries (minimized)
+COMMON_COMPILE_FLAGS := -m64 -Wall -Wextra $(INCLUDE_PATHS) -fexceptions $(COMMON_DEFINES) $(SUPPRESS_WARNINGS)
+CXX_STANDARD_FLAG := -std=c++23
+PROJECT_ASFLAGS := -m64
+
+# --- Production Build Specific Flags ---
+PROD_OPTIMIZATION_FLAGS := -Os
+PROD_EXTRA_CXXFLAGS := -fdata-sections -ffunction-sections -fno-rtti -fno-threadsafe-statics
+PROD_EXTRA_PROJECT_ASFLAGS := $(PROD_OPTIMIZATION_FLAGS)
+PROD_CXXFLAGS := $(COMMON_COMPILE_FLAGS) $(CXX_STANDARD_FLAG) $(PROD_OPTIMIZATION_FLAGS) $(PROD_EXTRA_CXXFLAGS)
+PROD_PROJECT_ASFLAGS  := $(PROJECT_ASFLAGS) $(PROD_EXTRA_PROJECT_ASFLAGS)
+PROD_LDFLAGS  := -static -static-libgcc -static-libstdc++ -shared -s -Wl,--gc-sections
+
+# --- Development Build Specific Flags ---
+DEV_DEBUG_FLAGS := -g -fno-omit-frame-pointer
+DEV_EXTRA_CXXFLAGS := -D_DEBUG
+DEV_EXTRA_PROJECT_ASFLAGS := $(DEV_DEBUG_FLAGS)
+DEV_CXXFLAGS := $(COMMON_COMPILE_FLAGS) $(CXX_STANDARD_FLAG) $(DEV_DEBUG_FLAGS) $(DEV_EXTRA_CXXFLAGS) -O0
+DEV_PROJECT_ASFLAGS  := $(PROJECT_ASFLAGS) $(DEV_EXTRA_PROJECT_ASFLAGS)
+DEV_LDFLAGS  := -static -static-libgcc -static-libstdc++ -shared -g
+
 LDLIBS := -lpsapi -luser32 -lkernel32 -lshell32
 
-# --- Source Files ---
-# Find C++ source files
-CPP_SRCS := $(wildcard $(SRC_DIR)/*.cpp) \
-            $(wildcard $(SRC_DIR)/hooks/*.cpp)
-# List Assembly source files
-ASM_SRCS := $(wildcard $(ASM_DIR)/*.S)
+PROJECT_CPP_SRCS := $(wildcard $(SRC_DIR)/*.cpp) $(wildcard $(SRC_DIR)/hooks/*.cpp)
+PROJECT_ASM_SRCS := $(wildcard $(ASM_DIR)/*.S)
 
-# Find MinHook C source files
-MINHOOK_C_SRCS := $(wildcard $(MINHOOK_SRC_DIR)/*.c)
-MINHOOK_HDE_SRCS := $(wildcard $(MINHOOK_HDE_SRC_DIR)/*.c)
+PROJECT_CPP_OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(OBJ_DIR)/%.o,$(PROJECT_CPP_SRCS))
+PROJECT_ASM_OBJS := $(patsubst $(ASM_DIR)/%.S,$(OBJ_DIR)/%.o,$(PROJECT_ASM_SRCS))
+ALL_OBJS := $(sort $(PROJECT_CPP_OBJS) $(PROJECT_ASM_OBJS))
 
-# --- Production Object Files ---
-CPP_OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(OBJ_DIR)/%.o,$(CPP_SRCS))
-ASM_OBJS := $(patsubst $(ASM_DIR)/%.S,$(OBJ_DIR)/%.o,$(ASM_SRCS))
-MINHOOK_C_OBJS := $(patsubst $(MINHOOK_SRC_DIR)/%.c,$(MINHOOK_OBJ_OUT_DIR)/%.o,$(MINHOOK_C_SRCS))
-MINHOOK_HDE_OBJS := $(patsubst $(MINHOOK_HDE_SRC_DIR)/%.c,$(MINHOOK_OBJ_OUT_DIR)/%.o,$(MINHOOK_HDE_SRCS))
-ALL_OBJS := $(sort $(CPP_OBJS) $(ASM_OBJS) $(MINHOOK_C_OBJS) $(MINHOOK_HDE_OBJS))
+DEV_PROJECT_CPP_OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(DEV_OBJ_DIR)/%.o,$(PROJECT_CPP_SRCS))
+DEV_PROJECT_ASM_OBJS := $(patsubst $(ASM_DIR)/%.S,$(DEV_OBJ_DIR)/%.o,$(PROJECT_ASM_SRCS))
+ALL_DEV_OBJS := $(sort $(DEV_PROJECT_CPP_OBJS) $(DEV_PROJECT_ASM_OBJS))
 
-# --- Development Object Files ---
-DEV_CPP_OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(DEV_OBJ_DIR)/%.o,$(CPP_SRCS))
-DEV_ASM_OBJS := $(patsubst $(ASM_DIR)/%.S,$(DEV_OBJ_DIR)/%.o,$(ASM_SRCS))
-DEV_MINHOOK_C_OBJS := $(patsubst $(MINHOOK_SRC_DIR)/%.c,$(MINHOOK_DEV_OBJ_OUT_DIR)/%.o,$(MINHOOK_C_SRCS))
-DEV_MINHOOK_HDE_OBJS := $(patsubst $(MINHOOK_HDE_SRC_DIR)/%.c,$(MINHOOK_DEV_OBJ_OUT_DIR)/%.o,$(MINHOOK_HDE_SRCS))
-ALL_DEV_OBJS := $(sort $(DEV_CPP_OBJS) $(DEV_ASM_OBJS) $(DEV_MINHOOK_C_OBJS) $(DEV_MINHOOK_HDE_OBJS))
-
-# --- Make Rules ---
-
-.PHONY: all clean distclean install dev help prepare prepare_dev
-
-# Default target: ensure build directories exist, then build the target
+# --- Main Target Rules ---
 all: prepare $(TARGET)
-
-# Development target: faster builds with debug symbols
 dev: prepare_dev $(DEV_TARGET)
 
-# Rule to create necessary build directories
-prepare:
-	@echo "Creating build directories..."
-	@mkdir -p $(BUILD_DIR) $(OBJ_DIR) $(OBJ_DIR)/hooks $(MINHOOK_OBJ_OUT_DIR)
+# --- Dependency Building Logic ---
+$(BUILT_SAFETYHOOK_LIB): $(SAFETYHOOK_DIR)/CMakeLists.txt
+	@echo "---- Building SafetyHook & dependencies via CMake ----"
+	@cd $(SAFETYHOOK_DIR) && \
+	  rm -rf build && \
+	  cmake -B build  && \
+	  cmake --build build -j4
+	@echo "---- SafetyHook & dependencies build attempt complete. ----"
 
-# Rule to create necessary development build directories
-prepare_dev:
-	@echo "Creating development build directories..."
-	@mkdir -p $(DEV_BUILD_DIR) $(DEV_OBJ_DIR) $(DEV_OBJ_DIR)/hooks $(MINHOOK_DEV_OBJ_OUT_DIR)
+$(BUILT_ZYDIS_LIB): $(BUILT_SAFETYHOOK_LIB)
+	@# Zydis is built as part of SafetyHook, nothing to do
 
-# Rule to link the final production DLL/ASI target
-$(TARGET): $(ALL_OBJS)
-	@echo "Linking production target $@..."
-	$(CXX) $(PROD_LDFLAGS) -o $@ $^ $(LDLIBS)
+$(BUILT_ZYCORE_LIB): $(BUILT_SAFETYHOOK_LIB)
+	@# Zycore is built as part of SafetyHook, nothing to do
+
+
+$(TARGET): $(DEPS) $(ALL_OBJS)
+	@echo "Linking production target $(TARGET_BASENAME).asi..."
+	$(CXX) $(PROD_LDFLAGS) -o $@ $(ALL_OBJS) $(BUILT_SAFETYHOOK_LIB) $(BUILT_ZYDIS_LIB) $(BUILT_ZYCORE_LIB) $(LDLIBS)
 	@echo "Production build complete: $@"
 	@du -b $(TARGET) | cut -f1 | xargs -I {} echo "Size: {} bytes"
 
-# Rule to link the development DLL/ASI target
-$(DEV_TARGET): $(ALL_DEV_OBJS)
-	@echo "Linking development target $@..."
-	$(CXX) $(DEV_LDFLAGS) -o $@ $^ $(LDLIBS)
+$(DEV_TARGET): $(DEPS) $(ALL_DEV_OBJS)
+	@echo "Linking development target $(TARGET_BASENAME)_dev.asi..."
+	$(CXX) $(DEV_LDFLAGS) -o $@ $(ALL_DEV_OBJS) $(BUILT_SAFETYHOOK_LIB) $(BUILT_ZYDIS_LIB) $(BUILT_ZYCORE_LIB) $(LDLIBS)
 	@echo "Development build complete: $@"
 	@du -b $(DEV_TARGET) | cut -f1 | xargs -I {} echo "Size: {} bytes"
 
-# Rules to compile production C++ source files
+# Convenience: 'make deps' to build dependencies ONLY, not required for all/dev
+.PHONY: deps
+deps: $(DEPS)
+	@echo "All required static libs are built."
+
+prepare:
+	@echo "Creating production build directories for the project..."
+	@mkdir -p $(BUILD_DIR) $(OBJ_DIR) $(OBJ_DIR)/hooks
+
+prepare_dev:
+	@echo "Creating development build directories for the project..."
+	@mkdir -p $(DEV_BUILD_DIR) $(DEV_OBJ_DIR) $(DEV_OBJ_DIR)/hooks
+
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
-	@echo "Compiling production C++ $<..."
+	@echo "Compiling (Prod) C++ $<"
 	@mkdir -p $(dir $@)
 	$(CXX) $(PROD_CXXFLAGS) -c $< -o $@
-
-# Rules to compile development C++ source files
 $(DEV_OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
-	@echo "Compiling development C++ $<..."
+	@echo "Compiling (Dev) C++ $<"
 	@mkdir -p $(dir $@)
 	$(CXX) $(DEV_CXXFLAGS) -c $< -o $@
 
-# Rule to assemble production Assembly source files
 $(OBJ_DIR)/%.o: $(ASM_DIR)/%.S
-	@echo "Assembling production $<..."
+	@echo "Assembling (Prod) Project ASM $<"
 	@mkdir -p $(dir $@)
-	$(CXX) $(PROD_CFLAGS) -c $< -o $@
-
-# Rule to assemble development Assembly source files
+	$(PROJECT_AS) $(PROD_PROJECT_ASFLAGS) -c $< -o $@
 $(DEV_OBJ_DIR)/%.o: $(ASM_DIR)/%.S
-	@echo "Assembling development $<..."
+	@echo "Assembling (Dev) Project ASM $<"
 	@mkdir -p $(dir $@)
-	$(CXX) $(DEV_CFLAGS) -c $< -o $@
+	$(PROJECT_AS) $(DEV_PROJECT_ASFLAGS) -c $< -o $@
 
-# Rule to compile production MinHook Core C source files
-$(MINHOOK_OBJ_OUT_DIR)/%.o: $(MINHOOK_SRC_DIR)/%.c
-	@echo "Compiling production MinHook $<..."
-	@mkdir -p $(dir $@)
-	$(CXX) $(PROD_CFLAGS) -c $< -o $@
-
-# Rule to compile development MinHook Core C source files
-$(MINHOOK_DEV_OBJ_OUT_DIR)/%.o: $(MINHOOK_SRC_DIR)/%.c
-	@echo "Compiling development MinHook $<..."
-	@mkdir -p $(dir $@)
-	$(CXX) $(DEV_CFLAGS) -c $< -o $@
-
-# Rule to compile production MinHook HDE C source files
-$(MINHOOK_OBJ_OUT_DIR)/%.o: $(MINHOOK_HDE_SRC_DIR)/%.c
-	@echo "Compiling production MinHook HDE $<..."
-	@mkdir -p $(dir $@)
-	$(CXX) $(PROD_CFLAGS) -c $< -o $@
-
-# Rule to compile development MinHook HDE C source files
-$(MINHOOK_DEV_OBJ_OUT_DIR)/%.o: $(MINHOOK_HDE_SRC_DIR)/%.c
-	@echo "Compiling development MinHook HDE $<..."
-	@mkdir -p $(dir $@)
-	$(CXX) $(DEV_CFLAGS) -c $< -o $@
-
-# --- Utility Targets ---
-
-# Clean target: remove object files and final target
 clean:
-	@echo "Cleaning build files..."
-	rm -rf $(OBJ_DIR) $(DEV_OBJ_DIR) $(TARGET) $(DEV_TARGET)
+	@echo "Cleaning build files for KCD2_TPVToggle..."
+	rm -rf $(OBJ_DIR) $(TARGET)
+	rm -rf $(DEV_OBJ_DIR) $(DEV_TARGET)
 
-# Distclean target: remove the entire build directory
-distclean: clean
-	@echo "Cleaning entire build directory..."
+clean_safetyhook_build:
+	@echo "Cleaning SafetyHook build directory $(SAFETYHOOK_BUILD_DIR)..."
+	rm -rf $(SAFETYHOOK_BUILD_DIR)
+
+distclean: clean clean_safetyhook_build
+	@echo "Cleaning KCD2_TPVToggle build output ($(BUILD_DIR)) and SafetyHook build output..."
 	rm -rf $(BUILD_DIR)
 
-# Install target: Copy ASI and essential config/docs to build dir
 install: all
-	@echo "Copying distributable files to $(BUILD_DIR)..."
-	@cp -fv KCD2_TPVToggle.ini $(BUILD_DIR)/ || copy KCD2_TPVToggle.ini $(subst /,\,$(BUILD_DIR))\
-	@cp -fv README.md $(BUILD_DIR)/README_MOD.md || copy README.md $(subst /,\,$(BUILD_DIR))\README_MOD.md
-	@cp -fv KCD2_TPVToggle_Acknowledgements.txt $(BUILD_DIR)/ || copy KCD2_TPVToggle_Acknowledgements.txt $(subst /,\,$(BUILD_DIR))\
-	@echo "Install complete: $@"
+	@echo "Copying all files from static/ to $(BUILD_DIR)..."
+	@cp -fv $(STATIC_DIR)/* $(BUILD_DIR)/ || copy $(STATIC_DIR)\* $(subst /,\,$(BUILD_DIR))\
+	@echo "Install complete. Main ASI is: $(TARGET)"
 	@du -b $(TARGET) | cut -f1 | xargs -I {} echo "Size: {} bytes"
 
-# Help target: display available commands
 help:
 	@echo "Available commands:"
-	@echo "  make          - Build the production mod ($(TARGET)) optimized for size"
-	@echo "  make dev      - Build the development mod ($(DEV_TARGET)) with debug symbols"
-	@echo "  make clean    - Remove generated object files and the mod files"
-	@echo "  make distclean - Remove the entire build directory"
-	@echo "  make install  - Build and copy config/docs to build directory"
-	@echo "  make help     - Display this help information"
+	@echo "  make deps             - Ensures SafetyHook & its dependencies are built if missing."
+	@echo "  make                  - Build the production mod ($(TARGET))"
+	@echo "  make dev              - Build the development mod ($(DEV_TARGET))"
+	@echo "  make clean            - Remove KCD2_TPVToggle generated object files and mod ASIs"
+	@echo "  make clean_safetyhook_build - Removes SafetyHook's own build directory"
+	@echo "  make distclean        - Clean KCD2_TPVToggle output and SafetyHook build dir"
+	@echo "  make install          - Build production mod and copy config/docs to $(BUILD_DIR)"
+	@echo "  make help             - Display this help information"
 	@echo ""
-	@echo "Production: Building with -Os flag for minimum size"
-	@echo "Development: Building with -O0 -g flags for debug information"

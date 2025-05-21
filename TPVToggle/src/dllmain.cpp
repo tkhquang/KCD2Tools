@@ -15,6 +15,7 @@
 #include "global_state.h"
 #include "camera_profile.h"
 #include "camera_profile_thread.h"
+#include "hook_manager.hpp"
 #include "hooks/event_hooks.h"
 #include "hooks/fov_hook.h"
 #include "hooks/tpv_camera_hook.h"
@@ -22,8 +23,6 @@
 #include "hooks/ui_overlay_hooks.h"
 #include "hooks/ui_menu_hooks.h"
 // #include "hooks/entity_hooks.h"
-
-#include "MinHook.h"
 
 #include <windows.h>
 #include <psapi.h>
@@ -77,18 +76,10 @@ void cleanupResources()
         g_hCameraProfileThread = NULL;
     }
 
-    // Clean up hooks and interfaces in reverse order of initialization
-    cleanupUiMenuHooks();
-    cleanupUiOverlayHooks();
-    cleanupEventHooks();
-    cleanupFovHook();
-    cleanupGameInterface();
-    cleanupTpvCameraHook();
-    cleanupTpvInputHook();
-    // cleanupEntityHooks();
+    // Remove all hooks using HookManager
+    HookManager::getInstance().remove_all_hooks();
 
-    // Uninitialize MinHook
-    MH_Uninitialize();
+    cleanupGameInterface();
 
     // Clean up exit event
     if (g_exitEvent)
@@ -146,20 +137,14 @@ bool validateGameModule()
 }
 
 /**
- * @brief Initializes MinHook library and all required hooks.
+ * @brief Initializes all required hooks.
  * @return true if initialization successful, false otherwise.
  */
 bool initializeHooks()
 {
     Logger &logger = Logger::getInstance();
-
-    // Initialize MinHook
-    MH_STATUS status = MH_Initialize();
-    if (status != MH_OK)
-    {
-        logger.log(LOG_ERROR, "MinHook initialization failed: " + std::string(MH_StatusToString(status)));
-        return false;
-    }
+    // HookManager is a singleton, its constructor handles SafetyHook global init implicitly if needed.
+    // SafetyHook Factory initialization is handled by the first hook creation now.
 
     // Initialize core game interface (always required)
     if (!initializeGameInterface(g_ModuleBase, g_ModuleSize))

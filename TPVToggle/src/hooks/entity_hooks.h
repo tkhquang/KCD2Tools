@@ -9,13 +9,14 @@
 
 #include <cstdint>
 
-// Forward declarations
+// Forward declarations from game_structures.h to avoid circular dependencies if any
 namespace GameStructures
 {
     class CEntity;
 }
 
-// Function pointer type
+// Typedef for the game's SetWorldTM function (if used directly, not just hooked)
+// This type is used for g_funcCEntitySetWorldTM which is obtained by AOB scanning, not hooking.
 typedef void (*CEntity_SetWorldTM_Func_t)(GameStructures::CEntity *this_ptr, float *tm_3x4, int flags);
 
 /**
@@ -33,12 +34,18 @@ void cleanupEntityHooks();
 
 /**
  * @brief Reset player entity pointer if the given entity is the player
- * @param entity Entity being destroyed
+ * @param entity Entity that might be the player and is being destroyed
  */
 void ResetPlayerEntityIfDestroyed(GameStructures::CEntity *entity);
 
 /**
  * @brief Get the current player entity pointer safely
- * @return Pointer to player entity or nullptr if not found
+ * @return Pointer to player CEntity object or nullptr if not found/set
  */
 GameStructures::CEntity *GetPlayerEntity();
+
+/**
+ * @brief Check if the entity hooks (specifically constructor caller hook) are active.
+ * @return true if the constructor caller hook is considered active.
+ */
+bool isEntityHooksActive();
