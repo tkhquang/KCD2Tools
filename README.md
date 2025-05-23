@@ -2,6 +2,10 @@
 
 A collection of mods for Kingdom Come: Deliverance II that enhance gameplay and add new features to the game.
 
+## Lua Scriptbind Documentation from WH
+
+[2025_01_14](https://tkhquang.github.io/KCD2Tools/script_bind/script_bind_2025_01_14/)
+
 ## Available Mods
 
 ### [TPVToggle](TPVToggle/)
