@@ -16,3 +16,6 @@
 [submodule "TPVToggle/external/KCD2ModLoader"]
 	path = TPVToggle/external/KCD2ModLoader
 	url = https://github.com/xiaoxiao921/KCD2ModLoader.git
+[submodule "TPVToggle/external/DetourModKit"]
+	path = TPVToggle/external/DetourModKit
+	url = https://github.com/tkhquang/DetourModKit.git
