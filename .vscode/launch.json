@@ -8,8 +8,8 @@
       "args": [],
       "stopAtEntry": false,
       "externalConsole": true,
-      "cwd": "d:/Workspace/KCD2Tools/TPVToggle/src",
-      "program": "d:/Workspace/KCD2Tools/TPVToggle/src/build/Debug/outDebug",
+      "cwd": "d:/Workspace/KDC2Tools/TPVToggle/external/KCD2ModLoader/src/lua_extensions/bindings",
+      "program": "d:/Workspace/KDC2Tools/TPVToggle/external/KCD2ModLoader/src/lua_extensions/bindings/build/Debug/outDebug",
       "MIMode": "gdb",
       "miDebuggerPath": "gdb",
       "setupCommands": [

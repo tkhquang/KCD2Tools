@@ -1,390 +1,235 @@
-/**
- * @file dllmain.cpp
- * @brief Main initialization and cleanup for the TPV Toggle mod.
- *
- * Handles module loading, configuration, hook setup, and thread management.
- */
-
-#include "logger.h"
-#include "config.h"
-#include "utils.h"
-#include "constants.h"
-#include "version.h"
-#include "toggle_thread.h"
-#include "game_interface.h"
-#include "global_state.h"
-#include "camera_profile.h"
-#include "camera_profile_thread.h"
-#include "hooks/event_hooks.h"
-#include "hooks/fov_hook.h"
-#include "hooks/tpv_camera_hook.h"
-#include "hooks/tpv_input_hook.h"
-#include "hooks/ui_overlay_hooks.h"
-#include "hooks/ui_menu_hooks.h"
-// #include "hooks/entity_hooks.h"
-
-#include "MinHook.h"
-
 #include <windows.h>
-#include <psapi.h>
+#include <Psapi.h>
+#include <vector>
+#include <string>
 #include <thread>
-#include <stdexcept>
+#include <chrono>
 
-// Configuration state
-Config g_config;
+#include <DetourModKit.hpp>
 
-/**
- * @brief Safely cleans up all resources and threads.
- */
-void cleanupResources()
+#include "constants.hpp"
+#include "config.hpp"
+
+#include "hooks/core_hooks.hpp"
+
+namespace Mod
 {
-    Logger &logger = Logger::getInstance();
-    logger.log(LOG_INFO, "Cleanup: Starting cleanup process...");
 
-    // Clear the memory cache
-    clearMemoryCache();
+    // Camera mode flag values (WORD type)
+    const WORD CAMERA_MODE_FPV = 0;
+    const WORD CAMERA_MODE_TPV = 1;
 
-    // Signal threads to exit
-    if (g_exitEvent)
+    // Mod State
+    std::vector<bool> g_toggle_key_was_pressed;
+    std::vector<bool> g_fpv_key_was_pressed;
+    std::vector<bool> g_tpv_key_was_pressed;
+
+    bool g_mod_shutting_down = false;
+    const int INIT_RETRY_MILLISECONDS = 500; // How often to retry finding game systems
+
+    std::thread g_input_monitoring_thread;
+
+    // Forward Declarations
+    void InitializeModLogic();
+    void ShutdownModLogic();
+    [[noreturn]] void MonitorInputAndToggle();
+    void SetCameraMode(WORD mode);
+    WORD GetCurrentCameraMode();
+    void ToggleViewAction();
+
+} // namespace Mod
+
+void Mod::InitializeModLogic()
+{
+    DMKLogger::configure(Constants::MOD_NAME, Constants::getLogFilename(), "%Y-%m-%d %H:%M:%S");
+    DMKLogger &logger = DMKLogger::getInstance();
+
+    loadConfig();
+
+    logger.setLogLevel(DMKLogger::stringToLogLevel(g_config.log_level_str));
+    logger.log(DMK::LOG_INFO, "KCD2_TPVToggle InitializeModLogic started.");
+    DMKConfig::logAll();
+
+    DMKMemory::initMemoryCache();
+
+    logger.log(DMK::LOG_INFO, "Waiting for target game module and C_CameraManager instance...");
+
+    HMODULE h_game_module = nullptr;
+    unsigned int retry_log_counter = 0;
+    const unsigned int log_every_n_retries = 4; // Log "still waiting" every ~2 seconds
+
+    // Loop indefinitely until CameraManager is found or shutdown is signaled
+    while (!Mod::g_mod_shutting_down)
     {
-        SetEvent(g_exitEvent);
-        Sleep(100); // Allow threads time to process exit signal
-    }
-
-    // Wait for main monitor thread to complete (with timeout)
-    if (g_hMonitorThread)
-    {
-        DWORD wait_result = WaitForSingleObject(g_hMonitorThread, 2000); // 2 second timeout
-        if (wait_result == WAIT_TIMEOUT)
+        h_game_module = GetModuleHandleA(Constants::MODULE_NAME);
+        if (h_game_module)
         {
-            logger.log(LOG_WARNING, "Cleanup: Monitor thread wait timeout - thread may not have exited cleanly");
+            // TODO: Placeholder
+            break;
         }
 
-        CloseHandle(g_hMonitorThread);
-        g_hMonitorThread = NULL;
-    }
-
-    // Clean up camera profile thread if active
-    if (g_hCameraProfileThread)
-    {
-        DWORD wait_result = WaitForSingleObject(g_hCameraProfileThread, 2000);
-        if (wait_result == WAIT_TIMEOUT)
+        retry_log_counter++;
+        if (retry_log_counter % log_every_n_retries == 0)
         {
-            logger.log(LOG_WARNING, "Cleanup: Camera profile thread wait timeout");
+            logger.log(DMK::LOG_DEBUG, "Still waiting for C_CameraManager...");
         }
 
-        CloseHandle(g_hCameraProfileThread);
-        g_hCameraProfileThread = NULL;
+        if (!Mod::g_mod_shutting_down)
+            std::this_thread::sleep_for(std::chrono::milliseconds(INIT_RETRY_MILLISECONDS));
     }
 
-    // Clean up hooks and interfaces in reverse order of initialization
-    cleanupUiMenuHooks();
-    cleanupUiOverlayHooks();
-    cleanupEventHooks();
-    cleanupFovHook();
-    cleanupGameInterface();
-    cleanupTpvCameraHook();
-    cleanupTpvInputHook();
-    // cleanupEntityHooks();
-
-    // Uninitialize MinHook
-    MH_Uninitialize();
-
-    // Clean up exit event
-    if (g_exitEvent)
+    if (Mod::g_mod_shutting_down)
     {
-        CloseHandle(g_exitEvent);
-        g_exitEvent = NULL;
-    }
-
-    logger.log(LOG_INFO, "Cleanup: All resources freed successfully");
-}
-
-/**
- * @brief Validates that the target game module is loaded and accessible.
- * @return true if module is valid, false otherwise.
- */
-bool validateGameModule()
-{
-    Logger &logger = Logger::getInstance();
-
-    // Wait for module to load
-    HMODULE game_module = NULL;
-    for (int i = 0; i < 30 && !game_module; ++i)
-    {
-        game_module = GetModuleHandleA(Constants::MODULE_NAME);
-        if (!game_module)
-            Sleep(100);
-    }
-
-    if (!game_module)
-    {
-        logger.log(LOG_ERROR, "Failed to find module: " + std::string(Constants::MODULE_NAME));
-        return false;
+        logger.log(DMK::LOG_INFO, "Mod shutdown signaled during initialization wait. Initialization aborted.");
+        return;
     }
 
     // Get module information
     MODULEINFO mod_info = {};
-    if (!GetModuleInformation(GetCurrentProcess(), game_module, &mod_info, sizeof(mod_info)))
+    if (!GetModuleInformation(GetCurrentProcess(), h_game_module, &mod_info, sizeof(mod_info)))
     {
-        logger.log(LOG_ERROR, "Failed to get module information: " + std::to_string(GetLastError()));
-        return false;
+        logger.log(DMK::LOG_ERROR, "Failed to get module information: " + std::to_string(GetLastError()));
+        return;
     }
 
-    g_ModuleBase = reinterpret_cast<uintptr_t>(mod_info.lpBaseOfDll);
-    g_ModuleSize = mod_info.SizeOfImage;
+    uintptr_t g_ModuleBase = reinterpret_cast<uintptr_t>(mod_info.lpBaseOfDll);
+    size_t g_ModuleSize = mod_info.SizeOfImage;
 
-    if (g_ModuleSize == 0)
-    {
-        logger.log(LOG_ERROR, "Module has zero size");
-        return false;
-    }
+    initializeCoreHooks(g_ModuleBase, g_ModuleSize);
 
-    logger.log(LOG_INFO, "Module validated: " + format_address(g_ModuleBase) +
-                             " (Size: " + std::to_string(g_ModuleSize) + " bytes)");
-    return true;
+    Mod::g_toggle_key_was_pressed.assign(g_config.toggle_keys.size(), false);
+    Mod::g_fpv_key_was_pressed.assign(g_config.fpv_keys.size(), false);
+    Mod::g_tpv_key_was_pressed.assign(g_config.tpv_keys.size(), false);
+
+    Mod::g_input_monitoring_thread = std::thread(Mod::MonitorInputAndToggle);
+
+    logger.log(DMK::LOG_INFO, "KCD2_TPVToggle initialized successfully and input monitoring started.");
 }
 
-/**
- * @brief Initializes MinHook library and all required hooks.
- * @return true if initialization successful, false otherwise.
- */
-bool initializeHooks()
+void Mod::SetCameraMode(WORD mode)
 {
-    Logger &logger = Logger::getInstance();
 
-    // Initialize MinHook
-    MH_STATUS status = MH_Initialize();
-    if (status != MH_OK)
-    {
-        logger.log(LOG_ERROR, "MinHook initialization failed: " + std::string(MH_StatusToString(status)));
-        return false;
-    }
+    DMKLogger &logger = DMKLogger::getInstance();
+    // TODO: Placeholder
+}
 
-    // Initialize core game interface (always required)
-    if (!initializeGameInterface(g_ModuleBase, g_ModuleSize))
-    {
-        logger.log(LOG_ERROR, "Critical: Game interface initialization failed - mod cannot function");
-        return false;
-    }
+WORD Mod::GetCurrentCameraMode()
+{
+    // TODO: Placeholder
+    return Mod::CAMERA_MODE_FPV;
+}
 
-    // if (!initializeEntityHooks(g_ModuleBase, g_ModuleSize))
-    // {
-    //     logger.log(LOG_WARNING, "Entity Hooks (for Player & SetWorldTM) initialization failed.");
-    // }
-
-    // Initialize UI Menu hooks for menu detection
-    if (!initializeUiMenuHooks(g_ModuleBase, g_ModuleSize))
-    {
-        logger.log(LOG_WARNING, "UI Menu hooks initialization failed - menu detection disabled");
-    }
+void Mod::ToggleViewAction()
+{
+    WORD current_mode = GetCurrentCameraMode();
+    if (current_mode == Mod::CAMERA_MODE_TPV)
+        Mod::SetCameraMode(Mod::CAMERA_MODE_FPV);
     else
-    {
-        logger.log(LOG_INFO, "UI Menu hooks successfully initialized");
-    }
-
-    // Initialize UI Overlay hooks for overlay detection
-    if (g_config.enable_overlay_feature)
-    {
-        if (!initializeUiOverlayHooks(g_ModuleBase, g_ModuleSize))
-        {
-            logger.log(LOG_ERROR, "UI Overlay hooks initialization failed - overlay features disabled");
-            g_config.enable_overlay_feature = false;
-        }
-        else
-        {
-            logger.log(LOG_INFO, "Using direct UI overlay hooks for overlay detection");
-
-            // Initialize event hooks for scroll input filtering - still needed even with direct hooks
-            if (!initializeEventHooks(g_ModuleBase, g_ModuleSize))
-            {
-                logger.log(LOG_WARNING, "Event hooks initialization failed - input filtering disabled");
-            }
-        }
-    }
-
-    // Initialize optional FOV feature
-    if (g_config.tpv_fov_degrees > 0.0f)
-    {
-        if (!initializeFovHook(g_ModuleBase, g_ModuleSize, g_config.tpv_fov_degrees))
-        {
-            logger.log(LOG_WARNING, "FOV hook initialization failed - FOV modification disabled");
-            g_config.tpv_fov_degrees = -1.0f;
-        }
-    }
-
-    if (!initializeTpvCameraHook(g_ModuleBase, g_ModuleSize))
-    {
-        logger.log(LOG_WARNING, "TPV Camera Offset Hook initialization failed - Offset feature disabled.");
-    }
-
-    if (g_config.tpv_pitch_sensitivity != 1.0f || g_config.tpv_yaw_sensitivity != 1.0f || g_config.tpv_pitch_limits_enabled || g_config.enable_overlay_feature)
-    {
-        if (!initializeTpvInputHook(g_ModuleBase, g_ModuleSize))
-        {
-            logger.log(LOG_WARNING, "TPV Input Hook initialization failed - Camera sensitivity control disabled");
-        }
-    }
-
-    return true;
+        Mod::SetCameraMode(Mod::CAMERA_MODE_TPV);
 }
 
-/**
- * @brief Creates and starts the main monitor thread.
- * @return true if main thread started successfully, false otherwise.
- */
-bool startMonitorThread()
+[[noreturn]] void Mod::MonitorInputAndToggle()
 {
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::getInstance();
+    logger.log(DMK::LOG_INFO, "Input monitoring thread started.");
 
-    // Prepare toggle data for the main monitor thread
-    ToggleData *toggle_data = new (std::nothrow) ToggleData{
-        std::move(g_config.toggle_keys),
-        std::move(g_config.fpv_keys),
-        std::move(g_config.tpv_keys)};
-
-    if (!toggle_data)
+    while (!Mod::g_mod_shutting_down)
     {
-        logger.log(LOG_ERROR, "Failed to allocate memory for toggle data");
-        return false;
-    }
-
-    // Start main monitor thread
-    g_hMonitorThread = CreateThread(NULL, 0, MonitorThread, toggle_data, 0, NULL);
-    if (!g_hMonitorThread)
-    {
-        delete toggle_data;
-        logger.log(LOG_ERROR, "Failed to create monitor thread: " + std::to_string(GetLastError()));
-        return false;
-    }
-
-    logger.log(LOG_INFO, "Main monitor thread started successfully");
-    return true;
-}
-
-/**
- * @brief Main initialization thread that sets up the mod.
- */
-DWORD WINAPI MainThread(LPVOID hModule_param)
-{
-    (void)hModule_param;
-    Logger &logger = Logger::getInstance();
-
-    try
-    {
-        // Log startup banner
-        logger.log(LOG_INFO, "----------------------------------------");
-        Version::logVersionInfo();
-
-        // Load configuration
-        g_config = loadConfig(Constants::getConfigFilename());
-
-        // Apply log level from config
-        LogLevel log_level = LOG_INFO;
-        if (g_config.log_level == "TRACE")
-            log_level = LOG_TRACE;
-        else if (g_config.log_level == "DEBUG")
-            log_level = LOG_DEBUG;
-        else if (g_config.log_level == "WARNING")
-            log_level = LOG_WARNING;
-        else if (g_config.log_level == "ERROR")
-            log_level = LOG_ERROR;
-        logger.setLogLevel(log_level);
-
-        // Initialize memory cache
-        initMemoryCache();
-        logger.log(LOG_INFO, "Memory cache system initialized");
-
-        // Create exit event for thread signaling
-        g_exitEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-        if (!g_exitEvent)
+        // TODO: Placeholder
+        // Ensure Camera is available before processing keys
+        if (false)
         {
-            throw std::runtime_error("Failed to create exit event: " + std::to_string(GetLastError()));
+            if (!Mod::g_mod_shutting_down)
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            continue;
         }
 
-        // Validate game module
-        if (!validateGameModule())
+        bool action_taken_this_cycle = false;
+
+        if (!action_taken_this_cycle && !g_config.toggle_keys.empty())
         {
-            throw std::runtime_error("Game module validation failed");
-        }
-
-        // Initialize hooks
-        if (!initializeHooks())
-        {
-            throw std::runtime_error("Hook initialization failed");
-        }
-
-        // Start monitor thread
-        if (!startMonitorThread())
-        {
-            throw std::runtime_error("Failed to start monitor thread");
-        }
-
-        // Initialize and start camera profile system if enabled
-        if (g_config.enable_camera_profiles)
-        {
-            logger.log(LOG_INFO, "Initializing camera profile system...");
-
-            // Set initial global camera offset from config
-            g_currentCameraOffset = Vector3(g_config.tpv_offset_x, g_config.tpv_offset_y, g_config.tpv_offset_z);
-
-            // Initialize the camera profile manager with JSON-based persistence
-            CameraProfileManager::getInstance().loadProfiles(g_config.profile_directory);
-
-            // Configure transition settings
-            CameraProfileManager::getInstance().setTransitionSettings(
-                g_config.transition_duration,
-                g_config.use_spring_physics,
-                g_config.spring_strength,
-                g_config.spring_damping);
-
-            // Start camera profile thread
-            CameraProfileThreadData *profile_data = new (std::nothrow) CameraProfileThreadData{
-                g_config.offset_adjustment_step};
-
-            if (!profile_data)
+            for (size_t i = 0; i < g_config.toggle_keys.size(); ++i)
             {
-                logger.log(LOG_ERROR, "Failed to allocate memory for camera profile thread data");
-            }
-            else
-            {
-                g_hCameraProfileThread = CreateThread(NULL, 0, CameraProfileThread, profile_data, 0, NULL);
-                if (!g_hCameraProfileThread)
+                if (GetAsyncKeyState(g_config.toggle_keys[i]) & 0x8000)
                 {
-                    delete profile_data;
-                    logger.log(LOG_ERROR, "Failed to create camera profile thread: " + std::to_string(GetLastError()));
+                    if (!Mod::g_toggle_key_was_pressed[i])
+                    {
+                        Mod::ToggleViewAction();
+                        Mod::g_toggle_key_was_pressed[i] = true;
+                        action_taken_this_cycle = true;
+                        break;
+                    }
                 }
                 else
                 {
-                    logger.log(LOG_INFO, "Camera profile thread started successfully");
+                    Mod::g_toggle_key_was_pressed[i] = false;
                 }
             }
         }
-
-        logger.log(LOG_INFO, "Initialization completed successfully");
+        if (!action_taken_this_cycle && !g_config.fpv_keys.empty())
+        {
+            for (size_t i = 0; i < g_config.fpv_keys.size(); ++i)
+            {
+                if (GetAsyncKeyState(g_config.fpv_keys[i]) & 0x8000)
+                {
+                    if (!Mod::g_fpv_key_was_pressed[i])
+                    {
+                        Mod::SetCameraMode(Mod::CAMERA_MODE_FPV);
+                        Mod::g_fpv_key_was_pressed[i] = true;
+                        action_taken_this_cycle = true;
+                        break;
+                    }
+                }
+                else
+                {
+                    Mod::g_fpv_key_was_pressed[i] = false;
+                }
+            }
+        }
+        if (!action_taken_this_cycle && !g_config.tpv_keys.empty())
+        {
+            for (size_t i = 0; i < g_config.tpv_keys.size(); ++i)
+            {
+                if (GetAsyncKeyState(g_config.tpv_keys[i]) & 0x8000)
+                {
+                    if (!Mod::g_tpv_key_was_pressed[i])
+                    {
+                        Mod::SetCameraMode(Mod::CAMERA_MODE_TPV);
+                        Mod::g_tpv_key_was_pressed[i] = true;
+                        break;
+                    }
+                }
+                else
+                {
+                    Mod::g_tpv_key_was_pressed[i] = false;
+                }
+            }
+        }
+        if (!Mod::g_mod_shutting_down)
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
     }
-    catch (const std::exception &e)
-    {
-        logger.log(LOG_ERROR, "Fatal initialization error: " + std::string(e.what()));
-        MessageBoxA(NULL, ("Fatal Error:\n" + std::string(e.what())).c_str(),
-                    Constants::MOD_NAME, MB_ICONERROR | MB_OK);
-        cleanupResources();
-        return 1;
-    }
-    catch (...)
-    {
-        logger.log(LOG_ERROR, "Fatal initialization error: Unknown exception");
-        MessageBoxA(NULL, "Fatal Unknown Error!", Constants::MOD_NAME, MB_ICONERROR | MB_OK);
-        cleanupResources();
-        return 1;
-    }
-
-    return 0;
+    logger.log(DMK::LOG_INFO, "Input monitoring thread exiting due to shutdown signal.");
 }
 
-/**
- * @brief DLL entry point.
- */
+void Mod::ShutdownModLogic()
+{
+    DMKLogger &logger = DMKLogger::getInstance();
+    logger.log(DMK::LOG_INFO, "KCD2_TPVToggle Shutting Down...");
+    Mod::g_mod_shutting_down = true;
+
+    if (Mod::g_input_monitoring_thread.joinable())
+    {
+        logger.log(DMK::LOG_DEBUG, "Waiting for input monitoring thread to join...");
+        Mod::g_input_monitoring_thread.join();
+        logger.log(DMK::LOG_DEBUG, "Input monitoring thread joined.");
+    }
+    cleanupCoreHooks();
+
+    DMKConfig::clearRegisteredItems();
+    DMKMemory::clearMemoryCache();
+    logger.log(DMK::LOG_INFO, "KCD2_TPVToggle Shutdown Complete.");
+}
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
 {
     (void)lpReserved;
@@ -392,14 +237,18 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
     switch (ul_reason_for_call)
     {
     case DLL_PROCESS_ATTACH:
+    {
         DisableThreadLibraryCalls(hModule);
-        CreateThread(NULL, 0, MainThread, hModule, 0, NULL);
-        break;
-
+        std::thread init_thread(Mod::InitializeModLogic);
+        init_thread.detach();
+    }
+    break;
     case DLL_PROCESS_DETACH:
-        cleanupResources();
+        Mod::ShutdownModLogic();
+        break;
+    case DLL_THREAD_ATTACH:
+    case DLL_THREAD_DETACH:
         break;
     }
-
     return TRUE;
 }

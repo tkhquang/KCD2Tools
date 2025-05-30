@@ -3,14 +3,13 @@
     {
       "name": "windows-gcc-x64",
       "includePath": [
-        "${workspaceFolder}/TPVToggle/src",
-        "${workspaceFolder}/TPVToggle/external/minhook/include",
-        "${workspaceFolder}/TPVToggle/external/DirectXMath/Inc",
-        "${workspaceFolder}/TPVToggle/external/json/include",
-        "${workspaceFolder}/TPVToggle/external/safetyhook/include",
         "${workspaceFolder}/**"
       ],
-      "defines": ["_DEBUG", "UNICODE", "_UNICODE"],
+      "defines": [
+        "_DEBUG",
+        "UNICODE",
+        "_UNICODE"
+      ],
       "compilerPath": "C:/msys64/mingw64/bin/gcc.exe",
       "cStandard": "c23",
       "cppStandard": "c++23",
