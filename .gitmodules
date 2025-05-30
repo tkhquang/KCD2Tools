@@ -13,3 +13,6 @@
 [submodule "TPVToggle/external/safetyhook"]
 	path = TPVToggle/external/safetyhook
 	url = https://github.com/cursey/safetyhook.git
+[submodule "TPVToggle/external/KCD2ModLoader"]
+	path = TPVToggle/external/KCD2ModLoader
+	url = https://github.com/xiaoxiao921/KCD2ModLoader.git
