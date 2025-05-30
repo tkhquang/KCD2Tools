@@ -9,8 +9,12 @@
 
 #include "constants.hpp"
 #include "config.hpp"
+#include "global_state.hpp"
 
 #include "hooks/core_hooks.hpp"
+#include "hooks/camera_hooks.hpp"
+
+using namespace GlobalState;
 
 namespace Mod
 {
@@ -92,10 +96,11 @@ void Mod::InitializeModLogic()
         return;
     }
 
-    uintptr_t g_ModuleBase = reinterpret_cast<uintptr_t>(mod_info.lpBaseOfDll);
-    size_t g_ModuleSize = mod_info.SizeOfImage;
+    g_ModuleBase = reinterpret_cast<uintptr_t>(mod_info.lpBaseOfDll);
+    g_ModuleSize = mod_info.SizeOfImage;
 
     initializeCoreHooks(g_ModuleBase, g_ModuleSize);
+    initializeCameraHooks(g_ModuleBase, g_ModuleSize);
 
     Mod::g_toggle_key_was_pressed.assign(g_config.toggle_keys.size(), false);
     Mod::g_fpv_key_was_pressed.assign(g_config.fpv_keys.size(), false);
@@ -223,6 +228,7 @@ void Mod::ShutdownModLogic()
         Mod::g_input_monitoring_thread.join();
         logger.log(DMK::LOG_DEBUG, "Input monitoring thread joined.");
     }
+    cleanupCameraHooks();
     cleanupCoreHooks();
 
     DMKConfig::clearRegisteredItems();

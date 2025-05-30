@@ -15,25 +15,19 @@
 
 #include "constants.hpp"
 
-struct Config
+struct LocalConfig
 {
     std::vector<int> toggle_keys;
     std::vector<int> fpv_keys;
     std::vector<int> tpv_keys;
+
+    float tpv_offset_x;
+    float tpv_offset_y;
+    float tpv_offset_z;
+
     std::string log_level_str = Constants::DEFAULT_LOG_LEVEL;
-} g_config;
+};
 
-inline Config loadConfig()
-{
-    DMKConfig::registerKeyList("Settings", "ToggleKey", "Toggle View Keys", g_config.toggle_keys, "0x72");
-    DMKConfig::registerKeyList("Settings", "FPVKey", "Force First-Person View Keys", g_config.fpv_keys, "");
-    DMKConfig::registerKeyList("Settings", "TPVKey", "Force Third-Person View Keys", g_config.tpv_keys, "");
-    DMKConfig::registerString("Settings", "LogLevel", "Log Level (TRACE, DEBUG, INFO, WARNING, ERROR)", g_config.log_level_str, "INFO");
-
-    std::string ini_path = DMKFilesystem::getRuntimeDirectory() + "\\" + Constants::getConfigFilename();
-    DMKConfig::load(ini_path);
-
-    return g_config;
-}
+LocalConfig loadConfig();
 
 #endif // CONFIG_H
