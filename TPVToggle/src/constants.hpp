@@ -54,7 +54,7 @@ namespace Constants
 
     constexpr const char *SET_HEAD_VISIBILITY_AOB_PATTERN = "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC ?? 41 8A F0";
 
-    constexpr const char *DEFAULT_LOG_LEVEL = "INFO";
+    constexpr const char *DEFAULT_LOG_LEVEL = "DEBUG";
 
     constexpr unsigned long MAIN_MONITOR_SLEEP_MS = 33;
 

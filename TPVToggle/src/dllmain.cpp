@@ -13,6 +13,9 @@
 
 #include "hooks/core_hooks.hpp"
 #include "hooks/camera_hooks.hpp"
+#include "hooks/player_hooks.hpp"
+#include "hooks/tpv_camera.hpp"
+#include "hooks/tpv_hooks.hpp"
 
 using namespace GlobalState;
 
@@ -42,6 +45,13 @@ namespace Mod
     void ToggleViewAction();
 
 } // namespace Mod
+
+// Simple main loop for input processing (if not handled by a mod framework callback)
+// This should ideally be called from a game thread context if possible,
+// or a separate thread that yields appropriately.
+// For simplicity, a basic thread example:
+std::atomic<bool> g_running = true;
+std::thread g_inputThread;
 
 void Mod::InitializeModLogic()
 {
@@ -100,7 +110,10 @@ void Mod::InitializeModLogic()
     g_ModuleSize = mod_info.SizeOfImage;
 
     initializeCoreHooks(g_ModuleBase, g_ModuleSize);
-    initializeCameraHooks(g_ModuleBase, g_ModuleSize);
+    // initializeCameraHooks(g_ModuleBase, g_ModuleSize);
+    initializePlayerHooks(g_ModuleBase, g_ModuleSize);
+    // TpvCamera::initializeTpvCameraHooks(g_ModuleBase, g_ModuleSize);
+    initializeTpvHooks(g_ModuleBase, g_ModuleSize);
 
     Mod::g_toggle_key_was_pressed.assign(g_config.toggle_keys.size(), false);
     Mod::g_fpv_key_was_pressed.assign(g_config.fpv_keys.size(), false);
@@ -229,6 +242,7 @@ void Mod::ShutdownModLogic()
         logger.log(DMK::LOG_DEBUG, "Input monitoring thread joined.");
     }
     cleanupCameraHooks();
+    cleanupPlayerHooks();
     cleanupCoreHooks();
 
     DMKConfig::clearRegisteredItems();

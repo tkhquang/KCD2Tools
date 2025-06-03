@@ -19,46 +19,57 @@ uintptr_t GetLocalPlayerEntity();
 bool initializeCoreHooks(uintptr_t moduleBase, size_t moduleSize)
 {
     DMKLogger &logger = DMKLogger::getInstance();
-    DMK::HookManager &hookManager = DMK::HookManager::getInstance();
     logger.log(DMKLogLevel::LOG_INFO, "CoreHooks: Initializing...");
+
+    GlobalState::g_ModuleBase = moduleBase; // Store these early
+    GlobalState::g_ModuleSize = moduleSize;
 
     // Resolve pGame pointer address
     GlobalState::g_pGame_ptr_address = moduleBase + Rvas::DAT_1854b2330_pGame_RVA;
     logger.log(DMKLogLevel::LOG_INFO, "CoreHooks: pGame pointer storage (DAT_1854b2330_pGame) resolved to " + DMKString::format_address(GlobalState::g_pGame_ptr_address));
 
-    // Optional: Check if the memory for g_pGame_ptr_address itself is readable, which it should be if moduleBase is correct.
-    if (!DMKMemory::isMemoryReadable(reinterpret_cast<void *>(GlobalState::g_pGame_ptr_address), sizeof(uintptr_t)))
+    // Wait for g_pGame_ptr_address to be populated if necessary
+    const int pGame_poll_delay_ms = 200;
+    int pGame_polls = 0;
+    while (*reinterpret_cast<uintptr_t *>(GlobalState::g_pGame_ptr_address) == 0)
     {
-        logger.log(DMKLogLevel::LOG_ERROR, "CoreHooks: pGame pointer storage at " + DMKString::format_address(GlobalState::g_pGame_ptr_address) + " is NOT readable. This is a critical issue.");
-        return false; // Cannot proceed if we can't even read where pGame is stored.
+        if (pGame_polls == 0)
+        {
+            logger.log(DMKLogLevel::LOG_TRACE, "CoreHooks: pGame pointer storage at " + DMKString::format_address(GlobalState::g_pGame_ptr_address) + " currently holds a NULL pGame pointer. Waiting for it to be populated by the game.");
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(pGame_poll_delay_ms));
+        pGame_polls++;
     }
-
-    // Check if the pointer at g_pGame_ptr_address is initially valid (optional early check)
-    // This checks if the game has initialized pGame yet.
     if (*reinterpret_cast<uintptr_t *>(GlobalState::g_pGame_ptr_address) == 0)
     {
-        logger.log(DMKLogLevel::LOG_INFO, "CoreHooks: pGame pointer storage at " + DMKString::format_address(GlobalState::g_pGame_ptr_address) + " currently holds a NULL pGame pointer. Waiting for it to be populated by the game.");
+        logger.log(DMKLogLevel::LOG_ERROR, "CoreHooks: pGame pointer not populated after timeout. Cannot find local player.");
+        return false; // Critical failure
     }
+    logger.log(DMKLogLevel::LOG_INFO, "CoreHooks: pGame pointer is now valid: " + DMKString::format_address(*(uintptr_t *)GlobalState::g_pGame_ptr_address));
 
-    // Loop indefinitely until CPlayer (LocalPlayerEntity) is found
-    logger.log(DMKLogLevel::LOG_INFO, "CoreHooks: Attempting to find local player entity (will retry indefinitely)...");
-    const int delay_ms = 1000; // 1000ms (1 second) delay between attempts
-
-    GlobalState::g_localPlayerEntity = 0; // Ensure it's initialized to 0
-
-    while (GlobalState::g_localPlayerEntity == 0) // Loop as long as player is not found
+    logger.log(DMKLogLevel::LOG_INFO, "CoreHooks: Attempting to find local player entity...");
+    const int player_poll_delay_ms = 500;
+    // Indefinite loop as before - or add a max retry for player entity too if preferred
+    GlobalState::g_localPlayerEntity = 0;
+    while (GlobalState::g_localPlayerEntity == 0)
     {
-        GlobalState::g_localPlayerEntity = GetLocalPlayerEntity();
+        GlobalState::g_localPlayerEntity = GetLocalPlayerEntity(); // This function already uses pGame, now valid
         if (GlobalState::g_localPlayerEntity != 0)
         {
-            // g_logged_pPlayer_address is handled by GetLocalPlayerEntity itself upon first successful retrieval.
-            // So, no explicit log here, GetLocalPlayerEntity will log it.
-            break; // Exit loop once player is found
+            break;
         }
+        logger.log(DMKLogLevel::LOG_TRACE, "CoreHooks: Player entity not found yet. Waiting " + std::to_string(player_poll_delay_ms) + "ms before retrying...");
+        std::this_thread::sleep_for(std::chrono::milliseconds(player_poll_delay_ms));
+    }
 
-        // Log only if player is still not found before sleeping
-        logger.log(DMKLogLevel::LOG_INFO, "CoreHooks: Player entity not found yet. Waiting " + std::to_string(delay_ms) + "ms before retrying...");
-        std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+    // Once player is found, try to initialize animation pointers with retries
+    if (GlobalState::g_localPlayerEntity != 0)
+    {
+    }
+    else
+    {
+        logger.log(DMKLogLevel::LOG_ERROR, "CoreHooks: CRITICAL - Could not find local player entity. TPV cannot initialize.");
+        return false; // Definitely fatal if player is needed
     }
 
     logger.log(DMKLogLevel::LOG_INFO, "CoreHooks: Initialization sequence finished.");

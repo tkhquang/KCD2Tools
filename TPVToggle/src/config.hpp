@@ -25,6 +25,20 @@ struct LocalConfig
     float tpv_offset_y;
     float tpv_offset_z;
 
+    bool enableTpv;
+
+    float cameraDistance;
+    float cameraHeightOffset;
+    float cameraRightOffset;
+
+    float tpv_offset_behind;            // How far back from the adjusted anchor
+    float tpv_offset_up;                // How far up from the adjusted anchor (along camera's up)
+    float tpv_offset_right;             // How far right from the adjusted anchor (along camera's right)
+    float tpv_anchor_height_adjust;     // How much to raise anchor from entity root
+    float tpv_aim_convergence_distance; // Distance for FPV target point projection
+
+    int toggleTpvKey;
+
     std::string log_level_str = Constants::DEFAULT_LOG_LEVEL;
 };
 
