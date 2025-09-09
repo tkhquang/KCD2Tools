@@ -173,7 +173,7 @@ namespace Constants
     // WHGame.DLL+CCF1C4 - 48 8D 15 E50DDC02     - lea rdx,[WHGame.DLL+3A8FFB0] { ("HideOverlays") }
     // WHGame.DLL+CCF1CB - C6 84 08 80000000 01  - mov byte ptr [rax+rcx+00000080],01 { 1 }
     constexpr const char *UI_OVERLAY_HIDE_AOB_PATTERN =
-        "44 88 44 24 18 53 48 83 EC 20 0F B6 C2 48 8B D9 48 8D 15 ?? ?? ?? ?? C6 84 08 80 00 00 00 01";
+        "44 88 44 24 18 53 48 83 EC 20 0F B6 C2 48 8B D9 48 8D 15 ?? ?? ?? ?? C6 84 ? ? ? ? ? 01";
 
     // WHGame.DLL+CCF270 (ShowOverlays):
     // WHGame.DLL+CCF270 - 44 88 44 24 18        - mov [rsp+18],r8b
@@ -184,7 +184,7 @@ namespace Constants
     // WHGame.DLL+CCF280 - 80 BC 08 80000000 00  - cmp byte ptr [rax+rcx+00000080],00 { 0 }
     // WHGame.DLL+CCF288 - 74 48                 - je WHGame.DLL+CCF2D2
     constexpr const char *UI_OVERLAY_SHOW_AOB_PATTERN =
-        "44 88 44 24 18 53 48 83 EC 20 0F B6 C2 48 8B D9 80 BC 08 80 00 00 00 00 74 ??";
+        "44 88 44 24 18 53 48 83 EC 20 0F B6 C2 48 8B D9 80 BC ? ? ? ? ? 00 74 ??";
 
     // --- UI Menu Hook Patterns ---
     // WHGame.DLL+5457B0 - 48 89 5C 24 10        - mov [rsp+10],rbx
@@ -217,7 +217,7 @@ namespace Constants
      *        Used to detect when the in-game menu is closed.
      */
     constexpr const char *UI_MENU_CLOSE_AOB_PATTERN =
-        "8A 57 48 48 8D 4F 28 C6 47 49 00 E8 ?? ?? ?? ?? C6 47 48 00";
+        "8A ? 48 48 8D ? 28 C6 ? 49 00 E8 ? ? ? ? C6 ? 48 00";
 
     // --- AOB Hook Offsets ---
     constexpr int EVENT_HANDLER_HOOK_OFFSET = 0;

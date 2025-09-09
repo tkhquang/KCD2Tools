@@ -174,11 +174,11 @@ bool initializeUiMenuHooks(uintptr_t module_base, size_t module_size)
 
         // The AOB patterns locate specific instructions within the functions
         // We need to adjust to the actual function entry points
-        // Based on the provided disassembly, menu open function starts at WHGame.DLL+5457B0
-        g_menuOpenHookAddress = g_menuOpenHookAddress - 0x47; // Adjust to function start
+        // Menu open function starts at WHGame.DLL+AE14BC
+        g_menuOpenHookAddress = g_menuOpenHookAddress - 0x36; // Adjust to function start
 
-        // Menu close function starts at WHGame.DLL+543E20
-        g_menuCloseHookAddress = g_menuCloseHookAddress - 0x207; // Adjust to function start
+        // Menu close function starts at WHGame.DLL+C9763C
+        g_menuCloseHookAddress = g_menuCloseHookAddress - 0x18E; // Adjust to function start
 
         logger.log(LOG_INFO, "UIMenuHook: Adjusted menu open function to " +
                                  format_address(reinterpret_cast<uintptr_t>(g_menuOpenHookAddress)));
