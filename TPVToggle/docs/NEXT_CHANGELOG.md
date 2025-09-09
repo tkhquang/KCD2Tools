@@ -1,3 +1,5 @@
-## Update for game version 1.4.0
+## [Title for next release]
 
-- Update AOB Patterns and Offsets for new game version
+- New feature
+- Bug fix
+- Improvement
