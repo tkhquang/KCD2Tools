@@ -2,6 +2,10 @@
 
 All notable changes to the TPVToggle mod will be documented in this file.
 
+## [0.5.0] - Update for new game version 1.4.0
+
+- Update AOB Patterns and Offsets for new game version
+
 ## [0.4.2] - Fix TPV input not being locked in Menu
 
 - Correct the condition to init input hooks
@@ -166,6 +170,7 @@ PitchMax = 180.0            ; Maximum pitch angle in degrees
 - Logging system for troubleshooting
 KCD
 
+[0.5.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.5.0
 [0.4.2]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.4.2
 [0.4.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.4.1
 [0.4.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.4.0
