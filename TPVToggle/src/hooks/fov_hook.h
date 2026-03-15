@@ -8,7 +8,6 @@
 #ifndef FOV_HOOK_H
 #define FOV_HOOK_H
 
-#include <windows.h>
 #include <cstdint>
 
 // Function signature for the TPV FOV calculation function

@@ -1,309 +1,97 @@
 /**
  * @file config.cpp
- * @brief Implementation of configuration loading using SimpleIni.
+ * @brief Implementation of configuration loading using DetourModKit::Config.
  *
- * Reads settings (hotkeys, log level, optional features) from an INI file,
- * validates them, applies defaults, and handles path finding relative to DLL.
+ * Uses DMKConfig's registration-based system for loading settings from INI.
  */
 
 #include "config.h"
 #include "logger.h"
 #include "constants.h"
-#include "utils.h"
+
+#include <DetourModKit.hpp>
 
 #include <windows.h>
 #include <filesystem>
-#include <cctype>
 #include <algorithm>
 #include <string>
-#include <stdexcept>
-#include <sstream>
-
-// SimpleIni headers
-#include "SimpleIni.h"
 
 /**
- * @brief Determines the full absolute path for the INI configuration file.
- * @details Locates the INI file in the same directory as the currently
- *          running module (DLL/ASI). Uses C++17 filesystem and WinAPI.
- *          Falls back to using just the provided filename if path
- *          determination fails.
- * @param ini_filename Base name of the INI file (e.g., "KCD2_TPVToggle.ini").
- * @return std::string Full path to the INI file if successful, otherwise
- *         returns the input `ini_filename` as a fallback.
- */
-static std::string getIniFilePath(const std::string &ini_filename)
-{
-    Logger &logger = Logger::getInstance();
-    char dll_path_buf[MAX_PATH] = {0};
-    HMODULE h_self = NULL;
-
-    try
-    {
-        // Get a handle to this specific module (the DLL/ASI).
-        if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                                    GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                                (LPCSTR)&getIniFilePath,
-                                &h_self) ||
-            h_self == NULL)
-        {
-            throw std::runtime_error("GetModuleHandleExA failed: Error " +
-                                     std::to_string(GetLastError()));
-        }
-
-        // Get the full path of the loaded module.
-        DWORD len = GetModuleFileNameA(h_self, dll_path_buf, MAX_PATH);
-        if (len == 0)
-        {
-            throw std::runtime_error("GetModuleFileNameA failed (len=0): Error " +
-                                     std::to_string(GetLastError()));
-        }
-        else if (len == MAX_PATH && GetLastError() == ERROR_INSUFFICIENT_BUFFER)
-        {
-            throw std::runtime_error("GetModuleFileNameA failed: Buffer too small.");
-        }
-
-        // Use std::filesystem to reliably get the parent directory.
-        std::filesystem::path ini_path =
-            std::filesystem::path(dll_path_buf).parent_path() / ini_filename;
-
-        std::string full_path = ini_path.string();
-        logger.log(LOG_DEBUG, "Config: Determined INI path: " + full_path);
-        return full_path;
-    }
-    catch (const std::exception &e)
-    {
-        logger.log(LOG_WARNING, "Config: Error determining INI path based on DLL: " +
-                                    std::string(e.what()) + ". Using relative path: " + ini_filename);
-    }
-    catch (...)
-    {
-        logger.log(LOG_WARNING, "Config: Unknown error determining path. Using relative: " + ini_filename);
-    }
-
-    return ini_filename; // Fallback to relative filename.
-}
-
-/**
- * @brief Parses a comma-separated string of hexadecimal VK codes from INI value.
- * @details Handles optional "0x" prefixes, trims whitespace, validates hex
- *          format for each token, and converts valid tokens to integer VK codes.
- *          Logs warnings for invalid tokens or codes outside typical range.
- * @param value_str The raw string value read from the INI file.
- * @param logger Reference to the logger for reporting parsing details/errors.
- * @param key_name The name of the INI key being parsed (e.g., "ToggleKey") for logs.
- * @return std::vector<int> A vector containing the valid integer VK codes found.
- *         Returns an empty vector if the input string is empty or contains no valid codes.
- */
-static std::vector<int> parseKeyList(const std::string &value_str, Logger &logger,
-                                     const std::string &key_name)
-{
-    std::vector<int> keys;
-
-    // First, remove any inline comment (everything after semicolon)
-    std::string str_no_comment = value_str;
-    size_t comment_pos = str_no_comment.find(';');
-    if (comment_pos != std::string::npos)
-    {
-        str_no_comment = str_no_comment.substr(0, comment_pos);
-    }
-
-    std::string trimmed_val = trim(str_no_comment);
-
-    if (trimmed_val.empty())
-    {
-        return keys; // Return empty vector, not an error.
-    }
-
-    std::istringstream iss(trimmed_val);
-    std::string token;
-    logger.log(LOG_DEBUG, "Config: Parsing '" + key_name + "': \"" + trimmed_val + "\"");
-    int token_idx = 0;
-
-    while (std::getline(iss, token, ','))
-    {
-        token_idx++;
-        // Strip any inline comments from individual tokens too
-        size_t token_comment_pos = token.find(';');
-        if (token_comment_pos != std::string::npos)
-        {
-            token = token.substr(0, token_comment_pos);
-        }
-
-        std::string trimmed_token = trim(token);
-        if (trimmed_token.empty())
-        {
-            continue; // Ignore empty tokens
-        }
-
-        // Check for and remove optional "0x" or "0X" prefix.
-        std::string hex_part = trimmed_token;
-        if (hex_part.size() >= 2 && hex_part[0] == '0' && (hex_part[1] == 'x' || hex_part[1] == 'X'))
-        {
-            hex_part = hex_part.substr(2);
-            if (hex_part.empty())
-            {
-                logger.log(LOG_WARNING, "Config: Invalid key token '" + token + "' (just prefix) in '" + key_name + "' at token " + std::to_string(token_idx));
-                continue;
-            }
-        }
-
-        // Validate hexadecimal format
-        if (hex_part.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos)
-        {
-            logger.log(LOG_WARNING, "Config: Invalid non-hex character in key token '" + token + "' for '" + key_name + "' at token " + std::to_string(token_idx));
-            continue;
-        }
-
-        // Convert to integer VK code
-        try
-        {
-            unsigned long code_ul = std::stoul(hex_part, nullptr, 16);
-            if (code_ul == 0 || code_ul > 0xFF)
-            {
-                logger.log(LOG_WARNING, "Config: Key code " + format_hex(static_cast<int>(code_ul)) +
-                                            " ('" + token + "') for '" + key_name + "' is outside typical VK range (0x01-0xFF)");
-            }
-            int key_code = static_cast<int>(code_ul);
-            keys.push_back(key_code);
-            logger.log(LOG_DEBUG, "Config: Added key for '" + key_name + "': " + format_vkcode(key_code));
-        }
-        catch (const std::exception &e)
-        {
-            logger.log(LOG_WARNING, "Config: Error converting hex token '" + token + "' for '" + key_name + "': " + e.what());
-        }
-    }
-
-    if (keys.empty() && !trimmed_val.empty())
-    {
-        logger.log(LOG_WARNING, "Config: Processed value for '" + key_name + "' (\"" + trimmed_val + "\") but found no valid key codes.");
-    }
-
-    return keys;
-}
-
-/**
- * @brief Loads and validates configuration settings from the specified INI file using SimpleIni.
+ * @brief Loads and validates configuration settings from the specified INI file.
  * @param ini_filename Base name of the INI file (e.g., "KCD2_TPVToggle.ini").
  * @return Config Structure containing loaded settings, using defaults where necessary.
+ * @note This implementation uses DMKConfig for all configuration loading including
+ *       key lists via registerKeyList(). All settings are registered before calling
+ *       DMKConfig::load() which handles the INI parsing automatically.
  */
 Config loadConfig(const std::string &ini_filename)
 {
     Config config;
     Logger &logger = Logger::getInstance();
 
-    std::string ini_path = getIniFilePath(ini_filename);
-    logger.log(LOG_INFO, "Config: Attempting to load configuration from: " + ini_path);
+    logger.log(LOG_INFO, "Config: Registering configuration variables with DetourModKit...");
 
-    CSimpleIniA ini;
-    ini.SetUnicode(false);  // Assuming ASCII/MBCS INI file
-    ini.SetMultiKey(false); // Don't allow duplicate keys in sections
+    // --- Register all configuration variables with DMKConfig ---
 
-    SI_Error rc = ini.LoadFile(ini_path.c_str());
-    if (rc < 0)
+    // [Settings] Section - String and bool configs
+    DMKConfig::registerString("Settings", "LogLevel", "Log Level", config.log_level, Constants::DEFAULT_LOG_LEVEL);
+    DMKConfig::registerBool("Settings", "EnableOverlayFeature", "Enable Overlay Feature", config.enable_overlay_feature, true);
+
+    // [Settings] Section - Float configs
+    float default_fov = -1.0f;
+    DMKConfig::registerFloat("Settings", "TpvFovDegrees", "TPV FOV Degrees", config.tpv_fov_degrees, default_fov);
+    DMKConfig::registerFloat("Settings", "TpvOffsetX", "TPV Offset X", config.tpv_offset_x, 0.0f);
+    DMKConfig::registerFloat("Settings", "TpvOffsetY", "TPV Offset Y", config.tpv_offset_y, 0.0f);
+    DMKConfig::registerFloat("Settings", "TpvOffsetZ", "TPV Offset Z", config.tpv_offset_z, 0.0f);
+
+    // [CameraSensitivity] Section
+    DMKConfig::registerFloat("CameraSensitivity", "PitchSensitivity", "Pitch Sensitivity", config.tpv_pitch_sensitivity, 1.0f);
+    DMKConfig::registerFloat("CameraSensitivity", "YawSensitivity", "Yaw Sensitivity", config.tpv_yaw_sensitivity, 1.0f);
+    DMKConfig::registerBool("CameraSensitivity", "EnablePitchLimits", "Enable Pitch Limits", config.tpv_pitch_limits_enabled, false);
+    DMKConfig::registerFloat("CameraSensitivity", "PitchMin", "Pitch Minimum", config.tpv_pitch_min, -180.0f);
+    DMKConfig::registerFloat("CameraSensitivity", "PitchMax", "Pitch Maximum", config.tpv_pitch_max, 180.0f);
+
+    // [CameraProfiles] Section
+    DMKConfig::registerBool("CameraProfiles", "Enable", "Enable Camera Profiles", config.enable_camera_profiles, false);
+    DMKConfig::registerFloat("CameraProfiles", "AdjustmentStep", "Adjustment Step", config.offset_adjustment_step, 0.05f);
+    DMKConfig::registerFloat("CameraProfiles", "TransitionDuration", "Transition Duration", config.transition_duration, 0.5f);
+    DMKConfig::registerBool("CameraProfiles", "UseSpringPhysics", "Use Spring Physics", config.use_spring_physics, false);
+    DMKConfig::registerFloat("CameraProfiles", "SpringStrength", "Spring Strength", config.spring_strength, 8.0f);
+    DMKConfig::registerFloat("CameraProfiles", "SpringDamping", "Spring Damping", config.spring_damping, 0.7f);
+    DMKConfig::registerString("CameraProfiles", "ProfileDirectory", "Profile Directory", config.profile_directory, "");
+
+    // [Settings] Section - Key lists (using DMKConfig::registerKeyList)
+    DMKConfig::registerKeyList("Settings", "ToggleKey", "Toggle Key", config.toggle_keys, "0x72"); // F3
+    DMKConfig::registerKeyList("Settings", "FPVKey", "FPV Key", config.fpv_keys, "");
+    DMKConfig::registerKeyList("Settings", "TPVKey", "TPV Key", config.tpv_keys, "");
+    DMKConfig::registerKeyList("Settings", "HoldKeyToScroll", "Hold Key To Scroll", config.hold_scroll_keys, "");
+
+    // [CameraProfiles] Section - Key lists
+    DMKConfig::registerKeyList("CameraProfiles", "MasterToggleKey", "Master Toggle Key", config.master_toggle_keys, "0x7A");    // F11
+    DMKConfig::registerKeyList("CameraProfiles", "ProfileSaveKey", "Profile Save Key", config.profile_save_keys, "0x61");       // Numpad 1
+    DMKConfig::registerKeyList("CameraProfiles", "ProfileCycleKey", "Profile Cycle Key", config.profile_cycle_keys, "0x63");    // Numpad 3
+    DMKConfig::registerKeyList("CameraProfiles", "ProfileResetKey", "Profile Reset Key", config.profile_reset_keys, "0x65");    // Numpad 5
+    DMKConfig::registerKeyList("CameraProfiles", "ProfileUpdateKey", "Profile Update Key", config.profile_update_keys, "0x67"); // Numpad 7
+    DMKConfig::registerKeyList("CameraProfiles", "ProfileDeleteKey", "Profile Delete Key", config.profile_delete_keys, "0x69"); // Numpad 9
+    DMKConfig::registerKeyList("CameraProfiles", "OffsetXIncKey", "Offset X Increase Key", config.offset_x_inc_keys, "0x66");   // Numpad 6
+    DMKConfig::registerKeyList("CameraProfiles", "OffsetXDecKey", "Offset X Decrease Key", config.offset_x_dec_keys, "0x64");   // Numpad 4
+    DMKConfig::registerKeyList("CameraProfiles", "OffsetYIncKey", "Offset Y Increase Key", config.offset_y_inc_keys, "0x6B");   // Numpad +
+    DMKConfig::registerKeyList("CameraProfiles", "OffsetYDecKey", "Offset Y Decrease Key", config.offset_y_dec_keys, "0x6D");   // Numpad -
+    DMKConfig::registerKeyList("CameraProfiles", "OffsetZIncKey", "Offset Z Increase Key", config.offset_z_inc_keys, "0x68");   // Numpad 8
+    DMKConfig::registerKeyList("CameraProfiles", "OffsetZDecKey", "Offset Z Decrease Key", config.offset_z_dec_keys, "0x62");   // Numpad 2
+
+    // Load configuration using DMKConfig (handles all registered variables including key lists)
+    DMKConfig::load(ini_filename);
+
+    // Set profile directory if not set by DMKConfig
+    if (config.profile_directory.empty())
     {
-        logger.log(LOG_ERROR, "Config: Failed to open INI file '" + ini_path + "'. Using default settings.");
-        // Fallback: Ensure profile directory is set even if INI fails
-        config.profile_directory = getRuntimeDirectory();
+        config.profile_directory = DMKFilesystem::getRuntimeDirectory();
         if (config.profile_directory.empty())
         {
-            config.profile_directory = "."; // Fallback
+            config.profile_directory = ".";
         }
     }
-    else
-    {
-        logger.log(LOG_INFO, "Config: Successfully opened INI file.");
-
-        // Helper lambda to read key lists with defaults
-        auto load_key_list = [&](const char *key, std::vector<int> &target_vector, const char *default_value)
-        {
-            const char *value = ini.GetValue("CameraProfiles", key, default_value);
-            if (value)
-            {
-                target_vector = parseKeyList(value, logger, key);
-            }
-            else
-            {
-                target_vector = parseKeyList(default_value, logger, std::string(key) + " (default)");
-            }
-        };
-
-        // --- [Settings] Section ---
-        // Basic Toggle/View keys
-        config.toggle_keys = parseKeyList(ini.GetValue("Settings", "ToggleKey", "0x72"), logger, "ToggleKey"); // F3 default
-        config.fpv_keys = parseKeyList(ini.GetValue("Settings", "FPVKey", ""), logger, "FPVKey");
-        config.tpv_keys = parseKeyList(ini.GetValue("Settings", "TPVKey", ""), logger, "TPVKey");
-
-        // Log Level
-        config.log_level = ini.GetValue("Settings", "LogLevel", Constants::DEFAULT_LOG_LEVEL);
-
-        // Features
-        config.enable_overlay_feature = ini.GetBoolValue("Settings", "EnableOverlayFeature", true);
-        config.tpv_fov_degrees = (float)ini.GetDoubleValue("Settings", "TpvFovDegrees", -1.0);
-        config.hold_scroll_keys = parseKeyList(ini.GetValue("Settings", "HoldKeyToScroll", ""), logger, "HoldKeyToScroll");
-
-        // TPV Offsets (using new defaults from constructor now)
-        config.tpv_offset_x = (float)ini.GetDoubleValue("Settings", "TpvOffsetX", config.tpv_offset_x);
-        config.tpv_offset_y = (float)ini.GetDoubleValue("Settings", "TpvOffsetY", config.tpv_offset_y);
-        config.tpv_offset_z = (float)ini.GetDoubleValue("Settings", "TpvOffsetZ", config.tpv_offset_z);
-
-        // --- [CameraSensitivity] Section ---
-        config.tpv_pitch_sensitivity = (float)ini.GetDoubleValue("CameraSensitivity", "PitchSensitivity", 1.0);
-        config.tpv_yaw_sensitivity = (float)ini.GetDoubleValue("CameraSensitivity", "YawSensitivity", 1.0);
-        config.tpv_pitch_limits_enabled = ini.GetBoolValue("CameraSensitivity", "EnablePitchLimits", false);
-        config.tpv_pitch_min = (float)ini.GetDoubleValue("CameraSensitivity", "PitchMin", -180.0);
-        config.tpv_pitch_max = (float)ini.GetDoubleValue("CameraSensitivity", "PitchMax", 180.0);
-
-        // --- [CameraProfiles] Section ---
-        config.enable_camera_profiles = ini.GetBoolValue("CameraProfiles", "Enable", false);
-
-        // Only load profile-specific keys if the feature is enabled
-        if (config.enable_camera_profiles)
-        {
-            // Basic profile actions
-            load_key_list("MasterToggleKey", config.master_toggle_keys, "0x7A");   // F11
-            load_key_list("ProfileSaveKey", config.profile_save_keys, "0x61");     // Numpad 1 (CREATE NEW)
-            load_key_list("ProfileCycleKey", config.profile_cycle_keys, "0x63");   // Numpad 3
-            load_key_list("ProfileResetKey", config.profile_reset_keys, "0x65");   // Numpad 5
-            load_key_list("ProfileUpdateKey", config.profile_update_keys, "0x67"); // Numpad 7 (UPDATE)
-            load_key_list("ProfileDeleteKey", config.profile_delete_keys, "0x69"); // Numpad 9 (DELETE)
-
-            // Offset adjustments
-            load_key_list("OffsetXIncKey", config.offset_x_inc_keys, "0x66"); // Numpad 6
-            load_key_list("OffsetXDecKey", config.offset_x_dec_keys, "0x64"); // Numpad 4
-            load_key_list("OffsetYIncKey", config.offset_y_inc_keys, "0x6B"); // Numpad +
-            load_key_list("OffsetYDecKey", config.offset_y_dec_keys, "0x6D"); // Numpad -
-            load_key_list("OffsetZIncKey", config.offset_z_inc_keys, "0x68"); // Numpad 8
-            load_key_list("OffsetZDecKey", config.offset_z_dec_keys, "0x62"); // Numpad 2
-
-            // Adjustment & Transition Settings
-            config.offset_adjustment_step = (float)ini.GetDoubleValue("CameraProfiles", "AdjustmentStep", 0.05);
-            config.transition_duration = (float)ini.GetDoubleValue("CameraProfiles", "TransitionDuration", 0.5);
-            config.use_spring_physics = ini.GetBoolValue("CameraProfiles", "UseSpringPhysics", false);
-            config.spring_strength = (float)ini.GetDoubleValue("CameraProfiles", "SpringStrength", 8.0);
-            config.spring_damping = (float)ini.GetDoubleValue("CameraProfiles", "SpringDamping", 0.7);
-
-            // Profile directory
-            config.profile_directory = ini.GetValue("CameraProfiles", "ProfileDirectory", "");
-            if (config.profile_directory.empty())
-            { // If not set in INI, use runtime dir
-                config.profile_directory = getRuntimeDirectory();
-                if (config.profile_directory.empty())
-                {
-                    config.profile_directory = "."; // Fallback if runtime dir fails
-                }
-            }
-        }
-        else
-        {
-            // Ensure profile directory is still set even if feature disabled, for logger etc.
-            config.profile_directory = getRuntimeDirectory();
-            if (config.profile_directory.empty())
-            {
-                config.profile_directory = ".";
-            }
-        }
-    } // end else (INI loaded successfully)
 
     // Validate Log Level
     std::string upper_log_level = config.log_level;
@@ -332,10 +120,10 @@ Config loadConfig(const std::string &ini_filename)
     else
         logger.log(LOG_INFO, "Config: TPV FOV: DISABLED");
     logger.log(LOG_INFO, "Config: Base TPV Offset (X, Y, Z): (" + std::to_string(config.tpv_offset_x) + ", " + std::to_string(config.tpv_offset_y) + ", " + std::to_string(config.tpv_offset_z) + ")");
-    logger.log(LOG_INFO, "Config: Hold-to-scroll keys: " + format_vkcode_list(config.hold_scroll_keys));
-    logger.log(LOG_INFO, "Config: TPV/FPV keys (Toggle:" + format_vkcode_list(config.toggle_keys) +
-                             "/FPV:" + format_vkcode_list(config.fpv_keys) +
-                             "/TPV:" + format_vkcode_list(config.tpv_keys) + ")");
+    logger.log(LOG_INFO, "Config: Hold-to-scroll keys: " + DMKString::format_vkcode_list(config.hold_scroll_keys));
+    logger.log(LOG_INFO, "Config: TPV/FPV keys (Toggle:" + DMKString::format_vkcode_list(config.toggle_keys) +
+                             "/FPV:" + DMKString::format_vkcode_list(config.fpv_keys) +
+                             "/TPV:" + DMKString::format_vkcode_list(config.tpv_keys) + ")");
 
     // Camera sensitivity system summary
     logger.log(LOG_INFO, "Config: Camera Sensitivity Settings:");
@@ -358,15 +146,15 @@ Config loadConfig(const std::string &ini_filename)
     {
         logger.log(LOG_INFO, "  Profile Dir: " + config.profile_directory);
         logger.log(LOG_INFO, "  Adjustment Step: " + std::to_string(config.offset_adjustment_step));
-        logger.log(LOG_INFO, "  Master Toggle: " + format_vkcode_list(config.master_toggle_keys));
-        logger.log(LOG_INFO, "  Create New Profile: " + format_vkcode_list(config.profile_save_keys));
-        logger.log(LOG_INFO, "  Update Active Profile: " + format_vkcode_list(config.profile_update_keys)); // Log new key
-        logger.log(LOG_INFO, "  Delete Active Profile: " + format_vkcode_list(config.profile_delete_keys)); // Log new key
-        logger.log(LOG_INFO, "  Cycle Profiles: " + format_vkcode_list(config.profile_cycle_keys));
-        logger.log(LOG_INFO, "  Reset to Default: " + format_vkcode_list(config.profile_reset_keys));
-        logger.log(LOG_INFO, "  Adjust X +/-: " + format_vkcode_list(config.offset_x_inc_keys) + "/" + format_vkcode_list(config.offset_x_dec_keys));
-        logger.log(LOG_INFO, "  Adjust Y +/-: " + format_vkcode_list(config.offset_y_inc_keys) + "/" + format_vkcode_list(config.offset_y_dec_keys));
-        logger.log(LOG_INFO, "  Adjust Z +/-: " + format_vkcode_list(config.offset_z_inc_keys) + "/" + format_vkcode_list(config.offset_z_dec_keys));
+        logger.log(LOG_INFO, "  Master Toggle: " + DMKString::format_vkcode_list(config.master_toggle_keys));
+        logger.log(LOG_INFO, "  Create New Profile: " + DMKString::format_vkcode_list(config.profile_save_keys));
+        logger.log(LOG_INFO, "  Update Active Profile: " + DMKString::format_vkcode_list(config.profile_update_keys));
+        logger.log(LOG_INFO, "  Delete Active Profile: " + DMKString::format_vkcode_list(config.profile_delete_keys));
+        logger.log(LOG_INFO, "  Cycle Profiles: " + DMKString::format_vkcode_list(config.profile_cycle_keys));
+        logger.log(LOG_INFO, "  Reset to Default: " + DMKString::format_vkcode_list(config.profile_reset_keys));
+        logger.log(LOG_INFO, "  Adjust X +/-: " + DMKString::format_vkcode_list(config.offset_x_inc_keys) + "/" + DMKString::format_vkcode_list(config.offset_x_dec_keys));
+        logger.log(LOG_INFO, "  Adjust Y +/-: " + DMKString::format_vkcode_list(config.offset_y_inc_keys) + "/" + DMKString::format_vkcode_list(config.offset_y_dec_keys));
+        logger.log(LOG_INFO, "  Adjust Z +/-: " + DMKString::format_vkcode_list(config.offset_z_inc_keys) + "/" + DMKString::format_vkcode_list(config.offset_z_dec_keys));
         logger.log(LOG_INFO, "  Transition: " + std::to_string(config.transition_duration) + "s, Spring: " +
                                  (config.use_spring_physics ? "ON (Str:" + std::to_string(config.spring_strength) + ", Damp:" + std::to_string(config.spring_damping) + ")" : "OFF"));
     }

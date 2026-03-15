@@ -10,6 +10,7 @@
 
 #include <windows.h>
 #include <cstdint>
+#include <cstddef>
 #include <atomic>
 #include "game_structures.h"
 #include "constants.h"
@@ -30,13 +31,13 @@ extern HANDLE g_hCameraProfileThread;
 // Game interface globals
 extern "C"
 {
-    extern BYTE *g_global_context_ptr_address;
-    extern volatile BYTE *g_tpvFlagAddress;
+    extern std::byte *g_global_context_ptr_address;
+    extern volatile std::byte *g_tpvFlagAddress;
 }
 
 // Event hook globals
-extern BYTE *g_accumulatorWriteAddress;
-extern BYTE g_originalAccumulatorWriteBytes[Constants::ACCUMULATOR_WRITE_INSTR_LENGTH];
+extern std::byte *g_accumulatorWriteAddress;
+extern std::byte g_originalAccumulatorWriteBytes[Constants::ACCUMULATOR_WRITE_INSTR_LENGTH];
 extern volatile uintptr_t *g_scrollAccumulatorAddress;
 extern volatile uintptr_t *g_scrollPtrStorageAddress;
 

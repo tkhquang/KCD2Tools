@@ -1,7 +1,7 @@
 #include "camera_profile_thread.h"
 #include "camera_profile.h"
 #include "logger.h"
-#include "utils.h"
+#include <DetourModKit.hpp>
 #include "global_state.h"
 #include "config.h"
 
@@ -64,7 +64,7 @@ KeyBitMapInfo createKeyBitMap(const Config &config)
                     if (info.keyCount >= 64)
                     {
                         // Log error or warning: exceeded 64 unique hotkeys
-                        Logger::getInstance().log(LOG_ERROR, "CameraProfileThread: Exceeded maximum unique hotkeys (64). Key " + format_vkcode(vk) + " ignored.");
+                        Logger::getInstance().log(LOG_ERROR, "CameraProfileThread: Exceeded maximum unique hotkeys (64). Key " + DMKString::format_vkcode(vk) + " ignored.");
                         continue; // Skip this key
                     }
                     info.keyMap[vk] = info.keyCount; // Assign current bit position

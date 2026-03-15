@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <DirectXMath.h>
+#include <DirectXPackedVector.h>
 
 // Basic Vector3 structure
 struct Vector3
@@ -70,9 +71,7 @@ struct Vector3
     DirectX::XMVECTOR ToXMVector() const { return DirectX::XMVectorSet(x, y, z, 0.0f); }
     static Vector3 FromXMVector(DirectX::FXMVECTOR v)
     {
-        DirectX::XMFLOAT3 f3;
-        DirectX::XMStoreFloat3(&f3, v);
-        return Vector3(f3.x, f3.y, f3.z);
+        return Vector3(DirectX::XMVectorGetX(v), DirectX::XMVectorGetY(v), DirectX::XMVectorGetZ(v));
     }
 };
 
@@ -103,9 +102,7 @@ struct Quaternion
     DirectX::XMVECTOR ToXMVector() const { return DirectX::XMVectorSet(x, y, z, w); }
     static Quaternion FromXMVector(DirectX::FXMVECTOR v)
     {
-        DirectX::XMFLOAT4 f4;
-        DirectX::XMStoreFloat4(&f4, v);
-        return Quaternion(f4.x, f4.y, f4.z, f4.w);
+        return Quaternion(DirectX::XMVectorGetX(v), DirectX::XMVectorGetY(v), DirectX::XMVectorGetZ(v), DirectX::XMVectorGetW(v));
     }
 
     // Rotate a vector by this quaternion

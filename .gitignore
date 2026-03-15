@@ -1,8 +1,8 @@
 .roo/*
 .idea/*
 
-TPVToggle/build/obj
-TPVToggle/build/KCD2_TPVToggle.asi
+TPVToggle/build/*
+!TPVToggle/build/template
 
 LootBeacon/build/*
 LootBeacon/src/**/*.pak

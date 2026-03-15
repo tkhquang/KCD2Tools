@@ -1,19 +1,21 @@
 /**
  * @file hooks/event_hooks.cpp
- * @brief Implementation of event handling hooks for input filtering.
+ * @brief Implementation of event handling hooks for input filtering using DetourModKit.
  */
 
 #include "event_hooks.h"
 #include "logger.h"
 #include "constants.h"
 #include "utils.h"
-#include "aob_scanner.h"
 #include "game_interface.h"
 #include "global_state.h"
-#include "MinHook.h"
 #include "config.h"
 
+#include <DetourModKit.hpp>
+
 #include <stdexcept>
+
+using DMKString::format_address;
 
 // External config reference
 extern Config g_config;
@@ -23,7 +25,7 @@ typedef uint64_t(__fastcall *EventHandlerType)(uintptr_t listenerMgrPtr, char *i
 
 // Hook state
 static EventHandlerType fpEventHandlerOriginal = nullptr;
-static BYTE *g_eventHookAddress = nullptr;
+static std::string g_eventHookId;
 
 // NOP pattern for disabling accumulator writes
 static constexpr BYTE NOP_PATTERN[Constants::ACCUMULATOR_WRITE_INSTR_LENGTH] = {0x90, 0x90, 0x90, 0x90, 0x90};
@@ -38,7 +40,7 @@ static uint64_t __fastcall EventHandlerDetour(uintptr_t listenerMgrPtr, char *in
 
     // Early validation check - if failed, jump directly to function call
     constexpr size_t required_size = Constants::INPUT_EVENT_VALUE_OFFSET + sizeof(float);
-    if (!isMemoryReadable(inputEventPtr, required_size))
+    if (!DMKMemory::isMemoryReadable(inputEventPtr, required_size))
     {
         logger.log(LOG_DEBUG, "EventHandler: Input event pointer unreadable");
         // Early exit pattern - no goto needed
@@ -47,8 +49,8 @@ static uint64_t __fastcall EventHandlerDetour(uintptr_t listenerMgrPtr, char *in
 
     // Check if it's a mouse event
     bool isLikelyMouseEvent = false;
-    if (isMemoryReadable(inputEventPtr + Constants::INPUT_EVENT_TYPE_OFFSET, sizeof(int)) &&
-        isMemoryReadable(inputEventPtr + Constants::INPUT_EVENT_BYTE0_OFFSET, sizeof(char)))
+    if (DMKMemory::isMemoryReadable(inputEventPtr + Constants::INPUT_EVENT_TYPE_OFFSET, sizeof(int)) &&
+        DMKMemory::isMemoryReadable(inputEventPtr + Constants::INPUT_EVENT_BYTE0_OFFSET, sizeof(char)))
     {
         int inputType = *reinterpret_cast<int *>(inputEventPtr + Constants::INPUT_EVENT_TYPE_OFFSET);
         char byte0 = *reinterpret_cast<char *>(inputEventPtr + Constants::INPUT_EVENT_BYTE0_OFFSET);
@@ -71,7 +73,7 @@ static uint64_t __fastcall EventHandlerDetour(uintptr_t listenerMgrPtr, char *in
                 {
                     // Zero out the scroll delta in the original event
                     volatile float *delta_ptr = reinterpret_cast<volatile float *>(inputEventPtr + Constants::INPUT_EVENT_VALUE_OFFSET);
-                    if (isMemoryWritable(delta_ptr, sizeof(float)))
+                    if (DMKMemory::isMemoryWritable(delta_ptr, sizeof(float)))
                     {
                         float original_delta = *delta_ptr;
                         if (original_delta != 0.0f)
@@ -91,7 +93,7 @@ static uint64_t __fastcall EventHandlerDetour(uintptr_t listenerMgrPtr, char *in
                 { // Overlay is active
                     // Zero out the scroll delta in the original event
                     volatile float *delta_ptr = reinterpret_cast<volatile float *>(inputEventPtr + Constants::INPUT_EVENT_VALUE_OFFSET);
-                    if (isMemoryWritable(delta_ptr, sizeof(float)))
+                    if (DMKMemory::isMemoryWritable(delta_ptr, sizeof(float)))
                     {
                         float original_delta = *delta_ptr;
                         if (original_delta != 0.0f)
@@ -130,33 +132,33 @@ bool initializeEventHooks(uintptr_t module_base, size_t module_size)
         logger.log(LOG_INFO, "EventHooks: Initializing event handler hook...");
 
         // Scan for event handler function
-        std::vector<BYTE> event_pat = parseAOB(Constants::EVENT_HANDLER_AOB_PATTERN);
+        std::vector<std::byte> event_pat = DMKScanner::parseAOB(Constants::EVENT_HANDLER_AOB_PATTERN);
         if (event_pat.empty())
         {
             throw std::runtime_error("Failed to parse event handler AOB pattern");
         }
 
-        BYTE *event_aob = FindPattern(reinterpret_cast<BYTE *>(module_base), module_size, event_pat);
+        std::byte *event_aob = DMKScanner::FindPattern(reinterpret_cast<std::byte *>(module_base), module_size, event_pat);
         if (!event_aob)
         {
             throw std::runtime_error("Event handler AOB pattern not found");
         }
 
-        g_eventHookAddress = event_aob + Constants::EVENT_HANDLER_HOOK_OFFSET;
-        logger.log(LOG_INFO, "EventHooks: Found event handler at " + format_address(reinterpret_cast<uintptr_t>(g_eventHookAddress)));
+        std::byte *eventHookAddress = event_aob + Constants::EVENT_HANDLER_HOOK_OFFSET;
+        logger.log(LOG_INFO, "EventHooks: Found event handler at " + format_address(reinterpret_cast<uintptr_t>(eventHookAddress)));
 
         // Scan for accumulator write instruction
-        std::vector<BYTE> accumulator_pat = parseAOB(Constants::ACCUMULATOR_WRITE_AOB_PATTERN);
+        std::vector<std::byte> accumulator_pat = DMKScanner::parseAOB(Constants::ACCUMULATOR_WRITE_AOB_PATTERN);
         if (!accumulator_pat.empty())
         {
-            BYTE *accumulator_aob = FindPattern(reinterpret_cast<BYTE *>(module_base), module_size, accumulator_pat);
+            std::byte *accumulator_aob = DMKScanner::FindPattern(reinterpret_cast<std::byte *>(module_base), module_size, accumulator_pat);
             if (accumulator_aob)
             {
                 g_accumulatorWriteAddress = accumulator_aob + Constants::ACCUMULATOR_WRITE_HOOK_OFFSET;
                 logger.log(LOG_INFO, "EventHooks: Found accumulator write at " + format_address(reinterpret_cast<uintptr_t>(g_accumulatorWriteAddress)));
 
                 // Save original bytes
-                if (isMemoryReadable(g_accumulatorWriteAddress, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH))
+                if (DMKMemory::isMemoryReadable(g_accumulatorWriteAddress, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH))
                 {
                     memcpy(g_originalAccumulatorWriteBytes, g_accumulatorWriteAddress, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH);
                     logger.log(LOG_DEBUG, "EventHooks: Saved original accumulator write bytes");
@@ -165,7 +167,10 @@ bool initializeEventHooks(uintptr_t module_base, size_t module_size)
                     if (!g_config.hold_scroll_keys.empty())
                     {
                         logger.log(LOG_INFO, "EventHooks: Hold-to-scroll feature enabled, applying NOP by default");
-                        if (WriteBytes(g_accumulatorWriteAddress, NOP_PATTERN, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
+                        if (DMKMemory::WriteBytes(g_accumulatorWriteAddress,
+                                                  reinterpret_cast<const std::byte *>(NOP_PATTERN),
+                                                  Constants::ACCUMULATOR_WRITE_INSTR_LENGTH,
+                                                  DMKLogger::getInstance()))
                         {
                             g_accumulatorWriteNOPped.store(true);
                         }
@@ -183,31 +188,24 @@ bool initializeEventHooks(uintptr_t module_base, size_t module_size)
             }
         }
 
-        // Disabled for now
-        // // Create and enable the event handler hook
-        // MH_STATUS status = MH_CreateHook(g_eventHookAddress,
-        //                                  reinterpret_cast<LPVOID>(EventHandlerDetour),
-        //                                  reinterpret_cast<LPVOID *>(&fpEventHandlerOriginal));
+        // Note: Event handler hook is currently disabled in original code
+        // To enable it, uncomment the following DMKHookManager code:
+        /*
+        DMKHookManager &hook_manager = DMKHookManager::getInstance();
+        g_eventHookId = hook_manager.create_inline_hook(
+            "EventHandler",
+            reinterpret_cast<uintptr_t>(eventHookAddress),
+            reinterpret_cast<void *>(EventHandlerDetour),
+            reinterpret_cast<void **>(&fpEventHandlerOriginal));
 
-        // if (status != MH_OK)
-        // {
-        //     throw std::runtime_error("MH_CreateHook failed: " + std::string(MH_StatusToString(status)));
-        // }
+        if (g_eventHookId.empty())
+        {
+            throw std::runtime_error("Failed to create event handler hook");
+        }
 
-        // if (!fpEventHandlerOriginal)
-        // {
-        //     MH_RemoveHook(g_eventHookAddress);
-        //     throw std::runtime_error("MH_CreateHook returned NULL trampoline");
-        // }
+        logger.log(LOG_INFO, "EventHooks: Event handler hook successfully installed");
+        */
 
-        // status = MH_EnableHook(g_eventHookAddress);
-        // if (status != MH_OK)
-        // {
-        //     MH_RemoveHook(g_eventHookAddress);
-        //     throw std::runtime_error("MH_EnableHook failed: " + std::string(MH_StatusToString(status)));
-        // }
-
-        // logger.log(LOG_INFO, "EventHooks: Event handler hook successfully installed");
         return true;
     }
     catch (const std::exception &e)
@@ -226,7 +224,10 @@ void cleanupEventHooks()
     if (g_accumulatorWriteAddress != nullptr && g_accumulatorWriteNOPped.load())
     {
         logger.log(LOG_INFO, "EventHooks: Restoring original accumulator write bytes...");
-        if (!WriteBytes(g_accumulatorWriteAddress, g_originalAccumulatorWriteBytes, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
+        if (!DMKMemory::WriteBytes(g_accumulatorWriteAddress,
+                                   g_originalAccumulatorWriteBytes,
+                                   Constants::ACCUMULATOR_WRITE_INSTR_LENGTH,
+                                   DMKLogger::getInstance()))
         {
             logger.log(LOG_ERROR, "EventHooks: FAILED TO RESTORE ACCUMULATOR WRITE BYTES!");
         }
@@ -234,12 +235,11 @@ void cleanupEventHooks()
     }
 
     // Clean up event handler hook
-    if (g_eventHookAddress && fpEventHandlerOriginal)
+    if (!g_eventHookId.empty())
     {
-        MH_DisableHook(g_eventHookAddress);
-        MH_RemoveHook(g_eventHookAddress);
+        DMKHookManager::getInstance().remove_hook(g_eventHookId);
+        g_eventHookId.clear();
         fpEventHandlerOriginal = nullptr;
-        g_eventHookAddress = nullptr;
     }
 
     g_accumulatorWriteAddress = nullptr;
@@ -248,5 +248,5 @@ void cleanupEventHooks()
 
 bool areEventHooksActive()
 {
-    return (g_eventHookAddress != nullptr && fpEventHandlerOriginal != nullptr);
+    return !g_eventHookId.empty();
 }

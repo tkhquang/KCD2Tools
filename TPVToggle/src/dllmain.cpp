@@ -1,8 +1,9 @@
 /**
  * @file dllmain.cpp
- * @brief Main initialization and cleanup for the TPV Toggle mod.
+ * @brief Main initialization and cleanup for the TPV Toggle mod using DetourModKit.
  *
  * Handles module loading, configuration, hook setup, and thread management.
+ * Refactored to use DetourModKit as the base framework.
  */
 
 #include "logger.h"
@@ -23,12 +24,14 @@
 #include "hooks/ui_menu_hooks.h"
 // #include "hooks/entity_hooks.h"
 
-#include "MinHook.h"
+#include <DetourModKit.hpp>
 
 #include <windows.h>
 #include <psapi.h>
 #include <thread>
 #include <stdexcept>
+
+using DMKString::format_address;
 
 // Configuration state
 Config g_config;
@@ -42,7 +45,7 @@ void cleanupResources()
     logger.log(LOG_INFO, "Cleanup: Starting cleanup process...");
 
     // Clear the memory cache
-    clearMemoryCache();
+    DMKMemory::clearMemoryCache();
 
     // Signal threads to exit
     if (g_exitEvent)
@@ -87,8 +90,8 @@ void cleanupResources()
     cleanupTpvInputHook();
     // cleanupEntityHooks();
 
-    // Uninitialize MinHook
-    MH_Uninitialize();
+    // Remove all hooks via DetourModKit HookManager
+    DMKHookManager::getInstance().remove_all_hooks();
 
     // Clean up exit event
     if (g_exitEvent)
@@ -146,20 +149,12 @@ bool validateGameModule()
 }
 
 /**
- * @brief Initializes MinHook library and all required hooks.
+ * @brief Initializes all required hooks using DetourModKit HookManager.
  * @return true if initialization successful, false otherwise.
  */
 bool initializeHooks()
 {
     Logger &logger = Logger::getInstance();
-
-    // Initialize MinHook
-    MH_STATUS status = MH_Initialize();
-    if (status != MH_OK)
-    {
-        logger.log(LOG_ERROR, "MinHook initialization failed: " + std::string(MH_StatusToString(status)));
-        return false;
-    }
 
     // Initialize core game interface (always required)
     if (!initializeGameInterface(g_ModuleBase, g_ModuleSize))
@@ -167,11 +162,6 @@ bool initializeHooks()
         logger.log(LOG_ERROR, "Critical: Game interface initialization failed - mod cannot function");
         return false;
     }
-
-    // if (!initializeEntityHooks(g_ModuleBase, g_ModuleSize))
-    // {
-    //     logger.log(LOG_WARNING, "Entity Hooks (for Player & SetWorldTM) initialization failed.");
-    // }
 
     // Initialize UI Menu hooks for menu detection
     if (!initializeUiMenuHooks(g_ModuleBase, g_ModuleSize))
@@ -291,8 +281,8 @@ DWORD WINAPI MainThread(LPVOID hModule_param)
             log_level = LOG_ERROR;
         logger.setLogLevel(log_level);
 
-        // Initialize memory cache
-        initMemoryCache();
+        // Initialize memory cache via DMK
+        DMKMemory::initMemoryCache(32, 5000);
         logger.log(LOG_INFO, "Memory cache system initialized");
 
         // Create exit event for thread signaling
@@ -393,11 +383,17 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
     {
     case DLL_PROCESS_ATTACH:
         DisableThreadLibraryCalls(hModule);
+
+        // Configure DetourModKit Logger before starting
+        Logger::configure(Constants::MOD_NAME, std::string(Constants::MOD_NAME) + ".log", "%Y-%m-%d %H:%M:%S");
+
         CreateThread(NULL, 0, MainThread, hModule, 0, NULL);
         break;
 
     case DLL_PROCESS_DETACH:
         cleanupResources();
+        // Clear DMKConfig registered items
+        DMKConfig::clearRegisteredItems();
         break;
     }
 

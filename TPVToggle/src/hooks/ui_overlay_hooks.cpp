@@ -1,6 +1,6 @@
 /**
  * @file hooks/ui_overlay_hooks.cpp
- * @brief Direct hooks for UI overlay show/hide functions
+ * @brief Direct hooks for UI overlay show/hide functions using DetourModKit.
  *
  * Implements hooks that directly intercept the game's UI overlay show and hide
  * functions rather than continuously polling for overlay state changes.
@@ -13,13 +13,15 @@
 #include "logger.h"
 #include "constants.h"
 #include "utils.h"
-#include "aob_scanner.h"
 #include "game_interface.h"
 #include "global_state.h"
 #include "config.h"
-#include "MinHook.h"
+
+#include <DetourModKit.hpp>
 
 #include <stdexcept>
+
+using DMKString::format_address;
 
 // External config reference
 extern Config g_config;
@@ -31,8 +33,8 @@ typedef void(__fastcall *ShowOverlaysFunc)(void *thisPtr, uint8_t paramByte, cha
 // Hook state
 static HideOverlaysFunc fpHideOverlaysOriginal = nullptr;
 static ShowOverlaysFunc fpShowOverlaysOriginal = nullptr;
-static BYTE *g_hideOverlaysHookAddress = nullptr;
-static BYTE *g_showOverlaysHookAddress = nullptr;
+static std::string g_hideOverlaysHookId;
+static std::string g_showOverlaysHookId;
 
 // NOP pattern for accumulator write
 static const BYTE nopSequence[Constants::ACCUMULATOR_WRITE_INSTR_LENGTH] = {0x90, 0x90, 0x90, 0x90, 0x90};
@@ -208,7 +210,10 @@ bool handleHoldToScrollKeyState(bool holdKeyPressed)
     // If hold key is pressed but accumulator is currently NOPped, restore original bytes
     if (holdKeyPressed && g_accumulatorWriteNOPped.load())
     {
-        if (WriteBytes(g_accumulatorWriteAddress, g_originalAccumulatorWriteBytes, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
+        if (DMKMemory::WriteBytes(g_accumulatorWriteAddress,
+                                  g_originalAccumulatorWriteBytes,
+                                  Constants::ACCUMULATOR_WRITE_INSTR_LENGTH,
+                                  DMKLogger::getInstance()))
         {
             g_accumulatorWriteNOPped.store(false);
             logger.log(LOG_DEBUG, "UIOverlayHook: Restored accumulator write due to hold key press");
@@ -218,7 +223,10 @@ bool handleHoldToScrollKeyState(bool holdKeyPressed)
     // If hold key is released but accumulator is not NOPped, NOP it
     else if (!holdKeyPressed && !g_accumulatorWriteNOPped.load())
     {
-        if (WriteBytes(g_accumulatorWriteAddress, nopSequence, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
+        if (DMKMemory::WriteBytes(g_accumulatorWriteAddress,
+                                  reinterpret_cast<const std::byte *>(nopSequence),
+                                  Constants::ACCUMULATOR_WRITE_INSTR_LENGTH,
+                                  DMKLogger::getInstance()))
         {
             g_accumulatorWriteNOPped.store(true);
             logger.log(LOG_DEBUG, "UIOverlayHook: NOPped accumulator write due to hold key release");
@@ -238,102 +246,64 @@ bool initializeUiOverlayHooks(uintptr_t module_base, size_t module_size)
     {
         logger.log(LOG_INFO, "UIOverlayHook: Initializing UI overlay hooks...");
 
-        // Pattern for HideOverlays (vftable[20])
-        std::vector<BYTE> hidePattern = parseAOB(Constants::UI_OVERLAY_HIDE_AOB_PATTERN);
-        if (hidePattern.empty())
-        {
-            throw std::runtime_error("Failed to parse HideOverlays AOB pattern");
-        }
-
-        // Pattern for ShowOverlays (vftable[21])
-        std::vector<BYTE> showPattern = parseAOB(Constants::UI_OVERLAY_SHOW_AOB_PATTERN);
-        if (showPattern.empty())
-        {
-            throw std::runtime_error("Failed to parse ShowOverlays AOB pattern");
-        }
-
-        // Find HideOverlays function
-        g_hideOverlaysHookAddress = FindPattern(reinterpret_cast<BYTE *>(module_base), module_size, hidePattern);
-        if (!g_hideOverlaysHookAddress)
-        {
-            throw std::runtime_error("HideOverlays AOB pattern not found");
-        }
-
-        // Find ShowOverlays function
-        g_showOverlaysHookAddress = FindPattern(reinterpret_cast<BYTE *>(module_base), module_size, showPattern);
-        if (!g_showOverlaysHookAddress)
-        {
-            throw std::runtime_error("ShowOverlays AOB pattern not found");
-        }
-
-        logger.log(LOG_INFO, "UIOverlayHook: Found HideOverlays at " +
-                                 format_address(reinterpret_cast<uintptr_t>(g_hideOverlaysHookAddress)));
-        logger.log(LOG_INFO, "UIOverlayHook: Found ShowOverlays at " +
-                                 format_address(reinterpret_cast<uintptr_t>(g_showOverlaysHookAddress)));
+        // Use DMKHookManager to create hooks via AOB scan
+        DMKHookManager &hook_manager = DMKHookManager::getInstance();
 
         // Create HideOverlays hook
-        MH_STATUS hideStatus = MH_CreateHook(
-            g_hideOverlaysHookAddress,
-            reinterpret_cast<LPVOID>(HideOverlaysDetour),
-            reinterpret_cast<LPVOID *>(&fpHideOverlaysOriginal));
+        g_hideOverlaysHookId = hook_manager.create_inline_hook_aob(
+            "HideOverlays",
+            module_base,
+            module_size,
+            Constants::UI_OVERLAY_HIDE_AOB_PATTERN,
+            0,
+            reinterpret_cast<void *>(HideOverlaysDetour),
+            reinterpret_cast<void **>(&fpHideOverlaysOriginal));
 
-        if (hideStatus != MH_OK)
+        if (g_hideOverlaysHookId.empty())
         {
-            throw std::runtime_error("MH_CreateHook for HideOverlays failed: " +
-                                     std::string(MH_StatusToString(hideStatus)));
-        }
-
-        if (!fpHideOverlaysOriginal)
-        {
-            MH_RemoveHook(g_hideOverlaysHookAddress);
-            throw std::runtime_error("MH_CreateHook for HideOverlays returned NULL trampoline");
+            throw std::runtime_error("Failed to create HideOverlays hook via AOB scan");
         }
 
         // Create ShowOverlays hook
-        MH_STATUS showStatus = MH_CreateHook(
-            g_showOverlaysHookAddress,
-            reinterpret_cast<LPVOID>(ShowOverlaysDetour),
-            reinterpret_cast<LPVOID *>(&fpShowOverlaysOriginal));
+        g_showOverlaysHookId = hook_manager.create_inline_hook_aob(
+            "ShowOverlays",
+            module_base,
+            module_size,
+            Constants::UI_OVERLAY_SHOW_AOB_PATTERN,
+            0,
+            reinterpret_cast<void *>(ShowOverlaysDetour),
+            reinterpret_cast<void **>(&fpShowOverlaysOriginal));
 
-        if (showStatus != MH_OK)
+        if (g_showOverlaysHookId.empty())
         {
-            MH_RemoveHook(g_hideOverlaysHookAddress);
-            throw std::runtime_error("MH_CreateHook for ShowOverlays failed: " +
-                                     std::string(MH_StatusToString(showStatus)));
+            hook_manager.remove_hook(g_hideOverlaysHookId);
+            g_hideOverlaysHookId.clear();
+            throw std::runtime_error("Failed to create ShowOverlays hook via AOB scan");
         }
 
-        if (!fpShowOverlaysOriginal)
-        {
-            MH_RemoveHook(g_hideOverlaysHookAddress);
-            MH_RemoveHook(g_showOverlaysHookAddress);
-            throw std::runtime_error("MH_CreateHook for ShowOverlays returned NULL trampoline");
-        }
+        // Log hook addresses
+        DMK::InlineHook *hideHook = hook_manager.get_inline_hook(g_hideOverlaysHookId);
+        DMK::InlineHook *showHook = hook_manager.get_inline_hook(g_showOverlaysHookId);
 
-        // Enable both hooks
-        hideStatus = MH_EnableHook(g_hideOverlaysHookAddress);
-        if (hideStatus != MH_OK)
+        if (hideHook)
         {
-            MH_RemoveHook(g_hideOverlaysHookAddress);
-            MH_RemoveHook(g_showOverlaysHookAddress);
-            throw std::runtime_error("MH_EnableHook for HideOverlays failed: " +
-                                     std::string(MH_StatusToString(hideStatus)));
+            logger.log(LOG_INFO, "UIOverlayHook: Found HideOverlays at " +
+                                     format_address(hideHook->getTargetAddress()));
         }
-
-        showStatus = MH_EnableHook(g_showOverlaysHookAddress);
-        if (showStatus != MH_OK)
+        if (showHook)
         {
-            MH_DisableHook(g_hideOverlaysHookAddress);
-            MH_RemoveHook(g_hideOverlaysHookAddress);
-            MH_RemoveHook(g_showOverlaysHookAddress);
-            throw std::runtime_error("MH_EnableHook for ShowOverlays failed: " +
-                                     std::string(MH_StatusToString(showStatus)));
+            logger.log(LOG_INFO, "UIOverlayHook: Found ShowOverlays at " +
+                                     format_address(showHook->getTargetAddress()));
         }
 
         // Set initial hold-to-scroll state if feature is enabled
         if (!g_config.hold_scroll_keys.empty() && g_accumulatorWriteAddress)
         {
             logger.log(LOG_INFO, "UIOverlayHook: Hold-to-scroll feature enabled, applying NOP by default");
-            if (WriteBytes(g_accumulatorWriteAddress, nopSequence, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger))
+            if (DMKMemory::WriteBytes(g_accumulatorWriteAddress,
+                                      reinterpret_cast<const std::byte *>(nopSequence),
+                                      Constants::ACCUMULATOR_WRITE_INSTR_LENGTH,
+                                      DMKLogger::getInstance()))
             {
                 g_accumulatorWriteNOPped.store(true);
             }
@@ -353,30 +323,32 @@ bool initializeUiOverlayHooks(uintptr_t module_base, size_t module_size)
 void cleanupUiOverlayHooks()
 {
     Logger &logger = Logger::getInstance();
+    DMKHookManager &hook_manager = DMKHookManager::getInstance();
 
-    // Disable and remove HideOverlays hook
-    if (g_hideOverlaysHookAddress && fpHideOverlaysOriginal)
+    // Remove HideOverlays hook
+    if (!g_hideOverlaysHookId.empty())
     {
-        MH_DisableHook(g_hideOverlaysHookAddress);
-        MH_RemoveHook(g_hideOverlaysHookAddress);
-        g_hideOverlaysHookAddress = nullptr;
+        hook_manager.remove_hook(g_hideOverlaysHookId);
+        g_hideOverlaysHookId.clear();
         fpHideOverlaysOriginal = nullptr;
     }
 
-    // Disable and remove ShowOverlays hook
-    if (g_showOverlaysHookAddress && fpShowOverlaysOriginal)
+    // Remove ShowOverlays hook
+    if (!g_showOverlaysHookId.empty())
     {
-        MH_DisableHook(g_showOverlaysHookAddress);
-        MH_RemoveHook(g_showOverlaysHookAddress);
-        g_showOverlaysHookAddress = nullptr;
+        hook_manager.remove_hook(g_showOverlaysHookId);
+        g_showOverlaysHookId.clear();
         fpShowOverlaysOriginal = nullptr;
     }
 
     // Ensure accumulator write is restored on exit
-    if (g_accumulatorWriteNOPped.load() && g_accumulatorWriteAddress && g_originalAccumulatorWriteBytes[0] != 0)
+    if (g_accumulatorWriteNOPped.load() && g_accumulatorWriteAddress && g_originalAccumulatorWriteBytes[0] != std::byte{0})
     {
         logger.log(LOG_INFO, "UIOverlayHook: Restoring accumulator write before exit");
-        WriteBytes(g_accumulatorWriteAddress, g_originalAccumulatorWriteBytes, Constants::ACCUMULATOR_WRITE_INSTR_LENGTH, logger);
+        DMKMemory::WriteBytes(g_accumulatorWriteAddress,
+                              g_originalAccumulatorWriteBytes,
+                              Constants::ACCUMULATOR_WRITE_INSTR_LENGTH,
+                              DMKLogger::getInstance());
         g_accumulatorWriteNOPped.store(false);
     }
 
@@ -385,6 +357,5 @@ void cleanupUiOverlayHooks()
 
 bool areUiOverlayHooksActive()
 {
-    return (g_hideOverlaysHookAddress != nullptr && fpHideOverlaysOriginal != nullptr &&
-            g_showOverlaysHookAddress != nullptr && fpShowOverlaysOriginal != nullptr);
+    return (!g_hideOverlaysHookId.empty() && !g_showOverlaysHookId.empty());
 }
