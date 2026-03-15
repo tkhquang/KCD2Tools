@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(KCD2_TPVToggle VERSION 0.5.1 LANGUAGES CXX)
+project(KCD2_TPVToggle VERSION 0.6.0 LANGUAGES CXX)
 
 # --- Standard and Compiler Options ---
 set(CMAKE_CXX_STANDARD 23)

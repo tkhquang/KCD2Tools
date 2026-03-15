@@ -1,5 +1,5 @@
-## [Title for next release]
+## Refactored with DetourModKit as the foundation
 
-- New feature
-- Bug fix
-- Improvement
+- Migrated hooking infrastructure to DetourModKit for improved reliability
+- Replaced legacy hook management with DMK's built-in handlers
+- Updated build process for DMK integration
