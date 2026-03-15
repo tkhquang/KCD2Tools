@@ -9,7 +9,6 @@
 #ifndef UI_OVERLAY_HOOKS_H
 #define UI_OVERLAY_HOOKS_H
 
-#include <windows.h>
 #include <cstdint>
 
 /**

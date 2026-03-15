@@ -265,6 +265,11 @@ g++ $CXXFLAGS -static -shared \
 g++ $CXXFLAGS -c src/asm/overlay_hook.S -o obj/overlay_hook.o
 ```
 
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+```
+
 ## Credits
 
 - [ThirteenAG](https://github.com/ThirteenAG) – for the Ultimate ASI Loader

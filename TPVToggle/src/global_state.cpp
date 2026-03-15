@@ -24,8 +24,8 @@ HANDLE g_hCameraProfileThread = NULL;
 // Game interface globals
 extern "C"
 {
-    BYTE *g_global_context_ptr_address = nullptr;
-    volatile BYTE *g_tpvFlagAddress = nullptr;
+    std::byte *g_global_context_ptr_address = nullptr;
+    volatile std::byte *g_tpvFlagAddress = nullptr;
 }
 
 // Hook globals
@@ -35,8 +35,8 @@ extern "C"
 }
 
 // Event hook globals
-BYTE *g_accumulatorWriteAddress = nullptr;
-BYTE g_originalAccumulatorWriteBytes[Constants::ACCUMULATOR_WRITE_INSTR_LENGTH] = {0};
+std::byte *g_accumulatorWriteAddress = nullptr;
+std::byte g_originalAccumulatorWriteBytes[Constants::ACCUMULATOR_WRITE_INSTR_LENGTH] = {std::byte{0}};
 volatile uintptr_t *g_scrollAccumulatorAddress = nullptr;
 volatile uintptr_t *g_scrollPtrStorageAddress = nullptr;
 

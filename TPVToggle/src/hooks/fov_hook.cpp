@@ -1,22 +1,24 @@
 /**
  * @file hooks/fov_hook.cpp
- * @brief Implementation of TPV FOV hook functionality.
+ * @brief Implementation of TPV FOV hook functionality using DetourModKit.
  */
 #define _USE_MATH_DEFINES
 #include "fov_hook.h"
 #include "logger.h"
 #include "constants.h"
 #include "utils.h"
-#include "aob_scanner.h"
 #include "game_interface.h"
-#include "MinHook.h"
+
+#include <DetourModKit.hpp>
 
 #include <stdexcept>
 #include <math.h>
 
+using DMKString::format_address;
+
 // Hook state
 static TpvFovCalculateFunc Original_TpvFovCalculate = nullptr;
-static BYTE *g_fovHookAddress = nullptr;
+static std::string g_fovHookId;
 static float g_desiredFovRadians = 0.0f;
 
 /**
@@ -43,15 +45,15 @@ static void __fastcall Detour_TpvFovCalculate(float *pViewStruct, float deltaTim
     if (cameraManager != 0)
     {
         // Check if we're in TPV mode (flag at offset 0x38 in TPV object)
-        volatile BYTE *flagAddress = getResolvedTpvFlagAddress();
-        if (flagAddress && isMemoryReadable(flagAddress, sizeof(BYTE)))
+        volatile std::byte *flagAddress = getResolvedTpvFlagAddress();
+        if (flagAddress && DMKMemory::isMemoryReadable(flagAddress, sizeof(std::byte)))
         {
-            BYTE flagValue = *flagAddress;
-            if (flagValue == 1)
+            std::byte flagValue = *flagAddress;
+            if (flagValue == std::byte{1})
             { // TPV mode
                 // Apply custom FOV (field at offset 0x30 in view structure)
                 uintptr_t fovWriteAddress = reinterpret_cast<uintptr_t>(pViewStruct) + Constants::OFFSET_TpvFovWrite;
-                if (isMemoryWritable(reinterpret_cast<void *>(fovWriteAddress), sizeof(float)))
+                if (DMKMemory::isMemoryWritable(reinterpret_cast<void *>(fovWriteAddress), sizeof(float)))
                 {
                     *reinterpret_cast<float *>(fovWriteAddress) = g_desiredFovRadians;
                     logger.log(LOG_TRACE, "FovHook: Applied FOV " + std::to_string(g_desiredFovRadians) + " radians");
@@ -79,43 +81,29 @@ bool initializeFovHook(uintptr_t module_base, size_t module_size, float desired_
         g_desiredFovRadians = desired_fov_degrees * (M_PI / 180.0f);
         logger.log(LOG_INFO, "FovHook: Target FOV set to " + std::to_string(desired_fov_degrees) + " degrees (" + std::to_string(g_desiredFovRadians) + " radians)");
 
-        // Scan for FOV calculation function
-        std::vector<BYTE> fov_pat = parseAOB(Constants::TPV_FOV_CALCULATE_AOB_PATTERN);
-        if (fov_pat.empty())
+        // Use DMKHookManager to create hook via AOB scan
+        DMKHookManager &hook_manager = DMKHookManager::getInstance();
+
+        g_fovHookId = hook_manager.create_inline_hook_aob(
+            "TpvFovCalculate",
+            module_base,
+            module_size,
+            Constants::TPV_FOV_CALCULATE_AOB_PATTERN,
+            0, // No offset from pattern
+            reinterpret_cast<void *>(Detour_TpvFovCalculate),
+            reinterpret_cast<void **>(&Original_TpvFovCalculate));
+
+        if (g_fovHookId.empty())
         {
-            throw std::runtime_error("Failed to parse TPV FOV AOB pattern");
+            throw std::runtime_error("Failed to create TPV FOV hook via AOB scan");
         }
 
-        BYTE *fov_aob = FindPattern(reinterpret_cast<BYTE *>(module_base), module_size, fov_pat);
-        if (!fov_aob)
+        // Get the target address for logging
+        DMK::InlineHook *hook = hook_manager.get_inline_hook(g_fovHookId);
+        if (hook)
         {
-            throw std::runtime_error("TPV FOV function AOB pattern not found");
-        }
-
-        g_fovHookAddress = fov_aob;
-        logger.log(LOG_INFO, "FovHook: Found TPV FOV function at " + format_address(reinterpret_cast<uintptr_t>(g_fovHookAddress)));
-
-        // Create and enable the MinHook
-        MH_STATUS status = MH_CreateHook(g_fovHookAddress,
-                                         reinterpret_cast<LPVOID>(Detour_TpvFovCalculate),
-                                         reinterpret_cast<LPVOID *>(&Original_TpvFovCalculate));
-
-        if (status != MH_OK)
-        {
-            throw std::runtime_error("MH_CreateHook failed: " + std::string(MH_StatusToString(status)));
-        }
-
-        if (!Original_TpvFovCalculate)
-        {
-            MH_RemoveHook(g_fovHookAddress);
-            throw std::runtime_error("MH_CreateHook returned NULL trampoline");
-        }
-
-        status = MH_EnableHook(g_fovHookAddress);
-        if (status != MH_OK)
-        {
-            MH_RemoveHook(g_fovHookAddress);
-            throw std::runtime_error("MH_EnableHook failed: " + std::string(MH_StatusToString(status)));
+            logger.log(LOG_INFO, "FovHook: Found TPV FOV function at " +
+                                     format_address(hook->getTargetAddress()));
         }
 
         logger.log(LOG_INFO, "FovHook: TPV FOV hook successfully installed");
@@ -133,12 +121,21 @@ void cleanupFovHook()
 {
     Logger &logger = Logger::getInstance();
 
-    if (g_fovHookAddress && Original_TpvFovCalculate)
+    if (!g_fovHookId.empty())
     {
-        MH_DisableHook(g_fovHookAddress);
-        MH_RemoveHook(g_fovHookAddress);
+        DMKHookManager &hook_manager = DMKHookManager::getInstance();
+
+        if (hook_manager.remove_hook(g_fovHookId))
+        {
+            logger.log(LOG_INFO, "FovHook: Successfully removed");
+        }
+        else
+        {
+            logger.log(LOG_WARNING, "FovHook: Failed to remove hook");
+        }
+
+        g_fovHookId.clear();
         Original_TpvFovCalculate = nullptr;
-        g_fovHookAddress = nullptr;
     }
 
     logger.log(LOG_DEBUG, "FovHook: Cleanup complete");
@@ -146,5 +143,5 @@ void cleanupFovHook()
 
 bool isFovHookActive()
 {
-    return (g_fovHookAddress != nullptr && Original_TpvFovCalculate != nullptr);
+    return !g_fovHookId.empty();
 }

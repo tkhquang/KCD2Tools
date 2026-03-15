@@ -10,6 +10,7 @@
 
 #include <windows.h>
 #include <cstdint>
+#include <cstddef>
 
 #include "math_utils.h"
 
@@ -38,7 +39,7 @@ void cleanupGameInterface();
  * @details Resolves the full pointer chain: global context -> camera manager -> TPV object -> flag.
  * @return Pointer to TPV flag byte, or nullptr if resolution fails.
  */
-volatile BYTE *getResolvedTpvFlagAddress();
+volatile std::byte *getResolvedTpvFlagAddress();
 
 /**
  * @brief Gets the current view state (FPV=0, TPV=1).

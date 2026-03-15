@@ -1,6 +1,6 @@
 /**
  * @file hooks/tpv_input_hook.cpp
- * @brief Implementation of TPV camera input processing hooks
+ * @brief Implementation of TPV camera input processing hooks using DetourModKit.
  *
  * Intercepts third-person camera input events to provide customizable
  * camera control including sensitivity adjustment and vertical limits.
@@ -11,15 +11,18 @@
 #include "constants.h"
 #include "game_structures.h"
 #include "utils.h"
-#include "aob_scanner.h"
 #include "global_state.h"
 #include "config.h"
-#include "ui_menu_hooks.h" // Add include for UI menu hooks
-#include "MinHook.h"
+#include "ui_menu_hooks.h"
+
+#include <DetourModKit.hpp>
 
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+
+using DMKString::format_address;
+using DMKString::format_hex;
 
 // External config reference
 extern Config g_config;
@@ -28,8 +31,10 @@ extern Config g_config;
 typedef void(__fastcall *TpvCameraInputFunc)(uintptr_t thisPtr, char *inputEventPtr);
 
 // Hook state
+static std::string g_tpvInputHookId;
+
+// Original function pointer (trampoline from SafetyHook)
 static TpvCameraInputFunc fpTpvCameraInputOriginal = nullptr;
-static BYTE *g_tpvInputHookAddress = nullptr;
 
 // Camera control state
 static std::atomic<float> g_currentPitch(0.0f);      // Current camera pitch in radians
@@ -59,12 +64,12 @@ inline float RadiansToDegrees(float radians)
  * @param thisPtr Pointer to the camera object
  * @param inputEventPtr Pointer to input event data
  */
-void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEventPtr)
+static void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEventPtr)
 {
     Logger &logger = Logger::getInstance();
 
     // Validate input event pointer
-    if (!isMemoryReadable(inputEventPtr, sizeof(GameStructures::InputEvent)))
+    if (!DMKMemory::isMemoryReadable(inputEventPtr, sizeof(GameStructures::InputEvent)))
     {
         if (fpTpvCameraInputOriginal)
             fpTpvCameraInputOriginal(thisPtr, inputEventPtr);
@@ -210,46 +215,29 @@ bool initializeTpvInputHook(uintptr_t moduleBase, size_t moduleSize)
 
     try
     {
-        // Parse AOB pattern
-        std::vector<BYTE> pattern = parseAOB(Constants::TPV_INPUT_PROCESS_AOB_PATTERN);
-        if (pattern.empty())
+        // Use DMKHookManager to create hook via AOB scan
+        DMKHookManager &hook_manager = DMKHookManager::getInstance();
+
+        g_tpvInputHookId = hook_manager.create_inline_hook_aob(
+            "TpvCameraInput",
+            moduleBase,
+            moduleSize,
+            Constants::TPV_INPUT_PROCESS_AOB_PATTERN,
+            0, // No offset from pattern
+            reinterpret_cast<void *>(Detour_TpvCameraInput),
+            reinterpret_cast<void **>(&fpTpvCameraInputOriginal));
+
+        if (g_tpvInputHookId.empty())
         {
-            throw std::runtime_error("Failed to parse TPV input function AOB pattern");
+            throw std::runtime_error("Failed to create TPV input hook via AOB scan");
         }
 
-        // Find the function
-        g_tpvInputHookAddress = FindPattern(reinterpret_cast<BYTE *>(moduleBase), moduleSize, pattern);
-        if (!g_tpvInputHookAddress)
+        // Get the target address for logging
+        DMK::InlineHook *hook = hook_manager.get_inline_hook(g_tpvInputHookId);
+        if (hook)
         {
-            throw std::runtime_error("TPV input function pattern not found");
-        }
-
-        logger.log(LOG_INFO, "TPVInputHook: Found TPV input function at " +
-                                 format_address(reinterpret_cast<uintptr_t>(g_tpvInputHookAddress)));
-
-        // Create hook
-        MH_STATUS status = MH_CreateHook(
-            reinterpret_cast<LPVOID>(g_tpvInputHookAddress),
-            reinterpret_cast<LPVOID>(&Detour_TpvCameraInput),
-            reinterpret_cast<LPVOID *>(&fpTpvCameraInputOriginal));
-
-        if (status != MH_OK)
-        {
-            throw std::runtime_error("MH_CreateHook failed: " + std::string(MH_StatusToString(status)));
-        }
-
-        if (!fpTpvCameraInputOriginal)
-        {
-            MH_RemoveHook(reinterpret_cast<LPVOID>(g_tpvInputHookAddress));
-            throw std::runtime_error("MH_CreateHook returned NULL trampoline");
-        }
-
-        // Enable hook
-        status = MH_EnableHook(reinterpret_cast<LPVOID>(g_tpvInputHookAddress));
-        if (status != MH_OK)
-        {
-            MH_RemoveHook(reinterpret_cast<LPVOID>(g_tpvInputHookAddress));
-            throw std::runtime_error("MH_EnableHook failed: " + std::string(MH_StatusToString(status)));
+            logger.log(LOG_INFO, "TPVInputHook: Found TPV input function at " +
+                                     format_address(hook->getTargetAddress()));
         }
 
         // Log configuration
@@ -282,23 +270,20 @@ void cleanupTpvInputHook()
 {
     Logger &logger = Logger::getInstance();
 
-    if (g_tpvInputHookAddress != nullptr)
+    if (!g_tpvInputHookId.empty())
     {
-        MH_STATUS disableStatus = MH_DisableHook(reinterpret_cast<LPVOID>(g_tpvInputHookAddress));
-        MH_STATUS removeStatus = MH_RemoveHook(reinterpret_cast<LPVOID>(g_tpvInputHookAddress));
+        DMKHookManager &hook_manager = DMKHookManager::getInstance();
 
-        if (disableStatus == MH_OK && removeStatus == MH_OK)
+        if (hook_manager.remove_hook(g_tpvInputHookId))
         {
             logger.log(LOG_INFO, "TPVInputHook: Successfully removed");
         }
         else
         {
-            logger.log(LOG_WARNING, "TPVInputHook: Cleanup issues - Disable: " +
-                                        std::string(MH_StatusToString(disableStatus)) +
-                                        ", Remove: " + std::string(MH_StatusToString(removeStatus)));
+            logger.log(LOG_WARNING, "TPVInputHook: Failed to remove hook");
         }
 
-        g_tpvInputHookAddress = nullptr;
+        g_tpvInputHookId.clear();
         fpTpvCameraInputOriginal = nullptr;
     }
 

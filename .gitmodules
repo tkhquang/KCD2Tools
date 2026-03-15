@@ -1,18 +1,6 @@
-[submodule "TPVToggle/external/minhook"]
-	path = TPVToggle/external/minhook
-	url = https://github.com/TsudaKageyu/minhook.git
-[submodule "TPVToggle/external/simpleini"]
-	path = TPVToggle/external/simpleini
-	url = https://github.com/brofield/simpleini.git
-[submodule "TPVToggle/external/DirectXMath"]
-	path = TPVToggle/external/DirectXMath
-	url = https://github.com/microsoft/DirectXMath.git
 [submodule "TPVToggle/external/json"]
 	path = TPVToggle/external/json
 	url = https://github.com/nlohmann/json.git
-[submodule "TPVToggle/external/safetyhook"]
-	path = TPVToggle/external/safetyhook
-	url = https://github.com/cursey/safetyhook.git
 [submodule "TPVToggle/external/KCD2ModLoader"]
 	path = TPVToggle/external/KCD2ModLoader
 	url = https://github.com/xiaoxiao921/KCD2ModLoader.git

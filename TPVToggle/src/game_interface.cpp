@@ -10,10 +10,12 @@
 #include "constants.h"
 #include "game_structures.h"
 #include "utils.h"
-#include "aob_scanner.h"
 #include "global_state.h"
 
+#include <DetourModKit.hpp>
 #include <stdexcept>
+
+using DMKString::format_address;
 
 static bool isValidated()
 {
@@ -39,14 +41,14 @@ bool findScrollAccumulator(uintptr_t module_base, size_t module_size)
     }
 
     // Use the AOB pattern provided in constants.h
-    std::vector<BYTE> scroll_pat = parseAOB(Constants::SCROLL_STATE_BASE_AOB_PATTERN);
+    std::vector<std::byte> scroll_pat = DMKScanner::parseAOB(Constants::SCROLL_STATE_BASE_AOB_PATTERN);
     if (scroll_pat.empty())
     {
         logger.log(LOG_ERROR, "Failed to parse scroll state AOB pattern from constants.");
         return false; // Cannot proceed without pattern
     }
 
-    BYTE *scroll_aob_result = FindPattern(reinterpret_cast<BYTE *>(module_base), module_size, scroll_pat);
+    std::byte *scroll_aob_result = DMKScanner::FindPattern(reinterpret_cast<std::byte *>(module_base), module_size, scroll_pat);
 
     if (!scroll_aob_result)
     {
@@ -59,10 +61,10 @@ bool findScrollAccumulator(uintptr_t module_base, size_t module_size)
 
     // The instruction we targeted is '48 8B 15 offset' (7 bytes total)
     // mov rdx, [rip + offset]
-    BYTE *instruction_address = scroll_aob_result; // Assuming AOB starts exactly at the MOV instruction
+    std::byte *instruction_address = scroll_aob_result; // Assuming AOB starts exactly at the MOV instruction
 
     // Extract the 32-bit relative offset (starts at byte 3 of the instruction)
-    if (!isMemoryReadable(instruction_address + 3, sizeof(int32_t)))
+    if (!DMKMemory::isMemoryReadable(instruction_address + 3, sizeof(int32_t)))
     {
         logger.log(LOG_ERROR, "Cannot read relative offset from instruction at: " + format_address(reinterpret_cast<uintptr_t>(instruction_address + 3)));
         return false;
@@ -70,7 +72,7 @@ bool findScrollAccumulator(uintptr_t module_base, size_t module_size)
     int32_t relative_offset = *reinterpret_cast<int32_t *>(instruction_address + 3);
 
     // Calculate the RIP value (address of the instruction *after* the MOV)
-    BYTE *rip_value = instruction_address + 7; // Instruction is 7 bytes long
+    std::byte *rip_value = instruction_address + 7; // Instruction is 7 bytes long
 
     // Calculate the absolute address where the pointer is stored
     uintptr_t scroll_ptr_storage_addr_val = reinterpret_cast<uintptr_t>(rip_value) + relative_offset;
@@ -84,7 +86,7 @@ volatile uintptr_t *getResolvedScrollAccumulatorAddress()
 {
     Logger &logger = Logger::getInstance();
     // Read the pointer value from this storage address safely
-    if (!isMemoryReadable(g_scrollPtrStorageAddress, sizeof(uintptr_t)))
+    if (!DMKMemory::isMemoryReadable(g_scrollPtrStorageAddress, sizeof(uintptr_t)))
     {
         logger.log(LOG_ERROR, "Cannot read scroll state base pointer from storage address!");
         return nullptr;
@@ -105,12 +107,12 @@ volatile uintptr_t *getResolvedScrollAccumulatorAddress()
     logger.log(LOG_DEBUG, "Calculated final accumulator address: " + format_address(final_accum_addr_val));
 
     // Final validation: Check if the target address is readable/writable
-    if (!isMemoryReadable(final_accum_addr, sizeof(float)))
+    if (!DMKMemory::isMemoryReadable(final_accum_addr, sizeof(float)))
     {
         logger.log(LOG_ERROR, "Final accumulator address is not readable!");
         return nullptr;
     }
-    if (!isMemoryWritable(final_accum_addr, sizeof(float)))
+    if (!DMKMemory::isMemoryWritable(final_accum_addr, sizeof(float)))
     {
         logger.log(LOG_ERROR, "Final accumulator address is not writable!");
         return nullptr;
@@ -141,7 +143,7 @@ bool resetScrollAccumulator(bool logReset)
         g_scrollAccumulatorAddress = getResolvedScrollAccumulatorAddress();
     }
 
-    if (g_scrollAccumulatorAddress != nullptr && isMemoryWritable(g_scrollAccumulatorAddress, sizeof(uintptr_t)))
+    if (g_scrollAccumulatorAddress != nullptr && DMKMemory::isMemoryWritable(g_scrollAccumulatorAddress, sizeof(uintptr_t)))
     {
         float currentValue = *g_scrollAccumulatorAddress;
         if (currentValue != 0.0f)
@@ -167,13 +169,13 @@ bool initializeGameInterface(uintptr_t module_base, size_t module_size)
         logger.log(LOG_INFO, "GameInterface: Initializing with dynamic AOB scanning...");
 
         // Scan for global context pointer access pattern
-        std::vector<BYTE> ctx_pat = parseAOB(Constants::CONTEXT_PTR_LOAD_AOB_PATTERN);
+        std::vector<std::byte> ctx_pat = DMKScanner::parseAOB(Constants::CONTEXT_PTR_LOAD_AOB_PATTERN);
         if (ctx_pat.empty())
         {
             throw std::runtime_error("Failed to parse context pointer AOB pattern");
         }
 
-        BYTE *ctx_aob = FindPattern(reinterpret_cast<BYTE *>(module_base), module_size, ctx_pat);
+        std::byte *ctx_aob = DMKScanner::FindPattern(reinterpret_cast<std::byte *>(module_base), module_size, ctx_pat);
         if (!ctx_aob)
         {
             throw std::runtime_error("Context pointer AOB pattern not found");
@@ -182,17 +184,17 @@ bool initializeGameInterface(uintptr_t module_base, size_t module_size)
         logger.log(LOG_DEBUG, "GameInterface: Found context AOB at " + format_address(reinterpret_cast<uintptr_t>(ctx_aob)));
 
         // Extract the RIP-relative address from the found instruction
-        BYTE *ctx_mov = ctx_aob + 2; // Skip to the MOV instruction
-        if (!isMemoryReadable(ctx_mov + 3, sizeof(int32_t)))
+        std::byte *ctx_mov = ctx_aob + 2; // Skip to the MOV instruction
+        if (!DMKMemory::isMemoryReadable(ctx_mov + 3, sizeof(int32_t)))
         {
             throw std::runtime_error("Cannot read offset from context MOV instruction");
         }
 
         int32_t ctx_offset = *reinterpret_cast<int32_t *>(ctx_mov + 3);
-        BYTE *ctx_rip = ctx_mov + 7; // End of instruction
+        std::byte *ctx_rip = ctx_mov + 7; // End of instruction
         uintptr_t ctx_target_addr = reinterpret_cast<uintptr_t>(ctx_rip) + ctx_offset;
 
-        g_global_context_ptr_address = reinterpret_cast<BYTE *>(ctx_target_addr);
+        g_global_context_ptr_address = reinterpret_cast<std::byte *>(ctx_target_addr);
 
         logger.log(LOG_INFO, "GameInterface: Global context pointer storage at " + format_address(ctx_target_addr));
 
@@ -222,14 +224,14 @@ void cleanupGameInterface()
 /**
  * @brief Gets the resolved address of the TPV flag using the original working logic.
  */
-volatile BYTE *getResolvedTpvFlagAddress()
+volatile std::byte *getResolvedTpvFlagAddress()
 {
     if (g_tpvFlagAddress != nullptr)
     {
         return g_tpvFlagAddress;
     }
 
-    if (!g_global_context_ptr_address || !isMemoryReadable(g_global_context_ptr_address, sizeof(uintptr_t)))
+    if (!g_global_context_ptr_address || !DMKMemory::isMemoryReadable(g_global_context_ptr_address, sizeof(uintptr_t)))
         return nullptr;
 
     // Step 1: Read the global context pointer
@@ -239,7 +241,7 @@ volatile BYTE *getResolvedTpvFlagAddress()
 
     // Step 2: Read the camera manager pointer directly from global context
     uintptr_t cam_manager_ptr_addr_val = global_ctx_ptr + Constants::OFFSET_ManagerPtrStorage;
-    if (!isMemoryReadable(reinterpret_cast<void *>(cam_manager_ptr_addr_val), sizeof(uintptr_t)))
+    if (!DMKMemory::isMemoryReadable(reinterpret_cast<void *>(cam_manager_ptr_addr_val), sizeof(uintptr_t)))
         return nullptr;
 
     uintptr_t cam_manager_ptr = *reinterpret_cast<uintptr_t *>(cam_manager_ptr_addr_val);
@@ -248,20 +250,20 @@ volatile BYTE *getResolvedTpvFlagAddress()
 
     // Step 3: Get the TPV flag address directly
     uintptr_t flag_address_val = cam_manager_ptr + Constants::OFFSET_TpvFlag;
-    return reinterpret_cast<volatile BYTE *>(flag_address_val);
+    return reinterpret_cast<volatile std::byte *>(flag_address_val);
 }
 
 int getViewState()
 {
-    volatile BYTE *flag_addr = getResolvedTpvFlagAddress();
+    volatile std::byte *flag_addr = getResolvedTpvFlagAddress();
     if (!flag_addr)
         return -1;
 
-    if (!isMemoryReadable(flag_addr, sizeof(BYTE)))
+    if (!DMKMemory::isMemoryReadable(flag_addr, sizeof(std::byte)))
         return -1;
 
-    BYTE val = *flag_addr;
-    return (val == 0 || val == 1) ? static_cast<int>(val) : -1;
+    std::byte val = *flag_addr;
+    return (val == std::byte{0} || val == std::byte{1}) ? static_cast<int>(std::to_integer<uint8_t>(val)) : -1;
 }
 
 bool setViewState(BYTE new_state, int *key_pressed_vk)
@@ -271,10 +273,10 @@ bool setViewState(BYTE new_state, int *key_pressed_vk)
     if (new_state != 0 && new_state != 1)
         return false;
 
-    std::string trigger = key_pressed_vk ? (" (K:" + format_vkcode(*key_pressed_vk) + ")") : "(I)";
+    std::string trigger = key_pressed_vk ? (" (K:" + DMKString::format_vkcode(*key_pressed_vk) + ")") : "(I)";
     std::string desc = (new_state == 0) ? "FPV" : "TPV";
 
-    volatile BYTE *flag_addr = getResolvedTpvFlagAddress();
+    volatile std::byte *flag_addr = getResolvedTpvFlagAddress();
     if (!flag_addr)
     {
         logger.log(LOG_ERROR, "Set" + desc + trigger + ": Failed to resolve address");
@@ -287,14 +289,14 @@ bool setViewState(BYTE new_state, int *key_pressed_vk)
         return true; // Already in desired state
     }
 
-    if (!isMemoryWritable(flag_addr, sizeof(BYTE)))
+    if (!DMKMemory::isMemoryWritable(flag_addr, sizeof(std::byte)))
     {
         logger.log(LOG_ERROR, "Set" + desc + trigger + ": No write permission at " + format_address(reinterpret_cast<uintptr_t>(flag_addr)));
         return false;
     }
 
     logger.log(LOG_DEBUG, "Set" + desc + trigger + ": Writing " + std::to_string(new_state) + " at " + format_address(reinterpret_cast<uintptr_t>(flag_addr)));
-    *flag_addr = new_state;
+    *flag_addr = static_cast<std::byte>(new_state);
 
     Sleep(1); // Small delay for stability
 
@@ -314,7 +316,7 @@ bool setViewState(BYTE new_state, int *key_pressed_vk)
 bool safeToggleViewState(int *key_pressed_vk)
 {
     Logger &logger = Logger::getInstance();
-    std::string trigger = key_pressed_vk ? "(K:" + format_vkcode(*key_pressed_vk) + ")" : "(I)";
+    std::string trigger = key_pressed_vk ? "(K:" + DMKString::format_vkcode(*key_pressed_vk) + ")" : "(I)";
 
     int current = getViewState();
     if (current == 0)
@@ -340,7 +342,7 @@ extern "C" uintptr_t __cdecl getCameraManagerInstance()
         return 0;
 
     // Step 1: Read the global context pointer
-    if (!isMemoryReadable(g_global_context_ptr_address, sizeof(uintptr_t)))
+    if (!DMKMemory::isMemoryReadable(g_global_context_ptr_address, sizeof(uintptr_t)))
         return 0;
     uintptr_t global_ctx_ptr = *reinterpret_cast<uintptr_t *>(g_global_context_ptr_address);
     if (global_ctx_ptr == 0)
@@ -348,7 +350,7 @@ extern "C" uintptr_t __cdecl getCameraManagerInstance()
 
     // Step 2: Read the camera manager pointer
     uintptr_t cam_manager_ptr_addr = global_ctx_ptr + Constants::OFFSET_ManagerPtrStorage;
-    if (!isMemoryReadable(reinterpret_cast<void *>(cam_manager_ptr_addr), sizeof(uintptr_t)))
+    if (!DMKMemory::isMemoryReadable(reinterpret_cast<void *>(cam_manager_ptr_addr), sizeof(uintptr_t)))
         return 0;
     uintptr_t cam_manager_ptr = *reinterpret_cast<uintptr_t *>(cam_manager_ptr_addr);
 
@@ -367,7 +369,7 @@ bool GetPlayerWorldTransform(::Vector3 &outPosition, ::Quaternion &outOrientatio
 
     uintptr_t matrix_address = reinterpret_cast<uintptr_t>(g_thePlayerEntity) + Constants::OFFSET_ENTITY_WORLD_MATRIX_MEMBER;
 
-    if (!isMemoryReadable(reinterpret_cast<void *>(matrix_address), sizeof(GameStructures::Matrix34f)))
+    if (!DMKMemory::isMemoryReadable(reinterpret_cast<void *>(matrix_address), sizeof(GameStructures::Matrix34f)))
     {
         logger.log(LOG_WARNING, "GetPlayerWorldTransform: Cannot read CEntity's m_worldTransform at " +
                                     format_address(matrix_address) + " for entity " +
@@ -400,7 +402,7 @@ bool GetPlayerWorldTransform(::Vector3 &outPosition, ::Quaternion &outOrientatio
 
     std::ostringstream matrix_dump;
     matrix_dump << std::fixed << std::setprecision(4);
-    matrix_dump << "\n  Matrix Read from Entity " << format_address(reinterpret_cast<uintptr_t>(g_thePlayerEntity)) << " @ offset " << format_hex(Constants::OFFSET_ENTITY_WORLD_MATRIX_MEMBER) << " (Addr: " << format_address(matrix_address) << "):";
+    matrix_dump << "\n  Matrix Read from Entity " << format_address(reinterpret_cast<uintptr_t>(g_thePlayerEntity)) << " @ offset " << DMKString::format_hex(Constants::OFFSET_ENTITY_WORLD_MATRIX_MEMBER) << " (Addr: " << format_address(matrix_address) << "):";
     matrix_dump << "\n    R0: [" << playerMatrix.m[0][0] << ", " << playerMatrix.m[0][1] << ", " << playerMatrix.m[0][2] << "] T.x: " << playerMatrix.m[0][3];
     matrix_dump << "\n    R1: [" << playerMatrix.m[1][0] << ", " << playerMatrix.m[1][1] << ", " << playerMatrix.m[1][2] << "] T.y: " << playerMatrix.m[1][3];
     matrix_dump << "\n    R2: [" << playerMatrix.m[2][0] << ", " << playerMatrix.m[2][1] << ", " << playerMatrix.m[2][2] << "] T.z: " << playerMatrix.m[2][3];
