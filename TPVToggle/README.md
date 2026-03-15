@@ -30,7 +30,7 @@
 This mod uses advanced techniques to integrate with the game:
 
 1. **AOB Pattern Scanning** – Dynamically scans the game's memory for specific byte patterns to locate camera functions and UI module addresses
-2. **Memory Hooking** – Uses MinHook to intercept game functions for overlay detection and event handling
+2. **Memory Hooking** – Uses [SafetyHook](https://github.com/cursey/safetyhook) (via [DetourModKit](https://github.com/tkhquang/DetourModKit)) to intercept game functions for overlay detection and event handling
 3. **Key Monitoring** – Spawns background threads to listen for configured hotkeys and process input events
 
 ## Configuration
@@ -202,7 +202,8 @@ See [CHANGELOG.md](CHANGELOG.md) for a detailed history of updates.
 
 This mod requires:
 - [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) by [**ThirteenAG**](https://github.com/ThirteenAG)
-- [MinHook](https://github.com/TsudaKageyu/minhook) hooking library
+- [DetourModKit](https://github.com/tkhquang/DetourModKit) – A lightweight C++ toolkit for game modding (provides SafetyHook, AOB scanning, logging, and configuration management)
+- [nlohmann/json](https://github.com/nlohmann/json) – JSON library for modern C++
 
 > **Note:** `dinput8.dll` (ASI Loader) is bundled in the ZIP file. The mod will not work without it.
 
@@ -210,21 +211,21 @@ This mod requires:
 
 ### Prerequisites
 
-- [MinGW-w64](https://www.mingw-w64.org/) (GCC/G++)
+- [MinGW-w64](https://www.mingw-w64.org/) (GCC/G++ 12+ with C++23 support)
+- [CMake](https://cmake.org/) (3.16 or newer)
 - Windows SDK headers (for WinAPI access)
 - Git (to fetch submodules)
 
-### Building with Makefile
+### Building with CMake
 
 ```bash
-# Fetch dependencies
+# Fetch dependencies (including DetourModKit and its submodules)
 git submodule update --init --recursive
 
-# Build
-make
-
-# Create distribution package
-make install
+# Configure and build
+cd TPVToggle
+cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release --parallel
 ```
 
 This will output:
@@ -233,48 +234,35 @@ build/
 ├── KCD2_TPVToggle.asi     # The mod itself
 ├── KCD2_TPVToggle.ini     # Configuration file
 ├── dinput8.dll            # ASI Loader
-├── README_MOD.md          # Documentation
-└── THIRD-PARTY-LICENSES.txt
+├── KCD2_TPVToggle_Readme.txt       # Documentation
+└── KCD2_TPVToggle_Acknowledgements.txt
 ```
 
-### Manual Compilation
-
-If make is not available:
+### Visual Studio (MSVC) Build
 
 ```bash
-# Fetch dependencies first
-git submodule update --init --recursive
+# Configure
+cmake -S . -B build_msvc -G "Visual Studio 17 2022" -A x64
 
-# Configure C++ compiler flags
-CXXFLAGS="-std=c++17 -m64 -Os -Wall -Wextra \
-          -DWINVER=0x0601 -D_WIN32_WINNT=0x0601 \
-          -I./external/minhook/include \
-          -I./external/simpleini \
-          -I./src"
-
-# Compile MinHook
-g++ $CXXFLAGS -c external/minhook/src/*.c -o obj/*.o
-
-# Compile the mod
-g++ $CXXFLAGS -static -shared \
-    src/*.cpp obj/*.o external/minhook/src/hde/*.c \
-    -lpsapi -luser32 -lkernel32 \
-    -o build/KCD2_TPVToggle.asi
-
-# Assemble the assembly file
-g++ $CXXFLAGS -c src/asm/overlay_hook.S -o obj/overlay_hook.o
+# Build
+cmake --build build_msvc --config Release --parallel
 ```
 
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
-```
+## Architecture
+
+This mod is built on top of **DetourModKit**, which provides:
+- **SafetyHook** – Safe, modern hooking library for intercepting game functions
+- **AOB Scanner** – Pattern scanning with wildcard support for dynamic address resolution
+- **Configuration System** – INI file parsing with automatic value assignment
+- **Logger** – Thread-safe logging with configurable log levels
+- **Memory Utilities** – Safe memory access and manipulation helpers
 
 ## Credits
 
 - [ThirteenAG](https://github.com/ThirteenAG) – for the Ultimate ASI Loader
-- [TsudaKageyu](https://github.com/TsudaKageyu) - for MinHook
-- [Brodie Thiesfield](https://github.com/brofield) - for SimpleIni
+- [cursey](https://github.com/cursey) – for SafetyHook
+- [Brodie Thiesfield](https://github.com/brofield) – for SimpleIni
+- [nlohmann](https://github.com/nlohmann) – for the JSON library
 - [Frans 'Otis_Inf' Bouma](https://opm.fransbouma.com/intro.htm) – for his camera tools and inspiration
 - Warhorse Studios – for Kingdom Come: Deliverance II
 

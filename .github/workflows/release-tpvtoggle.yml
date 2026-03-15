@@ -132,29 +132,54 @@ jobs:
         run: |
           # Verify submodules checked out by actions/checkout@v4
           echo "--- Verifying submodule checkout ---"
-          ls -l TPVToggle/external/minhook/include/MinHook.h # Check specific crucial file
-          ls -l TPVToggle/external/minhook   # List directory
-          ls -l TPVToggle/external/simpleini # List directory
+          ls -l TPVToggle/external/DetourModKit/include/DetourModKit.hpp # Check specific crucial file
+          ls -l TPVToggle/external/DetourModKit   # List directory
+          ls -l TPVToggle/external/json/include/nlohmann/json.hpp # Check json library
           echo "--- Changing to TPVToggle directory ---"
           cd TPVToggle
           pwd # Confirm current directory
-          echo "--- Running make clean ---"
-          make clean
-          echo "--- Running make ---"
-          make
+          echo "--- Running cmake configure ---"
+          cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+          echo "--- Running cmake build ---"
+          cmake --build build --config Release --parallel
         shell: bash
 
       - name: Display build output
         run: |
           dir TPVToggle\build
-        shell: cmd # cmd is fine for dir
+        shell: cmd
 
       - name: Create ZIP archive
         run: |
-          cd TPVToggle\build
-          Remove-Item -LiteralPath "obj" -Force -Recurse
-          7z a ..\..\${{ env.ARTIFACT_NAME }} *
-        shell: pwsh # Use PowerShell as it's good with paths/env vars
+          # Create package directory using template as base
+          $templateDir = "TPVToggle\build\template"
+          $packageDir = "TPVToggle\package"
+          $buildDir = "TPVToggle\build"
+
+          # Check if template directory exists
+          if (-not (Test-Path $templateDir)) {
+            Write-Error "Template directory not found: $templateDir"
+            exit 1
+          }
+
+          # Create package directory and copy template files
+          New-Item -ItemType Directory -Path $packageDir -Force
+          Copy-Item -Path "$templateDir\*" -Destination $packageDir -Recurse
+
+          # Copy the built ASI file
+          $asiSource = "$buildDir\KCD2_TPVToggle.asi"
+          if (Test-Path $asiSource) {
+            Copy-Item -Path $asiSource -Destination $packageDir\
+          } else {
+            Write-Error "ASI file not found at: $asiSource"
+            exit 1
+          }
+
+          # Create the ZIP archive
+          Compress-Archive -Path "$packageDir\*" -DestinationPath "${{ env.ARTIFACT_NAME }}" -Force
+
+          Write-Output "Created package: ${{ env.ARTIFACT_NAME }}"
+        shell: pwsh
 
       # Only commit changes if this is NOT a pre-release
       - name: Commit version changes
@@ -162,7 +187,7 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add TPVToggle/src/version.h TPVToggle/CHANGELOG.md TPVToggle/build/KCD2_TPVToggle_Readme.txt
+          git add TPVToggle/src/version.h TPVToggle/CHANGELOG.md
           git status
           git commit -m "Bump version to ${{ env.NEW_VERSION }}"
           git tag -a TPVToggle-${{ env.VERSION_TAG }} -m "Release ${{ env.VERSION_TAG }}"
@@ -216,21 +241,29 @@ jobs:
           ### Installation
 
           1. Simply extract all files to your game directory:
-            `<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/`
+             `<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/`
           2. Launch the game and press F3 (default) to toggle the camera view
 
           ### Note
           This package includes everything you need:
-          - KCD2_TPVToggle.asi (the mod itself)
-          - KCD2_TPVToggle.ini (configuration file)
-          - dinput8.dll (Ultimate ASI Loader)
-          - Documentation and license information
+          - **KCD2_TPVToggle.asi** - The mod itself (built with [DetourModKit](https://github.com/tkhquang/DetourModKit))
+          - **KCD2_TPVToggle.ini** - Configuration file
+          - **dinput8.dll** - Ultimate ASI Loader by [ThirteenAG](https://github.com/ThirteenAG/Ultimate-ASI-Loader)
+          - **Documentation and license information**
 
           ### Configuration
 
           Edit the `KCD2_TPVToggle.ini` file to customize hotkeys and other settings.
 
           See the [README](https://github.com/{3}/blob/main/TPVToggle/README.md) for detailed instructions.
+
+          ### Technical Details
+
+          This mod is built on **DetourModKit**, a lightweight C++ toolkit for game modding that provides:
+          - Safe function hooking via [SafetyHook](https://github.com/cursey/safetyhook)
+          - AOB (Array of Bytes) pattern scanning
+          - Configuration management
+          - Thread-safe logging
           '@
 
           # Format the release body with the values
@@ -311,8 +344,8 @@ jobs:
           echo "Created new $nextChangelogPath template."
 
           # Commit the changes to the current branch
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
+          git config --local user.email "khacquang.trinh@gmail.com"
+          git config --local user.name "Quang Trinh"
           git add "$nextChangelogPath" "$archiveDir\$archiveFileName"
           git status
           git commit -m "Chore: Archive changelog for ${{ env.VERSION_TAG }} and prepare for next release"

@@ -25,7 +25,7 @@ Each mod has its own installation instructions. See the respective mod's README 
 
 Mods in this repository are developed with various technologies and approaches:
 
-- Some mods are built with C++ and compiled to ASI plugins
+- Some mods are built with C++ and compiled to ASI plugins (TPVToggle uses [DetourModKit](https://github.com/tkhquang/DetourModKit) as its foundation)
 - Other mods may use different languages or techniques like Lua scripts
 
 The repository follows a modular structure where each mod is contained in its own directory.

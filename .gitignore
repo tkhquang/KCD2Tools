@@ -2,6 +2,7 @@
 .idea/*
 
 TPVToggle/build/*
+!TPVToggle/build/template
 
 LootBeacon/build/*
 LootBeacon/src/**/*.pak
