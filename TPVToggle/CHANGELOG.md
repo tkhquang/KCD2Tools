@@ -2,6 +2,12 @@
 
 All notable changes to the TPVToggle mod will be documented in this file.
 
+## [0.6.0] - Refactored with DetourModKit as the foundation
+
+- Migrated hooking infrastructure to DetourModKit for improved reliability
+- Replaced legacy hook management with DMK's built-in handlers
+- Updated build process for DMK integration
+
 ## [0.5.0] - Update for new game version 1.4.0
 
 - Update AOB Patterns and Offsets for new game version
@@ -170,6 +176,7 @@ PitchMax = 180.0            ; Maximum pitch angle in degrees
 - Logging system for troubleshooting
 KCD
 
+[0.6.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.6.0
 [0.5.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.5.0
 [0.4.2]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.4.2
 [0.4.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.4.1
