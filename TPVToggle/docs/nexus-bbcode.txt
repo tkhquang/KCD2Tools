@@ -23,6 +23,15 @@ This mod enables toggling between first-person and third-person camera views in 
   [code]<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/[/code]
 2. Launch the game and press F3 (default) to toggle the camera view
 
+[size=5]Linux / Steam Deck (Wine/Proton)[/size]
+Since this mod uses dinput8.dll as the ASI loader, you need to tell Wine/Proton to use the bundled DLL instead of its built-in version.
+
+[b]Steam:[/b] Go to the game's Properties → Launch Options and add:
+[code]WINEDLLOVERRIDES="dinput8=n,b" %command%[/code]
+
+[b]Command line:[/b] Prepend your launch command with:
+[code]WINEDLLOVERRIDES="dinput8=n,b"[/code]
+
 [size=5]Installation Folder Structure[/size]
 [code]
 What you'll download:
@@ -56,48 +65,54 @@ This mod relies critically on the [url=https://github.com/ThirteenAG/Ultimate-AS
 The mod can be configured by editing the KCD2_TPVToggle.ini file:
 [code]
 [Settings]
-; Keys that toggle between first-person and third-person view (comma-separated, in hex)
-; F3 = 0x72, F4 = 0x73, E = 0x45, etc.
-; If set to empty (ToggleKey = ), no toggle keys will be monitored.
-ToggleKey = 0x72
+; Toggle between first-person and third-person views
+; Supports named keys, modifiers, and combos (e.g., F3, Ctrl+F3, F3,F4)
+; See https://github.com/tkhquang/DetourModKit?tab=readme-ov-file#supported-input-names
+ToggleKey = F3
 
-; Keys that will always switch to first-person view (comma-separated, in hex)
-; These keys never toggle - they only force first-person view
-; If set to empty (FPVKey = ), no first-person view keys will be monitored.
-; M, P, I, J, N = 0x4D,0x50,0x49,0x4A,0x4E
-FPVKey = 0x4D,0x50,0x49,0x4A,0x4E
+; Keys that always switch to first-person view
+FPVKey =
 
-; Keys that will always switch to third-person view (comma-separated, in hex)
-; These keys never toggle - they only force third-person view
-; If set to empty (TPVKey = ), no third-person view keys will be monitored.
+; Keys that always switch to third-person view
 TPVKey =
 
 ; Logging level: DEBUG, INFO, WARNING, ERROR
 LogLevel = INFO
 
-; Optional Features
 ; Enable overlay detection and automatic camera switching
 EnableOverlayFeature = true
 
-; Custom FOV for third-person view (degrees)
-; Valid range: 0-180 degrees, or empty to use default
+; Custom FOV for third-person view (degrees, empty to disable)
 TpvFovDegrees = 68.75
 [/code]
 
 [size=5]Using with Controllers[/size]
-This mod is designed to work with keyboard inputs directly. For controller support:
+DetourModKit v2 supports gamepad input natively via the [b]XInput[/b] API. Use gamepad button names directly in the INI file:
 
-[list]
-[*] [url=https://joytokey.net/en/]JoyToKey[/url]: Map your controller buttons to keyboard keys configured in the INI file.
-[*] Steam Input: If playing through Steam, use Steam's controller configuration to map controller buttons to keyboard keys.
-[/list]
+[code]
+; Example: Toggle view with gamepad Y button
+ToggleKey = Gamepad_Y
 
-Both options allow you to map any controller button to the F3 key (or your preferred toggle key).
+; Example: Use a modifier combo
+ToggleKey = Gamepad_LB+Gamepad_Y
 
-[size=5]Default FPV Keys Explained[/size]
-The default FPV keys (M, P, I, J, N) were specifically chosen because they correspond to important in-game UI interactions. These keys automatically switch the view to first-person when pressed because many game UI elements and menus can appear buggy or non-functional when accessed in third-person view.
+; Example: Multiple independent combos (comma = OR between combos)
+; F3 alone OR (hold LB + press Y) — keyboard and gamepad interchangeably
+ToggleKey = F3,Gamepad_LB+Gamepad_Y
+[/code]
 
-This provides a seamless experience where pressing any UI key will automatically ensure you're in the correct camera mode for that interface. If you've remapped these keys in your game settings, you may want to update the FPV key settings to match your custom keybinds.
+Supported inputs include Gamepad_A, Gamepad_B, Gamepad_X, Gamepad_Y, Gamepad_LB, Gamepad_RB, Gamepad_LT, Gamepad_RT, Gamepad_Start, Gamepad_Back, and D-pad directions.
+
+See the full list at the [url=https://github.com/tkhquang/DetourModKit?tab=readme-ov-file#supported-input-names]Supported Input Names[/url] reference.
+
+[b]XInput only:[/b] Xbox controllers work natively. For PS4/PS5/Switch controllers, use [url=https://github.com/Ryochan7/DS4Windows]DS4Windows[/url], [url=https://github.com/Jehan-HENRY/DualSenseX]DualSenseX[/url], [url=https://github.com/Davidobot/BetterJoy]BetterJoy[/url], or Steam Input to present your controller as XInput. See [url=https://github.com/tkhquang/DetourModKit?tab=readme-ov-file#gamepad-compatibility]Gamepad Compatibility[/url] for details.
+
+Alternatively, you can still use [url=https://joytokey.net/en/]JoyToKey[/url] or [url=https://store.steampowered.com/controller]Steam Input[/url] to map controller buttons to keyboard keys.
+
+[size=5]FPV Keys[/size]
+You can configure FPV keys that correspond to in-game UI interactions (e.g., M,P,I,J,N for Map, Perks, Inventory, Journal, Nobility). These automatically switch the view to first-person to avoid UI bugs in third-person view.
+
+If you use this feature, update the FPVKey list to match your in-game key bindings.
 
 [size=5]Optional Features[/size]
 [b]Overlay Detection:[/b]
@@ -132,7 +147,7 @@ For each key type, you can leave the setting empty to disable that functionality
 
 If all three key settings are empty, the mod will still initialize but won't monitor any keys.
 
-For a complete list of key codes, see [url=https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes]Microsoft's Virtual Key Codes[/url].
+For a complete list of supported key names, see the [url=https://github.com/tkhquang/DetourModKit?tab=readme-ov-file#supported-input-names]Supported Input Names[/url] reference. Hex VK codes (e.g., 0x72) are also still supported.
 
 [size=5]Known Issues and Limitations[/size]
 
@@ -188,14 +203,15 @@ If you encounter issues:
 
 [b]After a game update:[/b] The AOB (Array-of-Bytes) pattern scanning system automatically adapts to minor game changes, but major updates may require mod updates if core game functions have been modified.
 
-[size=5]Credits[/size]
+[size=5]Credits & Source Code[/size]
+Built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url] for core functionality.
+
 [list]
 [*] [url=https://github.com/ThirteenAG]ThirteenAG[/url] for the Ultimate ASI Loader
-[*] TsudaKageyu for MinHook
+[*] [url=https://github.com/cursey]cursey[/url] for SafetyHook
 [*] Brodie Thiesfield for SimpleIni
 [*] Frans 'Otis_Inf' Bouma for his camera tools and inspiration
 [*] Warhorse Studios for creating this amazing game
 [/list]
 
-[size=5]Source Code[/size]
 All my Kingdom Come: Deliverance II mods and tools can be found in this [url=https://github.com/tkhquang/KCD2Tools]GitHub repository[/url]. Feel free to contribute or suggest improvements!

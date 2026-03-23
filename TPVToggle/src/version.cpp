@@ -3,8 +3,10 @@
  * @brief Implements the function to log version information.
  */
 #include "version.h" // Function prototype and version constants
-#include "logger.h"  // Required for logging
+#include <DetourModKit.hpp>  // Required for logging
 #include <string>    // For std::string operations
+
+using DetourModKit::LogLevel;
 
 // Define the function implementation within the Version namespace.
 namespace Version
@@ -16,16 +18,16 @@ namespace Version
      */
     void logVersionInfo()
     {
-        Logger &logger = Logger::getInstance(); // Get singleton logger instance
+        DMKLogger &logger = DMKLogger::get_instance(); // Get singleton logger instance
 
         // Log core mod information
-        logger.log(LOG_INFO, std::string(MOD_NAME) + " " + VERSION_TAG);
-        logger.log(LOG_INFO, "Author: " + std::string(AUTHOR));
-        logger.log(LOG_INFO, "Source: " + std::string(REPOSITORY));
-        logger.log(LOG_INFO, "Release URL: " + std::string(RELEASE_URL));
+        logger.log(LogLevel::Info, std::string(MOD_NAME) + " " + VERSION_TAG);
+        logger.log(LogLevel::Info, "Author: " + std::string(AUTHOR));
+        logger.log(LogLevel::Info, "Source: " + std::string(REPOSITORY));
+        logger.log(LogLevel::Info, "Release URL: " + std::string(RELEASE_URL));
 
         // Log build timestamp details at DEBUG level to reduce default log noise
-        logger.log(LOG_DEBUG, "Built on " + std::string(BUILD_DATE) +
+        logger.log(LogLevel::Debug, "Built on " + std::string(BUILD_DATE) +
                                   " at " + std::string(BUILD_TIME));
     }
 

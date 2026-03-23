@@ -7,7 +7,6 @@
  */
 
 #include "ui_menu_hooks.h"
-#include "logger.h"
 #include "constants.h"
 #include "utils.h"
 #include "game_interface.h"
@@ -19,7 +18,8 @@
 #include <stdexcept>
 #include <atomic>
 
-using DMKString::format_address;
+using DetourModKit::LogLevel;
+using DMKFormat::format_address;
 
 // Function typedefs for UI menu open/close functions
 typedef void(__fastcall *MenuOpenFunc)(void *thisPtr, char paramByte);
@@ -42,12 +42,12 @@ static std::atomic<bool> g_isMenuOpen(false);
  */
 static void __fastcall MenuOpenDetour(void *thisPtr, char paramByte)
 {
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
 
     try
     {
         // Before calling original - menu is about to open
-        logger.log(LOG_INFO, "UIMenuHook: Game menu is opening");
+        logger.log(LogLevel::Info, "UIMenuHook: Game menu is opening");
 
         resetScrollAccumulator();
         // Set menu state to open
@@ -60,12 +60,12 @@ static void __fastcall MenuOpenDetour(void *thisPtr, char paramByte)
         }
         else
         {
-            logger.log(LOG_ERROR, "UIMenuHook: Menu open original function pointer is NULL");
+            logger.log(LogLevel::Error, "UIMenuHook: Menu open original function pointer is NULL");
         }
     }
     catch (const std::exception &e)
     {
-        logger.log(LOG_ERROR, "UIMenuHook: Exception in menu open detour: " + std::string(e.what()));
+        logger.log(LogLevel::Error, "UIMenuHook: Exception in menu open detour: " + std::string(e.what()));
 
         // Call the original function even if we had an exception
         if (fpMenuOpenOriginal)
@@ -75,7 +75,7 @@ static void __fastcall MenuOpenDetour(void *thisPtr, char paramByte)
     }
     catch (...)
     {
-        logger.log(LOG_ERROR, "UIMenuHook: Unknown exception in menu open detour");
+        logger.log(LogLevel::Error, "UIMenuHook: Unknown exception in menu open detour");
 
         // Call the original function even if we had an exception
         if (fpMenuOpenOriginal)
@@ -92,12 +92,12 @@ static void __fastcall MenuOpenDetour(void *thisPtr, char paramByte)
  */
 static void __fastcall MenuCloseDetour(void *thisPtr)
 {
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
 
     try
     {
         // Before calling original - menu is about to close
-        logger.log(LOG_INFO, "UIMenuHook: Game menu is closing");
+        logger.log(LogLevel::Info, "UIMenuHook: Game menu is closing");
 
         resetScrollAccumulator(true);
         // Set menu state to closed
@@ -110,12 +110,12 @@ static void __fastcall MenuCloseDetour(void *thisPtr)
         }
         else
         {
-            logger.log(LOG_ERROR, "UIMenuHook: Menu close original function pointer is NULL");
+            logger.log(LogLevel::Error, "UIMenuHook: Menu close original function pointer is NULL");
         }
     }
     catch (const std::exception &e)
     {
-        logger.log(LOG_ERROR, "UIMenuHook: Exception in menu close detour: " + std::string(e.what()));
+        logger.log(LogLevel::Error, "UIMenuHook: Exception in menu close detour: " + std::string(e.what()));
 
         // Call the original function even if we had an exception
         if (fpMenuCloseOriginal)
@@ -125,7 +125,7 @@ static void __fastcall MenuCloseDetour(void *thisPtr)
     }
     catch (...)
     {
-        logger.log(LOG_ERROR, "UIMenuHook: Unknown exception in menu close detour");
+        logger.log(LogLevel::Error, "UIMenuHook: Unknown exception in menu close detour");
 
         // Call the original function even if we had an exception
         if (fpMenuCloseOriginal)
@@ -137,91 +137,93 @@ static void __fastcall MenuCloseDetour(void *thisPtr)
 
 bool initializeUiMenuHooks(uintptr_t module_base, size_t module_size)
 {
-    Logger &logger = Logger::getInstance();
-    logger.log(LOG_INFO, "UIMenuHook: Initializing UI menu hooks...");
+    DMKLogger &logger = DMKLogger::get_instance();
+    logger.log(LogLevel::Info, "UIMenuHook: Initializing UI menu hooks...");
 
     try
     {
         // Parse AOB patterns
-        std::vector<std::byte> openPattern = DMKScanner::parseAOB(Constants::UI_MENU_OPEN_AOB_PATTERN);
-        if (openPattern.empty())
+        auto openPattern = DMKScanner::parse_aob(Constants::UI_MENU_OPEN_AOB_PATTERN);
+        if (!openPattern.has_value())
         {
             throw std::runtime_error("Failed to parse menu open AOB pattern");
         }
 
-        std::vector<std::byte> closePattern = DMKScanner::parseAOB(Constants::UI_MENU_CLOSE_AOB_PATTERN);
-        if (closePattern.empty())
+        auto closePattern = DMKScanner::parse_aob(Constants::UI_MENU_CLOSE_AOB_PATTERN);
+        if (!closePattern.has_value())
         {
             throw std::runtime_error("Failed to parse menu close AOB pattern");
         }
 
         // Find menu open function
-        std::byte *menuOpenHookAddress = DMKScanner::FindPattern(reinterpret_cast<std::byte *>(module_base), module_size, openPattern);
+        const std::byte *menuOpenHookAddress = DMKScanner::find_pattern(reinterpret_cast<const std::byte *>(module_base), module_size, *openPattern);
         if (!menuOpenHookAddress)
         {
             throw std::runtime_error("Menu open function pattern not found");
         }
 
         // Find menu close function
-        std::byte *menuCloseHookAddress = DMKScanner::FindPattern(reinterpret_cast<std::byte *>(module_base), module_size, closePattern);
+        const std::byte *menuCloseHookAddress = DMKScanner::find_pattern(reinterpret_cast<const std::byte *>(module_base), module_size, *closePattern);
         if (!menuCloseHookAddress)
         {
             throw std::runtime_error("Menu close function pattern not found");
         }
 
-        logger.log(LOG_INFO, "UIMenuHook: Found menu open function at " +
+        logger.log(LogLevel::Info, "UIMenuHook: Found menu open function at " +
                                  format_address(reinterpret_cast<uintptr_t>(menuOpenHookAddress)));
-        logger.log(LOG_INFO, "UIMenuHook: Found menu close function at " +
+        logger.log(LogLevel::Info, "UIMenuHook: Found menu close function at " +
                                  format_address(reinterpret_cast<uintptr_t>(menuCloseHookAddress)));
 
         // The AOB patterns locate specific instructions within the functions
         // We need to adjust to the actual function entry points
         // Menu open function starts at WHGame.DLL+AE14BC
-        menuOpenHookAddress = menuOpenHookAddress - 0x36; // Adjust to function start
+        uintptr_t menuOpenAddr = reinterpret_cast<uintptr_t>(menuOpenHookAddress) - 0x36; // Adjust to function start
 
         // Menu close function starts at WHGame.DLL+C9763C
-        menuCloseHookAddress = menuCloseHookAddress - 0x18E; // Adjust to function start
+        uintptr_t menuCloseAddr = reinterpret_cast<uintptr_t>(menuCloseHookAddress) - 0x18E; // Adjust to function start
 
-        logger.log(LOG_INFO, "UIMenuHook: Adjusted menu open function to " +
-                                 format_address(reinterpret_cast<uintptr_t>(menuOpenHookAddress)));
-        logger.log(LOG_INFO, "UIMenuHook: Adjusted menu close function to " +
-                                 format_address(reinterpret_cast<uintptr_t>(menuCloseHookAddress)));
+        logger.log(LogLevel::Info, "UIMenuHook: Adjusted menu open function to " +
+                                 format_address(menuOpenAddr));
+        logger.log(LogLevel::Info, "UIMenuHook: Adjusted menu close function to " +
+                                 format_address(menuCloseAddr));
 
         // Create hooks using DMKHookManager
-        DMKHookManager &hook_manager = DMKHookManager::getInstance();
+        DMKHookManager &hook_manager = DMKHookManager::get_instance();
 
         // Create menu open hook
-        g_menuOpenHookId = hook_manager.create_inline_hook(
+        auto openResult = hook_manager.create_inline_hook(
             "MenuOpen",
-            reinterpret_cast<uintptr_t>(menuOpenHookAddress),
+            menuOpenAddr,
             reinterpret_cast<void *>(MenuOpenDetour),
             reinterpret_cast<void **>(&fpMenuOpenOriginal));
 
-        if (g_menuOpenHookId.empty())
+        if (!openResult.has_value())
         {
-            throw std::runtime_error("Failed to create menu open hook");
+            throw std::runtime_error("Failed to create menu open hook: " + std::string(DMK::Hook::error_to_string(openResult.error())));
         }
+        g_menuOpenHookId = openResult.value();
 
         // Create menu close hook
-        g_menuCloseHookId = hook_manager.create_inline_hook(
+        auto closeResult = hook_manager.create_inline_hook(
             "MenuClose",
-            reinterpret_cast<uintptr_t>(menuCloseHookAddress),
+            menuCloseAddr,
             reinterpret_cast<void *>(MenuCloseDetour),
             reinterpret_cast<void **>(&fpMenuCloseOriginal));
 
-        if (g_menuCloseHookId.empty())
+        if (!closeResult.has_value())
         {
-            hook_manager.remove_hook(g_menuOpenHookId);
+            (void)hook_manager.remove_hook(g_menuOpenHookId);
             g_menuOpenHookId.clear();
-            throw std::runtime_error("Failed to create menu close hook");
+            throw std::runtime_error("Failed to create menu close hook: " + std::string(DMK::Hook::error_to_string(closeResult.error())));
         }
+        g_menuCloseHookId = closeResult.value();
 
-        logger.log(LOG_INFO, "UIMenuHook: UI menu hooks successfully installed");
+        logger.log(LogLevel::Info, "UIMenuHook: UI menu hooks successfully installed");
         return true;
     }
     catch (const std::exception &e)
     {
-        logger.log(LOG_ERROR, "UIMenuHook: Initialization failed: " + std::string(e.what()));
+        logger.log(LogLevel::Error, "UIMenuHook: Initialization failed: " + std::string(e.what()));
         cleanupUiMenuHooks();
         return false;
     }
@@ -229,13 +231,13 @@ bool initializeUiMenuHooks(uintptr_t module_base, size_t module_size)
 
 void cleanupUiMenuHooks()
 {
-    Logger &logger = Logger::getInstance();
-    DMKHookManager &hook_manager = DMKHookManager::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
+    DMKHookManager &hook_manager = DMKHookManager::get_instance();
 
     // Remove menu open hook
     if (!g_menuOpenHookId.empty())
     {
-        hook_manager.remove_hook(g_menuOpenHookId);
+        (void)hook_manager.remove_hook(g_menuOpenHookId);
         g_menuOpenHookId.clear();
         fpMenuOpenOriginal = nullptr;
     }
@@ -243,7 +245,7 @@ void cleanupUiMenuHooks()
     // Remove menu close hook
     if (!g_menuCloseHookId.empty())
     {
-        hook_manager.remove_hook(g_menuCloseHookId);
+        (void)hook_manager.remove_hook(g_menuCloseHookId);
         g_menuCloseHookId.clear();
         fpMenuCloseOriginal = nullptr;
     }
@@ -251,7 +253,7 @@ void cleanupUiMenuHooks()
     // Reset menu state
     g_isMenuOpen.store(false);
 
-    logger.log(LOG_DEBUG, "UIMenuHook: Cleanup complete");
+    logger.log(LogLevel::Debug, "UIMenuHook: Cleanup complete");
 }
 
 bool areUiMenuHooksActive()

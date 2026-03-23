@@ -4,7 +4,7 @@
  */
 
 #include "global_state.h"
-#include "logger.h"
+#include <DetourModKit.hpp>
 #include "utils.h"
 #include "game_structures.h"
 #include "constants.h"
