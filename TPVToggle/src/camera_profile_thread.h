@@ -1,3 +1,11 @@
+/**
+ * @file camera_profile_thread.h
+ * @brief Header for camera profile offset adjustment thread.
+ *
+ * Edge-triggered profile actions (save, cycle, reset, etc.) are handled
+ * by DMKInputManager press callbacks registered in dllmain.cpp.
+ * This thread handles continuous offset adjustment via is_binding_active() queries.
+ */
 #ifndef CAMERA_PROFILE_THREAD_H
 #define CAMERA_PROFILE_THREAD_H
 
@@ -10,7 +18,6 @@ DWORD WINAPI CameraProfileThread(LPVOID param);
 struct CameraProfileThreadData
 {
     float adjustmentStep;
-    // Keys are already stored in Config and accessible via g_config
 };
 
 #endif // CAMERA_PROFILE_THREAD_H

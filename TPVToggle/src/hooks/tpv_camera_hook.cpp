@@ -7,7 +7,6 @@
  */
 
 #include "tpv_camera_hook.h"
-#include "logger.h"
 #include "constants.h"
 #include "game_structures.h"
 #include "utils.h"
@@ -22,7 +21,8 @@
 #include <DirectXMath.h>
 #include <stdexcept>
 
-using DMKString::format_address;
+using DetourModKit::LogLevel;
+using DMKFormat::format_address;
 
 // External configuration reference
 extern Config g_config;
@@ -74,12 +74,12 @@ static Vector3 GetActiveOffset()
  */
 static void __fastcall Detour_TpvCameraUpdate(uintptr_t thisPtr, uintptr_t outputPosePtr)
 {
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
 
     // Call original function first to get base camera position
     if (!fpTpvCameraUpdateOriginal)
     {
-        logger.log(LOG_ERROR, "TpvCameraHook: Original function pointer is NULL");
+        logger.log(LogLevel::Error, "TpvCameraHook: Original function pointer is NULL");
         return;
     }
 
@@ -89,12 +89,12 @@ static void __fastcall Detour_TpvCameraUpdate(uintptr_t thisPtr, uintptr_t outpu
     }
     catch (const std::exception &e)
     {
-        logger.log(LOG_ERROR, "TpvCameraHook: Exception in original function: " + std::string(e.what()));
+        logger.log(LogLevel::Error, "TpvCameraHook: Exception in original function: " + std::string(e.what()));
         return;
     }
     catch (...)
     {
-        logger.log(LOG_ERROR, "TpvCameraHook: Unknown exception in original function");
+        logger.log(LogLevel::Error, "TpvCameraHook: Unknown exception in original function");
         return;
     }
 
@@ -105,9 +105,9 @@ static void __fastcall Detour_TpvCameraUpdate(uintptr_t thisPtr, uintptr_t outpu
     }
 
     // Validate output buffer is accessible
-    if (!DMKMemory::isMemoryReadable(reinterpret_cast<void *>(outputPosePtr), Constants::TPV_OUTPUT_POSE_REQUIRED_SIZE))
+    if (!DMKMemory::is_readable(reinterpret_cast<void *>(outputPosePtr), Constants::TPV_OUTPUT_POSE_REQUIRED_SIZE))
     {
-        logger.log(LOG_DEBUG, "TpvCameraHook: Output pose buffer not readable");
+        logger.log(LogLevel::Debug, "TpvCameraHook: Output pose buffer not readable");
         return;
     }
 
@@ -139,31 +139,31 @@ static void __fastcall Detour_TpvCameraUpdate(uintptr_t thisPtr, uintptr_t outpu
         Vector3 newPosition = currentPosition + worldOffset;
 
         // Write back the modified position if memory is writable
-        if (DMKMemory::isMemoryWritable(positionPtr, sizeof(Vector3)))
+        if (DMKMemory::is_writable(positionPtr, sizeof(Vector3)))
         {
             *positionPtr = newPosition;
 
-            logger.log(LOG_TRACE, "TpvCameraHook: Applied offset - Local: " +
+            logger.log(LogLevel::Trace, "TpvCameraHook: Applied offset - Local: " +
                                       Vector3ToString(localOffset) + " World: " + Vector3ToString(worldOffset));
         }
         else
         {
-            logger.log(LOG_WARNING, "TpvCameraHook: Cannot write to position buffer");
+            logger.log(LogLevel::Warning, "TpvCameraHook: Cannot write to position buffer");
         }
     }
     catch (const std::exception &e)
     {
-        logger.log(LOG_ERROR, "TpvCameraHook: Exception applying offset: " + std::string(e.what()));
+        logger.log(LogLevel::Error, "TpvCameraHook: Exception applying offset: " + std::string(e.what()));
     }
     catch (...)
     {
-        logger.log(LOG_ERROR, "TpvCameraHook: Unknown exception applying offset");
+        logger.log(LogLevel::Error, "TpvCameraHook: Unknown exception applying offset");
     }
 }
 
 bool initializeTpvCameraHook(uintptr_t moduleBase, size_t moduleSize)
 {
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
 
     // Check if feature is disabled (all offsets zero and profiles disabled)
     if (!g_config.enable_camera_profiles &&
@@ -171,18 +171,18 @@ bool initializeTpvCameraHook(uintptr_t moduleBase, size_t moduleSize)
         g_config.tpv_offset_y == 0.0f &&
         g_config.tpv_offset_z == 0.0f)
     {
-        logger.log(LOG_INFO, "TpvCameraHook: Feature disabled (no offsets configured)");
+        logger.log(LogLevel::Info, "TpvCameraHook: Feature disabled (no offsets configured)");
         return true;
     }
 
-    logger.log(LOG_INFO, "TpvCameraHook: Initializing camera position offset hook...");
+    logger.log(LogLevel::Info, "TpvCameraHook: Initializing camera position offset hook...");
 
     try
     {
         // Use DMKHookManager to create hook via AOB scan
-        DMKHookManager &hook_manager = DMKHookManager::getInstance();
+        DMKHookManager &hook_manager = DMKHookManager::get_instance();
 
-        g_tpvCameraHookId = hook_manager.create_inline_hook_aob(
+        auto result = hook_manager.create_inline_hook_aob(
             "TpvCameraUpdate",
             moduleBase,
             moduleSize,
@@ -191,29 +191,29 @@ bool initializeTpvCameraHook(uintptr_t moduleBase, size_t moduleSize)
             reinterpret_cast<void *>(Detour_TpvCameraUpdate),
             reinterpret_cast<void **>(&fpTpvCameraUpdateOriginal));
 
-        if (g_tpvCameraHookId.empty())
+        if (!result.has_value())
         {
-            throw std::runtime_error("Failed to create TPV camera update hook via AOB scan");
+            throw std::runtime_error("Failed to create TPV camera update hook: " + std::string(DMK::Hook::error_to_string(result.error())));
         }
+        g_tpvCameraHookId = result.value();
 
         // Get the target address for logging
-        DMK::InlineHook *hook = hook_manager.get_inline_hook(g_tpvCameraHookId);
-        if (hook)
-        {
-            logger.log(LOG_INFO, "TpvCameraHook: Found TPV camera update at " +
-                                     format_address(hook->getTargetAddress()));
-        }
+        (void)hook_manager.with_inline_hook(g_tpvCameraHookId, [&](DMK::InlineHook &hook) {
+            logger.log(LogLevel::Info, "TpvCameraHook: Found TPV camera update at " +
+                                     format_address(hook.get_target_address()));
+            return true;
+        });
 
         // Log configuration
-        logger.log(LOG_INFO, "TpvCameraHook: Successfully installed with configuration:");
+        logger.log(LogLevel::Info, "TpvCameraHook: Successfully installed with configuration:");
 
         if (g_config.enable_camera_profiles)
         {
-            logger.log(LOG_INFO, "  - Camera profiles: ENABLED");
+            logger.log(LogLevel::Info, "  - Camera profiles: ENABLED");
         }
         else
         {
-            logger.log(LOG_INFO, "  - Static offset: X=" + std::to_string(g_config.tpv_offset_x) +
+            logger.log(LogLevel::Info, "  - Static offset: X=" + std::to_string(g_config.tpv_offset_x) +
                                      " Y=" + std::to_string(g_config.tpv_offset_y) +
                                      " Z=" + std::to_string(g_config.tpv_offset_z));
         }
@@ -222,7 +222,7 @@ bool initializeTpvCameraHook(uintptr_t moduleBase, size_t moduleSize)
     }
     catch (const std::exception &e)
     {
-        logger.log(LOG_ERROR, "TpvCameraHook: Initialization failed: " + std::string(e.what()));
+        logger.log(LogLevel::Error, "TpvCameraHook: Initialization failed: " + std::string(e.what()));
         cleanupTpvCameraHook();
         return false;
     }
@@ -230,19 +230,19 @@ bool initializeTpvCameraHook(uintptr_t moduleBase, size_t moduleSize)
 
 void cleanupTpvCameraHook()
 {
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
 
     if (!g_tpvCameraHookId.empty())
     {
-        DMKHookManager &hook_manager = DMKHookManager::getInstance();
+        DMKHookManager &hook_manager = DMKHookManager::get_instance();
 
         if (hook_manager.remove_hook(g_tpvCameraHookId))
         {
-            logger.log(LOG_INFO, "TpvCameraHook: Successfully removed");
+            logger.log(LogLevel::Info, "TpvCameraHook: Successfully removed");
         }
         else
         {
-            logger.log(LOG_WARNING, "TpvCameraHook: Failed to remove hook");
+            logger.log(LogLevel::Warning, "TpvCameraHook: Failed to remove hook");
         }
 
         g_tpvCameraHookId.clear();

@@ -1,8 +1,10 @@
 #include "transition_manager.h"
-#include "logger.h"
+#include <DetourModKit.hpp>
 #include "global_state.h"
 #include <algorithm>
 #include <cmath>
+
+using DetourModKit::LogLevel;
 
 TransitionManager &TransitionManager::getInstance()
 {
@@ -42,7 +44,7 @@ void TransitionManager::startTransition(
     m_springVelocity = Vector3(0.0f, 0.0f, 0.0f);
     m_isTransitioning = true;
 
-    Logger::getInstance().log(LOG_DEBUG, "TransitionManager: Started transition to: (" +
+    DMKLogger::get_instance().log(LogLevel::Debug, "TransitionManager: Started transition to: (" +
                                              std::to_string(targetPosition.x) + ", " +
                                              std::to_string(targetPosition.y) + ", " +
                                              std::to_string(targetPosition.z) + ") over " +
@@ -69,7 +71,7 @@ bool TransitionManager::updateTransition(float deltaTime, Vector3 &outPosition, 
         outPosition = m_targetState.position;
         outRotation = m_targetState.rotation;
 
-        Logger::getInstance().log(LOG_DEBUG, "TransitionManager: Transition completed");
+        DMKLogger::get_instance().log(LogLevel::Debug, "TransitionManager: Transition completed");
         return false; // Transition is complete
     }
 
@@ -110,7 +112,7 @@ void TransitionManager::cancelTransition()
     if (m_isTransitioning)
     {
         m_isTransitioning = false;
-        Logger::getInstance().log(LOG_DEBUG, "TransitionManager: Transition cancelled");
+        DMKLogger::get_instance().log(LogLevel::Debug, "TransitionManager: Transition cancelled");
     }
 }
 

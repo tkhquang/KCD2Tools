@@ -6,7 +6,6 @@
  */
 
 #include "game_interface.h"
-#include "logger.h"
 #include "constants.h"
 #include "game_structures.h"
 #include "utils.h"
@@ -15,7 +14,8 @@
 #include <DetourModKit.hpp>
 #include <stdexcept>
 
-using DMKString::format_address;
+using DetourModKit::LogLevel;
+using DMKFormat::format_address;
 
 static bool isValidated()
 {
@@ -30,65 +30,55 @@ static bool isValidated()
  */
 bool findScrollAccumulator(uintptr_t module_base, size_t module_size)
 {
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
 
-    logger.log(LOG_INFO, "Attempting to find Scroll Accumulator address via AOB scan...");
+    logger.log(LogLevel::Info, "Attempting to find Scroll Accumulator address via AOB scan...");
 
     if (module_base == 0 || module_size == 0)
     {
-        logger.log(LOG_ERROR, "findScrollAccumulator: Invalid module base/size provided.");
+        logger.log(LogLevel::Error, "findScrollAccumulator: Invalid module base/size provided.");
         return false;
     }
 
     // Use the AOB pattern provided in constants.h
-    std::vector<std::byte> scroll_pat = DMKScanner::parseAOB(Constants::SCROLL_STATE_BASE_AOB_PATTERN);
-    if (scroll_pat.empty())
+    auto scroll_pat = DMKScanner::parse_aob(Constants::SCROLL_STATE_BASE_AOB_PATTERN);
+    if (!scroll_pat.has_value())
     {
-        logger.log(LOG_ERROR, "Failed to parse scroll state AOB pattern from constants.");
+        logger.log(LogLevel::Error, "Failed to parse scroll state AOB pattern from constants.");
         return false; // Cannot proceed without pattern
     }
 
-    std::byte *scroll_aob_result = DMKScanner::FindPattern(reinterpret_cast<std::byte *>(module_base), module_size, scroll_pat);
+    const std::byte *scroll_aob_result = DMKScanner::find_pattern(reinterpret_cast<const std::byte *>(module_base), module_size, *scroll_pat);
 
     if (!scroll_aob_result)
     {
-        logger.log(LOG_ERROR, "Scroll state AOB pattern not found in module. Cannot locate accumulator.");
+        logger.log(LogLevel::Error, "Scroll state AOB pattern not found in module. Cannot locate accumulator.");
         return false; // Pattern not found, cannot proceed
     }
 
     // Found the pattern, now extract the RIP-relative address
-    logger.log(LOG_INFO, "Found scroll state AOB pattern at: " + format_address(reinterpret_cast<uintptr_t>(scroll_aob_result)));
+    logger.log(LogLevel::Info, "Found scroll state AOB pattern at: " + format_address(reinterpret_cast<uintptr_t>(scroll_aob_result)));
 
-    // The instruction we targeted is '48 8B 15 offset' (7 bytes total)
-    // mov rdx, [rip + offset]
-    std::byte *instruction_address = scroll_aob_result; // Assuming AOB starts exactly at the MOV instruction
-
-    // Extract the 32-bit relative offset (starts at byte 3 of the instruction)
-    if (!DMKMemory::isMemoryReadable(instruction_address + 3, sizeof(int32_t)))
+    // Resolve RIP-relative target: mov rdx, [rip + offset] (48 8B 15 xx xx xx xx, 7 bytes, disp32 at offset 3)
+    auto scroll_ptr_addr = DMKScanner::resolve_rip_relative(scroll_aob_result, 3, 7);
+    if (!scroll_ptr_addr.has_value())
     {
-        logger.log(LOG_ERROR, "Cannot read relative offset from instruction at: " + format_address(reinterpret_cast<uintptr_t>(instruction_address + 3)));
+        logger.log(LogLevel::Error, "Failed to resolve scroll state RIP-relative address");
         return false;
     }
-    int32_t relative_offset = *reinterpret_cast<int32_t *>(instruction_address + 3);
-
-    // Calculate the RIP value (address of the instruction *after* the MOV)
-    std::byte *rip_value = instruction_address + 7; // Instruction is 7 bytes long
-
-    // Calculate the absolute address where the pointer is stored
-    uintptr_t scroll_ptr_storage_addr_val = reinterpret_cast<uintptr_t>(rip_value) + relative_offset;
-    g_scrollPtrStorageAddress = reinterpret_cast<volatile uintptr_t *>(scroll_ptr_storage_addr_val);
-    logger.log(LOG_INFO, "Calculated scroll state pointer storage address: " + format_address(scroll_ptr_storage_addr_val));
+    g_scrollPtrStorageAddress = reinterpret_cast<volatile uintptr_t *>(scroll_ptr_addr.value());
+    logger.log(LogLevel::Info, "Calculated scroll state pointer storage address: " + format_address(scroll_ptr_addr.value()));
 
     return true;
 }
 
 volatile uintptr_t *getResolvedScrollAccumulatorAddress()
 {
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
     // Read the pointer value from this storage address safely
-    if (!DMKMemory::isMemoryReadable(g_scrollPtrStorageAddress, sizeof(uintptr_t)))
+    if (!DMKMemory::is_readable(const_cast<uintptr_t *>(g_scrollPtrStorageAddress), sizeof(uintptr_t)))
     {
-        logger.log(LOG_ERROR, "Cannot read scroll state base pointer from storage address!");
+        logger.log(LogLevel::Error, "Cannot read scroll state base pointer from storage address!");
         return nullptr;
     }
     uintptr_t scroll_state_base_ptr = *g_scrollPtrStorageAddress; // Read the pointer value
@@ -96,25 +86,25 @@ volatile uintptr_t *getResolvedScrollAccumulatorAddress()
     // Check if the base pointer is valid
     if (scroll_state_base_ptr == 0)
     {
-        logger.log(LOG_ERROR, "Scroll state base pointer read from storage is NULL.");
+        logger.log(LogLevel::Error, "Scroll state base pointer read from storage is NULL.");
         return nullptr; // Cannot proceed with NULL base pointer
     }
-    logger.log(LOG_DEBUG, "Scroll state base structure located at: " + format_address(scroll_state_base_ptr));
+    logger.log(LogLevel::Debug, "Scroll state base structure located at: " + format_address(scroll_state_base_ptr));
 
     // Calculate address of the accumulator float using the known offset
     uintptr_t final_accum_addr_val = scroll_state_base_ptr + Constants::OFFSET_ScrollAccumulatorFloat; // +0x1C
     volatile uintptr_t *final_accum_addr = reinterpret_cast<volatile uintptr_t *>(final_accum_addr_val);
-    logger.log(LOG_DEBUG, "Calculated final accumulator address: " + format_address(final_accum_addr_val));
+    logger.log(LogLevel::Debug, "Calculated final accumulator address: " + format_address(final_accum_addr_val));
 
     // Final validation: Check if the target address is readable/writable
-    if (!DMKMemory::isMemoryReadable(final_accum_addr, sizeof(float)))
+    if (!DMKMemory::is_readable(const_cast<uintptr_t *>(final_accum_addr), sizeof(float)))
     {
-        logger.log(LOG_ERROR, "Final accumulator address is not readable!");
+        logger.log(LogLevel::Error, "Final accumulator address is not readable!");
         return nullptr;
     }
-    if (!DMKMemory::isMemoryWritable(final_accum_addr, sizeof(float)))
+    if (!DMKMemory::is_writable(const_cast<uintptr_t *>(final_accum_addr), sizeof(float)))
     {
-        logger.log(LOG_ERROR, "Final accumulator address is not writable!");
+        logger.log(LogLevel::Error, "Final accumulator address is not writable!");
         return nullptr;
     }
 
@@ -122,7 +112,7 @@ volatile uintptr_t *getResolvedScrollAccumulatorAddress()
     g_scrollAccumulatorAddress = final_accum_addr; // Use the correct global name
 
     float currentValue = *g_scrollAccumulatorAddress; // Read current value for logging
-    logger.log(LOG_INFO, "Successfully located scroll accumulator via AOB at " +
+    logger.log(LogLevel::Info, "Successfully located scroll accumulator via AOB at " +
                              format_address(reinterpret_cast<uintptr_t>(g_scrollAccumulatorAddress)) +
                              ", current value: " + std::to_string(currentValue));
 
@@ -136,14 +126,12 @@ volatile uintptr_t *getResolvedScrollAccumulatorAddress()
  */
 bool resetScrollAccumulator(bool logReset)
 {
-    Logger &logger = Logger::getInstance();
-
     if (g_scrollAccumulatorAddress == nullptr)
     {
         g_scrollAccumulatorAddress = getResolvedScrollAccumulatorAddress();
     }
 
-    if (g_scrollAccumulatorAddress != nullptr && DMKMemory::isMemoryWritable(g_scrollAccumulatorAddress, sizeof(uintptr_t)))
+    if (g_scrollAccumulatorAddress != nullptr && DMKMemory::is_writable(const_cast<uintptr_t *>(g_scrollAccumulatorAddress), sizeof(uintptr_t)))
     {
         float currentValue = *g_scrollAccumulatorAddress;
         if (currentValue != 0.0f)
@@ -151,7 +139,7 @@ bool resetScrollAccumulator(bool logReset)
             *g_scrollAccumulatorAddress = 0.0f;
             if (logReset)
             {
-                Logger::getInstance().log(LOG_DEBUG, "resetScrollAccumulator: Reset value from " +
+                DMKLogger::get_instance().log(LogLevel::Debug, "resetScrollAccumulator: Reset value from " +
                                                          std::to_string(currentValue) + " to 0.0");
             }
             return true;
@@ -162,56 +150,53 @@ bool resetScrollAccumulator(bool logReset)
 
 bool initializeGameInterface(uintptr_t module_base, size_t module_size)
 {
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
 
     try
     {
-        logger.log(LOG_INFO, "GameInterface: Initializing with dynamic AOB scanning...");
+        logger.log(LogLevel::Info, "GameInterface: Initializing with dynamic AOB scanning...");
 
         // Scan for global context pointer access pattern
-        std::vector<std::byte> ctx_pat = DMKScanner::parseAOB(Constants::CONTEXT_PTR_LOAD_AOB_PATTERN);
-        if (ctx_pat.empty())
+        auto ctx_pat = DMKScanner::parse_aob(Constants::CONTEXT_PTR_LOAD_AOB_PATTERN);
+        if (!ctx_pat.has_value())
         {
             throw std::runtime_error("Failed to parse context pointer AOB pattern");
         }
 
-        std::byte *ctx_aob = DMKScanner::FindPattern(reinterpret_cast<std::byte *>(module_base), module_size, ctx_pat);
+        const std::byte *ctx_aob = DMKScanner::find_pattern(reinterpret_cast<const std::byte *>(module_base), module_size, *ctx_pat);
         if (!ctx_aob)
         {
             throw std::runtime_error("Context pointer AOB pattern not found");
         }
 
-        logger.log(LOG_DEBUG, "GameInterface: Found context AOB at " + format_address(reinterpret_cast<uintptr_t>(ctx_aob)));
+        logger.log(LogLevel::Debug, "GameInterface: Found context AOB at " + format_address(reinterpret_cast<uintptr_t>(ctx_aob)));
 
-        // Extract the RIP-relative address from the found instruction
-        std::byte *ctx_mov = ctx_aob + 2; // Skip to the MOV instruction
-        if (!DMKMemory::isMemoryReadable(ctx_mov + 3, sizeof(int32_t)))
+        // Resolve RIP-relative target: mov rax, [rip + offset] (48 8B 05 xx xx xx xx)
+        // AOB match is 2 bytes before the MOV instruction
+        auto ctx_target_addr = DMKScanner::resolve_rip_relative(ctx_aob + 2, 3, 7);
+        if (!ctx_target_addr.has_value())
         {
-            throw std::runtime_error("Cannot read offset from context MOV instruction");
+            throw std::runtime_error("Failed to resolve context pointer RIP-relative address");
         }
 
-        int32_t ctx_offset = *reinterpret_cast<int32_t *>(ctx_mov + 3);
-        std::byte *ctx_rip = ctx_mov + 7; // End of instruction
-        uintptr_t ctx_target_addr = reinterpret_cast<uintptr_t>(ctx_rip) + ctx_offset;
+        g_global_context_ptr_address = reinterpret_cast<std::byte *>(ctx_target_addr.value());
 
-        g_global_context_ptr_address = reinterpret_cast<std::byte *>(ctx_target_addr);
-
-        logger.log(LOG_INFO, "GameInterface: Global context pointer storage at " + format_address(ctx_target_addr));
+        logger.log(LogLevel::Info, "GameInterface: Global context pointer storage at " + format_address(ctx_target_addr.value()));
 
         if (findScrollAccumulator(module_base, module_size))
         {
-            logger.log(LOG_INFO, "Scroll accumulator locator initialized successfully");
+            logger.log(LogLevel::Info, "Scroll accumulator locator initialized successfully");
         }
         else
         {
-            logger.log(LOG_WARNING, "Could not locate scroll accumulator - hold-to-scroll feature may not work correctly");
+            logger.log(LogLevel::Warning, "Could not locate scroll accumulator - hold-to-scroll feature may not work correctly");
         }
 
         return true;
     }
     catch (const std::exception &e)
     {
-        logger.log(LOG_ERROR, "GameInterface: Initialization failed: " + std::string(e.what()));
+        logger.log(LogLevel::Error, "GameInterface: Initialization failed: " + std::string(e.what()));
         return false;
     }
 }
@@ -231,7 +216,7 @@ volatile std::byte *getResolvedTpvFlagAddress()
         return g_tpvFlagAddress;
     }
 
-    if (!g_global_context_ptr_address || !DMKMemory::isMemoryReadable(g_global_context_ptr_address, sizeof(uintptr_t)))
+    if (!g_global_context_ptr_address || !DMKMemory::is_readable(g_global_context_ptr_address, sizeof(uintptr_t)))
         return nullptr;
 
     // Step 1: Read the global context pointer
@@ -241,7 +226,7 @@ volatile std::byte *getResolvedTpvFlagAddress()
 
     // Step 2: Read the camera manager pointer directly from global context
     uintptr_t cam_manager_ptr_addr_val = global_ctx_ptr + Constants::OFFSET_ManagerPtrStorage;
-    if (!DMKMemory::isMemoryReadable(reinterpret_cast<void *>(cam_manager_ptr_addr_val), sizeof(uintptr_t)))
+    if (!DMKMemory::is_readable(reinterpret_cast<void *>(cam_manager_ptr_addr_val), sizeof(uintptr_t)))
         return nullptr;
 
     uintptr_t cam_manager_ptr = *reinterpret_cast<uintptr_t *>(cam_manager_ptr_addr_val);
@@ -259,7 +244,7 @@ int getViewState()
     if (!flag_addr)
         return -1;
 
-    if (!DMKMemory::isMemoryReadable(flag_addr, sizeof(std::byte)))
+    if (!DMKMemory::is_readable(const_cast<std::byte *>(flag_addr), sizeof(std::byte)))
         return -1;
 
     std::byte val = *flag_addr;
@@ -268,18 +253,18 @@ int getViewState()
 
 bool setViewState(BYTE new_state, int *key_pressed_vk)
 {
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
 
     if (new_state != 0 && new_state != 1)
         return false;
 
-    std::string trigger = key_pressed_vk ? (" (K:" + DMKString::format_vkcode(*key_pressed_vk) + ")") : "(I)";
+    std::string trigger = key_pressed_vk ? (" (K:" + DMKFormat::format_vkcode(*key_pressed_vk) + ")") : "(I)";
     std::string desc = (new_state == 0) ? "FPV" : "TPV";
 
     volatile std::byte *flag_addr = getResolvedTpvFlagAddress();
     if (!flag_addr)
     {
-        logger.log(LOG_ERROR, "Set" + desc + trigger + ": Failed to resolve address");
+        logger.log(LogLevel::Error, "Set" + desc + trigger + ": Failed to resolve address");
         return false;
     }
 
@@ -289,13 +274,13 @@ bool setViewState(BYTE new_state, int *key_pressed_vk)
         return true; // Already in desired state
     }
 
-    if (!DMKMemory::isMemoryWritable(flag_addr, sizeof(std::byte)))
+    if (!DMKMemory::is_writable(const_cast<std::byte *>(flag_addr), sizeof(std::byte)))
     {
-        logger.log(LOG_ERROR, "Set" + desc + trigger + ": No write permission at " + format_address(reinterpret_cast<uintptr_t>(flag_addr)));
+        logger.log(LogLevel::Error, "Set" + desc + trigger + ": No write permission at " + format_address(reinterpret_cast<uintptr_t>(flag_addr)));
         return false;
     }
 
-    logger.log(LOG_DEBUG, "Set" + desc + trigger + ": Writing " + std::to_string(new_state) + " at " + format_address(reinterpret_cast<uintptr_t>(flag_addr)));
+    logger.log(LogLevel::Debug, "Set" + desc + trigger + ": Writing " + std::to_string(new_state) + " at " + format_address(reinterpret_cast<uintptr_t>(flag_addr)));
     *flag_addr = static_cast<std::byte>(new_state);
 
     Sleep(1); // Small delay for stability
@@ -303,35 +288,35 @@ bool setViewState(BYTE new_state, int *key_pressed_vk)
     int after = getViewState();
     if (after == static_cast<int>(new_state))
     {
-        logger.log(LOG_INFO, "Set" + desc + trigger + ": Success");
+        logger.log(LogLevel::Info, "Set" + desc + trigger + ": Success");
         return true;
     }
     else
     {
-        logger.log(LOG_ERROR, "Set" + desc + trigger + ": Failed (State=" + std::to_string(after) + ")");
+        logger.log(LogLevel::Error, "Set" + desc + trigger + ": Failed (State=" + std::to_string(after) + ")");
         return false;
     }
 }
 
 bool safeToggleViewState(int *key_pressed_vk)
 {
-    Logger &logger = Logger::getInstance();
-    std::string trigger = key_pressed_vk ? "(K:" + DMKString::format_vkcode(*key_pressed_vk) + ")" : "(I)";
+    DMKLogger &logger = DMKLogger::get_instance();
+    std::string trigger = key_pressed_vk ? "(K:" + DMKFormat::format_vkcode(*key_pressed_vk) + ")" : "(I)";
 
     int current = getViewState();
     if (current == 0)
     {
-        logger.log(LOG_INFO, "Toggle" + trigger + ": FPV->TPV");
+        logger.log(LogLevel::Info, "Toggle" + trigger + ": FPV->TPV");
         return setViewState(1, key_pressed_vk);
     }
     else if (current == 1)
     {
-        logger.log(LOG_INFO, "Toggle" + trigger + ": TPV->FPV");
+        logger.log(LogLevel::Info, "Toggle" + trigger + ": TPV->FPV");
         return setViewState(0, key_pressed_vk);
     }
     else
     {
-        logger.log(LOG_ERROR, "Toggle" + trigger + ": Invalid state " + std::to_string(current));
+        logger.log(LogLevel::Error, "Toggle" + trigger + ": Invalid state " + std::to_string(current));
         return false;
     }
 }
@@ -342,7 +327,7 @@ extern "C" uintptr_t __cdecl getCameraManagerInstance()
         return 0;
 
     // Step 1: Read the global context pointer
-    if (!DMKMemory::isMemoryReadable(g_global_context_ptr_address, sizeof(uintptr_t)))
+    if (!DMKMemory::is_readable(g_global_context_ptr_address, sizeof(uintptr_t)))
         return 0;
     uintptr_t global_ctx_ptr = *reinterpret_cast<uintptr_t *>(g_global_context_ptr_address);
     if (global_ctx_ptr == 0)
@@ -350,7 +335,7 @@ extern "C" uintptr_t __cdecl getCameraManagerInstance()
 
     // Step 2: Read the camera manager pointer
     uintptr_t cam_manager_ptr_addr = global_ctx_ptr + Constants::OFFSET_ManagerPtrStorage;
-    if (!DMKMemory::isMemoryReadable(reinterpret_cast<void *>(cam_manager_ptr_addr), sizeof(uintptr_t)))
+    if (!DMKMemory::is_readable(reinterpret_cast<void *>(cam_manager_ptr_addr), sizeof(uintptr_t)))
         return 0;
     uintptr_t cam_manager_ptr = *reinterpret_cast<uintptr_t *>(cam_manager_ptr_addr);
 
@@ -359,19 +344,19 @@ extern "C" uintptr_t __cdecl getCameraManagerInstance()
 
 bool GetPlayerWorldTransform(::Vector3 &outPosition, ::Quaternion &outOrientation)
 {
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
 
     if (!g_thePlayerEntity)
     {
-        logger.log(LOG_DEBUG, "GetPlayerWorldTransform: Called but g_thePlayerEntity is currently NULL.");
+        logger.log(LogLevel::Debug, "GetPlayerWorldTransform: Called but g_thePlayerEntity is currently NULL.");
         return false;
     }
 
     uintptr_t matrix_address = reinterpret_cast<uintptr_t>(g_thePlayerEntity) + Constants::OFFSET_ENTITY_WORLD_MATRIX_MEMBER;
 
-    if (!DMKMemory::isMemoryReadable(reinterpret_cast<void *>(matrix_address), sizeof(GameStructures::Matrix34f)))
+    if (!DMKMemory::is_readable(reinterpret_cast<void *>(matrix_address), sizeof(GameStructures::Matrix34f)))
     {
-        logger.log(LOG_WARNING, "GetPlayerWorldTransform: Cannot read CEntity's m_worldTransform at " +
+        logger.log(LogLevel::Warning, "GetPlayerWorldTransform: Cannot read CEntity's m_worldTransform at " +
                                     format_address(matrix_address) + " for entity " +
                                     format_address(reinterpret_cast<uintptr_t>(g_thePlayerEntity)));
         return false;
@@ -402,12 +387,12 @@ bool GetPlayerWorldTransform(::Vector3 &outPosition, ::Quaternion &outOrientatio
 
     std::ostringstream matrix_dump;
     matrix_dump << std::fixed << std::setprecision(4);
-    matrix_dump << "\n  Matrix Read from Entity " << format_address(reinterpret_cast<uintptr_t>(g_thePlayerEntity)) << " @ offset " << DMKString::format_hex(Constants::OFFSET_ENTITY_WORLD_MATRIX_MEMBER) << " (Addr: " << format_address(matrix_address) << "):";
+    matrix_dump << "\n  Matrix Read from Entity " << format_address(reinterpret_cast<uintptr_t>(g_thePlayerEntity)) << " @ offset " << DMKFormat::format_hex(Constants::OFFSET_ENTITY_WORLD_MATRIX_MEMBER) << " (Addr: " << format_address(matrix_address) << "):";
     matrix_dump << "\n    R0: [" << playerMatrix.m[0][0] << ", " << playerMatrix.m[0][1] << ", " << playerMatrix.m[0][2] << "] T.x: " << playerMatrix.m[0][3];
     matrix_dump << "\n    R1: [" << playerMatrix.m[1][0] << ", " << playerMatrix.m[1][1] << ", " << playerMatrix.m[1][2] << "] T.y: " << playerMatrix.m[1][3];
     matrix_dump << "\n    R2: [" << playerMatrix.m[2][0] << ", " << playerMatrix.m[2][1] << ", " << playerMatrix.m[2][2] << "] T.z: " << playerMatrix.m[2][3];
 
-    logger.log(LOG_TRACE, "GetPlayerWorldTransform SUCCESS:" + matrix_dump.str());
-    logger.log(LOG_TRACE, "  Converted Pos: " + Vector3ToString(outPosition) + " | Converted Rot: " + QuatToString(outOrientation));
+    logger.log(LogLevel::Trace, "GetPlayerWorldTransform SUCCESS:" + matrix_dump.str());
+    logger.log(LogLevel::Trace, "  Converted Pos: " + Vector3ToString(outPosition) + " | Converted Rot: " + QuatToString(outOrientation));
     return true;
 }

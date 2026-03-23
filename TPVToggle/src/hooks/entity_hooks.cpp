@@ -7,7 +7,6 @@
  */
 
 #include "entity_hooks.h"
-#include "logger.h"
 #include "constants.h"
 #include "game_structures.h"
 #include "utils.h"
@@ -18,7 +17,8 @@
 #include <string>
 #include <mutex>
 
-using DMKString::format_address;
+using DetourModKit::LogLevel;
+using DMKFormat::format_address;
 
 // AOB patterns for entity system functions
 // WHGame.DLL+6783A1 - E8 068E0200           - call WHGame.DLL+6A11AC
@@ -58,7 +58,7 @@ extern CEntity_SetWorldTM_Func_t g_funcCEntitySetWorldTM;
  */
 static void *Detour_CEntity_Constructor(GameStructures::CEntity *this_ptr, uintptr_t unknown_param)
 {
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
     void *result = nullptr;
 
     // Call original constructor
@@ -68,7 +68,7 @@ static void *Detour_CEntity_Constructor(GameStructures::CEntity *this_ptr, uintp
     }
     else
     {
-        logger.log(LOG_ERROR, "EntityHooks: fpCEntityConstructorOriginal is NULL");
+        logger.log(LogLevel::Error, "EntityHooks: fpCEntityConstructorOriginal is NULL");
         return nullptr;
     }
 
@@ -77,14 +77,14 @@ static void *Detour_CEntity_Constructor(GameStructures::CEntity *this_ptr, uintp
 
     try
     {
-        if (this_ptr && DMKMemory::isMemoryReadable(this_ptr, sizeof(void *)))
+        if (this_ptr && DMKMemory::is_readable(this_ptr, sizeof(void *)))
         {
             // Check if vtable is readable (need at least 19 entries for GetName)
             uintptr_t *vtable = *reinterpret_cast<uintptr_t **>(this_ptr);
-            if (DMKMemory::isMemoryReadable(vtable, sizeof(void *) * 19))
+            if (DMKMemory::is_readable(vtable, sizeof(void *) * 19))
             {
                 const char *rawName = this_ptr->GetName();
-                if (rawName && DMKMemory::isMemoryReadable(rawName, 1))
+                if (rawName && DMKMemory::is_readable(rawName, 1))
                 {
                     // Copy the name string safely
                     entityName = std::string(rawName);
@@ -94,11 +94,11 @@ static void *Detour_CEntity_Constructor(GameStructures::CEntity *this_ptr, uintp
     }
     catch (const std::exception &e)
     {
-        logger.log(LOG_WARNING, "EntityHooks: Exception getting entity name: " + std::string(e.what()));
+        logger.log(LogLevel::Warning, "EntityHooks: Exception getting entity name: " + std::string(e.what()));
     }
     catch (...)
     {
-        logger.log(LOG_WARNING, "EntityHooks: Unknown exception getting entity name");
+        logger.log(LogLevel::Warning, "EntityHooks: Unknown exception getting entity name");
     }
 
     // Check if this is the player entity
@@ -112,12 +112,12 @@ static void *Detour_CEntity_Constructor(GameStructures::CEntity *this_ptr, uintp
         {
             if (g_thePlayerEntity == nullptr)
             {
-                logger.log(LOG_INFO, "EntityHooks: Player entity detected and assigned - Name: '" +
+                logger.log(LogLevel::Info, "EntityHooks: Player entity detected and assigned - Name: '" +
                                          entityName + "' Addr: " + format_address(reinterpret_cast<uintptr_t>(this_ptr)));
             }
             else
             {
-                logger.log(LOG_INFO, "EntityHooks: Player entity updated - Old: " +
+                logger.log(LogLevel::Info, "EntityHooks: Player entity updated - Old: " +
                                          format_address(reinterpret_cast<uintptr_t>(g_thePlayerEntity)) +
                                          " New: " + format_address(reinterpret_cast<uintptr_t>(this_ptr)) +
                                          " Name: '" + entityName + "'");
@@ -141,76 +141,77 @@ void ResetPlayerEntityIfDestroyed(GameStructures::CEntity *entity)
 
     if (g_thePlayerEntity == entity)
     {
-        Logger::getInstance().log(LOG_INFO, "EntityHooks: Player entity being destroyed - Resetting pointer");
+        DMKLogger::get_instance().log(LogLevel::Info, "EntityHooks: Player entity being destroyed - Resetting pointer");
         g_thePlayerEntity = nullptr;
     }
 }
 
 bool initializeEntityHooks(uintptr_t moduleBase, size_t moduleSize)
 {
-    Logger &logger = Logger::getInstance();
-    logger.log(LOG_INFO, "EntityHooks: Initializing entity tracking hooks...");
+    DMKLogger &logger = DMKLogger::get_instance();
+    logger.log(LogLevel::Info, "EntityHooks: Initializing entity tracking hooks...");
 
     try
     {
         // Find CEntity constructor target
-        std::vector<std::byte> ctorPattern = DMKScanner::parseAOB(CENTITY_CONSTRUCTOR_CALLER_AOB);
-        if (ctorPattern.empty())
+        auto ctorPattern = DMKScanner::parse_aob(CENTITY_CONSTRUCTOR_CALLER_AOB);
+        if (!ctorPattern.has_value())
         {
             throw std::runtime_error("Failed to parse CEntity constructor caller AOB");
         }
 
-        std::byte *ctorMatch = DMKScanner::FindPattern(reinterpret_cast<std::byte *>(moduleBase), moduleSize, ctorPattern);
+        const std::byte *ctorMatch = DMKScanner::find_pattern(reinterpret_cast<const std::byte *>(moduleBase), moduleSize, *ctorPattern);
         if (!ctorMatch)
         {
             throw std::runtime_error("CEntity constructor caller pattern not found");
         }
 
-        // Extract relative offset to get actual constructor address
-        if (!DMKMemory::isMemoryReadable(ctorMatch + 1, sizeof(int32_t)))
+        // Resolve call rel32 target: E8 xx xx xx xx (5 bytes, disp32 at offset 1)
+        auto constructorAddress = DMKScanner::resolve_rip_relative(ctorMatch, 1, 5);
+        if (!constructorAddress.has_value())
         {
-            throw std::runtime_error("Cannot read constructor call offset");
+            throw std::runtime_error("Failed to resolve constructor call target");
         }
 
-        int32_t relativeOffset = *reinterpret_cast<int32_t *>(ctorMatch + 1);
-        std::byte *constructorAddress = ctorMatch + 5 + relativeOffset;
-
-        logger.log(LOG_INFO, "EntityHooks: CEntity constructor found at " +
-                                 format_address(reinterpret_cast<uintptr_t>(constructorAddress)));
+        logger.log(LogLevel::Info, "EntityHooks: CEntity constructor found at " +
+                                 format_address(constructorAddress.value()));
 
         // Create hook using DMKHookManager
-        DMKHookManager &hook_manager = DMKHookManager::getInstance();
+        DMKHookManager &hook_manager = DMKHookManager::get_instance();
 
-        g_CEntityConstructorHookId = hook_manager.create_inline_hook(
+        auto ctorResult = hook_manager.create_inline_hook(
             "CEntity_Constructor",
-            reinterpret_cast<uintptr_t>(constructorAddress),
+            constructorAddress.value(),
             reinterpret_cast<void *>(&Detour_CEntity_Constructor),
             reinterpret_cast<void **>(&fpCEntityConstructorOriginal));
 
-        if (g_CEntityConstructorHookId.empty())
+        if (!ctorResult.has_value())
         {
-            throw std::runtime_error("Failed to create CEntity constructor hook");
+            throw std::runtime_error("Failed to create CEntity constructor hook: " + std::string(DMK::Hook::error_to_string(ctorResult.error())));
         }
+        g_CEntityConstructorHookId = ctorResult.value();
 
-        logger.log(LOG_INFO, "EntityHooks: CEntity constructor hook successfully installed");
+        logger.log(LogLevel::Info, "EntityHooks: CEntity constructor hook successfully installed");
 
         // Find SetWorldTM function for future use
-        std::vector<std::byte> setWorldPattern = DMKScanner::parseAOB(CENTITY_SETWORLDTM_CALLER_AOB);
-        if (!setWorldPattern.empty())
+        auto setWorldPattern = DMKScanner::parse_aob(CENTITY_SETWORLDTM_CALLER_AOB);
+        if (setWorldPattern.has_value())
         {
-            std::byte *setWorldMatch = DMKScanner::FindPattern(reinterpret_cast<std::byte *>(moduleBase), moduleSize, setWorldPattern);
-            if (setWorldMatch && DMKMemory::isMemoryReadable(setWorldMatch + 1, sizeof(int32_t)))
+            const std::byte *setWorldMatch = DMKScanner::find_pattern(reinterpret_cast<const std::byte *>(moduleBase), moduleSize, *setWorldPattern);
+            if (setWorldMatch)
             {
-                int32_t setWorldOffset = *reinterpret_cast<int32_t *>(setWorldMatch + 1);
-                std::byte *setWorldAddress = setWorldMatch + 5 + setWorldOffset;
-                g_funcCEntitySetWorldTM = reinterpret_cast<CEntity_SetWorldTM_Func_t>(setWorldAddress);
-
-                logger.log(LOG_INFO, "EntityHooks: SetWorldTM function found at " +
-                                         format_address(reinterpret_cast<uintptr_t>(g_funcCEntitySetWorldTM)));
+                // Resolve call rel32 target: E8 xx xx xx xx (5 bytes, disp32 at offset 1)
+                auto setWorldAddress = DMKScanner::resolve_rip_relative(setWorldMatch, 1, 5);
+                if (setWorldAddress.has_value())
+                {
+                    g_funcCEntitySetWorldTM = reinterpret_cast<CEntity_SetWorldTM_Func_t>(setWorldAddress.value());
+                    logger.log(LogLevel::Info, "EntityHooks: SetWorldTM function found at " +
+                                             format_address(setWorldAddress.value()));
+                }
             }
             else
             {
-                logger.log(LOG_WARNING, "EntityHooks: SetWorldTM function not found - Feature limited");
+                logger.log(LogLevel::Warning, "EntityHooks: SetWorldTM function not found - Feature limited");
             }
         }
 
@@ -218,7 +219,7 @@ bool initializeEntityHooks(uintptr_t moduleBase, size_t moduleSize)
     }
     catch (const std::exception &e)
     {
-        logger.log(LOG_ERROR, "EntityHooks: Initialization failed: " + std::string(e.what()));
+        logger.log(LogLevel::Error, "EntityHooks: Initialization failed: " + std::string(e.what()));
         cleanupEntityHooks();
         return false;
     }
@@ -226,16 +227,16 @@ bool initializeEntityHooks(uintptr_t moduleBase, size_t moduleSize)
 
 void cleanupEntityHooks()
 {
-    Logger &logger = Logger::getInstance();
-    DMKHookManager &hook_manager = DMKHookManager::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
+    DMKHookManager &hook_manager = DMKHookManager::get_instance();
 
     // Remove constructor hook
     if (!g_CEntityConstructorHookId.empty())
     {
-        hook_manager.remove_hook(g_CEntityConstructorHookId);
+        (void)hook_manager.remove_hook(g_CEntityConstructorHookId);
         g_CEntityConstructorHookId.clear();
         fpCEntityConstructorOriginal = nullptr;
-        logger.log(LOG_INFO, "EntityHooks: Constructor hook removed");
+        logger.log(LogLevel::Info, "EntityHooks: Constructor hook removed");
     }
 
     // Clear function pointers and entity reference
@@ -245,7 +246,7 @@ void cleanupEntityHooks()
         g_thePlayerEntity = nullptr;
     }
 
-    logger.log(LOG_INFO, "EntityHooks: Cleanup complete");
+    logger.log(LogLevel::Info, "EntityHooks: Cleanup complete");
 }
 
 // Safe accessor function for other modules

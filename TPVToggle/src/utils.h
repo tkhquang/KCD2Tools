@@ -4,6 +4,7 @@
  * @details This header provides utility functions not available in DetourModKit.
  *          For memory operations, use DMKMemory:: directly from DetourModKit.hpp.
  *          For string operations, use DMKString:: directly.
+ *          For format operations, use DMKFormat:: directly.
  *          For AOB scanning, use DMKScanner:: directly.
  */
 
@@ -18,10 +19,11 @@
 
 #include "math_utils.h"
 
-// Use DMK namespaces directly for memory/string/scanning operations:
-// - DMKMemory::isMemoryReadable(), DMKMemory::isMemoryWritable(), DMKMemory::WriteBytes()
-// - DMKString::format_address(), DMKString::trim(), DMKString::format_vkcode(), etc.
-// - DMKScanner::parseAOB(), DMKScanner::FindPattern()
+// Use DMK namespaces directly for memory/format/scanning operations:
+// - DMKMemory::is_readable(), DMKMemory::is_writable(), DMKMemory::write_bytes()
+// - DMKFormat::format_address(), DMKFormat::format_vkcode(), etc.
+// - DMKString::trim()
+// - DMKScanner::parse_aob(), DMKScanner::find_pattern()
 
 /**
  * @brief Converts a Quaternion to a readable string format.

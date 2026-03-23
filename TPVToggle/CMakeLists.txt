@@ -6,14 +6,18 @@ project(KCD2_TPVToggle VERSION 0.6.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# Override CMake's default -O3 for MinGW Release builds with -O2 for a better
+# code-size/performance tradeoff and to avoid GCC 15 LTO ICEs at -O3.
+if(NOT MSVC)
+  set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG" CACHE STRING "" FORCE)
+endif()
 # --- Compiler Flags ---
 if(MSVC)
   add_compile_options(/W4)
 else()
   # GCC/Clang/MinGW specific flags
-  add_compile_options(-Wall -Wextra -Os -ffunction-sections -fdata-sections)
+  add_compile_options(-Wall -Wextra)
 endif()
 
 # --- Windows Definitions ---
@@ -104,14 +108,45 @@ set_target_properties(${PROJECT_NAME}-ASI PROPERTIES
   PREFIX ""
 )
 
-# Linker flags for size optimization and static linking (MinGW)
-if(NOT MSVC)
+# --- Target-Scoped Release Optimizations ---
+if(MSVC)
+  # /Gy: function-level linking, /Gw: global data optimization.
+  # /O1: favor size (appropriate for an injected DLL).
+  target_compile_options(${PROJECT_NAME}-ASI PRIVATE
+    $<$<CONFIG:Release>:/O1 /Gy /Gw>
+  )
+  # /OPT:REF removes unreferenced functions/data; /OPT:ICF folds identical COMDATs.
+  target_link_options(${PROJECT_NAME}-ASI PRIVATE
+    $<$<CONFIG:Release>:/OPT:REF /OPT:ICF>
+  )
+else()
+  # -ffunction-sections/-fdata-sections enable --gc-sections for dead code elimination.
+  # -O2 is set globally via CMAKE_CXX_FLAGS_RELEASE.
+  target_compile_options(${PROJECT_NAME}-ASI PRIVATE
+    $<$<CONFIG:Release>:-ffunction-sections -fdata-sections>
+  )
   target_link_options(${PROJECT_NAME}-ASI PRIVATE
     -Wl,--gc-sections
+    -Wl,--exclude-all-symbols
     -static-libgcc
     -static-libstdc++
     -static
+    # Strip all symbols in Release to minimize binary size.
+    $<$<CONFIG:Release>:-s>
   )
+endif()
+
+# --- Link-Time Optimization ---
+include(CheckIPOSupported)
+check_ipo_supported(RESULT _ipo_supported LANGUAGES CXX OUTPUT _ipo_error)
+
+if(_ipo_supported)
+  set_target_properties(${PROJECT_NAME}-ASI PROPERTIES
+    INTERPROCEDURAL_OPTIMIZATION_RELEASE ON
+  )
+  message(STATUS "LTO enabled for ${PROJECT_NAME}-ASI Release builds")
+else()
+  message(STATUS "LTO not supported for ${PROJECT_NAME}-ASI: ${_ipo_error}")
 endif()
 
 # Post-build steps to rename to desired names

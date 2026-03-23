@@ -1,5 +1,5 @@
 #include "camera_profile.h"
-#include "logger.h"
+#include <DetourModKit.hpp>
 #include "constants.h"
 #include "global_state.h" // Access to g_currentCameraOffset
 #include "utils.h"        // Utility functions if needed
@@ -11,6 +11,8 @@
 #include <ctime>      // For std::time_t, std::localtime, std::time
 #include <iomanip>    // For std::put_time, std::setw
 #include <filesystem> // Now potentially needed if getRuntimeDirectory() moved out of utils.h
+
+using DetourModKit::LogLevel;
 
 // Using namespace to simplify code
 using json = nlohmann::json;
@@ -37,7 +39,7 @@ CameraProfileManager::~CameraProfileManager()
     // Attempt immediate save if modifications are pending on exit
     if (m_profilesModified)
     {
-        Logger::getInstance().log(LOG_INFO, "CameraProfileManager: Saving modified profiles on exit...");
+        DMKLogger::get_instance().log(LogLevel::Info, "CameraProfileManager: Saving modified profiles on exit...");
         saveProfilesToJson();
     }
 }
@@ -48,7 +50,7 @@ CameraProfileManager::~CameraProfileManager()
 bool CameraProfileManager::loadProfiles(const std::string &directory)
 {
     std::lock_guard<std::recursive_mutex> lock(m_profileMutex);
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
     m_profileDirectory = directory;
 
     // Handle path normalization
@@ -56,7 +58,7 @@ bool CameraProfileManager::loadProfiles(const std::string &directory)
     std::filesystem::path filePath = dirPath / (std::string(Constants::MOD_NAME) + "_Profiles.json");
     m_jsonProfilesPath = filePath.lexically_normal().string();
 
-    logger.log(LOG_INFO, "CameraProfileManager: Loading profiles from: " + m_jsonProfilesPath);
+    logger.log(LogLevel::Info, "CameraProfileManager: Loading profiles from: " + m_jsonProfilesPath);
 
     // Attempt to load from JSON, populating m_profiles
     bool jsonLoadedSuccessfully = loadProfilesFromJson();
@@ -68,7 +70,7 @@ bool CameraProfileManager::loadProfiles(const std::string &directory)
 
     if (it_default == m_profiles.end())
     {
-        logger.log(LOG_INFO, "CameraProfileManager: 'Default' profile not found. Creating new default profile.");
+        logger.log(LogLevel::Info, "CameraProfileManager: 'Default' profile not found. Creating new default profile.");
         m_profiles.insert(m_profiles.begin(), CameraProfile("Default", Vector3(0.0f, 0.0f, 0.0f), "Default", generateTimestamp()));
         // Don't call debounce save yet, wait until end of load
     }
@@ -77,17 +79,17 @@ bool CameraProfileManager::loadProfiles(const std::string &directory)
         size_t found_default_idx = std::distance(m_profiles.begin(), it_default);
         if (found_default_idx != 0)
         {
-            logger.log(LOG_DEBUG, "CameraProfileManager: Moving 'Default' profile from index " + std::to_string(found_default_idx) + " to 0.");
+            logger.log(LogLevel::Debug, "CameraProfileManager: Moving 'Default' profile from index " + std::to_string(found_default_idx) + " to 0.");
             std::rotate(m_profiles.begin(), it_default, it_default + 1);
         }
         else
         {
-            logger.log(LOG_DEBUG, "CameraProfileManager: 'Default' profile found at index 0.");
+            logger.log(LogLevel::Debug, "CameraProfileManager: 'Default' profile found at index 0.");
         }
     }
 
     m_isInitialized = true;
-    logger.log(LOG_DEBUG, "CameraProfileManager: Manager initialized flag set.");
+    logger.log(LogLevel::Debug, "CameraProfileManager: Manager initialized flag set.");
 
     // Now that initialized flag is true, setActiveProfile can run correctly.
     // Activate the "Default" profile (index 0) initially, loading its saved state.
@@ -102,13 +104,13 @@ bool CameraProfileManager::loadProfiles(const std::string &directory)
             // Only mark modified if we just created the default and nothing was loaded from JSON.
             // If JSON was loaded and we just moved default, assume user wants loaded state preserved initially.
             // Maybe even only save if *only* Default exists and it was created now.
-            logger.log(LOG_DEBUG, "CameraProfileManager: Marking profiles as modified (Default created/moved).");
+            logger.log(LogLevel::Debug, "CameraProfileManager: Marking profiles as modified (Default created/moved).");
             markProfilesModifiedAndDebounceSave();
         }
         else if (it_default != m_profiles.end() && std::distance(m_profiles.begin(), it_default) != 0)
         {
             // Also mark modified if we had to rotate the existing Default profile from JSON
-            logger.log(LOG_DEBUG, "CameraProfileManager: Marking profiles as modified (Default rotated).");
+            logger.log(LogLevel::Debug, "CameraProfileManager: Marking profiles as modified (Default rotated).");
             markProfilesModifiedAndDebounceSave();
         }
     }
@@ -125,7 +127,7 @@ bool CameraProfileManager::loadProfiles(const std::string &directory)
         activeName = m_profiles[0].name; // Fallback if init failed but profiles exist
     }
 
-    logger.log(LOG_INFO, "CameraProfileManager: Initialization complete. Active profile: '" + activeName +
+    logger.log(LogLevel::Info, "CameraProfileManager: Initialization complete. Active profile: '" + activeName +
                              "'. Total profiles: " + std::to_string(m_profiles.size()) + ".");
 
     return true; // Return overall success (could refine based on steps)
@@ -134,14 +136,14 @@ bool CameraProfileManager::loadProfiles(const std::string &directory)
 bool CameraProfileManager::loadProfilesFromJson()
 {
     // Assumes lock is held by caller (loadProfiles)
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
 
     m_profiles.clear(); // Start with empty list before reading file
 
     // Check if file exists
     if (!std::filesystem::exists(m_jsonProfilesPath))
     {
-        logger.log(LOG_INFO, "CameraProfileManager: Profiles file not found: " + m_jsonProfilesPath);
+        logger.log(LogLevel::Info, "CameraProfileManager: Profiles file not found: " + m_jsonProfilesPath);
         return false; // Indicate file not found
     }
 
@@ -152,7 +154,7 @@ bool CameraProfileManager::loadProfilesFromJson()
         std::ifstream file(m_jsonProfilesPath);
         if (!file.is_open())
         {
-            logger.log(LOG_ERROR, "CameraProfileManager: Failed to open JSON profiles file for reading: " + m_jsonProfilesPath);
+            logger.log(LogLevel::Error, "CameraProfileManager: Failed to open JSON profiles file for reading: " + m_jsonProfilesPath);
             return false; // Indicate file error
         }
 
@@ -163,13 +165,13 @@ bool CameraProfileManager::loadProfilesFromJson()
         // Validate basic JSON structure
         if (!profilesJson.is_array())
         {
-            logger.log(LOG_ERROR, "CameraProfileManager: Invalid JSON format in profiles file (expected an array): " + m_jsonProfilesPath);
+            logger.log(LogLevel::Error, "CameraProfileManager: Invalid JSON format in profiles file (expected an array): " + m_jsonProfilesPath);
             return false; // Indicate format error
         }
 
         if (profilesJson.empty())
         {
-            logger.log(LOG_INFO, "CameraProfileManager: Profiles file is empty: " + m_jsonProfilesPath);
+            logger.log(LogLevel::Info, "CameraProfileManager: Profiles file is empty: " + m_jsonProfilesPath);
             return true; // Successfully loaded an empty list
         }
 
@@ -179,7 +181,7 @@ bool CameraProfileManager::loadProfilesFromJson()
         {
             if (!profileJson.is_object())
             {
-                logger.log(LOG_WARNING, "CameraProfileManager: Skipping non-object entry in profiles JSON array.");
+                logger.log(LogLevel::Warning, "CameraProfileManager: Skipping non-object entry in profiles JSON array.");
                 errorCount++;
                 continue;
             }
@@ -196,19 +198,19 @@ bool CameraProfileManager::loadProfilesFromJson()
 
         if (errorCount > 0)
         {
-            logger.log(LOG_WARNING, "CameraProfileManager: Skipped " + std::to_string(errorCount) + " invalid profile entries during JSON load.");
+            logger.log(LogLevel::Warning, "CameraProfileManager: Skipped " + std::to_string(errorCount) + " invalid profile entries during JSON load.");
         }
 
         // If any valid profiles were loaded, assign them
         if (!loaded_profiles_temp.empty())
         {
             m_profiles = std::move(loaded_profiles_temp); // Use move assignment
-            logger.log(LOG_DEBUG, "CameraProfileManager: Successfully parsed " +
+            logger.log(LogLevel::Debug, "CameraProfileManager: Successfully parsed " +
                                       std::to_string(m_profiles.size()) + " profiles from JSON.");
         }
         else
         {
-            logger.log(LOG_WARNING, "CameraProfileManager: No valid profiles found in JSON file: " + m_jsonProfilesPath);
+            logger.log(LogLevel::Warning, "CameraProfileManager: No valid profiles found in JSON file: " + m_jsonProfilesPath);
         }
 
         // Mark as unmodified since state now matches the file (or empty if file was bad/empty)
@@ -219,13 +221,13 @@ bool CameraProfileManager::loadProfilesFromJson()
     }
     catch (const json::parse_error &e)
     {
-        logger.log(LOG_ERROR, "CameraProfileManager: JSON parsing error: " + std::string(e.what()) + " in file: " + m_jsonProfilesPath);
+        logger.log(LogLevel::Error, "CameraProfileManager: JSON parsing error: " + std::string(e.what()) + " in file: " + m_jsonProfilesPath);
         m_profiles.clear(); // Ensure profiles list is empty on error
         return false;       // Indicate parse error
     }
     catch (const std::exception &e)
     {
-        logger.log(LOG_ERROR, "CameraProfileManager: Error reading or processing profiles file: " + std::string(e.what()) + ". File: " + m_jsonProfilesPath);
+        logger.log(LogLevel::Error, "CameraProfileManager: Error reading or processing profiles file: " + std::string(e.what()) + ". File: " + m_jsonProfilesPath);
         m_profiles.clear();
         return false; // Indicate generic error
     }
@@ -234,11 +236,11 @@ bool CameraProfileManager::loadProfilesFromJson()
 bool CameraProfileManager::saveProfilesToJson()
 {
     std::lock_guard<std::recursive_mutex> lock(m_profileMutex);
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
 
     if (!m_isInitialized)
     {
-        logger.log(LOG_WARNING, "CameraProfileManager: Attempted to save profiles before initialization.");
+        logger.log(LogLevel::Warning, "CameraProfileManager: Attempted to save profiles before initialization.");
         return false;
     }
 
@@ -257,7 +259,7 @@ bool CameraProfileManager::saveProfilesToJson()
     }
     catch (const json::exception &e)
     {
-        logger.log(LOG_ERROR, "CameraProfileManager: JSON library error during profile serialization: " + std::string(e.what()));
+        logger.log(LogLevel::Error, "CameraProfileManager: JSON library error during profile serialization: " + std::string(e.what()));
         return false; // Don't proceed if serialization fails
     }
 
@@ -266,7 +268,7 @@ bool CameraProfileManager::saveProfilesToJson()
         std::ofstream outFile(m_jsonProfilesPath);
         if (!outFile.is_open())
         {
-            logger.log(LOG_ERROR, "CameraProfileManager: Failed to open JSON file for writing: " + m_jsonProfilesPath);
+            logger.log(LogLevel::Error, "CameraProfileManager: Failed to open JSON file for writing: " + m_jsonProfilesPath);
             // Keep m_profilesModified = true if open fails
             return false;
         }
@@ -274,7 +276,7 @@ bool CameraProfileManager::saveProfilesToJson()
         outFile << std::setw(4) << profilesArray << std::endl;
         if (!outFile.good()) // Check stream state *after* writing and potential flushing (endl does flush)
         {
-            logger.log(LOG_ERROR, "CameraProfileManager: Failed to write all profile data to JSON file: " + m_jsonProfilesPath);
+            logger.log(LogLevel::Error, "CameraProfileManager: Failed to write all profile data to JSON file: " + m_jsonProfilesPath);
             outFile.close();
             // Keep m_profilesModified = true if write fails
             return false;
@@ -286,13 +288,13 @@ bool CameraProfileManager::saveProfilesToJson()
         m_profilesModified = false;
         m_lastSaveTime = std::time(nullptr);
 
-        logger.log(LOG_INFO, "CameraProfileManager: Successfully saved " + std::to_string(m_profiles.size()) +
+        logger.log(LogLevel::Info, "CameraProfileManager: Successfully saved " + std::to_string(m_profiles.size()) +
                                  " profiles to " + m_jsonProfilesPath);
         return true;
     }
     catch (const std::exception &e) // Catch potential filesystem errors during write/close
     {
-        logger.log(LOG_ERROR, "CameraProfileManager: Filesystem error saving profiles to JSON: " + std::string(e.what()));
+        logger.log(LogLevel::Error, "CameraProfileManager: Filesystem error saving profiles to JSON: " + std::string(e.what()));
         // Keep m_profilesModified = true on other errors
         return false;
     }
@@ -314,7 +316,7 @@ void CameraProfileManager::markProfilesModifiedAndDebounceSave()
     }
     else
     {
-        Logger::getInstance().log(LOG_DEBUG, "CameraProfileManager: Profile save debounced (change marked).");
+        DMKLogger::get_instance().log(LogLevel::Debug, "CameraProfileManager: Profile save debounced (change marked).");
     }
 }
 
@@ -323,11 +325,11 @@ void CameraProfileManager::markProfilesModifiedAndDebounceSave()
 bool CameraProfileManager::createNewProfileFromLiveState(const std::string &category)
 {
     std::lock_guard<std::recursive_mutex> lock(m_profileMutex);
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
 
     if (!m_isInitialized)
     {
-        logger.log(LOG_WARNING, "CreateNew: Not initialized.");
+        logger.log(LogLevel::Warning, "CreateNew: Not initialized.");
         return false;
     }
 
@@ -355,7 +357,7 @@ bool CameraProfileManager::createNewProfileFromLiveState(const std::string &cate
     }
     catch (const std::exception &e)
     {
-        logger.log(LOG_ERROR, "CreateNew: Failed to generate profile name: " + std::string(e.what()));
+        logger.log(LogLevel::Error, "CreateNew: Failed to generate profile name: " + std::string(e.what()));
         new_profile_name = "Profile_ErrorName"; // Fallback name
     }
 
@@ -368,7 +370,7 @@ bool CameraProfileManager::createNewProfileFromLiveState(const std::string &cate
     // Switch active index to the new profile
     m_currentProfileIndex = m_profiles.size() - 1;
 
-    logger.log(LOG_INFO, "CameraProfileManager: Created new profile '" + new_profile.name +
+    logger.log(LogLevel::Info, "CameraProfileManager: Created new profile '" + new_profile.name +
                              "' from live offset (" + std::to_string(g_currentCameraOffset.x) + ", " + /*...*/ "). Switched active profile.");
 
     // Mark profiles as modified and trigger save
@@ -383,24 +385,24 @@ bool CameraProfileManager::createNewProfileFromLiveState(const std::string &cate
 bool CameraProfileManager::updateActiveProfileWithLiveState()
 {
     std::lock_guard<std::recursive_mutex> lock(m_profileMutex);
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
 
     if (!m_isInitialized)
     {
-        logger.log(LOG_WARNING, "UpdateActive: Not initialized.");
+        logger.log(LogLevel::Warning, "UpdateActive: Not initialized.");
         return false;
     }
 
     if (m_profiles.empty() || m_currentProfileIndex >= m_profiles.size())
     {
-        logger.log(LOG_ERROR, "UpdateActive: Invalid active profile index.");
+        logger.log(LogLevel::Error, "UpdateActive: Invalid active profile index.");
         return false;
     }
 
     // // CRITICAL: Prevent updating the 'Default' profile via this action
     // if (m_currentProfileIndex == 0)
     // { // Assumes Default is always index 0
-    //     logger.log(LOG_WARNING, "CameraProfileManager: Cannot update 'Default' profile using 'Update Active' action. Use 'Create New Profile' instead to save current state.");
+    //     logger.log(LogLevel::Warning, "CameraProfileManager: Cannot update 'Default' profile using 'Update Active' action. Use 'Create New Profile' instead to save current state.");
     //     return false;
     // }
 
@@ -410,7 +412,7 @@ bool CameraProfileManager::updateActiveProfileWithLiveState()
     active_profile_ref.timestamp = generateTimestamp();
     // Category is not updated by this action, only offset and timestamp
 
-    logger.log(LOG_INFO, "CameraProfileManager: Updated saved state for active profile '" + active_profile_ref.name + "' with live offset.");
+    logger.log(LogLevel::Info, "CameraProfileManager: Updated saved state for active profile '" + active_profile_ref.name + "' with live offset.");
 
     // Mark profiles as modified and trigger save
     markProfilesModifiedAndDebounceSave();
@@ -423,30 +425,30 @@ bool CameraProfileManager::updateActiveProfileWithLiveState()
 bool CameraProfileManager::deleteProfile(size_t index)
 {
     std::lock_guard<std::recursive_mutex> lock(m_profileMutex);
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
 
     if (!m_isInitialized)
     {
-        logger.log(LOG_WARNING, "DeleteProfile: Not initialized.");
+        logger.log(LogLevel::Warning, "DeleteProfile: Not initialized.");
         return false;
     }
 
     // Prevent deleting Default (index 0)
     if (index == 0)
     {
-        logger.log(LOG_WARNING, "DeleteProfile: Cannot delete the 'Default' profile (index 0).");
+        logger.log(LogLevel::Warning, "DeleteProfile: Cannot delete the 'Default' profile (index 0).");
         return false;
     }
     // Validate index bounds
     if (index >= m_profiles.size())
     {
-        logger.log(LOG_ERROR, "DeleteProfile: Invalid index " + std::to_string(index) + ". Max allowed: " + std::to_string(m_profiles.size() - 1) + ".");
+        logger.log(LogLevel::Error, "DeleteProfile: Invalid index " + std::to_string(index) + ". Max allowed: " + std::to_string(m_profiles.size() - 1) + ".");
         return false;
     }
 
     std::string deletedName = m_profiles[index].name;
     m_profiles.erase(m_profiles.begin() + index);
-    logger.log(LOG_INFO, "CameraProfileManager: Deleted profile '" + deletedName + "' (index " + std::to_string(index) + ").");
+    logger.log(LogLevel::Info, "CameraProfileManager: Deleted profile '" + deletedName + "' (index " + std::to_string(index) + ").");
 
     // Adjust current index if needed and activate a safe profile
     size_t previous_active_index = m_currentProfileIndex;
@@ -454,7 +456,7 @@ bool CameraProfileManager::deleteProfile(size_t index)
 
     if (m_profiles.empty())
     { // Should not happen if Default deletion blocked
-        logger.log(LOG_ERROR, "DeleteProfile: Profile list became empty after deletion. Recreating Default.");
+        logger.log(LogLevel::Error, "DeleteProfile: Profile list became empty after deletion. Recreating Default.");
         m_profiles.insert(m_profiles.begin(), CameraProfile("Default", Vector3(0.0f, 0.0f, 0.0f), "Default", generateTimestamp()));
         m_currentProfileIndex = 0;
         active_profile_affected = true;
@@ -462,7 +464,7 @@ bool CameraProfileManager::deleteProfile(size_t index)
     else if (previous_active_index == index)
     {
         // Deleted the active profile. Switch to Default.
-        logger.log(LOG_INFO, "DeleteProfile: Deleted active profile. Switching to 'Default'.");
+        logger.log(LogLevel::Info, "DeleteProfile: Deleted active profile. Switching to 'Default'.");
         m_currentProfileIndex = 0;
         active_profile_affected = true;
     }
@@ -470,7 +472,7 @@ bool CameraProfileManager::deleteProfile(size_t index)
     {
         // Deleted profile *before* the active one. Decrement active index.
         m_currentProfileIndex--;
-        logger.log(LOG_DEBUG, "DeleteProfile: Active index shifted from " + std::to_string(previous_active_index) + " to " + std::to_string(m_currentProfileIndex));
+        logger.log(LogLevel::Debug, "DeleteProfile: Active index shifted from " + std::to_string(previous_active_index) + " to " + std::to_string(m_currentProfileIndex));
         // No need to set active_profile_affected = true, profile itself is same
     }
     // else: Deleted after active, active index is unaffected.
@@ -502,17 +504,17 @@ bool CameraProfileManager::cycleToNextProfile()
 
     if (!m_isInitialized)
     {
-        Logger::getInstance().log(LOG_WARNING, "Not initialized.");
+        DMKLogger::get_instance().log(LogLevel::Warning, "Not initialized.");
         return false;
     }
     if (m_profiles.empty())
     {
-        Logger::getInstance().log(LOG_WARNING, "No profiles to cycle.");
+        DMKLogger::get_instance().log(LogLevel::Warning, "No profiles to cycle.");
         return false;
     }
     if (m_profiles.size() == 1)
     {
-        Logger::getInstance().log(LOG_INFO, "CycleProfile: Only 'Default' profile exists. No cycling possible.");
+        DMKLogger::get_instance().log(LogLevel::Info, "CycleProfile: Only 'Default' profile exists. No cycling possible.");
         // Optionally re-activate Default to reset live offset? No, standard says cycle has no effect here.
         return true; // Cycle "succeeded" vacuously.
     }
@@ -528,13 +530,13 @@ bool CameraProfileManager::setProfileByIndex(size_t index)
     // Lock acquired within setActiveProfile if called
     if (!m_isInitialized)
     {
-        Logger::getInstance().log(LOG_WARNING, "Not initialized.");
+        DMKLogger::get_instance().log(LogLevel::Warning, "Not initialized.");
         return false;
     }
 
     if (index >= getProfileCount())
     { // Use getter for thread-safe count access (though lock is probably already held by caller often)
-        Logger::getInstance().log(LOG_ERROR, "setProfileByIndex: Invalid index " + std::to_string(index) + ".");
+        DMKLogger::get_instance().log(LogLevel::Error, "setProfileByIndex: Invalid index " + std::to_string(index) + ".");
         return false;
     }
 
@@ -546,11 +548,11 @@ void CameraProfileManager::setActiveProfile(size_t index, bool useTransition)
 {
     // *** NOTE: This is the ONLY function that should load m_profiles[...].offset into g_currentCameraOffset ***
     std::lock_guard<std::recursive_mutex> lock(m_profileMutex);
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
 
     if (!m_isInitialized)
     {
-        logger.log(LOG_WARNING, "setActiveProfile called before initialized.");
+        logger.log(LogLevel::Warning, "setActiveProfile called before initialized.");
         g_currentCameraOffset = Vector3(); // Safety reset
         m_currentProfileIndex = 0;
         return;
@@ -558,7 +560,7 @@ void CameraProfileManager::setActiveProfile(size_t index, bool useTransition)
 
     if (m_profiles.empty())
     { // Should only happen in extreme error state
-        logger.log(LOG_ERROR, "setActiveProfile called when profile list is empty. Cannot activate.");
+        logger.log(LogLevel::Error, "setActiveProfile called when profile list is empty. Cannot activate.");
         g_currentCameraOffset = Vector3();
         m_currentProfileIndex = 0;
         return;
@@ -566,7 +568,7 @@ void CameraProfileManager::setActiveProfile(size_t index, bool useTransition)
 
     if (index >= m_profiles.size())
     {
-        logger.log(LOG_ERROR, "setActiveProfile: Invalid index " + std::to_string(index) +
+        logger.log(LogLevel::Error, "setActiveProfile: Invalid index " + std::to_string(index) +
                                   ". Max allowed: " + std::to_string(m_profiles.size() - 1) + ". Using index 0 instead.");
         index = 0; // Fallback to Default profile on invalid index
     }
@@ -583,12 +585,12 @@ void CameraProfileManager::setActiveProfile(size_t index, bool useTransition)
     std::string log_prefix = switching_to_same_index ? "Re-activating" : "Activating";
     if (switching_to_same_index)
     {
-        logger.log(LOG_INFO, "CameraProfileManager: " + log_prefix + " profile '" + targetProfile.name +
+        logger.log(LogLevel::Info, "CameraProfileManager: " + log_prefix + " profile '" + targetProfile.name +
                                  "'. Reloaded its saved offset, discarding any unsaved live adjustments.");
     }
     else
     {
-        logger.log(LOG_INFO, "CameraProfileManager: " + log_prefix + " profile '" + targetProfile.name +
+        logger.log(LogLevel::Info, "CameraProfileManager: " + log_prefix + " profile '" + targetProfile.name +
                                  "' (" + std::to_string(m_currentProfileIndex + 1) + "/" + std::to_string(m_profiles.size()) + "). Loaded its saved offset.");
     }
 
@@ -600,14 +602,14 @@ void CameraProfileManager::setActiveProfile(size_t index, bool useTransition)
             Quaternion::Identity(), // Rotation currently identity
             -1.0f                   // Use manager's default duration
         );
-        logger.log(LOG_DEBUG, "CameraProfileManager: Started transition to saved offset.");
+        logger.log(LogLevel::Debug, "CameraProfileManager: Started transition to saved offset.");
     }
     else
     {
         // Explicitly cancel any ongoing transition if switching instantly
         TransitionManager::getInstance().cancelTransition();
 
-        logger.log(LOG_DEBUG, "CameraProfileManager: Applied saved offset immediately (no transition).");
+        logger.log(LogLevel::Debug, "CameraProfileManager: Applied saved offset immediately (no transition).");
     }
 
     g_currentCameraOffset = targetProfile.offset;
@@ -616,11 +618,11 @@ void CameraProfileManager::setActiveProfile(size_t index, bool useTransition)
 void CameraProfileManager::resetToDefault()
 {
     std::lock_guard<std::recursive_mutex> lock(m_profileMutex);
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
 
     if (!m_isInitialized || m_profiles.empty())
     {
-        logger.log(LOG_WARNING, "ResetToDefault: Cannot reset, not initialized or no profiles.");
+        logger.log(LogLevel::Warning, "ResetToDefault: Cannot reset, not initialized or no profiles.");
         // Try setting live offset anyway? Maybe not useful without profiles structure.
         return;
     }
@@ -631,7 +633,7 @@ void CameraProfileManager::resetToDefault()
     //     // Reset the SAVED state of the Default profile
     //     m_profiles[0].offset = Vector3(0.0f, 0.0f, 0.0f);
     //     m_profiles[0].timestamp = generateTimestamp();
-    //     logger.log(LOG_INFO, "CameraProfileManager: Reset 'Default' profile's saved offset to origin.");
+    //     logger.log(LogLevel::Info, "CameraProfileManager: Reset 'Default' profile's saved offset to origin.");
 
     //     // Mark modified since saved state changed
     //     markProfilesModifiedAndDebounceSave();
@@ -642,7 +644,7 @@ void CameraProfileManager::resetToDefault()
     // }
     // else
     // {
-    //     logger.log(LOG_ERROR, "ResetToDefault: 'Default' profile not found at index 0. State inconsistent.");
+    //     logger.log(LogLevel::Error, "ResetToDefault: 'Default' profile not found at index 0. State inconsistent.");
     //     // Attempt fallback: activate index 0 and set live offset to 0
     //     setActiveProfile(0, true);
     //     setOffset(0.0f, 0.0f, 0.0f); // Sets live offset only
@@ -652,40 +654,40 @@ void CameraProfileManager::resetToDefault()
     CameraProfile current_profile = m_profiles[current_profile_index];
 
     setOffset(0.0f, 0.0f, 0.0f); // Sets live offset only
-    logger.log(LOG_INFO, "CameraProfileManager: Reset '" + current_profile.name + "' profile's saved offset to origin.");
+    logger.log(LogLevel::Info, "CameraProfileManager: Reset '" + current_profile.name + "' profile's saved offset to origin.");
 }
 
 // --- Profile Metadata Modification ---
 bool CameraProfileManager::renameProfile(size_t index, const std::string &newName)
 {
     std::lock_guard<std::recursive_mutex> lock(m_profileMutex);
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
 
     if (!m_isInitialized)
     {
-        logger.log(LOG_WARNING, "RenameProfile: Not initialized.");
+        logger.log(LogLevel::Warning, "RenameProfile: Not initialized.");
         return false;
     }
     if (index >= m_profiles.size())
     {
-        logger.log(LOG_ERROR, "RenameProfile: Invalid index.");
+        logger.log(LogLevel::Error, "RenameProfile: Invalid index.");
         return false;
     }
     if (newName.empty())
     {
-        logger.log(LOG_ERROR, "RenameProfile: New name cannot be empty.");
+        logger.log(LogLevel::Error, "RenameProfile: New name cannot be empty.");
         return false;
     }
 
     // Prevent renaming Default (index 0) or renaming TO Default
     if (index == 0)
     {
-        logger.log(LOG_WARNING, "RenameProfile: Cannot rename Default profile.");
+        logger.log(LogLevel::Warning, "RenameProfile: Cannot rename Default profile.");
         return false;
     }
     if (newName == "Default")
     {
-        logger.log(LOG_WARNING, "RenameProfile: Cannot rename profile TO 'Default'.");
+        logger.log(LogLevel::Warning, "RenameProfile: Cannot rename profile TO 'Default'.");
         return false;
     }
 
@@ -695,7 +697,7 @@ bool CameraProfileManager::renameProfile(size_t index, const std::string &newNam
                                { return p.name == newName; });
     if (it_dup != m_profiles.end())
     {
-        logger.log(LOG_WARNING, "RenameProfile: Profile name '" + newName + "' already exists.");
+        logger.log(LogLevel::Warning, "RenameProfile: Profile name '" + newName + "' already exists.");
         return false;
     }
 
@@ -703,7 +705,7 @@ bool CameraProfileManager::renameProfile(size_t index, const std::string &newNam
     m_profiles[index].name = newName;
     m_profiles[index].timestamp = generateTimestamp(); // Update timestamp on metadata change
 
-    logger.log(LOG_INFO, "CameraProfileManager: Renamed profile (idx " + std::to_string(index) + ") from '" +
+    logger.log(LogLevel::Info, "CameraProfileManager: Renamed profile (idx " + std::to_string(index) + ") from '" +
                              oldName + "' to '" + newName + "'.");
 
     markProfilesModifiedAndDebounceSave(); // Metadata changed, need save
@@ -713,16 +715,16 @@ bool CameraProfileManager::renameProfile(size_t index, const std::string &newNam
 bool CameraProfileManager::setProfileCategory(size_t index, const std::string &newCategory)
 {
     std::lock_guard<std::recursive_mutex> lock(m_profileMutex);
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
 
     if (!m_isInitialized)
     {
-        logger.log(LOG_WARNING, "SetCategory: Not initialized.");
+        logger.log(LogLevel::Warning, "SetCategory: Not initialized.");
         return false;
     }
     if (index >= m_profiles.size())
     {
-        logger.log(LOG_ERROR, "SetCategory: Invalid index.");
+        logger.log(LogLevel::Error, "SetCategory: Invalid index.");
         return false;
     }
 
@@ -730,7 +732,7 @@ bool CameraProfileManager::setProfileCategory(size_t index, const std::string &n
 
     if (index == 0 && categoryToSet != "Default")
     {
-        logger.log(LOG_WARNING, "SetCategory: Category for 'Default' profile should ideally remain 'Default'. Setting anyway.");
+        logger.log(LogLevel::Warning, "SetCategory: Category for 'Default' profile should ideally remain 'Default'. Setting anyway.");
         // Allow it but warn. Could enforce by returning false here if desired.
     }
 
@@ -738,7 +740,7 @@ bool CameraProfileManager::setProfileCategory(size_t index, const std::string &n
     m_profiles[index].category = categoryToSet;
     m_profiles[index].timestamp = generateTimestamp();
 
-    logger.log(LOG_INFO, "CameraProfileManager: Changed category of profile '" +
+    logger.log(LogLevel::Info, "CameraProfileManager: Changed category of profile '" +
                              m_profiles[index].name + "' from '" + oldCategory +
                              "' to '" + m_profiles[index].category + "'.");
 
@@ -816,7 +818,7 @@ void CameraProfileManager::adjustOffset(float x, float y, float z)
     g_currentCameraOffset.z += z;
 
     // Optionally log less frequently or guard with debug check
-    // Logger::getInstance().log(LOG_DEBUG, "Adjusted LIVE offset...");
+    // DMKLogger::get_instance().log(LogLevel::Debug, "Adjusted LIVE offset...");
 }
 
 void CameraProfileManager::setOffset(float x, float y, float z)
@@ -825,7 +827,7 @@ void CameraProfileManager::setOffset(float x, float y, float z)
     g_currentCameraOffset.y = y;
     g_currentCameraOffset.z = z;
 
-    // Logger::getInstance().log(LOG_DEBUG, "Set LIVE offset...");
+    // DMKLogger::get_instance().log(LogLevel::Debug, "Set LIVE offset...");
 }
 
 // --- Transition Configuration ---
@@ -843,7 +845,7 @@ void CameraProfileManager::setTransitionSettings(
     transition.setSpringDamping(springDamping);
 
     // Log settings
-    Logger::getInstance().log(LOG_INFO, "CameraProfileManager: Updated transition settings - Duration: " + std::to_string(duration) + "s, " +
+    DMKLogger::get_instance().log(LogLevel::Info, "CameraProfileManager: Updated transition settings - Duration: " + std::to_string(duration) + "s, " +
                                             "Spring Physics: " + (useSpringPhysics ? "ON" : "OFF") +
                                             (useSpringPhysics ? ", Strength: " + std::to_string(springStrength) + ", Damping: " + std::to_string(springDamping) : ""));
 }
@@ -869,7 +871,7 @@ std::string CameraProfileManager::generateTimestamp() const
     else
     {
         // Handle error, e.g., return a default timestamp or log an error
-        Logger::getInstance().log(LOG_ERROR, "CameraProfileManager::generateTimestamp: std::localtime failed.");
+        DMKLogger::get_instance().log(LogLevel::Error, "CameraProfileManager::generateTimestamp: std::localtime failed.");
         return "TIMESTAMP_ERROR";
     }
 #endif
@@ -909,7 +911,7 @@ CameraProfile CameraProfileManager::profileFromJson(const json &jsonObj) const
     }
     catch (const std::exception &e)
     {
-        Logger::getInstance().log(LOG_WARNING, "CameraProfileManager: Error parsing profile JSON: " + std::string(e.what()) + ". Returning error profile.");
+        DMKLogger::get_instance().log(LogLevel::Warning, "CameraProfileManager: Error parsing profile JSON: " + std::string(e.what()) + ". Returning error profile.");
         return CameraProfile("ErrorProfile", Vector3(0, 0, 0), "Error", generateTimestamp());
     }
 }

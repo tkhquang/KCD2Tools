@@ -7,7 +7,6 @@
  */
 #define _USE_MATH_DEFINES
 #include "tpv_input_hook.h"
-#include "logger.h"
 #include "constants.h"
 #include "game_structures.h"
 #include "utils.h"
@@ -21,8 +20,9 @@
 #include <atomic>
 #include <cmath>
 
-using DMKString::format_address;
-using DMKString::format_hex;
+using DetourModKit::LogLevel;
+using DMKFormat::format_address;
+using DMKFormat::format_hex;
 
 // External config reference
 extern Config g_config;
@@ -66,10 +66,10 @@ inline float RadiansToDegrees(float radians)
  */
 static void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEventPtr)
 {
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
 
     // Validate input event pointer
-    if (!DMKMemory::isMemoryReadable(inputEventPtr, sizeof(GameStructures::InputEvent)))
+    if (!DMKMemory::is_readable(inputEventPtr, sizeof(GameStructures::InputEvent)))
     {
         if (fpTpvCameraInputOriginal)
             fpTpvCameraInputOriginal(thisPtr, inputEventPtr);
@@ -94,7 +94,7 @@ static void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEvent
         // Debug logging of raw input
         if (std::abs(event->deltaValue) > 1e-5f)
         {
-            logger.log(LOG_TRACE, "TPVInput RAW: EventID=" + format_hex(event->eventId) +
+            logger.log(LogLevel::Trace, "TPVInput RAW: EventID=" + format_hex(event->eventId) +
                                       " Delta=" + std::to_string(event->deltaValue));
         }
 
@@ -115,7 +115,7 @@ static void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEvent
 
             if (modifiedInput)
             {
-                logger.log(LOG_TRACE, "TPVInput: Yaw adjusted with sensitivity " +
+                logger.log(LogLevel::Trace, "TPVInput: Yaw adjusted with sensitivity " +
                                           std::to_string(sensitivity));
             }
             break;
@@ -144,7 +144,7 @@ static void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEvent
                         // Start at neutral position
                         g_currentPitch.store(0.0f);
                         g_limitsInitialized.store(true);
-                        logger.log(LOG_INFO, "TPVInput: Initialized pitch tracking at 0°");
+                        logger.log(LogLevel::Info, "TPVInput: Initialized pitch tracking at 0°");
                     }
 
                     // Get current pitch and calculate new pitch (in degrees)
@@ -160,7 +160,7 @@ static void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEvent
                     // Update stored pitch
                     g_currentPitch.store(clampedPitch);
 
-                    logger.log(LOG_TRACE, "TPVInput PITCH: Original=" + std::to_string(originalDelta) +
+                    logger.log(LogLevel::Trace, "TPVInput PITCH: Original=" + std::to_string(originalDelta) +
                                               " Sens=" + std::to_string(sensitivity) +
                                               " AdjustedDelta=" + std::to_string(adjustedDelta) +
                                               " Current=" + std::to_string(currentPitch) + "°" +
@@ -171,7 +171,7 @@ static void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEvent
                 }
                 else
                 {
-                    logger.log(LOG_TRACE, "TPVInput PITCH: Original=" + std::to_string(originalDelta) +
+                    logger.log(LogLevel::Trace, "TPVInput PITCH: Original=" + std::to_string(originalDelta) +
                                               " Sens=" + std::to_string(sensitivity) +
                                               " Adjusted=" + std::to_string(adjustedDelta) +
                                               " (No limits)");
@@ -196,7 +196,7 @@ static void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEvent
         // Log significant modifications
         if (modifiedInput)
         {
-            logger.log(LOG_TRACE, "TPVInput MODIFIED: EventID=" + format_hex(event->eventId) +
+            logger.log(LogLevel::Trace, "TPVInput MODIFIED: EventID=" + format_hex(event->eventId) +
                                       " FinalDelta=" + std::to_string(event->deltaValue));
         }
     }
@@ -210,15 +210,15 @@ static void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEvent
 
 bool initializeTpvInputHook(uintptr_t moduleBase, size_t moduleSize)
 {
-    Logger &logger = Logger::getInstance();
-    logger.log(LOG_INFO, "TPVInputHook: Initializing camera input processing hook...");
+    DMKLogger &logger = DMKLogger::get_instance();
+    logger.log(LogLevel::Info, "TPVInputHook: Initializing camera input processing hook...");
 
     try
     {
         // Use DMKHookManager to create hook via AOB scan
-        DMKHookManager &hook_manager = DMKHookManager::getInstance();
+        DMKHookManager &hook_manager = DMKHookManager::get_instance();
 
-        g_tpvInputHookId = hook_manager.create_inline_hook_aob(
+        auto result = hook_manager.create_inline_hook_aob(
             "TpvCameraInput",
             moduleBase,
             moduleSize,
@@ -227,40 +227,40 @@ bool initializeTpvInputHook(uintptr_t moduleBase, size_t moduleSize)
             reinterpret_cast<void *>(Detour_TpvCameraInput),
             reinterpret_cast<void **>(&fpTpvCameraInputOriginal));
 
-        if (g_tpvInputHookId.empty())
+        if (!result.has_value())
         {
-            throw std::runtime_error("Failed to create TPV input hook via AOB scan");
+            throw std::runtime_error("Failed to create TPV input hook: " + std::string(DMK::Hook::error_to_string(result.error())));
         }
+        g_tpvInputHookId = result.value();
 
         // Get the target address for logging
-        DMK::InlineHook *hook = hook_manager.get_inline_hook(g_tpvInputHookId);
-        if (hook)
-        {
-            logger.log(LOG_INFO, "TPVInputHook: Found TPV input function at " +
-                                     format_address(hook->getTargetAddress()));
-        }
+        (void)hook_manager.with_inline_hook(g_tpvInputHookId, [&](DMK::InlineHook &hook) {
+            logger.log(LogLevel::Info, "TPVInputHook: Found TPV input function at " +
+                                     format_address(hook.get_target_address()));
+            return true;
+        });
 
         // Log configuration
-        logger.log(LOG_INFO, "TPVInputHook: Successfully installed with config:");
-        logger.log(LOG_INFO, "  - Yaw Sensitivity: " + std::to_string(g_config.tpv_yaw_sensitivity));
-        logger.log(LOG_INFO, "  - Pitch Sensitivity: " + std::to_string(g_config.tpv_pitch_sensitivity));
+        logger.log(LogLevel::Info, "TPVInputHook: Successfully installed with config:");
+        logger.log(LogLevel::Info, "  - Yaw Sensitivity: " + std::to_string(g_config.tpv_yaw_sensitivity));
+        logger.log(LogLevel::Info, "  - Pitch Sensitivity: " + std::to_string(g_config.tpv_pitch_sensitivity));
 
         if (g_config.tpv_pitch_limits_enabled)
         {
-            logger.log(LOG_INFO, "  - Pitch Limits: " +
+            logger.log(LogLevel::Info, "  - Pitch Limits: " +
                                      std::to_string(g_config.tpv_pitch_min) + "° to " +
                                      std::to_string(g_config.tpv_pitch_max) + "°");
         }
         else
         {
-            logger.log(LOG_INFO, "  - Pitch Limits: Disabled");
+            logger.log(LogLevel::Info, "  - Pitch Limits: Disabled");
         }
 
         return true;
     }
     catch (const std::exception &e)
     {
-        logger.log(LOG_ERROR, "TPVInputHook: Initialization failed: " + std::string(e.what()));
+        logger.log(LogLevel::Error, "TPVInputHook: Initialization failed: " + std::string(e.what()));
         cleanupTpvInputHook();
         return false;
     }
@@ -268,19 +268,19 @@ bool initializeTpvInputHook(uintptr_t moduleBase, size_t moduleSize)
 
 void cleanupTpvInputHook()
 {
-    Logger &logger = Logger::getInstance();
+    DMKLogger &logger = DMKLogger::get_instance();
 
     if (!g_tpvInputHookId.empty())
     {
-        DMKHookManager &hook_manager = DMKHookManager::getInstance();
+        DMKHookManager &hook_manager = DMKHookManager::get_instance();
 
         if (hook_manager.remove_hook(g_tpvInputHookId))
         {
-            logger.log(LOG_INFO, "TPVInputHook: Successfully removed");
+            logger.log(LogLevel::Info, "TPVInputHook: Successfully removed");
         }
         else
         {
-            logger.log(LOG_WARNING, "TPVInputHook: Failed to remove hook");
+            logger.log(LogLevel::Warning, "TPVInputHook: Failed to remove hook");
         }
 
         g_tpvInputHookId.clear();

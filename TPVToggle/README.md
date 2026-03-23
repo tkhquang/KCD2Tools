@@ -212,7 +212,7 @@ This mod requires:
 ### Prerequisites
 
 - [MinGW-w64](https://www.mingw-w64.org/) (GCC/G++ 12+ with C++23 support)
-- [CMake](https://cmake.org/) (3.16 or newer)
+- [CMake](https://cmake.org/) (3.25 or newer)
 - Windows SDK headers (for WinAPI access)
 - Git (to fetch submodules)
 
@@ -224,7 +224,7 @@ git submodule update --init --recursive
 
 # Configure and build
 cd TPVToggle
-cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --parallel
 ```
 
