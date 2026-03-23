@@ -52,6 +52,21 @@ static std::string formatKeyCombo(const DMKKeyCombo &combo)
     return result;
 }
 
+static std::string formatKeyComboList(const DMKKeyComboList &list)
+{
+    if (list.empty())
+        return "[]";
+
+    std::string result;
+    for (size_t i = 0; i < list.size(); ++i)
+    {
+        if (i > 0)
+            result += ", ";
+        result += formatKeyCombo(list[i]);
+    }
+    return result;
+}
+
 /**
  * @brief Loads and validates configuration settings from the specified INI file.
  * @param ini_filename Base name of the INI file (e.g., "KCD2_TPVToggle.ini").
@@ -110,41 +125,45 @@ Config loadConfig(const std::string &ini_filename)
     DMKConfig::register_string("CameraProfiles", "ProfileDirectory", "Profile Directory",
         [&config](const std::string &v) { config.profile_directory = v; }, "");
 
+    // [Settings] Section - Integer configs
+    DMKConfig::register_int("Settings", "OverlayRestoreDelayMs", "Overlay Restore Delay (ms)",
+        [&config](int v) { config.overlay_restore_delay_ms = v; }, 200);
+
     // [Settings] Section - Key combos
     DMKConfig::register_key_combo("Settings", "ToggleKey", "Toggle Key",
-        [&config](const DMKKeyCombo &c) { config.toggle_keys = c; }, "0x72"); // F3
+        [&config](const DMKKeyComboList &c) { config.toggle_keys = c; }, "0x72"); // F3
     DMKConfig::register_key_combo("Settings", "FPVKey", "FPV Key",
-        [&config](const DMKKeyCombo &c) { config.fpv_keys = c; }, "");
+        [&config](const DMKKeyComboList &c) { config.fpv_keys = c; }, "");
     DMKConfig::register_key_combo("Settings", "TPVKey", "TPV Key",
-        [&config](const DMKKeyCombo &c) { config.tpv_keys = c; }, "");
+        [&config](const DMKKeyComboList &c) { config.tpv_keys = c; }, "");
     DMKConfig::register_key_combo("Settings", "HoldKeyToScroll", "Hold Key To Scroll",
-        [&config](const DMKKeyCombo &c) { config.hold_scroll_keys = c; }, "");
+        [&config](const DMKKeyComboList &c) { config.hold_scroll_keys = c; }, "");
 
     // [CameraProfiles] Section - Key combos
     DMKConfig::register_key_combo("CameraProfiles", "MasterToggleKey", "Master Toggle Key",
-        [&config](const DMKKeyCombo &c) { config.master_toggle_keys = c; }, "0x7A");    // F11
+        [&config](const DMKKeyComboList &c) { config.master_toggle_keys = c; }, "0x7A");    // F11
     DMKConfig::register_key_combo("CameraProfiles", "ProfileSaveKey", "Profile Save Key",
-        [&config](const DMKKeyCombo &c) { config.profile_save_keys = c; }, "0x61");     // Numpad 1
+        [&config](const DMKKeyComboList &c) { config.profile_save_keys = c; }, "0x61");     // Numpad 1
     DMKConfig::register_key_combo("CameraProfiles", "ProfileCycleKey", "Profile Cycle Key",
-        [&config](const DMKKeyCombo &c) { config.profile_cycle_keys = c; }, "0x63");    // Numpad 3
+        [&config](const DMKKeyComboList &c) { config.profile_cycle_keys = c; }, "0x63");    // Numpad 3
     DMKConfig::register_key_combo("CameraProfiles", "ProfileResetKey", "Profile Reset Key",
-        [&config](const DMKKeyCombo &c) { config.profile_reset_keys = c; }, "0x65");    // Numpad 5
+        [&config](const DMKKeyComboList &c) { config.profile_reset_keys = c; }, "0x65");    // Numpad 5
     DMKConfig::register_key_combo("CameraProfiles", "ProfileUpdateKey", "Profile Update Key",
-        [&config](const DMKKeyCombo &c) { config.profile_update_keys = c; }, "0x67");   // Numpad 7
+        [&config](const DMKKeyComboList &c) { config.profile_update_keys = c; }, "0x67");   // Numpad 7
     DMKConfig::register_key_combo("CameraProfiles", "ProfileDeleteKey", "Profile Delete Key",
-        [&config](const DMKKeyCombo &c) { config.profile_delete_keys = c; }, "0x69");   // Numpad 9
+        [&config](const DMKKeyComboList &c) { config.profile_delete_keys = c; }, "0x69");   // Numpad 9
     DMKConfig::register_key_combo("CameraProfiles", "OffsetXIncKey", "Offset X Increase Key",
-        [&config](const DMKKeyCombo &c) { config.offset_x_inc_keys = c; }, "0x66");     // Numpad 6
+        [&config](const DMKKeyComboList &c) { config.offset_x_inc_keys = c; }, "0x66");     // Numpad 6
     DMKConfig::register_key_combo("CameraProfiles", "OffsetXDecKey", "Offset X Decrease Key",
-        [&config](const DMKKeyCombo &c) { config.offset_x_dec_keys = c; }, "0x64");     // Numpad 4
+        [&config](const DMKKeyComboList &c) { config.offset_x_dec_keys = c; }, "0x64");     // Numpad 4
     DMKConfig::register_key_combo("CameraProfiles", "OffsetYIncKey", "Offset Y Increase Key",
-        [&config](const DMKKeyCombo &c) { config.offset_y_inc_keys = c; }, "0x6B");     // Numpad +
+        [&config](const DMKKeyComboList &c) { config.offset_y_inc_keys = c; }, "0x6B");     // Numpad +
     DMKConfig::register_key_combo("CameraProfiles", "OffsetYDecKey", "Offset Y Decrease Key",
-        [&config](const DMKKeyCombo &c) { config.offset_y_dec_keys = c; }, "0x6D");     // Numpad -
+        [&config](const DMKKeyComboList &c) { config.offset_y_dec_keys = c; }, "0x6D");     // Numpad -
     DMKConfig::register_key_combo("CameraProfiles", "OffsetZIncKey", "Offset Z Increase Key",
-        [&config](const DMKKeyCombo &c) { config.offset_z_inc_keys = c; }, "0x68");     // Numpad 8
+        [&config](const DMKKeyComboList &c) { config.offset_z_inc_keys = c; }, "0x68");     // Numpad 8
     DMKConfig::register_key_combo("CameraProfiles", "OffsetZDecKey", "Offset Z Decrease Key",
-        [&config](const DMKKeyCombo &c) { config.offset_z_dec_keys = c; }, "0x62");     // Numpad 2
+        [&config](const DMKKeyComboList &c) { config.offset_z_dec_keys = c; }, "0x62");     // Numpad 2
 
     // Load configuration using DMKConfig (handles all registered variables)
     DMKConfig::load(ini_filename);
@@ -167,10 +186,11 @@ Config loadConfig(const std::string &ini_filename)
     else
         logger.log(LogLevel::Info, "Config: TPV FOV: DISABLED");
     logger.log(LogLevel::Info, "Config: Base TPV Offset (X, Y, Z): (" + std::to_string(config.tpv_offset_x) + ", " + std::to_string(config.tpv_offset_y) + ", " + std::to_string(config.tpv_offset_z) + ")");
-    logger.log(LogLevel::Info, "Config: Hold-to-scroll keys: " + formatKeyCombo(config.hold_scroll_keys));
-    logger.log(LogLevel::Info, "Config: TPV/FPV keys (Toggle:" + formatKeyCombo(config.toggle_keys) +
-                             "/FPV:" + formatKeyCombo(config.fpv_keys) +
-                             "/TPV:" + formatKeyCombo(config.tpv_keys) + ")");
+    logger.log(LogLevel::Info, "Config: Overlay restore delay: " + std::to_string(config.overlay_restore_delay_ms) + " ms");
+    logger.log(LogLevel::Info, "Config: Hold-to-scroll keys: " + formatKeyComboList(config.hold_scroll_keys));
+    logger.log(LogLevel::Info, "Config: TPV/FPV keys (Toggle:" + formatKeyComboList(config.toggle_keys) +
+                             "/FPV:" + formatKeyComboList(config.fpv_keys) +
+                             "/TPV:" + formatKeyComboList(config.tpv_keys) + ")");
 
     // Camera sensitivity system summary
     logger.log(LogLevel::Info, "Config: Camera Sensitivity Settings:");
@@ -193,15 +213,15 @@ Config loadConfig(const std::string &ini_filename)
     {
         logger.log(LogLevel::Info, "  Profile Dir: " + config.profile_directory);
         logger.log(LogLevel::Info, "  Adjustment Step: " + std::to_string(config.offset_adjustment_step));
-        logger.log(LogLevel::Info, "  Master Toggle: " + formatKeyCombo(config.master_toggle_keys));
-        logger.log(LogLevel::Info, "  Create New Profile: " + formatKeyCombo(config.profile_save_keys));
-        logger.log(LogLevel::Info, "  Update Active Profile: " + formatKeyCombo(config.profile_update_keys));
-        logger.log(LogLevel::Info, "  Delete Active Profile: " + formatKeyCombo(config.profile_delete_keys));
-        logger.log(LogLevel::Info, "  Cycle Profiles: " + formatKeyCombo(config.profile_cycle_keys));
-        logger.log(LogLevel::Info, "  Reset to Default: " + formatKeyCombo(config.profile_reset_keys));
-        logger.log(LogLevel::Info, "  Adjust X +/-: " + formatKeyCombo(config.offset_x_inc_keys) + "/" + formatKeyCombo(config.offset_x_dec_keys));
-        logger.log(LogLevel::Info, "  Adjust Y +/-: " + formatKeyCombo(config.offset_y_inc_keys) + "/" + formatKeyCombo(config.offset_y_dec_keys));
-        logger.log(LogLevel::Info, "  Adjust Z +/-: " + formatKeyCombo(config.offset_z_inc_keys) + "/" + formatKeyCombo(config.offset_z_dec_keys));
+        logger.log(LogLevel::Info, "  Master Toggle: " + formatKeyComboList(config.master_toggle_keys));
+        logger.log(LogLevel::Info, "  Create New Profile: " + formatKeyComboList(config.profile_save_keys));
+        logger.log(LogLevel::Info, "  Update Active Profile: " + formatKeyComboList(config.profile_update_keys));
+        logger.log(LogLevel::Info, "  Delete Active Profile: " + formatKeyComboList(config.profile_delete_keys));
+        logger.log(LogLevel::Info, "  Cycle Profiles: " + formatKeyComboList(config.profile_cycle_keys));
+        logger.log(LogLevel::Info, "  Reset to Default: " + formatKeyComboList(config.profile_reset_keys));
+        logger.log(LogLevel::Info, "  Adjust X +/-: " + formatKeyComboList(config.offset_x_inc_keys) + "/" + formatKeyComboList(config.offset_x_dec_keys));
+        logger.log(LogLevel::Info, "  Adjust Y +/-: " + formatKeyComboList(config.offset_y_inc_keys) + "/" + formatKeyComboList(config.offset_y_dec_keys));
+        logger.log(LogLevel::Info, "  Adjust Z +/-: " + formatKeyComboList(config.offset_z_inc_keys) + "/" + formatKeyComboList(config.offset_z_dec_keys));
         logger.log(LogLevel::Info, "  Transition: " + std::to_string(config.transition_duration) + "s, Spring: " +
                                  (config.use_spring_physics ? "ON (Str:" + std::to_string(config.spring_strength) + ", Damp:" + std::to_string(config.spring_damping) + ")" : "OFF"));
     }

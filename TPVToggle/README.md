@@ -25,13 +25,22 @@
 
 > **Note:** This mod was developed and tested on the Steam version of Kingdom Come: Deliverance II. Other versions (Epic, GOG, etc.) may not be compatible.
 
+### Linux / Steam Deck (Wine/Proton)
+
+Since this mod uses `dinput8.dll` as the ASI loader, you need to tell Wine/Proton to use the bundled DLL instead of its built-in version. Set the following DLL override:
+
+- **Steam:** Go to the game's **Properties → Launch Options** and add:
+  `WINEDLLOVERRIDES="dinput8=n,b" %command%`
+- **Command line:** Prepend your launch command with:
+  `WINEDLLOVERRIDES="dinput8=n,b"`
+
 ## How It Works
 
 This mod uses advanced techniques to integrate with the game:
 
 1. **AOB Pattern Scanning** – Dynamically scans the game's memory for specific byte patterns to locate camera functions and UI module addresses
 2. **Memory Hooking** – Uses [SafetyHook](https://github.com/cursey/safetyhook) (via [DetourModKit](https://github.com/tkhquang/DetourModKit)) to intercept game functions for overlay detection and event handling
-3. **Key Monitoring** – Spawns background threads to listen for configured hotkeys and process input events
+3. **Input Management** – Uses DetourModKit's input system to handle keyboard, mouse, and gamepad input with support for modifier key combos
 
 ## Configuration
 
@@ -39,34 +48,24 @@ The mod is configured via the `KCD2_TPVToggle.ini` file:
 
 ```ini
 [Settings]
-; Keys that toggle the third-person view (comma-separated, in hex)
-; F3 = 0x72, F4 = 0x73, E = 0x45, etc.
-; If set to empty (ToggleKey = ), no toggle keys will be monitored.
-ToggleKey = 0x72
+; Toggle between first-person and third-person views
+; Supports named keys, modifiers, and combos (e.g., F3, Ctrl+F3, F3,F4)
+; See https://github.com/tkhquang/DetourModKit?tab=readme-ov-file#supported-input-names
+ToggleKey = F3
 
-; First-person view keys (comma-separated, in hex)
-; Always switch to first-person view when pressed.
-; Default keys are game menu keys that benefit from first-person view.
-; If set to empty (FPVKey = ), no first-person view keys will be monitored.
-; 0x4D,0x50,0x49,0x4A,0x4E = M, P, I, J, N
-FPVKey = 0x4D,0x50,0x49,0x4A,0x4E
+; Keys that always switch to first-person view
+FPVKey =
 
-; Third-person view keys (comma-separated, in hex)
-; Always switch to third-person view when pressed.
-; If set to empty (TPVKey = ), no third-person view keys will be monitored.
+; Keys that always switch to third-person view
 TPVKey =
 
 ; Logging level: DEBUG, INFO, WARNING, ERROR
 LogLevel = INFO
 
 ; Enable/disable overlay detection and automatic camera switching
-; true = enabled, false = disabled
 EnableOverlayFeature = true
 
-; Custom FOV for third-person view in degrees
-; Valid range: 0-180, or empty to use default
-; Example: TpvFovDegrees = 75.0
-; Leave empty to disable FOV modification
+; Custom FOV for third-person view in degrees (empty to disable)
 TpvFovDegrees = 68.75
 ```
 
@@ -89,12 +88,9 @@ A new `HoldKeyToScroll` configuration option has been added to provide more gran
 In the `KCD2_TPVToggle.ini` file, you can set the hold-to-scroll key using the virtual key code:
 
 ```ini
-; Common key choices:
-; - Left Shift: 0x10
-; - Left Control: 0x11
-; - Left Alt: 0x12
-; - Space: 0x20
-HoldKeyToScroll = 0x10  ; Example: Left Shift key
+; Hold a key to enable camera distance scrolling
+; Examples: Shift, LShift, Ctrl, Alt, Space
+HoldKeyToScroll = Shift
 ```
 
 ### Benefits
@@ -104,14 +100,27 @@ HoldKeyToScroll = 0x10  ; Example: Left Shift key
 
 ## Using with Controllers
 
-This mod natively listens for keyboard input. To use it with a controller:
+DetourModKit v2 supports gamepad input natively via the **XInput** API. You can use gamepad button names directly in the INI file:
 
-### Controller Support Options
+```ini
+; Example: Toggle view with gamepad Y button
+ToggleKey = Gamepad_Y
 
-- **[JoyToKey](https://joytokey.net/en/):** Map controller buttons to keys configured in the INI file.
-- **[Steam Input](https://store.steampowered.com/controller):** Use Steam's controller configuration to map controller buttons to keys.
+; Example: Use a modifier combo
+ToggleKey = Gamepad_LB+Gamepad_Y
 
-Both allow you to bind any controller button to F3 (or whichever key you've chosen to toggle the view).
+; Example: Multiple independent combos (comma = OR between combos)
+; F3 alone OR (hold LB + press Y) — use keyboard and gamepad interchangeably
+ToggleKey = F3,Gamepad_LB+Gamepad_Y
+```
+
+Supported gamepad inputs include `Gamepad_A`, `Gamepad_B`, `Gamepad_X`, `Gamepad_Y`, `Gamepad_LB`, `Gamepad_RB`, `Gamepad_LT`, `Gamepad_RT`, `Gamepad_Start`, `Gamepad_Back`, `Gamepad_LS`, `Gamepad_RS`, and D-pad directions.
+
+See the full list at the [Supported Input Names](https://github.com/tkhquang/DetourModKit?tab=readme-ov-file#supported-input-names) reference.
+
+> **XInput only:** Xbox controllers work natively. For PS4/PS5/Switch controllers, use [DS4Windows](https://github.com/Ryochan7/DS4Windows), [DualSenseX](https://github.com/Jehan-HENRY/DualSenseX), [BetterJoy](https://github.com/Davidobot/BetterJoy), or Steam Input to present your controller as XInput. See [Gamepad Compatibility](https://github.com/tkhquang/DetourModKit?tab=readme-ov-file#gamepad-compatibility) for details.
+
+Alternatively, you can still use external tools like [JoyToKey](https://joytokey.net/en/) or [Steam Input](https://store.steampowered.com/controller) to map controller buttons to keyboard keys.
 
 ## View Control Keys
 
@@ -121,11 +130,11 @@ The mod supports three types of key bindings:
 2. **First-Person Keys (`FPVKey`)** – Forces first-person view
 3. **Third-Person Keys (`TPVKey`)** – Forces third-person view
 
-### Default FPV Keys Explained
+### FPV Keys
 
-The default keys (M, P, I, J, N) correspond to important in-game UI interactions. These automatically switch the view to first-person to avoid UI bugs or broken menu displays in third-person view.
+You can configure FPV keys that correspond to in-game UI interactions (e.g., `M,P,I,J,N` for Map, Perks, Inventory, Journal, Nobility). These automatically switch the view to first-person to avoid UI bugs in third-person view.
 
-> If you've remapped these keys in your game settings, be sure to update the `FPVKey` list accordingly.
+> If you use this feature, update the `FPVKey` list to match your in-game key bindings.
 
 ### Empty Key Settings
 
@@ -137,15 +146,19 @@ You can leave any key list empty to disable its feature:
 
 If all are empty, the mod will initialize but not monitor any keys (noop mode).
 
-### Key Codes
+### Key Names
 
-Some common virtual key codes:
+Keys are specified using human-readable names. Common examples:
 
-- F1–F12: `0x70`–`0x7B`
-- 1–9: `0x31`–`0x39`
-- A–Z: `0x41`–`0x5A`
+- Function keys: `F1`–`F24`
+- Letters: `A`–`Z`
+- Digits: `0`–`9`
+- Modifiers: `Ctrl`, `Shift`, `Alt` (or `LCtrl`, `RCtrl`, etc.)
+- Numpad: `Numpad0`–`Numpad9`, `NumpadAdd`, `NumpadSubtract`
+- Mouse: `Mouse1`, `Mouse2`, `Mouse3`, `Mouse4`, `Mouse5`
+- Gamepad: `Gamepad_A`, `Gamepad_B`, `Gamepad_X`, `Gamepad_Y`, etc.
 
-See the full list: [Microsoft Virtual Key Codes](https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes)
+Hex VK codes (e.g., `0x72`) are still supported. See the full list: [Supported Input Names](https://github.com/tkhquang/DetourModKit?tab=readme-ov-file#supported-input-names)
 
 ## Troubleshooting
 
@@ -211,12 +224,12 @@ This mod requires:
 
 ### Prerequisites
 
-- [MinGW-w64](https://www.mingw-w64.org/) (GCC/G++ 12+ with C++23 support)
+- [Visual Studio 2022](https://visualstudio.microsoft.com/) (MSVC with C++23 support) or [MinGW-w64](https://www.mingw-w64.org/) (GCC 12+)
 - [CMake](https://cmake.org/) (3.25 or newer)
 - Windows SDK headers (for WinAPI access)
 - Git (to fetch submodules)
 
-### Building with CMake
+### Building with CMake (MSVC - Recommended)
 
 ```bash
 # Fetch dependencies (including DetourModKit and its submodules)
@@ -224,29 +237,20 @@ git submodule update --init --recursive
 
 # Configure and build
 cd TPVToggle
-cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release --parallel
+cmake -S . -B build/msvc -G "Visual Studio 17 2022" -A x64
+cmake --build build/msvc --config Release --parallel
 ```
 
-This will output:
-```
-build/
-├── KCD2_TPVToggle.asi     # The mod itself
-├── KCD2_TPVToggle.ini     # Configuration file
-├── dinput8.dll            # ASI Loader
-├── KCD2_TPVToggle_Readme.txt       # Documentation
-└── KCD2_TPVToggle_Acknowledgements.txt
-```
-
-### Visual Studio (MSVC) Build
+### Building with MinGW
 
 ```bash
-# Configure
-cmake -S . -B build_msvc -G "Visual Studio 17 2022" -A x64
-
-# Build
-cmake --build build_msvc --config Release --parallel
+git submodule update --init --recursive
+cd TPVToggle
+cmake -S . -B build/mingw -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+cmake --build build/mingw --config Release --parallel
 ```
+
+The output binary (`KCD2_TPVToggle.asi`) will be placed in the respective build directory.
 
 ## Architecture
 
@@ -254,7 +258,7 @@ This mod is built on top of **DetourModKit**, which provides:
 - **SafetyHook** – Safe, modern hooking library for intercepting game functions
 - **AOB Scanner** – Pattern scanning with wildcard support for dynamic address resolution
 - **Configuration System** – INI file parsing with automatic value assignment
-- **Logger** – Thread-safe logging with configurable log levels
+- **Logger** – Thread-safe synchronous and async logging with configurable log levels
 - **Memory Utilities** – Safe memory access and manipulation helpers
 
 ## Credits

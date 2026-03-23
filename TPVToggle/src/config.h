@@ -23,9 +23,9 @@
 struct Config
 {
     // Key bindings (populated from INI via DMKConfig::register_key_combo).
-    DMKKeyCombo toggle_keys; /**< Keys that toggle between FPV/TPV. */
-    DMKKeyCombo fpv_keys;    /**< Keys that force First Person View. */
-    DMKKeyCombo tpv_keys;    /**< Keys that force Third Person View. */
+    DMKKeyComboList toggle_keys; /**< Keys that toggle between FPV/TPV. */
+    DMKKeyComboList fpv_keys;    /**< Keys that force First Person View. */
+    DMKKeyComboList tpv_keys;    /**< Keys that force Third Person View. */
 
     // Other configurable settings from INI.
     std::string log_level; /**< Logging level as string (e.g., "INFO", "DEBUG"). */
@@ -35,7 +35,7 @@ struct Config
     float tpv_fov_degrees;       /**< Custom TPV FOV in degrees; -1.0f if disabled. */
 
     // Hold-key-to-scroll feature
-    DMKKeyCombo hold_scroll_keys; /**< Keys that, when held, enable mouse wheel scrolling. */
+    DMKKeyComboList hold_scroll_keys; /**< Keys that, when held, enable mouse wheel scrolling. */
 
     // TPV Camera Offset Settings
     float tpv_offset_x;
@@ -44,20 +44,20 @@ struct Config
 
     // Camera profile system
     bool enable_camera_profiles;
-    DMKKeyCombo master_toggle_keys;
-    DMKKeyCombo profile_save_keys;
-    DMKKeyCombo profile_cycle_keys;
-    DMKKeyCombo profile_reset_keys;
-    DMKKeyCombo profile_update_keys;
-    DMKKeyCombo profile_delete_keys;
+    DMKKeyComboList master_toggle_keys;
+    DMKKeyComboList profile_save_keys;
+    DMKKeyComboList profile_cycle_keys;
+    DMKKeyComboList profile_reset_keys;
+    DMKKeyComboList profile_update_keys;
+    DMKKeyComboList profile_delete_keys;
 
     // Offset adjustment keys
-    DMKKeyCombo offset_x_inc_keys;
-    DMKKeyCombo offset_x_dec_keys;
-    DMKKeyCombo offset_y_inc_keys;
-    DMKKeyCombo offset_y_dec_keys;
-    DMKKeyCombo offset_z_inc_keys;
-    DMKKeyCombo offset_z_dec_keys;
+    DMKKeyComboList offset_x_inc_keys;
+    DMKKeyComboList offset_x_dec_keys;
+    DMKKeyComboList offset_y_inc_keys;
+    DMKKeyComboList offset_y_dec_keys;
+    DMKKeyComboList offset_z_inc_keys;
+    DMKKeyComboList offset_z_dec_keys;
 
     // Adjustment settings
     float offset_adjustment_step;
@@ -76,6 +76,9 @@ struct Config
     float tpv_pitch_min;
     float tpv_pitch_max;
 
+    // Overlay restore delay
+    int overlay_restore_delay_ms;
+
     Config() : log_level("INFO"),
                enable_overlay_feature(true),
                tpv_fov_degrees(-1.0f),
@@ -92,7 +95,8 @@ struct Config
                tpv_yaw_sensitivity(1.0f),
                tpv_pitch_limits_enabled(false),
                tpv_pitch_min(-180.0f),
-               tpv_pitch_max(180.0f)
+               tpv_pitch_max(180.0f),
+               overlay_restore_delay_ms(200)
     {
     }
 };

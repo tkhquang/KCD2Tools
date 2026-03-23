@@ -26,6 +26,7 @@
 #include <windows.h>
 #include <psapi.h>
 #include <stdexcept>
+#include <memory>
 
 // Configuration state
 Config g_config;
@@ -42,10 +43,9 @@ void cleanupResources()
     if (g_exitEvent)
     {
         SetEvent(g_exitEvent);
-        Sleep(100);
     }
 
-    // Wait for main monitor thread to complete
+    // Wait for monitor thread to complete
     if (g_hMonitorThread)
     {
         if (WaitForSingleObject(g_hMonitorThread, 2000) == WAIT_TIMEOUT)
@@ -206,116 +206,69 @@ void registerInputBindings()
     DMKInputManager &input_mgr = DMKInputManager::get_instance();
 
     // View toggle/switch keys
-    if (!g_config.toggle_keys.keys.empty())
-    {
-        input_mgr.register_press("toggle_view", g_config.toggle_keys.keys,
-            g_config.toggle_keys.modifiers, []() {
-                if (getResolvedTpvFlagAddress())
-                    safeToggleViewState();
-            });
-    }
+    input_mgr.register_press("toggle_view", g_config.toggle_keys, []() {
+        if (getResolvedTpvFlagAddress())
+            safeToggleViewState();
+    });
 
-    if (!g_config.fpv_keys.keys.empty())
-    {
-        input_mgr.register_press("force_fpv", g_config.fpv_keys.keys,
-            g_config.fpv_keys.modifiers, []() {
-                if (getResolvedTpvFlagAddress())
-                    setViewState(0);
-            });
-    }
+    input_mgr.register_press("force_fpv", g_config.fpv_keys, []() {
+        if (getResolvedTpvFlagAddress())
+            setViewState(0);
+    });
 
-    if (!g_config.tpv_keys.keys.empty())
-    {
-        input_mgr.register_press("force_tpv", g_config.tpv_keys.keys,
-            g_config.tpv_keys.modifiers, []() {
-                if (getResolvedTpvFlagAddress())
-                    setViewState(1);
-            });
-    }
+    input_mgr.register_press("force_tpv", g_config.tpv_keys, []() {
+        if (getResolvedTpvFlagAddress())
+            setViewState(1);
+    });
 
     // Hold-to-scroll key
-    if (!g_config.hold_scroll_keys.keys.empty())
-    {
-        input_mgr.register_hold("hold_scroll", g_config.hold_scroll_keys.keys,
-            g_config.hold_scroll_keys.modifiers, [](bool held) {
-                g_holdToScrollActive.store(held, std::memory_order_relaxed);
-                handleHoldToScrollKeyState(held);
-            });
-    }
+    input_mgr.register_hold("hold_scroll", g_config.hold_scroll_keys, [](bool held) {
+        g_holdToScrollActive.store(held, std::memory_order_relaxed);
+        handleHoldToScrollKeyState(held);
+    });
 
     // Camera profile keys (only if profiles enabled)
     if (g_config.enable_camera_profiles)
     {
-        if (!g_config.master_toggle_keys.keys.empty())
-        {
-            input_mgr.register_press("profile_master_toggle", g_config.master_toggle_keys.keys,
-                g_config.master_toggle_keys.modifiers, []() {
-                    bool newMode = !g_cameraAdjustmentMode.load();
-                    g_cameraAdjustmentMode.store(newMode);
-                    DMKLogger::get_instance().info("Camera adjustment mode {}",
-                        newMode ? "ENABLED" : "DISABLED");
-                });
-        }
+        input_mgr.register_press("profile_master_toggle", g_config.master_toggle_keys, []() {
+            bool newMode = !g_cameraAdjustmentMode.load();
+            g_cameraAdjustmentMode.store(newMode);
+            DMKLogger::get_instance().info("Camera adjustment mode {}",
+                newMode ? "ENABLED" : "DISABLED");
+        });
 
-        if (!g_config.profile_save_keys.keys.empty())
-        {
-            input_mgr.register_press("profile_save", g_config.profile_save_keys.keys,
-                g_config.profile_save_keys.modifiers, []() {
-                    if (g_cameraAdjustmentMode.load())
-                        CameraProfileManager::getInstance().createNewProfileFromLiveState("General");
-                });
-        }
+        input_mgr.register_press("profile_save", g_config.profile_save_keys, []() {
+            if (g_cameraAdjustmentMode.load())
+                CameraProfileManager::getInstance().createNewProfileFromLiveState("General");
+        });
 
-        if (!g_config.profile_update_keys.keys.empty())
-        {
-            input_mgr.register_press("profile_update", g_config.profile_update_keys.keys,
-                g_config.profile_update_keys.modifiers, []() {
-                    if (g_cameraAdjustmentMode.load())
-                        CameraProfileManager::getInstance().updateActiveProfileWithLiveState();
-                });
-        }
+        input_mgr.register_press("profile_update", g_config.profile_update_keys, []() {
+            if (g_cameraAdjustmentMode.load())
+                CameraProfileManager::getInstance().updateActiveProfileWithLiveState();
+        });
 
-        if (!g_config.profile_delete_keys.keys.empty())
-        {
-            input_mgr.register_press("profile_delete", g_config.profile_delete_keys.keys,
-                g_config.profile_delete_keys.modifiers, []() {
-                    if (g_cameraAdjustmentMode.load())
-                        CameraProfileManager::getInstance().deleteActiveProfile();
-                });
-        }
+        input_mgr.register_press("profile_delete", g_config.profile_delete_keys, []() {
+            if (g_cameraAdjustmentMode.load())
+                CameraProfileManager::getInstance().deleteActiveProfile();
+        });
 
-        if (!g_config.profile_cycle_keys.keys.empty())
-        {
-            input_mgr.register_press("profile_cycle", g_config.profile_cycle_keys.keys,
-                g_config.profile_cycle_keys.modifiers, []() {
-                    if (g_cameraAdjustmentMode.load())
-                        CameraProfileManager::getInstance().cycleToNextProfile();
-                });
-        }
+        input_mgr.register_press("profile_cycle", g_config.profile_cycle_keys, []() {
+            if (g_cameraAdjustmentMode.load())
+                CameraProfileManager::getInstance().cycleToNextProfile();
+        });
 
-        if (!g_config.profile_reset_keys.keys.empty())
-        {
-            input_mgr.register_press("profile_reset", g_config.profile_reset_keys.keys,
-                g_config.profile_reset_keys.modifiers, []() {
-                    if (g_cameraAdjustmentMode.load())
-                        CameraProfileManager::getInstance().resetToDefault();
-                });
-        }
+        input_mgr.register_press("profile_reset", g_config.profile_reset_keys, []() {
+            if (g_cameraAdjustmentMode.load())
+                CameraProfileManager::getInstance().resetToDefault();
+        });
 
         // Register offset adjustment keys as hold bindings for is_binding_active() queries
-        auto registerHoldIfSet = [&](const std::string &name, const DMKKeyCombo &combo) {
-            if (!combo.keys.empty())
-            {
-                input_mgr.register_hold(name, combo.keys, combo.modifiers, [](bool) {});
-            }
-        };
-
-        registerHoldIfSet("offset_x_inc", g_config.offset_x_inc_keys);
-        registerHoldIfSet("offset_x_dec", g_config.offset_x_dec_keys);
-        registerHoldIfSet("offset_y_inc", g_config.offset_y_inc_keys);
-        registerHoldIfSet("offset_y_dec", g_config.offset_y_dec_keys);
-        registerHoldIfSet("offset_z_inc", g_config.offset_z_inc_keys);
-        registerHoldIfSet("offset_z_dec", g_config.offset_z_dec_keys);
+        input_mgr.register_hold("offset_x_inc", g_config.offset_x_inc_keys, [](bool) {});
+        input_mgr.register_hold("offset_x_dec", g_config.offset_x_dec_keys, [](bool) {});
+        input_mgr.register_hold("offset_y_inc", g_config.offset_y_inc_keys, [](bool) {});
+        input_mgr.register_hold("offset_y_dec", g_config.offset_y_dec_keys, [](bool) {});
+        input_mgr.register_hold("offset_z_inc", g_config.offset_z_inc_keys, [](bool) {});
+        input_mgr.register_hold("offset_z_dec", g_config.offset_z_dec_keys, [](bool) {});
     }
 
     logger.info("Input bindings registered ({} total)", input_mgr.binding_count());
@@ -342,9 +295,8 @@ bool startMonitorThread()
 /**
  * @brief Main initialization thread that sets up the mod.
  */
-DWORD WINAPI MainThread(LPVOID hModule_param)
+DWORD WINAPI MainThread([[maybe_unused]] LPVOID hModule_param)
 {
-    (void)hModule_param;
     DMKLogger &logger = DMKLogger::get_instance();
 
     try
@@ -406,65 +358,66 @@ DWORD WINAPI MainThread(LPVOID hModule_param)
                 g_config.spring_strength,
                 g_config.spring_damping);
 
-            CameraProfileThreadData *profile_data = new (std::nothrow) CameraProfileThreadData{
-                g_config.offset_adjustment_step};
+            auto profile_data = std::make_unique<CameraProfileThreadData>(
+                CameraProfileThreadData{g_config.offset_adjustment_step});
 
-            if (!profile_data)
+            g_hCameraProfileThread = CreateThread(NULL, 0, CameraProfileThread, profile_data.get(), 0, NULL);
+            if (!g_hCameraProfileThread)
             {
-                logger.error("Failed to allocate memory for camera profile thread data");
+                logger.error("Failed to create camera profile thread: {}", GetLastError());
             }
             else
             {
-                g_hCameraProfileThread = CreateThread(NULL, 0, CameraProfileThread, profile_data, 0, NULL);
-                if (!g_hCameraProfileThread)
-                {
-                    delete profile_data;
-                    logger.error("Failed to create camera profile thread: {}", GetLastError());
-                }
+                profile_data.release();
             }
         }
 
         logger.info("Initialization completed successfully");
+
+        // Block until shutdown is signaled — keeps cleanup off the loader lock
+        WaitForSingleObject(g_exitEvent, INFINITE);
     }
     catch (const std::exception &e)
     {
         logger.error("Fatal initialization error: {}", e.what());
         MessageBoxA(NULL, ("Fatal Error:\n" + std::string(e.what())).c_str(),
                     Constants::MOD_NAME, MB_ICONERROR | MB_OK);
-        cleanupResources();
-        return 1;
     }
     catch (...)
     {
         logger.error("Fatal initialization error: Unknown exception");
         MessageBoxA(NULL, "Fatal Unknown Error!", Constants::MOD_NAME, MB_ICONERROR | MB_OK);
-        cleanupResources();
-        return 1;
     }
 
+    cleanupResources();
     return 0;
 }
 
 /**
  * @brief DLL entry point.
  */
-BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call,
+                      [[maybe_unused]] LPVOID lpReserved)
 {
-    (void)lpReserved;
-
     switch (ul_reason_for_call)
     {
     case DLL_PROCESS_ATTACH:
+    {
         DisableThreadLibraryCalls(hModule);
 
         // Configure DetourModKit Logger before starting
         DMKLogger::configure(Constants::MOD_NAME, std::string(Constants::MOD_NAME) + ".log", "%Y-%m-%d %H:%M:%S");
 
-        CreateThread(NULL, 0, MainThread, hModule, 0, NULL);
+        HANDLE hThread = CreateThread(NULL, 0, MainThread, hModule, 0, NULL);
+        if (hThread)
+            CloseHandle(hThread);
         break;
+    }
 
     case DLL_PROCESS_DETACH:
-        cleanupResources();
+        // Signal MainThread to run cleanup outside the loader lock
+        if (g_exitEvent)
+            SetEvent(g_exitEvent);
         break;
     }
 

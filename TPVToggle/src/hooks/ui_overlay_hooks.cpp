@@ -296,7 +296,7 @@ bool initializeUiOverlayHooks(uintptr_t module_base, size_t module_size)
         });
 
         // Set initial hold-to-scroll state if feature is enabled
-        if (!g_config.hold_scroll_keys.keys.empty() && g_accumulatorWriteAddress)
+        if (!g_config.hold_scroll_keys.empty() && g_accumulatorWriteAddress)
         {
             logger.log(LogLevel::Info, "UIOverlayHook: Hold-to-scroll feature enabled, applying NOP by default");
             if (DMKMemory::write_bytes(g_accumulatorWriteAddress,

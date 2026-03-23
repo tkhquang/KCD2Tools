@@ -8,12 +8,16 @@
  */
 
 #include "toggle_thread.h"
-#include <DetourModKit.hpp>
+#include "config.h"
 #include "constants.h"
 #include "game_interface.h"
 #include "global_state.h"
 
+#include <DetourModKit.hpp>
+
 #include <windows.h>
+
+extern Config g_config;
 
 using DetourModKit::LogLevel;
 
@@ -22,9 +26,8 @@ using DetourModKit::LogLevel;
  * @details Waits for the game interface to be ready, then processes
  *          FPV/TPV restore requests from UI overlay hooks.
  */
-DWORD WINAPI MonitorThread(LPVOID param)
+DWORD WINAPI MonitorThread([[maybe_unused]] LPVOID param)
 {
-    (void)param;
     DMKLogger &logger = DMKLogger::get_instance();
     logger.log(LogLevel::Info, "MonitorThread: Started");
 
@@ -53,8 +56,9 @@ DWORD WINAPI MonitorThread(LPVOID param)
             if (g_overlayTpvRestoreRequest.load(std::memory_order_relaxed))
             {
                 logger.log(LogLevel::Debug, "MonitorThread: Processing TPV restore request");
-                // Allow UI to settle
-                Sleep(200);
+                // Allow UI to settle before restoring TPV
+                if (g_config.overlay_restore_delay_ms > 0)
+                    Sleep(g_config.overlay_restore_delay_ms);
                 setViewState(1);
                 g_overlayTpvRestoreRequest.store(false, std::memory_order_relaxed);
             }

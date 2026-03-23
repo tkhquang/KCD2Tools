@@ -64,7 +64,7 @@ static uint64_t __fastcall EventHandlerDetour(uintptr_t listenerMgrPtr, char *in
         if (eventID == Constants::MOUSE_WHEEL_EVENT_ID)
         {
             // Check if hold-to-scroll is in use
-            if (!g_config.hold_scroll_keys.keys.empty())
+            if (!g_config.hold_scroll_keys.empty())
             {
                 // Allow scrolling only when hold key is pressed
                 bool holdKeyPressed = g_holdToScrollActive.load(std::memory_order_relaxed);
@@ -164,7 +164,7 @@ bool initializeEventHooks(uintptr_t module_base, size_t module_size)
                     logger.log(LogLevel::Debug, "EventHooks: Saved original accumulator write bytes");
 
                     // For hold-to-scroll feature - NOP it by default if enabled
-                    if (!g_config.hold_scroll_keys.keys.empty())
+                    if (!g_config.hold_scroll_keys.empty())
                     {
                         logger.log(LogLevel::Info, "EventHooks: Hold-to-scroll feature enabled, applying NOP by default");
                         if (DMKMemory::write_bytes(g_accumulatorWriteAddress,
