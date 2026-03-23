@@ -2,6 +2,10 @@
 
 All notable changes to the TPVToggle mod will be documented in this file.
 
+## [0.6.1] - Migrated to DetourModKit v2
+
+- **Breaking: Configuration key format updated** — Keys now use human-readable names (F3, Numpad1, Ctrl+Shift+F3) instead of hex VK codes (
+
 ## [0.6.0] - Refactored with DetourModKit as the foundation
 
 - Migrated hooking infrastructure to DetourModKit for improved reliability
@@ -176,6 +180,7 @@ PitchMax = 180.0            ; Maximum pitch angle in degrees
 - Logging system for troubleshooting
 KCD
 
+[0.6.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.6.1
 [0.6.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.6.0
 [0.5.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.5.0
 [0.4.2]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.4.2
