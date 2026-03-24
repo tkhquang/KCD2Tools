@@ -93,7 +93,8 @@ jobs:
 
           # Run the version updater script with changelog from file
           echo "Running Python script with title: $safeTitle" # Debugging line
-          python TPVToggle/scripts/version_updater.py bump ${{ inputs.version_part }} --title "$safeTitle" --changelog (Get-Content -Path "temp_changelog.txt" -Raw)
+          $changelogArg = Get-Content -Path "temp_changelog.txt" -Raw
+          python TPVToggle/scripts/version_updater.py bump ${{ inputs.version_part }} --title "$safeTitle" --changelog "$changelogArg"
 
           # Extract the new version from version.h
           $version_h = Get-Content TPVToggle\src\version.h -Raw

@@ -1,7 +1,7 @@
 ## Migrated to DetourModKit v2
 
 - **Breaking: Configuration key format updated** — Keys now use human-readable names (`F3`, `Numpad1`, `Ctrl+Shift+F3`) instead of hex VK codes (`0x72`). Hex codes are still supported for backwards compatibility.
-- **Key combo support** — Key bindings now support modifier keys (e.g., `Ctrl+F3`, `Alt+Shift+T`). Multiple trigger keys can be specified with commas (e.g., `F3,F4`).
+- **Key combo support** — Key bindings now support modifier keys (e.g., `Ctrl+F3`, `Alt+Shift+T`). Commas separate independent combos with OR logic (e.g., `F3,F4` means F3 OR F4). Modifiers only apply to their own combo (e.g., `Ctrl+F3,F4` means Ctrl+F3 OR F4 alone; use `Ctrl+F3,Ctrl+F4` for Ctrl with both).
 - **Removed legacy Logger adapter** — The custom `Logger` class and `LogLevel` enum have been removed. All logging now uses `DMKLogger` directly from DetourModKit.
 - **Refactored configuration system** — Configuration loading now uses DMK v2's `register_key_combo`, `register_float`, `register_bool`, and `register_string` APIs.
 - **Updated default INI template** — All key bindings use named keys, with documentation linking to the [supported input names](https://github.com/tkhquang/DetourModKit?tab=readme-ov-file#supported-input-names) reference.
