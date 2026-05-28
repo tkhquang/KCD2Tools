@@ -169,8 +169,8 @@ bool initializeEventHooks(uintptr_t module_base, size_t module_size)
                         logger.log(LogLevel::Info, "EventHooks: Hold-to-scroll feature enabled, applying NOP by default");
                         if (DMKMemory::write_bytes(g_accumulatorWriteAddress,
                                                    reinterpret_cast<const std::byte *>(NOP_PATTERN),
-                                                   Constants::ACCUMULATOR_WRITE_INSTR_LENGTH,
-                                                   DMKLogger::get_instance()).has_value())
+                                                   Constants::ACCUMULATOR_WRITE_INSTR_LENGTH)
+                                .has_value())
                         {
                             g_accumulatorWriteNOPped.store(true);
                         }
@@ -226,8 +226,8 @@ void cleanupEventHooks()
         logger.log(LogLevel::Info, "EventHooks: Restoring original accumulator write bytes...");
         if (!DMKMemory::write_bytes(g_accumulatorWriteAddress,
                                     g_originalAccumulatorWriteBytes,
-                                    Constants::ACCUMULATOR_WRITE_INSTR_LENGTH,
-                                    DMKLogger::get_instance()).has_value())
+                                    Constants::ACCUMULATOR_WRITE_INSTR_LENGTH)
+                 .has_value())
         {
             logger.log(LogLevel::Error, "EventHooks: FAILED TO RESTORE ACCUMULATOR WRITE BYTES!");
         }
