@@ -212,8 +212,8 @@ bool handleHoldToScrollKeyState(bool holdKeyPressed)
     {
         if (DMKMemory::write_bytes(g_accumulatorWriteAddress,
                                    g_originalAccumulatorWriteBytes,
-                                   Constants::ACCUMULATOR_WRITE_INSTR_LENGTH,
-                                   DMKLogger::get_instance()).has_value())
+                                   Constants::ACCUMULATOR_WRITE_INSTR_LENGTH)
+                .has_value())
         {
             g_accumulatorWriteNOPped.store(false);
             logger.log(LogLevel::Debug, "UIOverlayHook: Restored accumulator write due to hold key press");
@@ -225,8 +225,8 @@ bool handleHoldToScrollKeyState(bool holdKeyPressed)
     {
         if (DMKMemory::write_bytes(g_accumulatorWriteAddress,
                                    reinterpret_cast<const std::byte *>(nopSequence),
-                                   Constants::ACCUMULATOR_WRITE_INSTR_LENGTH,
-                                   DMKLogger::get_instance()).has_value())
+                                   Constants::ACCUMULATOR_WRITE_INSTR_LENGTH)
+                .has_value())
         {
             g_accumulatorWriteNOPped.store(true);
             logger.log(LogLevel::Debug, "UIOverlayHook: NOPped accumulator write due to hold key release");
@@ -301,8 +301,8 @@ bool initializeUiOverlayHooks(uintptr_t module_base, size_t module_size)
             logger.log(LogLevel::Info, "UIOverlayHook: Hold-to-scroll feature enabled, applying NOP by default");
             if (DMKMemory::write_bytes(g_accumulatorWriteAddress,
                                       reinterpret_cast<const std::byte *>(nopSequence),
-                                      Constants::ACCUMULATOR_WRITE_INSTR_LENGTH,
-                                      DMKLogger::get_instance()).has_value())
+                                      Constants::ACCUMULATOR_WRITE_INSTR_LENGTH)
+                    .has_value())
             {
                 g_accumulatorWriteNOPped.store(true);
             }
@@ -346,8 +346,7 @@ void cleanupUiOverlayHooks()
         logger.log(LogLevel::Info, "UIOverlayHook: Restoring accumulator write before exit");
         (void)DMKMemory::write_bytes(g_accumulatorWriteAddress,
                                      g_originalAccumulatorWriteBytes,
-                                     Constants::ACCUMULATOR_WRITE_INSTR_LENGTH,
-                                     DMKLogger::get_instance());
+                                     Constants::ACCUMULATOR_WRITE_INSTR_LENGTH);
         g_accumulatorWriteNOPped.store(false);
     }
 

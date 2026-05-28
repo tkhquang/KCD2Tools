@@ -314,7 +314,7 @@ DWORD WINAPI MainThread([[maybe_unused]] LPVOID hModule_param)
         logger.enable_async_mode();
 
         // Initialize memory cache with defaults (256 entries, 50ms expiry)
-        DMKMemory::init_cache();
+        (void)DMKMemory::init_cache();
         logger.info("Memory cache system initialized");
 
         // Create exit event for thread signaling

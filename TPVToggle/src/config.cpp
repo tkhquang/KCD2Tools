@@ -171,7 +171,7 @@ Config loadConfig(const std::string &ini_filename)
     // Set profile directory if not set by DMKConfig
     if (config.profile_directory.empty())
     {
-        config.profile_directory = DMKFilesystem::get_runtime_directory();
+        config.profile_directory = DMKFilesystem::get_runtime_directory_utf8();
         if (config.profile_directory.empty())
         {
             config.profile_directory = ".";
