@@ -5,11 +5,13 @@
 #include <string>
 #include <vector>
 #include <mutex>
-#include <memory>
 #include "math_utils.hpp"
 #include "transition_manager.hpp"
 
 #include <nlohmann/json.hpp>
+
+namespace TPVToggle
+{
 
 // Structure to represent a saved camera profile's persistent state
 struct CameraProfile
@@ -31,7 +33,7 @@ class CameraProfileManager
 {
 public:
     // Singleton access
-    static CameraProfileManager &getInstance();
+    [[nodiscard]] static CameraProfileManager &getInstance();
 
     // --- Initialization & Persistence ---
     /**
@@ -39,7 +41,7 @@ public:
      * @param directory Path to the directory containing the profiles JSON file.
      * @return true if initialization was successful.
      */
-    bool loadProfiles(const std::string &directory);
+    [[nodiscard]] bool loadProfiles(const std::string &directory);
     /**
      * @brief Explicitly saves all profiles to the JSON file immediately.
      * @return true if save was successful.
@@ -48,7 +50,7 @@ public:
 
     // --- Profile Lifecycle Actions ---
     /**
-     * @brief Creates a NEW profile using the current live camera offset (g_currentCameraOffset).
+     * @brief Creates a NEW profile using the current live camera offset (TPVToggle::camera_state().offset).
      *        Assigns a unique generated name and switches active profile to the new one.
      * @param category Optional category for the new profile.
      * @return true if profile creation was successful.
@@ -116,44 +118,44 @@ public:
      * @brief Gets the profile object (saved state) for the currently active profile.
      * @return Const reference to the active CameraProfile. Returns safe default on error.
      */
-    const CameraProfile &getCurrentProfile() const;
+    [[nodiscard]] const CameraProfile &getCurrentProfile() const;
     /**
      * @brief Gets the SAVED offset Vector3 of the currently active profile.
      * @return The saved offset. Returns (0,0,0) on error.
      */
-    Vector3 getSavedOffsetOfCurrentProfile() const;
+    [[nodiscard]] Vector3 getSavedOffsetOfCurrentProfile() const;
     /**
      * @brief Gets the total number of saved profiles.
      * @return Profile count.
      */
-    size_t getProfileCount() const;
+    [[nodiscard]] size_t getProfileCount() const;
     /**
      * @brief Gets the index of the currently active profile.
      * @return Active profile index.
      */
-    size_t getCurrentProfileIndex() const;
+    [[nodiscard]] size_t getCurrentProfileIndex() const;
     /**
      * @brief Gets a copy of the entire list of saved profiles.
      * @return std::vector<CameraProfile>
      */
-    std::vector<CameraProfile> getAllProfiles() const;
+    [[nodiscard]] std::vector<CameraProfile> getAllProfiles() const;
     /**
      * @brief Filters profiles by category and returns their indices.
      * @param category Category string to filter by.
      * @return Vector of indices matching the category.
      */
-    std::vector<size_t> getProfileIndicesByCategory(const std::string &category) const;
+    [[nodiscard]] std::vector<size_t> getProfileIndicesByCategory(const std::string &category) const;
 
-    // --- Live Adjustments (modify ONLY g_currentCameraOffset) ---
+    // --- Live Adjustments (modify ONLY TPVToggle::camera_state().offset) ---
     /**
-     * @brief Adds delta values to the live camera offset (g_currentCameraOffset).
+     * @brief Adds delta values to the live camera offset (TPVToggle::camera_state().offset).
      * @param x Delta X.
      * @param y Delta Y.
      * @param z Delta Z.
      */
     void adjustOffset(float x, float y, float z);
     /**
-     * @brief Sets the live camera offset (g_currentCameraOffset) to absolute values.
+     * @brief Sets the live camera offset (TPVToggle::camera_state().offset) to absolute values.
      * @param x New X.
      * @param y New Y.
      * @param z New Z.
@@ -161,6 +163,13 @@ public:
     void setOffset(float x, float y, float z);
 
     // --- Transition Configuration ---
+    /**
+     * @brief Pushes the profile-switch transition parameters into the TransitionManager.
+     * @param duration Transition duration in seconds.
+     * @param useSpringPhysics Whether to apply spring physics during the transition.
+     * @param springStrength Spring stiffness used when spring physics is enabled.
+     * @param springDamping Spring damping used when spring physics is enabled.
+     */
     void setTransitionSettings(float duration, bool useSpringPhysics, float springStrength, float springDamping);
 
 private:
@@ -198,5 +207,7 @@ private:
     // Constants
     static constexpr int SAVE_DEBOUNCE_SECONDS = 2; // Debounce window
 };
+
+} // namespace TPVToggle
 
 #endif // CAMERA_PROFILE_HPP

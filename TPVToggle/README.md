@@ -235,13 +235,39 @@ This mod requires:
 # Fetch dependencies (including DetourModKit and its submodules)
 git submodule update --init --recursive
 
-# Configure and build
+# Configure and build the production ASI (uses CMakePresets.json)
 cd TPVToggle
-cmake -S . -B build/msvc -G "Visual Studio 17 2022" -A x64
-cmake --build build/msvc --config Release --parallel
+cmake --preset msvc-release
+cmake --build --preset msvc-release
 ```
 
-The output binary (`KCD2_TPVToggle.asi`) will be placed in the build directory.
+The output binary (`KCD2_TPVToggle.asi`) will be placed in `build/release-msvc/`.
+
+### Developer hot-reload build (optional)
+
+For fast iteration, an optional two-DLL configuration ships the mod as a thin
+loader `.asi` plus a logic DLL that the loader reloads in place, so changes apply
+without restarting the game:
+
+```bash
+# Configure and build the loader + logic DLL
+cmake --preset msvc-dev
+cmake --build --preset msvc-dev
+```
+
+The `msvc-dev` preset deploys the loader `KCD2_TPVToggle.asi` into the game's
+plugin directory. Each rebuilt `KCD2_TPVToggle_Logic.dll` is placed directly in
+the game directory when the game is closed; if the game is running and holds the
+file open, it is left in a `staging/` subdirectory instead. With the game
+running, rebuild and then press **Numpad 0** in-game to unload the old logic and
+load the freshly staged one. Point it at a different install by overriding
+`TPVTOGGLE_GAME_DIR`:
+
+```bash
+cmake --preset msvc-dev -DTPVTOGGLE_GAME_DIR="<KC:D 2 install>/Bin/Win64MasterMasterSteamPGO"
+```
+
+This build is for development only; releases use the single production ASI above.
 
 ## Architecture
 

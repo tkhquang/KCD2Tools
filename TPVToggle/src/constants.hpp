@@ -1,15 +1,14 @@
 /**
- * @file constants.h
+ * @file constants.hpp
  * @brief Central definitions for constants used throughout the mod.
  *
  * Includes version info, filenames, default settings, AOB patterns, and memory offsets.
- * All hardcoded memory addresses have been replaced with AOB patterns for robustness.
+ * Memory locations are resolved via AOB patterns so they survive game updates.
  */
 #ifndef CONSTANTS_HPP
 #define CONSTANTS_HPP
 
 #include <string>
-#include <math.h>
 
 #include "version.hpp"
 
@@ -19,25 +18,24 @@
  */
 namespace Constants
 {
-    // Version information derived from version.h
-    constexpr const char *MOD_VERSION = Version::VERSION_STRING;
-    constexpr const char *MOD_NAME = Version::MOD_NAME;
-    constexpr const char *MOD_WEBSITE = Version::REPOSITORY;
+    // Mod name derived from version.hpp; used for the INI/log file names and the
+    // per-process instance mutex. The version string and repository URL are read
+    // directly from TPVToggle::Version where they are needed.
+    constexpr const char *MOD_NAME = TPVToggle::Version::MOD_NAME;
 
     // File extensions
     constexpr const char *INI_FILE_EXTENSION = ".ini";
-    constexpr const char *LOG_FILE_EXTENSION = ".log";
 
     /** @brief Gets the INI config filename (e.g., "KCD2_TPVToggle.ini"). */
     inline std::string getConfigFilename()
     {
         return std::string(MOD_NAME) + INI_FILE_EXTENSION;
     }
-    /** @brief Gets the base log filename (e.g., "KCD2_TPVToggle.log"). */
-    inline std::string getLogFilename()
-    {
-        return std::string(MOD_NAME) + LOG_FILE_EXTENSION;
-    }
+
+    /** @brief Log file name passed to DMK::Bootstrap (string-view-safe literal). */
+    constexpr const char *LOG_FILE_NAME = "KCD2_TPVToggle.log";
+    /** @brief Per-PID instance-mutex prefix so duplicate ASI loads bail cleanly. */
+    constexpr const char *INSTANCE_MUTEX_PREFIX = "KCD2_TPVToggle_";
 
     // --- Default Configuration Values ---
     /** @brief Default logging level ("INFO"). */
@@ -238,11 +236,11 @@ namespace Constants
     // For CEntity World Transform Member (relative to CEntity* base)
     constexpr ptrdiff_t OFFSET_ENTITY_WORLD_MATRIX_MEMBER = 0x58;
 
-    // Offsets relative to the outputPosePtr (RDX) in FUN_18392509c
-    // Standard Pos(XYZ) followed by Quat(XYZW).
-    constexpr ptrdiff_t TPV_OUTPUT_POSE_POSITION_OFFSET = 0x0;  // Base Offset (X, Y, Z = 12 bytes)
-    constexpr ptrdiff_t TPV_OUTPUT_POSE_ROTATION_OFFSET = 0x0C; // Base Offset (Assuming starts right after Pos. Z = 0x8+0x4) (X, Y, Z, W = 16 bytes)
-    constexpr size_t TPV_OUTPUT_POSE_REQUIRED_SIZE = 0x1C;      // Minimum size needed: Pos(12) + Quat(16) = 28 bytes (0x1C). Let's use 0x20 for alignment.
+    // Offsets relative to the outputPosePtr (RDX) in FUN_18392509c.
+    // Layout is pos(XYZ) immediately followed by quat(XYZW).
+    constexpr ptrdiff_t TPV_OUTPUT_POSE_POSITION_OFFSET = 0x0;  // pos(X,Y,Z) = 12 bytes at the start of the pose struct
+    constexpr ptrdiff_t TPV_OUTPUT_POSE_ROTATION_OFFSET = 0x0C; // quat(X,Y,Z,W) = 16 bytes, immediately after pos (0x0 + 12 = 0xC)
+    constexpr size_t TPV_OUTPUT_POSE_REQUIRED_SIZE = 0x1C;      // pos(12) + quat(16) = 28 bytes (0x1C) read/write window
 
     // --- Input Event Offsets ---
     constexpr ptrdiff_t INPUT_EVENT_TYPE_OFFSET = 0x04;

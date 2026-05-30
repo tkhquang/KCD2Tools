@@ -1,5 +1,5 @@
 /**
- * @file entity_hooks.h
+ * @file hooks/entity_hooks.hpp
  * @brief Header for entity system hooks functionality
  *
  * Provides functions to initialize and manage hooks for entity tracking,
@@ -16,8 +16,11 @@ namespace GameStructures
     class CEntity;
 }
 
-// Function pointer type
-typedef void (*CEntity_SetWorldTM_Func_t)(GameStructures::CEntity *this_ptr, float *tm_3x4, int flags);
+namespace TPVToggle
+{
+
+// Function pointer type for the engine's CEntity::SetWorldTM (this, 3x4 matrix, flags).
+using CEntity_SetWorldTM_Func_t = void (*)(GameStructures::CEntity *this_ptr, float *tm_3x4, int flags);
 
 /**
  * @brief Initialize entity system hooks
@@ -43,5 +46,7 @@ void ResetPlayerEntityIfDestroyed(GameStructures::CEntity *entity);
  * @return Pointer to player entity or nullptr if not found
  */
 GameStructures::CEntity *GetPlayerEntity();
+
+} // namespace TPVToggle
 
 #endif // ENTITY_HOOKS_HPP

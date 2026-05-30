@@ -2,7 +2,12 @@
 #define TRANSITION_MANAGER_HPP
 
 #include "math_utils.hpp"
-#include <chrono>
+
+#include <atomic>
+#include <mutex>
+
+namespace TPVToggle
+{
 
 // Camera state for transitions
 struct CameraState
@@ -45,13 +50,13 @@ public:
      * @param outRotation Output parameter for the interpolated rotation
      * @return true if transition is still in progress, false if completed
      */
-    bool updateTransition(float deltaTime, Vector3 &outPosition, Quaternion &outRotation);
+    [[nodiscard]] bool updateTransition(float deltaTime, Vector3 &outPosition, Quaternion &outRotation);
 
     /**
      * @brief Check if a transition is in progress
      * @return true if a transition is currently active
      */
-    bool isTransitioning() const;
+    [[nodiscard]] bool isTransitioning() const noexcept;
 
     /**
      * @brief Manually cancel the current transition
@@ -59,10 +64,26 @@ public:
     void cancelTransition();
 
     // Configuration methods
-    void setTransitionDuration(float seconds) { m_defaultDuration = seconds; }
-    void setUseSpringPhysics(bool enable) { m_useSpringPhysics = enable; }
-    void setSpringStrength(float value) { m_springStrength = value; }
-    void setSpringDamping(float value) { m_springDamping = value; }
+    void setTransitionDuration(float seconds)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_defaultDuration = seconds;
+    }
+    void setUseSpringPhysics(bool enable)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_useSpringPhysics = enable;
+    }
+    void setSpringStrength(float value)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_springStrength = value;
+    }
+    void setSpringDamping(float value)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_springDamping = value;
+    }
 
 private:
     TransitionManager();
@@ -72,19 +93,26 @@ private:
     TransitionManager(const TransitionManager &) = delete;
     TransitionManager &operator=(const TransitionManager &) = delete;
 
-    // Transition state
-    bool m_isTransitioning;
+    // The transition state below is mutated by updateTransition() on the per-frame
+    // camera-hook thread and by startTransition()/cancelTransition() on the camera
+    // profile thread, so it is guarded by m_mutex. m_isTransitioning is also atomic
+    // so the per-frame fast path can skip the lock entirely while idle (no
+    // transition running), which is the common case.
+    std::atomic<bool> m_isTransitioning;
+    mutable std::mutex m_mutex;
+
+    // Transition state (guarded by m_mutex)
     float m_transitionProgress;
     float m_transitionDuration;
     float m_defaultDuration;
 
-    // Spring physics
+    // Spring physics (guarded by m_mutex)
     bool m_useSpringPhysics;
     float m_springStrength;
     float m_springDamping;
-    mutable Vector3 m_springVelocity;
+    Vector3 m_springVelocity;
 
-    // Current source and target states
+    // Current source and target states (guarded by m_mutex)
     CameraState m_sourceState;
     CameraState m_targetState;
 
@@ -93,7 +121,7 @@ private:
      * @param x Input value in range [0,1]
      * @return Smoothed value in range [0,1]
      */
-    float smoothstep(float x) const;
+    float smoothstep(float x) const noexcept;
 
     /**
      * @brief Apply spring physics to position
@@ -104,5 +132,7 @@ private:
      */
     Vector3 applySpringPhysics(const Vector3 &current, const Vector3 &target, float deltaTime);
 };
+
+} // namespace TPVToggle
 
 #endif // TRANSITION_MANAGER_HPP

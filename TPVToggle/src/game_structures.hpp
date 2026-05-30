@@ -1,5 +1,5 @@
 /**
- * @file game_structures.h
+ * @file game_structures.hpp
  * @brief Game-specific structure definitions for Kingdom Come: Deliverance II
  *
  * Contains minimal definitions of game structures required for hooking and memory access.

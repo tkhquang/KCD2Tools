@@ -86,8 +86,6 @@ struct Quaternion
 
     Quaternion(float _x = 0.0f, float _y = 0.0f, float _z = 0.0f, float _w = 1.0f) : x(_x), y(_y), z(_z), w(_w) {}
 
-    Quaternion &operator=(const Quaternion &other) = default; // Keep default assignment
-
     bool operator!=(const Quaternion &other) const
     {
         // Compare component-wise with tolerance
@@ -95,7 +93,7 @@ struct Quaternion
                 std::abs(y - other.y) > QUAT_EPSILON ||
                 std::abs(z - other.z) > QUAT_EPSILON ||
                 std::abs(w - other.w) > QUAT_EPSILON);
-    };
+    }
 
     static Quaternion Identity() { return Quaternion(0.0f, 0.0f, 0.0f, 1.0f); }
 

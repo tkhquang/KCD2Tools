@@ -1,5 +1,5 @@
 /**
- * @file tpv_input_hook.h
+ * @file hooks/tpv_input_hook.hpp
  * @brief Hook for the third-person camera input processing function
  *
  * Provides customizable camera control including sensitivity adjustment
@@ -10,23 +10,23 @@
 
 #include <cstdint>
 
+namespace TPVToggle
+{
+
 /**
  * @brief Initializes the TPV camera input hook
  * @param moduleBase Base address of the game's main module
  * @param moduleSize Size of the game's main module
  * @return true if initialization was successful, false otherwise
  */
-bool initializeTpvInputHook(uintptr_t moduleBase, size_t moduleSize);
-
-/**
- * @brief Cleans up and removes the TPV camera input hook
- */
-void cleanupTpvInputHook();
+[[nodiscard]] bool initializeTpvInputHook(uintptr_t moduleBase, size_t moduleSize);
 
 /**
  * @brief Reset camera angles to default values
  * @details Used when switching views or resetting camera state
  */
 void resetCameraAngles();
+
+} // namespace TPVToggle
 
 #endif // TPV_INPUT_HOOK_HPP

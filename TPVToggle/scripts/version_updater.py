@@ -3,7 +3,7 @@
 TPVToggle Version Updater
 
 This script provides a complete solution for version management:
-1. Bumps the version in version.h (the single source of truth)
+1. Bumps the version in version.hpp (the single source of truth)
 2. Updates the CHANGELOG.md file with new release information
 3. Updates version in KCD2_TPVToggle_Readme.txt
 4. Can be run manually or through GitHub Actions
@@ -23,12 +23,12 @@ from datetime import datetime
 
 # Base paths
 BASE_DIR = Path(__file__).parent.parent
-VERSION_HEADER = BASE_DIR / "src" / "version.h"
+VERSION_HEADER = BASE_DIR / "src" / "version.hpp"
 CHANGELOG_MD = BASE_DIR / "CHANGELOG.md"
-README_TXT = BASE_DIR / "build" / "KCD2_TPVToggle_Readme.txt"
+README_TXT = BASE_DIR / "build" / "template" / "KCD2_TPVToggle_Readme.txt"
 
 def get_current_version():
-    """Parse version.h to extract version information."""
+    """Parse version.hpp to extract version information."""
     if not VERSION_HEADER.exists():
         print(f"Error: {VERSION_HEADER} not found.")
         sys.exit(1)
@@ -41,7 +41,7 @@ def get_current_version():
     patch_match = re.search(r'#define\s+VERSION_PATCH\s+(\d+)', version_h)
 
     if not (major_match and minor_match and patch_match):
-        print("Error: Could not extract version information from version.h")
+        print("Error: Could not extract version information from version.hpp")
         sys.exit(1)
 
     major = int(major_match.group(1))
@@ -52,7 +52,7 @@ def get_current_version():
 
 def bump_version(part):
     """
-    Bump the version in version.h.
+    Bump the version in version.hpp.
 
     Args:
         part: The part of the version to bump: "major", "minor", or "patch"
@@ -73,7 +73,7 @@ def bump_version(part):
         print(f"Error: Invalid version part '{part}'. Use 'major', 'minor', or 'patch'.")
         sys.exit(1)
 
-    # Update version.h
+    # Update version.hpp
     version_h = VERSION_HEADER.read_text()
 
     # Update the defines

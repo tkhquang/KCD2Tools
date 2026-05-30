@@ -1,5 +1,5 @@
 /**
- * @file hooks/ui_menu_hooks.h
+ * @file hooks/ui_menu_hooks.hpp
  * @brief Header for in-game menu hooks functionality.
  *
  * Provides functions to initialize and manage hooks that directly intercept
@@ -8,8 +8,11 @@
 #ifndef UI_MENU_HOOKS_HPP
 #define UI_MENU_HOOKS_HPP
 
-#include <windows.h>
 #include <cstdint>
+#include <cstddef>
+
+namespace TPVToggle
+{
 
 /**
  * @brief Initialize UI menu hooks.
@@ -17,23 +20,14 @@
  * @param module_size Size of the target game module in bytes.
  * @return true if initialization successful, false otherwise.
  */
-bool initializeUiMenuHooks(uintptr_t module_base, size_t module_size);
-
-/**
- * @brief Clean up UI menu hook resources.
- */
-void cleanupUiMenuHooks();
-
-/**
- * @brief Check if UI menu hooks are active and ready.
- * @return true if all required hooks are successfully installed and functional.
- */
-bool areUiMenuHooksActive();
+[[nodiscard]] bool initializeUiMenuHooks(uintptr_t module_base, size_t module_size);
 
 /**
  * @brief Check if the in-game menu is currently open.
  * @return true if the menu is open, false otherwise.
  */
-bool isGameMenuOpen();
+[[nodiscard]] bool isGameMenuOpen() noexcept;
+
+} // namespace TPVToggle
 
 #endif // UI_MENU_HOOKS_HPP

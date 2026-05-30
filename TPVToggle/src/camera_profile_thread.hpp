@@ -1,23 +1,25 @@
 /**
- * @file camera_profile_thread.h
- * @brief Header for camera profile offset adjustment thread.
- *
- * Edge-triggered profile actions (save, cycle, reset, etc.) are handled
- * by DMKInputManager press callbacks registered in dllmain.cpp.
- * This thread handles continuous offset adjustment via is_binding_active() queries.
+ * @file camera_profile_thread.hpp
+ * @brief Worker body for continuous camera-offset adjustment.
  */
 #ifndef CAMERA_PROFILE_THREAD_HPP
 #define CAMERA_PROFILE_THREAD_HPP
 
-#include <windows.h>
+#include <stop_token>
 
-// Thread function prototype
-DWORD WINAPI CameraProfileThread(LPVOID param);
-
-// Helper structure to pass data to the thread
-struct CameraProfileThreadData
+namespace TPVToggle
 {
-    float adjustmentStep;
-};
+
+/**
+ * @brief StoppableWorker body for continuous camera-offset adjustment.
+ * @details Polls the six offset-direction hold bindings at ~60 Hz and applies
+ *          the configured step while a key is held, but only while camera
+ *          adjustment mode is enabled. Edge-triggered profile actions (save,
+ *          cycle, reset, ...) are handled by DMK::InputManager press callbacks.
+ * @param st The worker's stop token.
+ */
+void camera_profile_body(std::stop_token st);
+
+} // namespace TPVToggle
 
 #endif // CAMERA_PROFILE_THREAD_HPP

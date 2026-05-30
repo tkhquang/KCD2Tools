@@ -96,8 +96,8 @@ jobs:
           $changelogArg = Get-Content -Path "temp_changelog.txt" -Raw
           python TPVToggle/scripts/version_updater.py bump ${{ inputs.version_part }} --title "$safeTitle" --changelog "$changelogArg"
 
-          # Extract the new version from version.h
-          $version_h = Get-Content TPVToggle\src\version.h -Raw
+          # Extract the new version from version.hpp
+          $version_h = Get-Content TPVToggle\src\version.hpp -Raw
           $major = [regex]::Match($version_h, '#define\s+VERSION_MAJOR\s+(\d+)').Groups[1].Value
           $minor = [regex]::Match($version_h, '#define\s+VERSION_MINOR\s+(\d+)').Groups[1].Value
           $patch = [regex]::Match($version_h, '#define\s+VERSION_PATCH\s+(\d+)').Groups[1].Value
@@ -170,7 +170,7 @@ jobs:
         run: |
           git config --local user.email "khacquang.trinh@gmail.com"
           git config --local user.name "Quang Trinh"
-          git add TPVToggle/src/version.h TPVToggle/CHANGELOG.md
+          git add TPVToggle/src/version.hpp TPVToggle/CHANGELOG.md
           git status
           git commit -m "Bump version to ${{ env.NEW_VERSION }}"
           git tag -a TPVToggle-${{ env.VERSION_TAG }} -m "Release ${{ env.VERSION_TAG }}"

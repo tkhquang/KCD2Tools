@@ -20,23 +20,25 @@
 
 #include <stdexcept>
 
-using DetourModKit::LogLevel;
 
 // External config reference
 extern Config g_config;
 
-// Function typedefs
-typedef void(__fastcall *HideOverlaysFunc)(void *thisPtr, uint8_t paramByte, char paramChar);
-typedef void(__fastcall *ShowOverlaysFunc)(void *thisPtr, uint8_t paramByte, char paramChar);
+namespace TPVToggle
+{
+
+// Function pointer types for the overlay show/hide functions.
+using HideOverlaysFunc = void(__fastcall *)(void *thisPtr, uint8_t paramByte, char paramChar);
+using ShowOverlaysFunc = void(__fastcall *)(void *thisPtr, uint8_t paramByte, char paramChar);
 
 // Hook state
 static HideOverlaysFunc fpHideOverlaysOriginal = nullptr;
 static ShowOverlaysFunc fpShowOverlaysOriginal = nullptr;
-static std::string g_hideOverlaysHookId;
-static std::string g_showOverlaysHookId;
 
-// NOP pattern for accumulator write
-static const BYTE nopSequence[Constants::ACCUMULATOR_WRITE_INSTR_LENGTH] = {0x90, 0x90, 0x90, 0x90, 0x90};
+// NOP pattern for the accumulator write. Typed as std::byte so it passes straight
+// to DMK::Memory::write_bytes without a cast.
+static constexpr std::byte nopSequence[Constants::ACCUMULATOR_WRITE_INSTR_LENGTH] = {
+    std::byte{0x90}, std::byte{0x90}, std::byte{0x90}, std::byte{0x90}, std::byte{0x90}};
 
 /**
  * @brief Detour function for the HideOverlays function
@@ -49,73 +51,58 @@ static const BYTE nopSequence[Constants::ACCUMULATOR_WRITE_INSTR_LENGTH] = {0x90
  */
 static void __fastcall HideOverlaysDetour(void *thisPtr, uint8_t paramByte, char paramChar)
 {
-    DMKLogger &logger = DMKLogger::get_instance();
+    DMK::Logger &logger = DMK::Logger::get_instance();
+
+    // UI overlay is about to hide, which means another UI element (menu, dialog,
+    // etc.) is about to show. Call the original exactly once, before the mod-side
+    // work that reacts to the post-call state; guarding the original inside the
+    // try would let an exception in the mod logic call it a second time.
+    logger.debug("UIOverlayHook: HideOverlays called - UI element will show");
+
+    if (fpHideOverlaysOriginal)
+    {
+        fpHideOverlaysOriginal(thisPtr, paramByte, paramChar);
+    }
+    else
+    {
+        logger.error("UIOverlayHook: HideOverlays original function pointer is NULL");
+    }
 
     try
     {
-        // UI overlay is about to hide, which means
-        // another UI element (menu, dialog, etc.) is about to show
-        logger.log(LogLevel::Debug, "UIOverlayHook: HideOverlays called - UI element will show");
-
-        if (fpHideOverlaysOriginal)
+        // If already in an overlay and another overlay opens, only re-request FPV.
+        if (!TPVToggle::overlay_state().active.load())
         {
-            fpHideOverlaysOriginal(thisPtr, paramByte, paramChar);
-        }
-        else
-        {
-            logger.log(LogLevel::Error, "UIOverlayHook: HideOverlays original function pointer is NULL");
-        }
-
-        // If is currently in overlays and open another overlay, skip
-        if (!g_isOverlayActive.load())
-        {
-            // Remember if we're currently in TPV mode
-            int viewState = getViewState();
+            // Remember whether we are currently in TPV mode so it can be restored.
+            const int viewState = getViewState();
             if (viewState == 1)
             {
-                // We're in TPV - remember this for later restoration
-                g_wasTpvBeforeOverlay.store(true);
-                logger.log(LogLevel::Debug, "UIOverlayHook: Stored TPV state for later restoration");
+                TPVToggle::overlay_state().wasTpvBeforeOverlay.store(true);
+                logger.debug("UIOverlayHook: Stored TPV state for later restoration");
             }
             else
             {
-                // We're already in FPV or unknown state
-                g_wasTpvBeforeOverlay.store(false);
+                TPVToggle::overlay_state().wasTpvBeforeOverlay.store(false);
             }
 
-            // Request switch to FPV when UI shows
-            // This will be processed by the monitor thread
-            g_overlayFpvRequest.store(true);
+            // Request the switch to FPV; the monitor thread processes it.
+            TPVToggle::overlay_state().fpvRequest.store(true);
 
             resetScrollAccumulator(true);
-            g_isOverlayActive.store(true);
+            TPVToggle::overlay_state().active.store(true);
         }
         else
         {
-            // Request switch to FPV when UI shows
-            // This will be processed by the monitor thread
-            g_overlayFpvRequest.store(true);
+            TPVToggle::overlay_state().fpvRequest.store(true);
         }
     }
     catch (const std::exception &e)
     {
-        logger.log(LogLevel::Error, "UIOverlayHook: Exception in HideOverlays detour: " + std::string(e.what()));
-
-        // Call the original function even if we had an exception
-        if (fpHideOverlaysOriginal)
-        {
-            fpHideOverlaysOriginal(thisPtr, paramByte, paramChar);
-        }
+        logger.error("UIOverlayHook: Exception in HideOverlays detour: {}", e.what());
     }
     catch (...)
     {
-        logger.log(LogLevel::Error, "UIOverlayHook: Unknown exception in HideOverlays detour");
-
-        // Call the original function even if we had an exception
-        if (fpHideOverlaysOriginal)
-        {
-            fpHideOverlaysOriginal(thisPtr, paramByte, paramChar);
-        }
+        logger.error("UIOverlayHook: Unknown exception in HideOverlays detour");
     }
 }
 
@@ -130,58 +117,48 @@ static void __fastcall HideOverlaysDetour(void *thisPtr, uint8_t paramByte, char
  */
 static void __fastcall ShowOverlaysDetour(void *thisPtr, uint8_t paramByte, char paramChar)
 {
-    DMKLogger &logger = DMKLogger::get_instance();
+    DMK::Logger &logger = DMK::Logger::get_instance();
+
+    // UI overlay is about to show, which means another UI element (menu, dialog,
+    // etc.) is about to hide. Call the original exactly once, before the mod-side
+    // work; guarding it inside the try would let an exception in the mod logic
+    // call it a second time.
+    logger.debug("UIOverlayHook: ShowOverlays called - UI element will hide");
+
+    if (fpShowOverlaysOriginal)
+    {
+        fpShowOverlaysOriginal(thisPtr, paramByte, paramChar);
+    }
+    else
+    {
+        logger.error("UIOverlayHook: ShowOverlays original function pointer is NULL");
+    }
 
     try
     {
-        // Before calling original - UI overlay is about to show, which means
-        // another UI element (menu, dialog, etc.) is about to hide
-        logger.log(LogLevel::Debug, "UIOverlayHook: ShowOverlays called - UI element will hide");
-
-        if (fpShowOverlaysOriginal)
-        {
-            fpShowOverlaysOriginal(thisPtr, paramByte, paramChar);
-        }
-        else
-        {
-            logger.log(LogLevel::Error, "UIOverlayHook: ShowOverlays original function pointer is NULL");
-        }
-
         resetScrollAccumulator(true);
-        g_isOverlayActive.store(false);
+        TPVToggle::overlay_state().active.store(false);
 
-        // Request restoration to TPV if that was the previous state
-        if (g_wasTpvBeforeOverlay.load())
+        // Request restoration to TPV if that was the previous state.
+        if (TPVToggle::overlay_state().wasTpvBeforeOverlay.load())
         {
-            logger.log(LogLevel::Debug, "UIOverlayHook: Requesting TPV restoration");
-            g_overlayTpvRestoreRequest.store(true);
+            logger.debug("UIOverlayHook: Requesting TPV restoration");
+            TPVToggle::overlay_state().tpvRestoreRequest.store(true);
         }
         else
         {
-            logger.log(LogLevel::Debug, "UIOverlayHook: No TPV restoration needed");
+            logger.debug("UIOverlayHook: No TPV restoration needed");
         }
 
-        g_wasTpvBeforeOverlay.store(false);
+        TPVToggle::overlay_state().wasTpvBeforeOverlay.store(false);
     }
     catch (const std::exception &e)
     {
-        logger.log(LogLevel::Error, "UIOverlayHook: Exception in ShowOverlays detour: " + std::string(e.what()));
-
-        // Call the original function even if we had an exception
-        if (fpShowOverlaysOriginal)
-        {
-            fpShowOverlaysOriginal(thisPtr, paramByte, paramChar);
-        }
+        logger.error("UIOverlayHook: Exception in ShowOverlays detour: {}", e.what());
     }
     catch (...)
     {
-        logger.log(LogLevel::Error, "UIOverlayHook: Unknown exception in ShowOverlays detour");
-
-        // Call the original function even if we had an exception
-        if (fpShowOverlaysOriginal)
-        {
-            fpShowOverlaysOriginal(thisPtr, paramByte, paramChar);
-        }
+        logger.error("UIOverlayHook: Unknown exception in ShowOverlays detour");
     }
 }
 
@@ -193,37 +170,37 @@ static void __fastcall ShowOverlaysDetour(void *thisPtr, uint8_t paramByte, char
  */
 bool handleHoldToScrollKeyState(bool holdKeyPressed)
 {
-    DMKLogger &logger = DMKLogger::get_instance();
+    DMK::Logger &logger = DMK::Logger::get_instance();
 
     // Skip if no accumulator address found or if overlay is active
-    if (!g_accumulatorWriteAddress || g_isOverlayActive.load())
+    if (!TPVToggle::scroll_hook_state().writeAddress || TPVToggle::overlay_state().active.load())
     {
         return false;
     }
 
     // If hold key is pressed but accumulator is currently NOPped, restore original bytes
-    if (holdKeyPressed && g_accumulatorWriteNOPped.load())
+    if (holdKeyPressed && TPVToggle::scroll_hook_state().nopped.load())
     {
-        if (DMKMemory::write_bytes(g_accumulatorWriteAddress,
-                                   g_originalAccumulatorWriteBytes,
+        if (DMK::Memory::write_bytes(TPVToggle::scroll_hook_state().writeAddress,
+                                   TPVToggle::scroll_hook_state().originalWriteBytes,
                                    Constants::ACCUMULATOR_WRITE_INSTR_LENGTH)
                 .has_value())
         {
-            g_accumulatorWriteNOPped.store(false);
-            logger.log(LogLevel::Debug, "UIOverlayHook: Restored accumulator write due to hold key press");
+            TPVToggle::scroll_hook_state().nopped.store(false);
+            logger.debug("UIOverlayHook: Restored accumulator write due to hold key press");
             return true;
         }
     }
     // If hold key is released but accumulator is not NOPped, NOP it
-    else if (!holdKeyPressed && !g_accumulatorWriteNOPped.load())
+    else if (!holdKeyPressed && !TPVToggle::scroll_hook_state().nopped.load())
     {
-        if (DMKMemory::write_bytes(g_accumulatorWriteAddress,
-                                   reinterpret_cast<const std::byte *>(nopSequence),
+        if (DMK::Memory::write_bytes(TPVToggle::scroll_hook_state().writeAddress,
+                                   nopSequence,
                                    Constants::ACCUMULATOR_WRITE_INSTR_LENGTH)
                 .has_value())
         {
-            g_accumulatorWriteNOPped.store(true);
-            logger.log(LogLevel::Debug, "UIOverlayHook: NOPped accumulator write due to hold key release");
+            TPVToggle::scroll_hook_state().nopped.store(true);
+            logger.debug("UIOverlayHook: NOPped accumulator write due to hold key release");
             resetScrollAccumulator(true);
             return true;
         }
@@ -234,13 +211,11 @@ bool handleHoldToScrollKeyState(bool holdKeyPressed)
 
 bool initializeUiOverlayHooks(uintptr_t module_base, size_t module_size)
 {
-    DMKLogger &logger = DMKLogger::get_instance();
+    DMK::Logger &logger = DMK::Logger::get_instance();
 
     try
     {
-        logger.log(LogLevel::Info, "UIOverlayHook: Initializing UI overlay hooks...");
-
-        DMKHookManager &hook_manager = DMKHookManager::get_instance();
+        DMK::HookManager &hook_manager = DMK::HookManager::get_instance();
 
         auto hideResult = hook_manager.create_inline_hook_aob(
             "HideOverlays",
@@ -255,7 +230,6 @@ bool initializeUiOverlayHooks(uintptr_t module_base, size_t module_size)
         {
             throw std::runtime_error("Failed to create HideOverlays hook: " + std::string(DMK::Hook::error_to_string(hideResult.error())));
         }
-        g_hideOverlaysHookId = hideResult.value();
 
         auto showResult = hook_manager.create_inline_hook_aob(
             "ShowOverlays",
@@ -268,69 +242,29 @@ bool initializeUiOverlayHooks(uintptr_t module_base, size_t module_size)
 
         if (!showResult.has_value())
         {
-            (void)hook_manager.remove_hook(g_hideOverlaysHookId);
-            g_hideOverlaysHookId.clear();
             throw std::runtime_error("Failed to create ShowOverlays hook: " + std::string(DMK::Hook::error_to_string(showResult.error())));
         }
-        g_showOverlaysHookId = showResult.value();
 
         // Set initial hold-to-scroll state if feature is enabled
-        if (!g_config.hold_scroll_keys.empty() && g_accumulatorWriteAddress)
+        if (!g_config.hold_scroll_keys.empty() && TPVToggle::scroll_hook_state().writeAddress)
         {
-            logger.log(LogLevel::Info, "UIOverlayHook: Hold-to-scroll feature enabled, applying NOP by default");
-            if (DMKMemory::write_bytes(g_accumulatorWriteAddress,
-                                      reinterpret_cast<const std::byte *>(nopSequence),
+            logger.info("UIOverlayHook: Hold-to-scroll feature enabled, applying NOP by default");
+            if (DMK::Memory::write_bytes(TPVToggle::scroll_hook_state().writeAddress,
+                                      nopSequence,
                                       Constants::ACCUMULATOR_WRITE_INSTR_LENGTH)
                     .has_value())
             {
-                g_accumulatorWriteNOPped.store(true);
+                TPVToggle::scroll_hook_state().nopped.store(true);
             }
         }
 
-        logger.log(LogLevel::Info, "UIOverlayHook: UI overlay hooks successfully installed");
         return true;
     }
     catch (const std::exception &e)
     {
-        logger.log(LogLevel::Error, "UIOverlayHook: Initialization failed: " + std::string(e.what()));
-        cleanupUiOverlayHooks();
+        logger.error("UIOverlayHook: Initialization failed: {}", e.what());
         return false;
     }
 }
 
-void cleanupUiOverlayHooks()
-{
-    DMKLogger &logger = DMKLogger::get_instance();
-    DMKHookManager &hook_manager = DMKHookManager::get_instance();
-
-    if (!g_hideOverlaysHookId.empty())
-    {
-        (void)hook_manager.remove_hook(g_hideOverlaysHookId);
-        g_hideOverlaysHookId.clear();
-        fpHideOverlaysOriginal = nullptr;
-    }
-
-    if (!g_showOverlaysHookId.empty())
-    {
-        (void)hook_manager.remove_hook(g_showOverlaysHookId);
-        g_showOverlaysHookId.clear();
-        fpShowOverlaysOriginal = nullptr;
-    }
-
-    // Ensure accumulator write is restored on exit
-    if (g_accumulatorWriteNOPped.load() && g_accumulatorWriteAddress && g_originalAccumulatorWriteBytes[0] != std::byte{0})
-    {
-        logger.log(LogLevel::Info, "UIOverlayHook: Restoring accumulator write before exit");
-        (void)DMKMemory::write_bytes(g_accumulatorWriteAddress,
-                                     g_originalAccumulatorWriteBytes,
-                                     Constants::ACCUMULATOR_WRITE_INSTR_LENGTH);
-        g_accumulatorWriteNOPped.store(false);
-    }
-
-    logger.log(LogLevel::Debug, "UIOverlayHook: Cleanup complete");
-}
-
-bool areUiOverlayHooksActive()
-{
-    return (!g_hideOverlaysHookId.empty() && !g_showOverlaysHookId.empty());
-}
+} // namespace TPVToggle
