@@ -2,6 +2,14 @@
 
 All notable changes to the TPVToggle mod will be documented in this file.
 
+## [0.7.0] - Updated to DetourModKit v3.4.0 & FOV fix
+
+- Fixed third-person custom FOV: works again, applies on the next frame after INI edits, survives FPV/TPV toggles, and installs even when no camera offset is set.
+- Updated the mod's underlying framework (DetourModKit) to v3.4.0 for better stability and future compatibility.
+- Smoother performance and fewer rare crashes: camera, FOV, and mouse-input features read game memory more efficiently and with fault guards.
+- Smoother camera-offset adjustments and safer scroll-wheel handling.
+- Leaner build with no effect on features; existing configurations keep working as-is.
+
 ## [0.6.1] - Migrated to DetourModKit v2
 
 - **Breaking: Configuration key format updated** — Keys now use human-readable names (`F3`, `Numpad1`, `Ctrl+Shift+F3`) instead of hex VK codes (`0x72`). Hex codes are still supported for backwards compatibility.
@@ -188,6 +196,7 @@ PitchMax = 180.0            ; Maximum pitch angle in degrees
 - Logging system for troubleshooting
 KCD
 
+[0.7.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.7.0
 [0.6.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.6.1
 [0.6.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.6.0
 [0.5.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-v0.5.0
