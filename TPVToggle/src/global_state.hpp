@@ -5,16 +5,17 @@
  * This header provides declarations (not definitions) for all global variables,
  * preventing multiple definition errors during linking.
  */
-#ifndef GLOBAL_STATE_H
-#define GLOBAL_STATE_H
+#ifndef GLOBAL_STATE_HPP
+#define GLOBAL_STATE_HPP
 
 #include <windows.h>
 #include <cstdint>
 #include <cstddef>
 #include <atomic>
-#include "game_structures.h"
-#include "constants.h"
-#include "math_utils.h"
+#include "game_structures.hpp"
+#include "constants.hpp"
+#include "math_utils.hpp"
+#include "camera_offset_state.hpp"
 
 // Global module information
 extern uintptr_t g_ModuleBase;
@@ -32,13 +33,12 @@ extern HANDLE g_hCameraProfileThread;
 extern "C"
 {
     extern std::byte *g_global_context_ptr_address;
-    extern volatile std::byte *g_tpvFlagAddress;
 }
 
 // Event hook globals
 extern std::byte *g_accumulatorWriteAddress;
 extern std::byte g_originalAccumulatorWriteBytes[Constants::ACCUMULATOR_WRITE_INSTR_LENGTH];
-extern volatile uintptr_t *g_scrollAccumulatorAddress;
+extern volatile float *g_scrollAccumulatorAddress;
 extern volatile uintptr_t *g_scrollPtrStorageAddress;
 
 // Thread communication atomics
@@ -51,7 +51,7 @@ extern std::atomic<bool> g_holdToScrollActive;
 
 extern Vector3 g_latestTpvCameraForward;
 
-extern Vector3 g_currentCameraOffset;
+extern CameraOffsetState g_currentCameraOffset;
 extern std::atomic<bool> g_cameraAdjustmentMode;
 
 extern Vector3 g_playerWorldPosition;
@@ -61,4 +61,4 @@ extern GameStructures::CEntity *g_thePlayerEntity;
 typedef void (*CEntity_SetWorldTM_Func_t)(GameStructures::CEntity *this_ptr, float *tm_3x4, int flags);
 extern CEntity_SetWorldTM_Func_t g_funcCEntitySetWorldTM;
 
-#endif // GLOBAL_STATE_H
+#endif // GLOBAL_STATE_HPP

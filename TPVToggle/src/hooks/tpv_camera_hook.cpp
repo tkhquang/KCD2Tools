@@ -6,15 +6,15 @@
  * enabling over-the-shoulder and other camera positioning options.
  */
 
-#include "tpv_camera_hook.h"
-#include "constants.h"
-#include "game_structures.h"
-#include "utils.h"
-#include "global_state.h"
-#include "game_interface.h"
-#include "math_utils.h"
-#include "config.h"
-#include "transition_manager.h"
+#include "tpv_camera_hook.hpp"
+#include "constants.hpp"
+#include "game_structures.hpp"
+#include "utils.hpp"
+#include "global_state.hpp"
+#include "game_interface.hpp"
+#include "math_utils.hpp"
+#include "config.hpp"
+#include "transition_manager.hpp"
 
 #include <DetourModKit.hpp>
 
@@ -22,7 +22,6 @@
 #include <stdexcept>
 
 using DetourModKit::LogLevel;
-using DMKFormat::format_address;
 
 // External configuration reference
 extern Config g_config;
@@ -51,14 +50,14 @@ static Vector3 GetActiveOffset()
         Vector3 transitionPosition;
         Quaternion transitionRotation;
 
-        // Check if a transition is in progress
         if (TransitionManager::getInstance().updateTransition(0.016f, transitionPosition, transitionRotation))
         {
             return transitionPosition;
         }
 
-        // Priority 2: Camera profile system
-        return g_currentCameraOffset;
+        // Priority 2: Camera profile system. load() takes a lock-free, tear-free
+        // snapshot so this per-frame read never blocks on the profile writers.
+        return g_currentCameraOffset.load();
     }
 
     // Priority 3: Static configuration offsets
@@ -76,96 +75,53 @@ static void __fastcall Detour_TpvCameraUpdate(uintptr_t thisPtr, uintptr_t outpu
 {
     DMKLogger &logger = DMKLogger::get_instance();
 
-    // Call original function first to get base camera position
     if (!fpTpvCameraUpdateOriginal)
     {
         logger.log(LogLevel::Error, "TpvCameraHook: Original function pointer is NULL");
         return;
     }
 
-    try
-    {
-        fpTpvCameraUpdateOriginal(thisPtr, outputPosePtr);
-    }
-    catch (const std::exception &e)
-    {
-        logger.log(LogLevel::Error, "TpvCameraHook: Exception in original function: " + std::string(e.what()));
-        return;
-    }
-    catch (...)
-    {
-        logger.log(LogLevel::Error, "TpvCameraHook: Unknown exception in original function");
-        return;
-    }
+    // Let the engine compute the base camera pose first.
+    fpTpvCameraUpdateOriginal(thisPtr, outputPosePtr);
 
-    // Validate parameters and check if we're in TPV mode
+    // Only adjust the pose while the third-person view is active.
     if (outputPosePtr == 0 || getViewState() != 1)
-    {
         return;
-    }
 
-    // Validate output buffer is accessible
-    if (!DMKMemory::is_readable(reinterpret_cast<void *>(outputPosePtr), Constants::TPV_OUTPUT_POSE_REQUIRED_SIZE))
-    {
-        logger.log(LogLevel::Debug, "TpvCameraHook: Output pose buffer not readable");
+    // outputPosePtr is the buffer the original function just populated, so it is
+    // live and writable by definition (hot-path guide: do not gate an
+    // engine-handed pointer with is_readable/is_writable). A cheap arithmetic
+    // screen rejects an obviously bad pointer without a syscall or a region-cache
+    // lock.
+    if (!DMKMemory::plausible_userspace_ptr(outputPosePtr))
         return;
-    }
 
-    try
-    {
-        // Get pointers to position and rotation in the output structure
-        Vector3 *positionPtr = reinterpret_cast<Vector3 *>(
-            outputPosePtr + Constants::TPV_OUTPUT_POSE_POSITION_OFFSET);
-        Quaternion *rotationPtr = reinterpret_cast<Quaternion *>(
-            outputPosePtr + Constants::TPV_OUTPUT_POSE_ROTATION_OFFSET);
+    Vector3 *positionPtr = reinterpret_cast<Vector3 *>(
+        outputPosePtr + Constants::TPV_OUTPUT_POSE_POSITION_OFFSET);
+    Quaternion *rotationPtr = reinterpret_cast<Quaternion *>(
+        outputPosePtr + Constants::TPV_OUTPUT_POSE_ROTATION_OFFSET);
 
-        // Read current camera state
-        Vector3 currentPosition = *positionPtr;
-        Quaternion currentRotation = *rotationPtr;
+    const Vector3 currentPosition = *positionPtr;
+    const Quaternion currentRotation = *rotationPtr;
 
-        // Determine which offset to apply (priority order: transition > profile > config)
-        Vector3 localOffset = GetActiveOffset();
+    // Priority order: active transition > camera profile > static config.
+    const Vector3 localOffset = GetActiveOffset();
+    if (localOffset.x == 0.0f && localOffset.y == 0.0f && localOffset.z == 0.0f)
+        return;
 
-        // Skip if no offset to apply
-        if (localOffset.x == 0.0f && localOffset.y == 0.0f && localOffset.z == 0.0f)
-        {
-            return;
-        }
+    // Rotate the local-space offset into world space and apply it on top of the
+    // engine-computed position.
+    const Vector3 worldOffset = currentRotation.Rotate(localOffset);
+    *positionPtr = currentPosition + worldOffset;
 
-        // Transform local offset to world space using camera rotation
-        Vector3 worldOffset = currentRotation.Rotate(localOffset);
-
-        // Apply offset to camera position
-        Vector3 newPosition = currentPosition + worldOffset;
-
-        // Write back the modified position if memory is writable
-        if (DMKMemory::is_writable(positionPtr, sizeof(Vector3)))
-        {
-            *positionPtr = newPosition;
-
-            logger.log(LogLevel::Trace, "TpvCameraHook: Applied offset - Local: " +
-                                      Vector3ToString(localOffset) + " World: " + Vector3ToString(worldOffset));
-        }
-        else
-        {
-            logger.log(LogLevel::Warning, "TpvCameraHook: Cannot write to position buffer");
-        }
-    }
-    catch (const std::exception &e)
-    {
-        logger.log(LogLevel::Error, "TpvCameraHook: Exception applying offset: " + std::string(e.what()));
-    }
-    catch (...)
-    {
-        logger.log(LogLevel::Error, "TpvCameraHook: Unknown exception applying offset");
-    }
+    logger.log(LogLevel::Trace, "TpvCameraHook: Applied offset - Local: " +
+                              Vector3ToString(localOffset) + " World: " + Vector3ToString(worldOffset));
 }
 
 bool initializeTpvCameraHook(uintptr_t moduleBase, size_t moduleSize)
 {
     DMKLogger &logger = DMKLogger::get_instance();
 
-    // Check if feature is disabled (all offsets zero and profiles disabled)
     if (!g_config.enable_camera_profiles &&
         g_config.tpv_offset_x == 0.0f &&
         g_config.tpv_offset_y == 0.0f &&
@@ -179,7 +135,6 @@ bool initializeTpvCameraHook(uintptr_t moduleBase, size_t moduleSize)
 
     try
     {
-        // Use DMKHookManager to create hook via AOB scan
         DMKHookManager &hook_manager = DMKHookManager::get_instance();
 
         auto result = hook_manager.create_inline_hook_aob(
@@ -197,14 +152,6 @@ bool initializeTpvCameraHook(uintptr_t moduleBase, size_t moduleSize)
         }
         g_tpvCameraHookId = result.value();
 
-        // Get the target address for logging
-        (void)hook_manager.with_inline_hook(g_tpvCameraHookId, [&](DMK::InlineHook &hook) {
-            logger.log(LogLevel::Info, "TpvCameraHook: Found TPV camera update at " +
-                                     format_address(hook.get_target_address()));
-            return true;
-        });
-
-        // Log configuration
         logger.log(LogLevel::Info, "TpvCameraHook: Successfully installed with configuration:");
 
         if (g_config.enable_camera_profiles)

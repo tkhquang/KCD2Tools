@@ -7,18 +7,13 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Override CMake's default -O3 for MinGW Release builds with -O2 for a better
-# code-size/performance tradeoff and to avoid GCC 15 LTO ICEs at -O3.
+# This project ships as an MSVC build only.
 if(NOT MSVC)
-  set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG" CACHE STRING "" FORCE)
+  message(FATAL_ERROR "KCD2_TPVToggle requires the MSVC toolchain (Visual Studio 2022+).")
 endif()
+
 # --- Compiler Flags ---
-if(MSVC)
-  add_compile_options(/W4)
-else()
-  # GCC/Clang/MinGW specific flags
-  add_compile_options(-Wall -Wextra)
-endif()
+add_compile_options(/W4)
 
 # --- Windows Definitions ---
 if(WIN32)
@@ -66,7 +61,6 @@ set(COMMON_SOURCES
   src/dllmain.cpp
   src/game_interface.cpp
   src/global_state.cpp
-  src/math_utils.cpp
   src/toggle_thread.cpp
   src/transition_manager.cpp
   src/version.cpp
@@ -109,32 +103,15 @@ set_target_properties(${PROJECT_NAME}-ASI PROPERTIES
 )
 
 # --- Target-Scoped Release Optimizations ---
-if(MSVC)
-  # /Gy: function-level linking, /Gw: global data optimization.
-  # /O1: favor size (appropriate for an injected DLL).
-  target_compile_options(${PROJECT_NAME}-ASI PRIVATE
-    $<$<CONFIG:Release>:/O1 /Gy /Gw>
-  )
-  # /OPT:REF removes unreferenced functions/data; /OPT:ICF folds identical COMDATs.
-  target_link_options(${PROJECT_NAME}-ASI PRIVATE
-    $<$<CONFIG:Release>:/OPT:REF /OPT:ICF>
-  )
-else()
-  # -ffunction-sections/-fdata-sections enable --gc-sections for dead code elimination.
-  # -O2 is set globally via CMAKE_CXX_FLAGS_RELEASE.
-  target_compile_options(${PROJECT_NAME}-ASI PRIVATE
-    $<$<CONFIG:Release>:-ffunction-sections -fdata-sections>
-  )
-  target_link_options(${PROJECT_NAME}-ASI PRIVATE
-    -Wl,--gc-sections
-    -Wl,--exclude-all-symbols
-    -static-libgcc
-    -static-libstdc++
-    -static
-    # Strip all symbols in Release to minimize binary size.
-    $<$<CONFIG:Release>:-s>
-  )
-endif()
+# /Gy: function-level linking, /Gw: global data optimization.
+# /O1: favor size (appropriate for an injected DLL).
+target_compile_options(${PROJECT_NAME}-ASI PRIVATE
+  $<$<CONFIG:Release>:/O1 /Gy /Gw>
+)
+# /OPT:REF removes unreferenced functions/data; /OPT:ICF folds identical COMDATs.
+target_link_options(${PROJECT_NAME}-ASI PRIVATE
+  $<$<CONFIG:Release>:/OPT:REF /OPT:ICF>
+)
 
 # --- Link-Time Optimization ---
 include(CheckIPOSupported)

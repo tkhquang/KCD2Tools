@@ -8,9 +8,9 @@
  * is_binding_active() for the six offset direction bindings at ~60 Hz.
  */
 
-#include "camera_profile_thread.h"
-#include "camera_profile.h"
-#include "global_state.h"
+#include "camera_profile_thread.hpp"
+#include "camera_profile.hpp"
+#include "global_state.hpp"
 
 #include <DetourModKit.hpp>
 
@@ -47,7 +47,6 @@ DWORD WINAPI CameraProfileThread(LPVOID param)
             if (!g_cameraAdjustmentMode.load())
                 continue;
 
-            // Query InputManager for held offset keys and apply continuous adjustment
             CameraProfileManager &profile_mgr = CameraProfileManager::getInstance();
 
             if (input_mgr.is_binding_active("offset_x_inc"))

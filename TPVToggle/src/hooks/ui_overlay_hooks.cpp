@@ -9,19 +9,18 @@
  * changes with lower performance overhead than polling.
  */
 
-#include "ui_overlay_hooks.h"
-#include "constants.h"
-#include "utils.h"
-#include "game_interface.h"
-#include "global_state.h"
-#include "config.h"
+#include "ui_overlay_hooks.hpp"
+#include "constants.hpp"
+#include "utils.hpp"
+#include "game_interface.hpp"
+#include "global_state.hpp"
+#include "config.hpp"
 
 #include <DetourModKit.hpp>
 
 #include <stdexcept>
 
 using DetourModKit::LogLevel;
-using DMKFormat::format_address;
 
 // External config reference
 extern Config g_config;
@@ -58,7 +57,6 @@ static void __fastcall HideOverlaysDetour(void *thisPtr, uint8_t paramByte, char
         // another UI element (menu, dialog, etc.) is about to show
         logger.log(LogLevel::Debug, "UIOverlayHook: HideOverlays called - UI element will show");
 
-        // Call the original function
         if (fpHideOverlaysOriginal)
         {
             fpHideOverlaysOriginal(thisPtr, paramByte, paramChar);
@@ -90,7 +88,6 @@ static void __fastcall HideOverlaysDetour(void *thisPtr, uint8_t paramByte, char
             g_overlayFpvRequest.store(true);
 
             resetScrollAccumulator(true);
-            // Mark overlay as active
             g_isOverlayActive.store(true);
         }
         else
@@ -141,7 +138,6 @@ static void __fastcall ShowOverlaysDetour(void *thisPtr, uint8_t paramByte, char
         // another UI element (menu, dialog, etc.) is about to hide
         logger.log(LogLevel::Debug, "UIOverlayHook: ShowOverlays called - UI element will hide");
 
-        // Call the original function first
         if (fpShowOverlaysOriginal)
         {
             fpShowOverlaysOriginal(thisPtr, paramByte, paramChar);
@@ -152,7 +148,6 @@ static void __fastcall ShowOverlaysDetour(void *thisPtr, uint8_t paramByte, char
         }
 
         resetScrollAccumulator(true);
-        // Mark overlay as inactive
         g_isOverlayActive.store(false);
 
         // Request restoration to TPV if that was the previous state
@@ -166,7 +161,6 @@ static void __fastcall ShowOverlaysDetour(void *thisPtr, uint8_t paramByte, char
             logger.log(LogLevel::Debug, "UIOverlayHook: No TPV restoration needed");
         }
 
-        // Reset restoration flag
         g_wasTpvBeforeOverlay.store(false);
     }
     catch (const std::exception &e)
@@ -246,10 +240,8 @@ bool initializeUiOverlayHooks(uintptr_t module_base, size_t module_size)
     {
         logger.log(LogLevel::Info, "UIOverlayHook: Initializing UI overlay hooks...");
 
-        // Use DMKHookManager to create hooks via AOB scan
         DMKHookManager &hook_manager = DMKHookManager::get_instance();
 
-        // Create HideOverlays hook
         auto hideResult = hook_manager.create_inline_hook_aob(
             "HideOverlays",
             module_base,
@@ -265,7 +257,6 @@ bool initializeUiOverlayHooks(uintptr_t module_base, size_t module_size)
         }
         g_hideOverlaysHookId = hideResult.value();
 
-        // Create ShowOverlays hook
         auto showResult = hook_manager.create_inline_hook_aob(
             "ShowOverlays",
             module_base,
@@ -282,18 +273,6 @@ bool initializeUiOverlayHooks(uintptr_t module_base, size_t module_size)
             throw std::runtime_error("Failed to create ShowOverlays hook: " + std::string(DMK::Hook::error_to_string(showResult.error())));
         }
         g_showOverlaysHookId = showResult.value();
-
-        // Log hook addresses
-        (void)hook_manager.with_inline_hook(g_hideOverlaysHookId, [&](DMK::InlineHook &hook) {
-            logger.log(LogLevel::Info, "UIOverlayHook: Found HideOverlays at " +
-                                     format_address(hook.get_target_address()));
-            return true;
-        });
-        (void)hook_manager.with_inline_hook(g_showOverlaysHookId, [&](DMK::InlineHook &hook) {
-            logger.log(LogLevel::Info, "UIOverlayHook: Found ShowOverlays at " +
-                                     format_address(hook.get_target_address()));
-            return true;
-        });
 
         // Set initial hold-to-scroll state if feature is enabled
         if (!g_config.hold_scroll_keys.empty() && g_accumulatorWriteAddress)
@@ -324,7 +303,6 @@ void cleanupUiOverlayHooks()
     DMKLogger &logger = DMKLogger::get_instance();
     DMKHookManager &hook_manager = DMKHookManager::get_instance();
 
-    // Remove HideOverlays hook
     if (!g_hideOverlaysHookId.empty())
     {
         (void)hook_manager.remove_hook(g_hideOverlaysHookId);
@@ -332,7 +310,6 @@ void cleanupUiOverlayHooks()
         fpHideOverlaysOriginal = nullptr;
     }
 
-    // Remove ShowOverlays hook
     if (!g_showOverlaysHookId.empty())
     {
         (void)hook_manager.remove_hook(g_showOverlaysHookId);

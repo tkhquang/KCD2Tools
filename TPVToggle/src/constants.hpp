@@ -5,13 +5,13 @@
  * Includes version info, filenames, default settings, AOB patterns, and memory offsets.
  * All hardcoded memory addresses have been replaced with AOB patterns for robustness.
  */
-#ifndef CONSTANTS_H
-#define CONSTANTS_H
+#ifndef CONSTANTS_HPP
+#define CONSTANTS_HPP
 
 #include <string>
 #include <math.h>
 
-#include "version.h"
+#include "version.hpp"
 
 /**
  * @namespace Constants
@@ -259,4 +259,4 @@ namespace Constants
     /** @brief Name of the target game module. */
     constexpr const char *MODULE_NAME = "WHGame.dll";
 } // namespace Constants
-#endif // CONSTANTS_H
+#endif // CONSTANTS_HPP

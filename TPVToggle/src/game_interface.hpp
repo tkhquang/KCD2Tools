@@ -5,14 +5,14 @@
  * Handles the complex pointer chain navigation to access game state like
  * TPV flags and manages memory safety and validation.
  */
-#ifndef GAME_INTERFACE_H
-#define GAME_INTERFACE_H
+#ifndef GAME_INTERFACE_HPP
+#define GAME_INTERFACE_HPP
 
 #include <windows.h>
 #include <cstdint>
 #include <cstddef>
 
-#include "math_utils.h"
+#include "math_utils.hpp"
 
 /**
  * @brief Initialize game interface with dynamic AOB scanning.
@@ -71,4 +71,4 @@ extern "C" uintptr_t __cdecl getCameraManagerInstance();
 
 bool GetPlayerWorldTransform(Vector3 &outPosition, Quaternion &outOrientation);
 
-#endif // GAME_INTERFACE_H
+#endif // GAME_INTERFACE_HPP

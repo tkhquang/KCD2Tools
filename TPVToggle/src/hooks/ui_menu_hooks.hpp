@@ -5,8 +5,8 @@
  * Provides functions to initialize and manage hooks that directly intercept
  * the game's UI menu open and close functions.
  */
-#ifndef UI_MENU_HOOKS_H
-#define UI_MENU_HOOKS_H
+#ifndef UI_MENU_HOOKS_HPP
+#define UI_MENU_HOOKS_HPP
 
 #include <windows.h>
 #include <cstdint>
@@ -36,4 +36,4 @@ bool areUiMenuHooksActive();
  */
 bool isGameMenuOpen();
 
-#endif // UI_MENU_HOOKS_H
+#endif // UI_MENU_HOOKS_HPP

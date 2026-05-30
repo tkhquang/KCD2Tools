@@ -1,7 +1,7 @@
-#ifndef TRANSITION_MANAGER_H
-#define TRANSITION_MANAGER_H
+#ifndef TRANSITION_MANAGER_HPP
+#define TRANSITION_MANAGER_HPP
 
-#include "math_utils.h"
+#include "math_utils.hpp"
 #include <chrono>
 
 // Camera state for transitions
@@ -105,4 +105,4 @@ private:
     Vector3 applySpringPhysics(const Vector3 &current, const Vector3 &target, float deltaTime);
 };
 
-#endif // TRANSITION_MANAGER_H
+#endif // TRANSITION_MANAGER_HPP

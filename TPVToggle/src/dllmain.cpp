@@ -5,21 +5,20 @@
  * Handles module loading, configuration, hook setup, and thread management.
  */
 
-#include "config.h"
-#include "constants.h"
-#include "version.h"
-#include "toggle_thread.h"
-#include "game_interface.h"
-#include "global_state.h"
-#include "camera_profile.h"
-#include "camera_profile_thread.h"
-#include "hooks/event_hooks.h"
-#include "hooks/fov_hook.h"
-#include "hooks/tpv_camera_hook.h"
-#include "hooks/tpv_input_hook.h"
-#include "hooks/ui_overlay_hooks.h"
-#include "hooks/ui_menu_hooks.h"
-// #include "hooks/entity_hooks.h"
+#include "config.hpp"
+#include "constants.hpp"
+#include "version.hpp"
+#include "toggle_thread.hpp"
+#include "game_interface.hpp"
+#include "global_state.hpp"
+#include "camera_profile.hpp"
+#include "camera_profile_thread.hpp"
+#include "hooks/event_hooks.hpp"
+#include "hooks/fov_hook.hpp"
+#include "hooks/tpv_camera_hook.hpp"
+#include "hooks/tpv_input_hook.hpp"
+#include "hooks/ui_overlay_hooks.hpp"
+#include "hooks/ui_menu_hooks.hpp"
 
 #include <DetourModKit.hpp>
 
@@ -28,7 +27,6 @@
 #include <stdexcept>
 #include <memory>
 
-// Configuration state
 Config g_config;
 
 /**
@@ -39,13 +37,11 @@ void cleanupResources()
     DMKLogger &logger = DMKLogger::get_instance();
     logger.info("Cleanup: Starting cleanup process...");
 
-    // Signal threads to exit
     if (g_exitEvent)
     {
         SetEvent(g_exitEvent);
     }
 
-    // Wait for monitor thread to complete
     if (g_hMonitorThread)
     {
         if (WaitForSingleObject(g_hMonitorThread, 2000) == WAIT_TIMEOUT)
@@ -56,7 +52,6 @@ void cleanupResources()
         g_hMonitorThread = NULL;
     }
 
-    // Wait for camera profile thread to complete
     if (g_hCameraProfileThread)
     {
         if (WaitForSingleObject(g_hCameraProfileThread, 2000) == WAIT_TIMEOUT)
@@ -75,9 +70,7 @@ void cleanupResources()
     cleanupGameInterface();
     cleanupTpvCameraHook();
     cleanupTpvInputHook();
-    // cleanupEntityHooks();
 
-    // Clean up exit event
     if (g_exitEvent)
     {
         CloseHandle(g_exitEvent);
@@ -304,7 +297,6 @@ DWORD WINAPI MainThread([[maybe_unused]] LPVOID hModule_param)
         logger.info("----------------------------------------");
         Version::logVersionInfo();
 
-        // Load configuration
         g_config = loadConfig(Constants::getConfigFilename());
 
         // Apply log level from config using DMK's built-in parser
@@ -313,9 +305,17 @@ DWORD WINAPI MainThread([[maybe_unused]] LPVOID hModule_param)
         // Enable async logging for reduced latency on hook callbacks
         logger.enable_async_mode();
 
-        // Initialize memory cache with defaults (256 entries, 50ms expiry)
-        (void)DMKMemory::init_cache();
-        logger.info("Memory cache system initialized");
+        // Initialize memory cache with defaults (256 entries, 50ms expiry). A
+        // failure is non-fatal: is_readable/is_writable fall back to direct
+        // VirtualQuery calls, so warn rather than abort.
+        if (DMKMemory::init_cache())
+        {
+            logger.info("Memory cache system initialized");
+        }
+        else
+        {
+            logger.warning("Memory cache init failed; readability checks fall back to syscalls");
+        }
 
         // Create exit event for thread signaling
         g_exitEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
@@ -349,7 +349,10 @@ DWORD WINAPI MainThread([[maybe_unused]] LPVOID hModule_param)
         {
             logger.info("Initializing camera profile system...");
 
-            g_currentCameraOffset = Vector3(g_config.tpv_offset_x, g_config.tpv_offset_y, g_config.tpv_offset_z);
+            // One-time startup seed of the live offset, before the camera-profile
+            // writer threads exist; loadProfiles() below republishes it under the
+            // profile mutex.
+            g_currentCameraOffset.store(Vector3(g_config.tpv_offset_x, g_config.tpv_offset_y, g_config.tpv_offset_z));
 
             CameraProfileManager::getInstance().loadProfiles(g_config.profile_directory);
             CameraProfileManager::getInstance().setTransitionSettings(
@@ -374,7 +377,7 @@ DWORD WINAPI MainThread([[maybe_unused]] LPVOID hModule_param)
 
         logger.info("Initialization completed successfully");
 
-        // Block until shutdown is signaled — keeps cleanup off the loader lock
+        // Block until shutdown is signaled -- keeps cleanup off the loader lock
         WaitForSingleObject(g_exitEvent, INFINITE);
     }
     catch (const std::exception &e)

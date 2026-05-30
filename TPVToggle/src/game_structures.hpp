@@ -1,4 +1,3 @@
-#pragma once
 /**
  * @file game_structures.h
  * @brief Game-specific structure definitions for Kingdom Come: Deliverance II
@@ -7,9 +6,11 @@
  * These structures are reverse-engineered approximations and may not match the exact
  * internal game structures, but provide sufficient compatibility for our purposes.
  */
+#ifndef GAME_STRUCTURES_HPP
+#define GAME_STRUCTURES_HPP
 
 #include <cstdint>
-#include "math_utils.h"
+#include "math_utils.hpp"
 
 namespace GameStructures
 {
@@ -135,3 +136,5 @@ namespace GameStructures
     };
 
 } // namespace GameStructures
+
+#endif // GAME_STRUCTURES_HPP

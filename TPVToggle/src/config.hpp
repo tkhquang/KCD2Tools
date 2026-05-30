@@ -5,8 +5,8 @@
  * Contains the `Config` struct used to hold application settings loaded from
  * the INI configuration file (e.g., hotkeys, logging level, optional features).
  */
-#ifndef CONFIG_H
-#define CONFIG_H
+#ifndef CONFIG_HPP
+#define CONFIG_HPP
 
 #include <vector>
 #include <string>
@@ -108,4 +108,4 @@ struct Config
  */
 Config loadConfig(const std::string &ini_filename);
 
-#endif // CONFIG_H
+#endif // CONFIG_HPP

@@ -7,11 +7,11 @@
  * in dllmain.cpp, so this thread only handles hook-driven state changes.
  */
 
-#include "toggle_thread.h"
-#include "config.h"
-#include "constants.h"
-#include "game_interface.h"
-#include "global_state.h"
+#include "toggle_thread.hpp"
+#include "config.hpp"
+#include "constants.hpp"
+#include "game_interface.hpp"
+#include "global_state.hpp"
 
 #include <DetourModKit.hpp>
 
@@ -31,7 +31,6 @@ DWORD WINAPI MonitorThread([[maybe_unused]] LPVOID param)
     DMKLogger &logger = DMKLogger::get_instance();
     logger.log(LogLevel::Info, "MonitorThread: Started");
 
-    // Wait for game interface initialization
     logger.log(LogLevel::Info, "MonitorThread: Waiting for game interface...");
     while (!getResolvedTpvFlagAddress() && WaitForSingleObject(g_exitEvent, 0) != WAIT_OBJECT_0)
     {
@@ -44,7 +43,6 @@ DWORD WINAPI MonitorThread([[maybe_unused]] LPVOID param)
     {
         try
         {
-            // Process overlay FPV request
             if (g_overlayFpvRequest.load(std::memory_order_relaxed))
             {
                 logger.log(LogLevel::Debug, "MonitorThread: Processing FPV request");
@@ -52,7 +50,6 @@ DWORD WINAPI MonitorThread([[maybe_unused]] LPVOID param)
                 g_overlayFpvRequest.store(false, std::memory_order_relaxed);
             }
 
-            // Process overlay TPV restore request
             if (g_overlayTpvRestoreRequest.load(std::memory_order_relaxed))
             {
                 logger.log(LogLevel::Debug, "MonitorThread: Processing TPV restore request");

@@ -8,8 +8,8 @@
  *          For AOB scanning, use DMKScanner:: directly.
  */
 
-#ifndef UTILS_H
-#define UTILS_H
+#ifndef UTILS_HPP
+#define UTILS_HPP
 
 #include <DetourModKit.hpp>
 #include <string>
@@ -17,7 +17,7 @@
 #include <iomanip>
 #include <windows.h>
 
-#include "math_utils.h"
+#include "math_utils.hpp"
 
 // Use DMK namespaces directly for memory/format/scanning operations:
 // - DMKMemory::is_readable(), DMKMemory::is_writable(), DMKMemory::write_bytes()
@@ -51,4 +51,4 @@ inline std::string Vector3ToString(const Vector3 &v)
     return oss.str();
 }
 
-#endif // UTILS_H
+#endif // UTILS_HPP

@@ -5,7 +5,8 @@
  * Provides functions to initialize and manage the hook that intercepts
  * TPV camera updates to apply custom position offsets.
  */
-#pragma once
+#ifndef TPV_CAMERA_HOOK_HPP
+#define TPV_CAMERA_HOOK_HPP
 
 #include <cstdint>
 
@@ -21,3 +22,5 @@ bool initializeTpvCameraHook(uintptr_t moduleBase, size_t moduleSize);
  * @brief Cleanup TPV camera update hook.
  */
 void cleanupTpvCameraHook();
+
+#endif // TPV_CAMERA_HOOK_HPP

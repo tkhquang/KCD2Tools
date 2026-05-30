@@ -6,8 +6,8 @@
  * Other constants/functions derive info from these macros. Includes build time.
  */
 
-#ifndef VERSION_H
-#define VERSION_H
+#ifndef VERSION_HPP
+#define VERSION_HPP
 
 #include <string>
 
@@ -45,9 +45,6 @@ namespace Version
     constexpr const char *VERSION_TAG =
         "v" VERSION_STR(VERSION_MAJOR) "." VERSION_STR(VERSION_MINOR) "." VERSION_STR(VERSION_PATCH);
 
-    /** @brief Semantic Versioning string (e.g., "0.2.4"). */
-    constexpr const char *SEMVER = VERSION_STRING;
-
     // Build timestamp information.
     /** @brief Date of compilation (e.g., "Apr  5 2025"). */
     constexpr const char *BUILD_DATE = __DATE__;
@@ -68,36 +65,6 @@ namespace Version
         "https://github.com/tkhquang/KCD2Tools/releases/tag/TPVToggle-"
         "v" VERSION_STR(VERSION_MAJOR) "." VERSION_STR(VERSION_MINOR) "." VERSION_STR(VERSION_PATCH);
 
-    // --- Utility Functions ---
-
-    /**
-     * @brief Gets the full version string (e.g., "0.2.4").
-     * @return std::string Formatted version string.
-     */
-    inline std::string getVersionString()
-    {
-        return VERSION_STRING;
-    }
-
-    /**
-     * @brief Gets the version tag for filenames (e.g., "v0.2.4").
-     * @return std::string Formatted version tag.
-     */
-    inline std::string getVersionTag()
-    {
-        return VERSION_TAG;
-    }
-
-    /**
-     * @brief Gets the expected artifact filename for distribution
-     * (e.g., "KCD2_TPVToggle_v0.2.4.zip").
-     * @return std::string Formatted artifact name with version tag.
-     */
-    inline std::string getArtifactName()
-    {
-        return std::string(MOD_NAME) + "_" + VERSION_TAG + ".zip";
-    }
-
     /**
      * @brief Logs detailed version and build info using the global Logger.
      * @details Requires Logger to be initialized. Declared in version.h,
@@ -107,4 +74,4 @@ namespace Version
 
 } // namespace Version
 
-#endif // VERSION_H
+#endif // VERSION_HPP

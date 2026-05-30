@@ -1,6 +1,6 @@
-#include "transition_manager.h"
+#include "transition_manager.hpp"
 #include <DetourModKit.hpp>
-#include "global_state.h"
+#include "global_state.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -29,16 +29,15 @@ void TransitionManager::startTransition(
     const Quaternion &targetRotation,
     float durationSeconds)
 {
-    // Store the current camera state if we're not already transitioning
+    // Snapshot the live offset as the source only on a fresh transition, so a
+    // re-target mid-flight blends from the current pose rather than snapping back.
     if (!m_isTransitioning)
     {
-        m_sourceState = CameraState(g_currentCameraOffset, Quaternion::Identity());
+        m_sourceState = CameraState(g_currentCameraOffset.load(), Quaternion::Identity());
     }
 
-    // Set up the new target
     m_targetState = CameraState(targetPosition, targetRotation);
 
-    // Reset transition parameters
     m_transitionProgress = 0.0f;
     m_transitionDuration = (durationSeconds > 0.0f) ? durationSeconds : m_defaultDuration;
     m_springVelocity = Vector3(0.0f, 0.0f, 0.0f);
@@ -58,16 +57,15 @@ bool TransitionManager::updateTransition(float deltaTime, Vector3 &outPosition, 
         return false;
     }
 
-    // Update transition progress
     m_transitionProgress += deltaTime / m_transitionDuration;
 
-    // Check if transition is complete
     if (m_transitionProgress >= 1.0f)
     {
         m_isTransitioning = false;
         m_transitionProgress = 1.0f;
 
-        // Set final position and rotation
+        // Snap exactly to the target on completion to avoid float drift left by
+        // the interpolation.
         outPosition = m_targetState.position;
         outRotation = m_targetState.rotation;
 
@@ -75,27 +73,23 @@ bool TransitionManager::updateTransition(float deltaTime, Vector3 &outPosition, 
         return false; // Transition is complete
     }
 
-    // Calculate smoothed transition factor
     float t = smoothstep(m_transitionProgress);
 
-    // Interpolate position
     Vector3 interpolatedPosition = Vector3(
         m_sourceState.position.x + (m_targetState.position.x - m_sourceState.position.x) * t,
         m_sourceState.position.y + (m_targetState.position.y - m_sourceState.position.y) * t,
         m_sourceState.position.z + (m_targetState.position.z - m_sourceState.position.z) * t);
 
-    // Apply spring physics if enabled
     if (m_useSpringPhysics)
     {
         interpolatedPosition = applySpringPhysics(interpolatedPosition, m_targetState.position, deltaTime);
     }
 
-    // Interpolate rotation using SLERP
-    // Note: We're using spherical linear interpolation for smoother rotation transitions
-    // The DirectXMath library's XMQuaternionSlerp function handles this for us behind the scenes
+    // Spherical linear interpolation keeps angular velocity constant across the
+    // transition and avoids the gimbal artifacts a component-wise lerp would
+    // introduce on rotations.
     Quaternion interpolatedRotation = Quaternion::Slerp(m_sourceState.rotation, m_targetState.rotation, t);
 
-    // Return result
     outPosition = interpolatedPosition;
     outRotation = interpolatedRotation;
 
