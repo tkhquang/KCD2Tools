@@ -5,8 +5,8 @@
  * Provides functions to initialize and manage the hooks that intercept
  * game events, particularly for filtering scroll wheel input during overlays.
  */
-#ifndef EVENT_HOOKS_H
-#define EVENT_HOOKS_H
+#ifndef EVENT_HOOKS_HPP
+#define EVENT_HOOKS_HPP
 
 #include <windows.h>
 #include <cstdint>
@@ -24,10 +24,4 @@ bool initializeEventHooks(uintptr_t module_base, size_t module_size);
  */
 void cleanupEventHooks();
 
-/**
- * @brief Check if event hooks are active and ready.
- * @return true if all required hooks are successfully installed and functional.
- */
-bool areEventHooksActive();
-
-#endif // EVENT_HOOKS_H
+#endif // EVENT_HOOKS_HPP

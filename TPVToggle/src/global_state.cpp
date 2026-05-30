@@ -3,11 +3,11 @@
  * @brief Definitions of all global variables shared across the mod.
  */
 
-#include "global_state.h"
+#include "global_state.hpp"
 #include <DetourModKit.hpp>
-#include "utils.h"
-#include "game_structures.h"
-#include "constants.h"
+#include "utils.hpp"
+#include "game_structures.hpp"
+#include "constants.hpp"
 
 // Module information
 uintptr_t g_ModuleBase = 0;
@@ -25,19 +25,12 @@ HANDLE g_hCameraProfileThread = NULL;
 extern "C"
 {
     std::byte *g_global_context_ptr_address = nullptr;
-    volatile std::byte *g_tpvFlagAddress = nullptr;
-}
-
-// Hook globals
-extern "C"
-{
-    void *fpOverlay_OriginalCode = nullptr;
 }
 
 // Event hook globals
 std::byte *g_accumulatorWriteAddress = nullptr;
 std::byte g_originalAccumulatorWriteBytes[Constants::ACCUMULATOR_WRITE_INSTR_LENGTH] = {std::byte{0}};
-volatile uintptr_t *g_scrollAccumulatorAddress = nullptr;
+volatile float *g_scrollAccumulatorAddress = nullptr;
 volatile uintptr_t *g_scrollPtrStorageAddress = nullptr;
 
 // Thread communication atomics
@@ -50,7 +43,7 @@ std::atomic<bool> g_holdToScrollActive(false);
 
 Vector3 g_latestTpvCameraForward = {0.0f, 1.0f, 0.0f};
 
-Vector3 g_currentCameraOffset(0.0f, 0.0f, 0.0f);
+CameraOffsetState g_currentCameraOffset;
 std::atomic<bool> g_cameraAdjustmentMode(false);
 
 Vector3 g_playerWorldPosition(0.0f, 0.0f, 0.0f);

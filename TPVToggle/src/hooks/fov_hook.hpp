@@ -5,8 +5,8 @@
  * Provides functions to initialize and manage the hook that modifies
  * the field of view when in third-person view mode.
  */
-#ifndef FOV_HOOK_H
-#define FOV_HOOK_H
+#ifndef FOV_HOOK_HPP
+#define FOV_HOOK_HPP
 
 #include <cstdint>
 
@@ -33,4 +33,4 @@ void cleanupFovHook();
  */
 bool isFovHookActive();
 
-#endif // FOV_HOOK_H
+#endif // FOV_HOOK_HPP

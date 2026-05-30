@@ -29,7 +29,7 @@
 
 Since this mod uses `dinput8.dll` as the ASI loader, you need to tell Wine/Proton to use the bundled DLL instead of its built-in version. Set the following DLL override:
 
-- **Steam:** Go to the game's **Properties → Launch Options** and add:
+- **Steam:** Go to the game's **Properties -> Launch Options** and add:
   `WINEDLLOVERRIDES="dinput8=n,b" %command%`
 - **Command line:** Prepend your launch command with:
   `WINEDLLOVERRIDES="dinput8=n,b"`
@@ -38,9 +38,9 @@ Since this mod uses `dinput8.dll` as the ASI loader, you need to tell Wine/Proto
 
 This mod uses advanced techniques to integrate with the game:
 
-1. **AOB Pattern Scanning** – Dynamically scans the game's memory for specific byte patterns to locate camera functions and UI module addresses
-2. **Memory Hooking** – Uses [SafetyHook](https://github.com/cursey/safetyhook) (via [DetourModKit](https://github.com/tkhquang/DetourModKit)) to intercept game functions for overlay detection and event handling
-3. **Input Management** – Uses DetourModKit's input system to handle keyboard, mouse, and gamepad input with support for modifier key combos
+1. **AOB Pattern Scanning** - Dynamically scans the game's memory for specific byte patterns to locate camera functions and UI module addresses
+2. **Memory Hooking** - Uses [SafetyHook](https://github.com/cursey/safetyhook) (via [DetourModKit](https://github.com/tkhquang/DetourModKit)) to intercept game functions for overlay detection and event handling
+3. **Input Management** - Uses DetourModKit's input system to handle keyboard, mouse, and gamepad input with support for modifier key combos
 
 ## Configuration
 
@@ -110,7 +110,7 @@ ToggleKey = Gamepad_Y
 ToggleKey = Gamepad_LB+Gamepad_Y
 
 ; Example: Multiple independent combos (comma = OR between combos)
-; F3 alone OR (hold LB + press Y) — use keyboard and gamepad interchangeably
+; F3 alone OR (hold LB + press Y) -- use keyboard and gamepad interchangeably
 ToggleKey = F3,Gamepad_LB+Gamepad_Y
 ```
 
@@ -126,9 +126,9 @@ Alternatively, you can still use external tools like [JoyToKey](https://joytokey
 
 The mod supports three types of key bindings:
 
-1. **Toggle Keys (`ToggleKey`)** – Switch between first-person and third-person views when pressed
-2. **First-Person Keys (`FPVKey`)** – Forces first-person view
-3. **Third-Person Keys (`TPVKey`)** – Forces third-person view
+1. **Toggle Keys (`ToggleKey`)** - Switch between first-person and third-person views when pressed
+2. **First-Person Keys (`FPVKey`)** - Forces first-person view
+3. **Third-Person Keys (`TPVKey`)** - Forces third-person view
 
 ### FPV Keys
 
@@ -140,9 +140,9 @@ You can configure FPV keys that correspond to in-game UI interactions (e.g., `M,
 
 You can leave any key list empty to disable its feature:
 
-- `ToggleKey =` → disables toggle behavior
-- `FPVKey =` → disables forced first-person mode
-- `TPVKey =` → disables forced third-person mode
+- `ToggleKey =` -> disables toggle behavior
+- `FPVKey =` -> disables forced first-person mode
+- `TPVKey =` -> disables forced third-person mode
 
 If all are empty, the mod will initialize but not monitor any keys (noop mode).
 
@@ -150,11 +150,11 @@ If all are empty, the mod will initialize but not monitor any keys (noop mode).
 
 Keys are specified using human-readable names. Common examples:
 
-- Function keys: `F1`–`F24`
-- Letters: `A`–`Z`
-- Digits: `0`–`9`
+- Function keys: `F1`-`F24`
+- Letters: `A`-`Z`
+- Digits: `0`-`9`
 - Modifiers: `Ctrl`, `Shift`, `Alt` (or `LCtrl`, `RCtrl`, etc.)
-- Numpad: `Numpad0`–`Numpad9`, `NumpadAdd`, `NumpadSubtract`
+- Numpad: `Numpad0`-`Numpad9`, `NumpadAdd`, `NumpadSubtract`
 - Mouse: `Mouse1`, `Mouse2`, `Mouse3`, `Mouse4`, `Mouse5`
 - Gamepad: `Gamepad_A`, `Gamepad_B`, `Gamepad_X`, `Gamepad_Y`, etc.
 
@@ -172,11 +172,11 @@ If you encounter issues:
 
 Common issues:
 
-- **Mod doesn't load** – Ensure the files are in the correct location and ASI Loader is installed
-- **Toggle doesn't work** – Check log file for AOB pattern not found errors
-- **Game crashes** – Check log file for errors; try updating to the latest version
-- **Controller doesn't work** – Ensure JoyToKey or Steam Input is set up properly
-- **Scrolling still works in menus** – Check if overlay detection is working, verify MouseHook functionality in logs
+- **Mod doesn't load** - Ensure the files are in the correct location and ASI Loader is installed
+- **Toggle doesn't work** - Check log file for AOB pattern not found errors
+- **Game crashes** - Check log file for errors; try updating to the latest version
+- **Controller doesn't work** - Ensure JoyToKey or Steam Input is set up properly
+- **Scrolling still works in menus** - Check if overlay detection is working, verify MouseHook functionality in logs
 
 > **Still stuck?** [Open a GitHub issue](https://github.com/tkhquang/KCD2Tools/issues/new?assignees=&labels=bug&template=bug_report.yaml) and include your INI config, log output, and game version.
 
@@ -215,8 +215,8 @@ See [CHANGELOG.md](CHANGELOG.md) for a detailed history of updates.
 
 This mod requires:
 - [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) by [**ThirteenAG**](https://github.com/ThirteenAG)
-- [DetourModKit](https://github.com/tkhquang/DetourModKit) – A lightweight C++ toolkit for game modding (provides SafetyHook, AOB scanning, logging, and configuration management)
-- [nlohmann/json](https://github.com/nlohmann/json) – JSON library for modern C++
+- [DetourModKit](https://github.com/tkhquang/DetourModKit) - A lightweight C++ toolkit for game modding (provides SafetyHook, AOB scanning, logging, and configuration management)
+- [nlohmann/json](https://github.com/nlohmann/json) - JSON library for modern C++
 
 > **Note:** `dinput8.dll` (ASI Loader) is bundled in the ZIP file. The mod will not work without it.
 
@@ -224,12 +224,12 @@ This mod requires:
 
 ### Prerequisites
 
-- [Visual Studio 2022](https://visualstudio.microsoft.com/) (MSVC with C++23 support) or [MinGW-w64](https://www.mingw-w64.org/) (GCC 12+)
+- [Visual Studio 2022](https://visualstudio.microsoft.com/) (MSVC with C++23 support)
 - [CMake](https://cmake.org/) (3.25 or newer)
 - Windows SDK headers (for WinAPI access)
 - Git (to fetch submodules)
 
-### Building with CMake (MSVC - Recommended)
+### Building with CMake (MSVC)
 
 ```bash
 # Fetch dependencies (including DetourModKit and its submodules)
@@ -241,34 +241,25 @@ cmake -S . -B build/msvc -G "Visual Studio 17 2022" -A x64
 cmake --build build/msvc --config Release --parallel
 ```
 
-### Building with MinGW
-
-```bash
-git submodule update --init --recursive
-cd TPVToggle
-cmake -S . -B build/mingw -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
-cmake --build build/mingw --config Release --parallel
-```
-
-The output binary (`KCD2_TPVToggle.asi`) will be placed in the respective build directory.
+The output binary (`KCD2_TPVToggle.asi`) will be placed in the build directory.
 
 ## Architecture
 
 This mod is built on top of **DetourModKit**, which provides:
-- **SafetyHook** – Safe, modern hooking library for intercepting game functions
-- **AOB Scanner** – Pattern scanning with wildcard support for dynamic address resolution
-- **Configuration System** – INI file parsing with automatic value assignment
-- **Logger** – Thread-safe synchronous and async logging with configurable log levels
-- **Memory Utilities** – Safe memory access and manipulation helpers
+- **SafetyHook** - Safe, modern hooking library for intercepting game functions
+- **AOB Scanner** - Pattern scanning with wildcard support for dynamic address resolution
+- **Configuration System** - INI file parsing with automatic value assignment
+- **Logger** - Thread-safe synchronous and async logging with configurable log levels
+- **Memory Utilities** - Safe memory access and manipulation helpers
 
 ## Credits
 
-- [ThirteenAG](https://github.com/ThirteenAG) – for the Ultimate ASI Loader
-- [cursey](https://github.com/cursey) – for SafetyHook
-- [Brodie Thiesfield](https://github.com/brofield) – for SimpleIni
-- [nlohmann](https://github.com/nlohmann) – for the JSON library
-- [Frans 'Otis_Inf' Bouma](https://opm.fransbouma.com/intro.htm) – for his camera tools and inspiration
-- Warhorse Studios – for Kingdom Come: Deliverance II
+- [ThirteenAG](https://github.com/ThirteenAG) - for the Ultimate ASI Loader
+- [cursey](https://github.com/cursey) - for SafetyHook
+- [Brodie Thiesfield](https://github.com/brofield) - for SimpleIni
+- [nlohmann](https://github.com/nlohmann) - for the JSON library
+- [Frans 'Otis_Inf' Bouma](https://opm.fransbouma.com/intro.htm) - for his camera tools and inspiration
+- Warhorse Studios - for Kingdom Come: Deliverance II
 
 ## License
 

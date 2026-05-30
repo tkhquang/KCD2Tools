@@ -5,11 +5,11 @@
  * Provides safe access to game memory structures and state management.
  */
 
-#include "game_interface.h"
-#include "constants.h"
-#include "game_structures.h"
-#include "utils.h"
-#include "global_state.h"
+#include "game_interface.hpp"
+#include "constants.hpp"
+#include "game_structures.hpp"
+#include "utils.hpp"
+#include "global_state.hpp"
 
 #include <DetourModKit.hpp>
 #include <stdexcept>
@@ -56,7 +56,6 @@ bool findScrollAccumulator(uintptr_t module_base, size_t module_size)
         return false; // Pattern not found, cannot proceed
     }
 
-    // Found the pattern, now extract the RIP-relative address
     logger.log(LogLevel::Info, "Found scroll state AOB pattern at: " + format_address(reinterpret_cast<uintptr_t>(scroll_aob_result)));
 
     // Resolve RIP-relative target: mov rdx, [rip + offset] (48 8B 15 xx xx xx xx, 7 bytes, disp32 at offset 3)
@@ -72,18 +71,20 @@ bool findScrollAccumulator(uintptr_t module_base, size_t module_size)
     return true;
 }
 
-volatile uintptr_t *getResolvedScrollAccumulatorAddress()
+volatile float *getResolvedScrollAccumulatorAddress()
 {
     DMKLogger &logger = DMKLogger::get_instance();
-    // Read the pointer value from this storage address safely
-    if (!DMKMemory::is_readable(const_cast<uintptr_t *>(g_scrollPtrStorageAddress), sizeof(uintptr_t)))
+    // Read the base pointer from the game's storage slot under one fault guard.
+    // The slot lives in WHGame.dll data and can briefly hold null before the
+    // scroll-state object is constructed.
+    const auto scroll_state_base = DMKMemory::seh_read<uintptr_t>(reinterpret_cast<uintptr_t>(g_scrollPtrStorageAddress));
+    if (!scroll_state_base)
     {
         logger.log(LogLevel::Error, "Cannot read scroll state base pointer from storage address!");
         return nullptr;
     }
-    uintptr_t scroll_state_base_ptr = *g_scrollPtrStorageAddress; // Read the pointer value
+    uintptr_t scroll_state_base_ptr = *scroll_state_base;
 
-    // Check if the base pointer is valid
     if (scroll_state_base_ptr == 0)
     {
         logger.log(LogLevel::Error, "Scroll state base pointer read from storage is NULL.");
@@ -91,27 +92,26 @@ volatile uintptr_t *getResolvedScrollAccumulatorAddress()
     }
     logger.log(LogLevel::Debug, "Scroll state base structure located at: " + format_address(scroll_state_base_ptr));
 
-    // Calculate address of the accumulator float using the known offset
     uintptr_t final_accum_addr_val = scroll_state_base_ptr + Constants::OFFSET_ScrollAccumulatorFloat; // +0x1C
-    volatile uintptr_t *final_accum_addr = reinterpret_cast<volatile uintptr_t *>(final_accum_addr_val);
+    // The accumulator is a 4-byte float (the game writes it via movss [rdx+1C],xmm0),
+    // so type the pointer as float to read and zero exactly those 4 bytes.
+    volatile float *final_accum_addr = reinterpret_cast<volatile float *>(final_accum_addr_val);
     logger.log(LogLevel::Debug, "Calculated final accumulator address: " + format_address(final_accum_addr_val));
 
-    // Final validation: Check if the target address is readable/writable
-    if (!DMKMemory::is_readable(const_cast<uintptr_t *>(final_accum_addr), sizeof(float)))
+    if (!DMKMemory::is_readable(const_cast<float *>(final_accum_addr), sizeof(float)))
     {
         logger.log(LogLevel::Error, "Final accumulator address is not readable!");
         return nullptr;
     }
-    if (!DMKMemory::is_writable(const_cast<uintptr_t *>(final_accum_addr), sizeof(float)))
+    if (!DMKMemory::is_writable(const_cast<float *>(final_accum_addr), sizeof(float)))
     {
         logger.log(LogLevel::Error, "Final accumulator address is not writable!");
         return nullptr;
     }
 
-    // Store the final, validated address globally
-    g_scrollAccumulatorAddress = final_accum_addr; // Use the correct global name
+    g_scrollAccumulatorAddress = final_accum_addr;
 
-    float currentValue = *g_scrollAccumulatorAddress; // Read current value for logging
+    float currentValue = *g_scrollAccumulatorAddress;
     logger.log(LogLevel::Info, "Successfully located scroll accumulator via AOB at " +
                              format_address(reinterpret_cast<uintptr_t>(g_scrollAccumulatorAddress)) +
                              ", current value: " + std::to_string(currentValue));
@@ -131,7 +131,7 @@ bool resetScrollAccumulator(bool logReset)
         g_scrollAccumulatorAddress = getResolvedScrollAccumulatorAddress();
     }
 
-    if (g_scrollAccumulatorAddress != nullptr && DMKMemory::is_writable(const_cast<uintptr_t *>(g_scrollAccumulatorAddress), sizeof(uintptr_t)))
+    if (g_scrollAccumulatorAddress != nullptr && DMKMemory::is_writable(const_cast<float *>(g_scrollAccumulatorAddress), sizeof(float)))
     {
         float currentValue = *g_scrollAccumulatorAddress;
         if (currentValue != 0.0f)
@@ -156,7 +156,6 @@ bool initializeGameInterface(uintptr_t module_base, size_t module_size)
     {
         logger.log(LogLevel::Info, "GameInterface: Initializing with dynamic AOB scanning...");
 
-        // Scan for global context pointer access pattern
         auto ctx_pat = DMKScanner::parse_aob(Constants::CONTEXT_PTR_LOAD_AOB_PATTERN);
         if (!ctx_pat.has_value())
         {
@@ -207,35 +206,23 @@ void cleanupGameInterface()
 }
 
 /**
- * @brief Gets the resolved address of the TPV flag using the original working logic.
+ * @brief Resolves the TPV flag address via the global-context -> camera-manager -> flag chain.
+ * @details Walks (*(*(storage) + OFFSET_ManagerPtrStorage)) + OFFSET_TpvFlag under a single
+ *          fault guard. Each intermediate link is screened by plausible_userspace_ptr, so a
+ *          stale or torn pointer aborts the walk and yields nullptr instead of faulting.
  */
 volatile std::byte *getResolvedTpvFlagAddress()
 {
-    if (g_tpvFlagAddress != nullptr)
-    {
-        return g_tpvFlagAddress;
-    }
-
-    if (!g_global_context_ptr_address || !DMKMemory::is_readable(g_global_context_ptr_address, sizeof(uintptr_t)))
+    if (!g_global_context_ptr_address)
         return nullptr;
 
-    // Step 1: Read the global context pointer
-    uintptr_t global_ctx_ptr = *reinterpret_cast<uintptr_t *>(g_global_context_ptr_address);
-    if (global_ctx_ptr == 0)
+    const auto flag_addr = DMKMemory::seh_resolve_chain(
+        reinterpret_cast<uintptr_t>(g_global_context_ptr_address),
+        {0, Constants::OFFSET_ManagerPtrStorage, Constants::OFFSET_TpvFlag});
+    if (!flag_addr)
         return nullptr;
 
-    // Step 2: Read the camera manager pointer directly from global context
-    uintptr_t cam_manager_ptr_addr_val = global_ctx_ptr + Constants::OFFSET_ManagerPtrStorage;
-    if (!DMKMemory::is_readable(reinterpret_cast<void *>(cam_manager_ptr_addr_val), sizeof(uintptr_t)))
-        return nullptr;
-
-    uintptr_t cam_manager_ptr = *reinterpret_cast<uintptr_t *>(cam_manager_ptr_addr_val);
-    if (cam_manager_ptr == 0)
-        return nullptr;
-
-    // Step 3: Get the TPV flag address directly
-    uintptr_t flag_address_val = cam_manager_ptr + Constants::OFFSET_TpvFlag;
-    return reinterpret_cast<volatile std::byte *>(flag_address_val);
+    return reinterpret_cast<volatile std::byte *>(*flag_addr);
 }
 
 int getViewState()
@@ -244,11 +231,13 @@ int getViewState()
     if (!flag_addr)
         return -1;
 
-    if (!DMKMemory::is_readable(const_cast<std::byte *>(flag_addr), sizeof(std::byte)))
+    // Read the flag under one SEH frame; the camera-manager object it lives in
+    // is engine-owned and can be torn down between frames.
+    const auto val = DMKMemory::seh_read<uint8_t>(reinterpret_cast<uintptr_t>(flag_addr));
+    if (!val)
         return -1;
 
-    std::byte val = *flag_addr;
-    return (val == std::byte{0} || val == std::byte{1}) ? static_cast<int>(std::to_integer<uint8_t>(val)) : -1;
+    return (*val == 0 || *val == 1) ? static_cast<int>(*val) : -1;
 }
 
 bool setViewState(BYTE new_state, int *key_pressed_vk)
@@ -274,16 +263,13 @@ bool setViewState(BYTE new_state, int *key_pressed_vk)
         return true; // Already in desired state
     }
 
-    if (!DMKMemory::is_writable(const_cast<std::byte *>(flag_addr), sizeof(std::byte)))
-    {
-        logger.log(LogLevel::Error, "Set" + desc + trigger + ": No write permission at " + format_address(reinterpret_cast<uintptr_t>(flag_addr)));
-        return false;
-    }
-
+    // flag_addr was just resolved through a fault-guarded chain whose final link
+    // (the camera-manager object) is live engine memory, so the flag byte is
+    // writable; the post-write read-back below confirms the store landed.
     logger.log(LogLevel::Debug, "Set" + desc + trigger + ": Writing " + std::to_string(new_state) + " at " + format_address(reinterpret_cast<uintptr_t>(flag_addr)));
     *flag_addr = static_cast<std::byte>(new_state);
 
-    Sleep(1); // Small delay for stability
+    Sleep(1); // Yield briefly so the engine observes the store before the read-back verifies it.
 
     int after = getViewState();
     if (after == static_cast<int>(new_state))
@@ -326,20 +312,12 @@ extern "C" uintptr_t __cdecl getCameraManagerInstance()
     if (!isValidated())
         return 0;
 
-    // Step 1: Read the global context pointer
-    if (!DMKMemory::is_readable(g_global_context_ptr_address, sizeof(uintptr_t)))
-        return 0;
-    uintptr_t global_ctx_ptr = *reinterpret_cast<uintptr_t *>(g_global_context_ptr_address);
-    if (global_ctx_ptr == 0)
-        return 0;
-
-    // Step 2: Read the camera manager pointer
-    uintptr_t cam_manager_ptr_addr = global_ctx_ptr + Constants::OFFSET_ManagerPtrStorage;
-    if (!DMKMemory::is_readable(reinterpret_cast<void *>(cam_manager_ptr_addr), sizeof(uintptr_t)))
-        return 0;
-    uintptr_t cam_manager_ptr = *reinterpret_cast<uintptr_t *>(cam_manager_ptr_addr);
-
-    return cam_manager_ptr;
+    // Read global context -> camera manager (one dereference) under a single
+    // fault guard instead of gating each link with is_readable.
+    return DMKMemory::seh_read_chain<uintptr_t>(
+               reinterpret_cast<uintptr_t>(g_global_context_ptr_address),
+               {0, Constants::OFFSET_ManagerPtrStorage})
+        .value_or(0);
 }
 
 bool GetPlayerWorldTransform(::Vector3 &outPosition, ::Quaternion &outOrientation)
@@ -354,7 +332,12 @@ bool GetPlayerWorldTransform(::Vector3 &outPosition, ::Quaternion &outOrientatio
 
     uintptr_t matrix_address = reinterpret_cast<uintptr_t>(g_thePlayerEntity) + Constants::OFFSET_ENTITY_WORLD_MATRIX_MEMBER;
 
-    if (!DMKMemory::is_readable(reinterpret_cast<void *>(matrix_address), sizeof(GameStructures::Matrix34f)))
+    // g_thePlayerEntity is engine-owned and may have been freed since it was
+    // captured, so read the whole 3x4 matrix under one SEH frame rather than
+    // gating a raw dereference with is_readable (which cannot prevent a fault
+    // between the check and the read).
+    const auto playerMatrixOpt = DMKMemory::seh_read<GameStructures::Matrix34f>(matrix_address);
+    if (!playerMatrixOpt)
     {
         logger.log(LogLevel::Warning, "GetPlayerWorldTransform: Cannot read CEntity's m_worldTransform at " +
                                     format_address(matrix_address) + " for entity " +
@@ -362,10 +345,8 @@ bool GetPlayerWorldTransform(::Vector3 &outPosition, ::Quaternion &outOrientatio
         return false;
     }
 
-    const GameStructures::Matrix34f &playerMatrix =
-        *reinterpret_cast<const GameStructures::Matrix34f *>(matrix_address);
+    const GameStructures::Matrix34f &playerMatrix = *playerMatrixOpt;
 
-    // Extract position
     outPosition.x = playerMatrix.m[0][3];
     outPosition.y = playerMatrix.m[1][3];
     outPosition.z = playerMatrix.m[2][3];

@@ -6,8 +6,8 @@
  * by DMKInputManager press callbacks registered in dllmain.cpp.
  * This thread handles continuous offset adjustment via is_binding_active() queries.
  */
-#ifndef CAMERA_PROFILE_THREAD_H
-#define CAMERA_PROFILE_THREAD_H
+#ifndef CAMERA_PROFILE_THREAD_HPP
+#define CAMERA_PROFILE_THREAD_HPP
 
 #include <windows.h>
 
@@ -20,4 +20,4 @@ struct CameraProfileThreadData
     float adjustmentStep;
 };
 
-#endif // CAMERA_PROFILE_THREAD_H
+#endif // CAMERA_PROFILE_THREAD_HPP

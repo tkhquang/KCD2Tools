@@ -6,12 +6,12 @@
  * functions to detect when the player opens or closes the in-game menu.
  */
 
-#include "ui_menu_hooks.h"
-#include "constants.h"
-#include "utils.h"
-#include "game_interface.h"
-#include "global_state.h"
-#include "tpv_input_hook.h"
+#include "ui_menu_hooks.hpp"
+#include "constants.hpp"
+#include "utils.hpp"
+#include "game_interface.hpp"
+#include "global_state.hpp"
+#include "tpv_input_hook.hpp"
 
 #include <DetourModKit.hpp>
 
@@ -46,14 +46,11 @@ static void __fastcall MenuOpenDetour(void *thisPtr, char paramByte)
 
     try
     {
-        // Before calling original - menu is about to open
         logger.log(LogLevel::Info, "UIMenuHook: Game menu is opening");
 
         resetScrollAccumulator();
-        // Set menu state to open
         g_isMenuOpen.store(true);
 
-        // Call the original function
         if (fpMenuOpenOriginal)
         {
             fpMenuOpenOriginal(thisPtr, paramByte);
@@ -96,14 +93,11 @@ static void __fastcall MenuCloseDetour(void *thisPtr)
 
     try
     {
-        // Before calling original - menu is about to close
         logger.log(LogLevel::Info, "UIMenuHook: Game menu is closing");
 
         resetScrollAccumulator(true);
-        // Set menu state to closed
         g_isMenuOpen.store(false);
 
-        // Call the original function
         if (fpMenuCloseOriginal)
         {
             fpMenuCloseOriginal(thisPtr);
@@ -142,7 +136,6 @@ bool initializeUiMenuHooks(uintptr_t module_base, size_t module_size)
 
     try
     {
-        // Parse AOB patterns
         auto openPattern = DMKScanner::parse_aob(Constants::UI_MENU_OPEN_AOB_PATTERN);
         if (!openPattern.has_value())
         {
@@ -155,14 +148,12 @@ bool initializeUiMenuHooks(uintptr_t module_base, size_t module_size)
             throw std::runtime_error("Failed to parse menu close AOB pattern");
         }
 
-        // Find menu open function
         const std::byte *menuOpenHookAddress = DMKScanner::find_pattern(reinterpret_cast<const std::byte *>(module_base), module_size, *openPattern);
         if (!menuOpenHookAddress)
         {
             throw std::runtime_error("Menu open function pattern not found");
         }
 
-        // Find menu close function
         const std::byte *menuCloseHookAddress = DMKScanner::find_pattern(reinterpret_cast<const std::byte *>(module_base), module_size, *closePattern);
         if (!menuCloseHookAddress)
         {
@@ -187,10 +178,8 @@ bool initializeUiMenuHooks(uintptr_t module_base, size_t module_size)
         logger.log(LogLevel::Info, "UIMenuHook: Adjusted menu close function to " +
                                  format_address(menuCloseAddr));
 
-        // Create hooks using DMKHookManager
         DMKHookManager &hook_manager = DMKHookManager::get_instance();
 
-        // Create menu open hook
         auto openResult = hook_manager.create_inline_hook(
             "MenuOpen",
             menuOpenAddr,
@@ -203,7 +192,6 @@ bool initializeUiMenuHooks(uintptr_t module_base, size_t module_size)
         }
         g_menuOpenHookId = openResult.value();
 
-        // Create menu close hook
         auto closeResult = hook_manager.create_inline_hook(
             "MenuClose",
             menuCloseAddr,
@@ -234,7 +222,6 @@ void cleanupUiMenuHooks()
     DMKLogger &logger = DMKLogger::get_instance();
     DMKHookManager &hook_manager = DMKHookManager::get_instance();
 
-    // Remove menu open hook
     if (!g_menuOpenHookId.empty())
     {
         (void)hook_manager.remove_hook(g_menuOpenHookId);
@@ -242,7 +229,6 @@ void cleanupUiMenuHooks()
         fpMenuOpenOriginal = nullptr;
     }
 
-    // Remove menu close hook
     if (!g_menuCloseHookId.empty())
     {
         (void)hook_manager.remove_hook(g_menuCloseHookId);
@@ -250,7 +236,6 @@ void cleanupUiMenuHooks()
         fpMenuCloseOriginal = nullptr;
     }
 
-    // Reset menu state
     g_isMenuOpen.store(false);
 
     logger.log(LogLevel::Debug, "UIMenuHook: Cleanup complete");

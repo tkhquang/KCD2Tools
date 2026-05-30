@@ -5,8 +5,8 @@
  * Uses DMKConfig's callback-based registration system for loading settings from INI.
  */
 
-#include "config.h"
-#include "constants.h"
+#include "config.hpp"
+#include "constants.hpp"
 
 #include <DetourModKit.hpp>
 
@@ -52,6 +52,9 @@ static std::string formatKeyCombo(const DMKKeyCombo &combo)
     return result;
 }
 
+/**
+ * @brief Formats a list of key combos as a human-readable string for logging.
+ */
 static std::string formatKeyComboList(const DMKKeyComboList &list)
 {
     if (list.empty())

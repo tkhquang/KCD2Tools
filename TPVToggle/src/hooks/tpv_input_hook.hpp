@@ -5,7 +5,8 @@
  * Provides customizable camera control including sensitivity adjustment
  * and vertical pitch limits for third-person view.
  */
-#pragma once
+#ifndef TPV_INPUT_HOOK_HPP
+#define TPV_INPUT_HOOK_HPP
 
 #include <cstdint>
 
@@ -27,3 +28,5 @@ void cleanupTpvInputHook();
  * @details Used when switching views or resetting camera state
  */
 void resetCameraAngles();
+
+#endif // TPV_INPUT_HOOK_HPP

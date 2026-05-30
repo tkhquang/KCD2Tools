@@ -6,11 +6,11 @@
  * the player entity pointer for camera manipulation and position queries.
  */
 
-#include "entity_hooks.h"
-#include "constants.h"
-#include "game_structures.h"
-#include "utils.h"
-#include "global_state.h"
+#include "entity_hooks.hpp"
+#include "constants.hpp"
+#include "game_structures.hpp"
+#include "utils.hpp"
+#include "global_state.hpp"
 
 #include <DetourModKit.hpp>
 
@@ -34,18 +34,15 @@ constexpr const char *CENTITY_CONSTRUCTOR_CALLER_AOB = "E8 ?? ?? ?? ?? 48 8B D8 
 // WHGame.DLL+D1523A - F7 43 18 00400000     - test [rbx+18],00004000 { 16384 }
 constexpr const char *CENTITY_SETWORLDTM_CALLER_AOB = "E8 ?? ?? ?? ?? EB ?? 45 33 C0 F7 43";
 
-// Function typedefs
 typedef void *(*CEntity_Constructor_t)(GameStructures::CEntity *this_ptr, uintptr_t unknown_param);
 typedef void (*CEntity_SetWorldTM_t)(GameStructures::CEntity *this_ptr, float *tm_3x4, int flags);
 
-// Static hook data
 static CEntity_Constructor_t fpCEntityConstructorOriginal = nullptr;
 static std::string g_CEntityConstructorHookId;
 static std::mutex g_entityMutex; // Protect player entity pointer access
 
-// Global entity pointer
 extern GameStructures::CEntity *g_thePlayerEntity;
-// Global function pointer (defined in global_state.cpp)
+// Defined in global_state.cpp
 extern CEntity_SetWorldTM_Func_t g_funcCEntitySetWorldTM;
 
 /**
@@ -59,72 +56,83 @@ extern CEntity_SetWorldTM_Func_t g_funcCEntitySetWorldTM;
 static void *Detour_CEntity_Constructor(GameStructures::CEntity *this_ptr, uintptr_t unknown_param)
 {
     DMKLogger &logger = DMKLogger::get_instance();
-    void *result = nullptr;
 
-    // Call original constructor
-    if (fpCEntityConstructorOriginal)
-    {
-        result = fpCEntityConstructorOriginal(this_ptr, unknown_param);
-    }
-    else
+    if (!fpCEntityConstructorOriginal)
     {
         logger.log(LogLevel::Error, "EntityHooks: fpCEntityConstructorOriginal is NULL");
         return nullptr;
     }
 
-    // Get entity name safely
-    std::string entityName = "Unknown";
+    void *result = fpCEntityConstructorOriginal(this_ptr, unknown_param);
 
+    // Memory faults below are handled by the seh_* primitives; this guard only
+    // stops a C++ exception (e.g. std::string allocation) from unwinding into the
+    // engine, which would terminate the process. It does not catch access
+    // violations (catch(...) cannot, under MSVC /EHsc).
     try
     {
-        if (this_ptr && DMKMemory::is_readable(this_ptr, sizeof(void *)))
+        std::string entityName = "Unknown";
+
+        // A live CEntity's vtable points into the game module (WHGame.dll), whose
+        // mapped range is captured in g_ModuleBase/g_ModuleSize during startup.
+        // Validate the vtable against that range with a branch-only test before the
+        // virtual GetName() call, instead of taking a region-cache lock on every
+        // construction. Note: host_module_range() is the bootstrap EXE, which holds
+        // no game RTTI, so it must not be used here.
+        const DMKMemory::ModuleRange game_range{g_ModuleBase, g_ModuleBase + g_ModuleSize};
+        const uintptr_t this_addr = reinterpret_cast<uintptr_t>(this_ptr);
+        if (DMKMemory::plausible_userspace_ptr(this_addr))
         {
-            // Check if vtable is readable (need at least 19 entries for GetName)
-            uintptr_t *vtable = *reinterpret_cast<uintptr_t **>(this_ptr);
-            if (DMKMemory::is_readable(vtable, sizeof(void *) * 19))
+            const auto vtable = DMKMemory::seh_read<uintptr_t>(this_addr);
+            if (vtable && DMKMemory::contains(game_range, *vtable))
             {
                 const char *rawName = this_ptr->GetName();
-                if (rawName && DMKMemory::is_readable(rawName, 1))
+                if (rawName)
                 {
-                    // Copy the name string safely
-                    entityName = std::string(rawName);
+                    // GetName() returns an engine-owned C string of unknown length.
+                    // Copy it into a bounded buffer under one SEH frame so a name
+                    // ending near an unmapped page cannot fault an std::string scan.
+                    char name_buf[128] = {};
+                    if (DMKMemory::seh_read_bytes(reinterpret_cast<uintptr_t>(rawName), name_buf, sizeof(name_buf) - 1))
+                    {
+                        entityName = name_buf;
+                    }
                 }
+            }
+        }
+
+        // Identify the player entity by name and latch its pointer.
+        if (entityName.find("Dude") != std::string::npos &&
+            entityName.find("Player") != std::string::npos)
+        {
+            std::lock_guard<std::mutex> lock(g_entityMutex);
+
+            if (g_thePlayerEntity != this_ptr)
+            {
+                if (g_thePlayerEntity == nullptr)
+                {
+                    logger.log(LogLevel::Info, "EntityHooks: Player entity detected and assigned - Name: '" +
+                                             entityName + "' Addr: " + format_address(reinterpret_cast<uintptr_t>(this_ptr)));
+                }
+                else
+                {
+                    logger.log(LogLevel::Info, "EntityHooks: Player entity updated - Old: " +
+                                             format_address(reinterpret_cast<uintptr_t>(g_thePlayerEntity)) +
+                                             " New: " + format_address(reinterpret_cast<uintptr_t>(this_ptr)) +
+                                             " Name: '" + entityName + "'");
+                }
+
+                g_thePlayerEntity = this_ptr;
             }
         }
     }
     catch (const std::exception &e)
     {
-        logger.log(LogLevel::Warning, "EntityHooks: Exception getting entity name: " + std::string(e.what()));
+        logger.log(LogLevel::Warning, "EntityHooks: Exception in constructor detour: " + std::string(e.what()));
     }
     catch (...)
     {
-        logger.log(LogLevel::Warning, "EntityHooks: Unknown exception getting entity name");
-    }
-
-    // Check if this is the player entity
-    if (entityName.find("Dude") != std::string::npos &&
-        entityName.find("Player") != std::string::npos)
-    {
-        std::lock_guard<std::mutex> lock(g_entityMutex);
-
-        // Check if we're updating the player entity
-        if (g_thePlayerEntity != this_ptr)
-        {
-            if (g_thePlayerEntity == nullptr)
-            {
-                logger.log(LogLevel::Info, "EntityHooks: Player entity detected and assigned - Name: '" +
-                                         entityName + "' Addr: " + format_address(reinterpret_cast<uintptr_t>(this_ptr)));
-            }
-            else
-            {
-                logger.log(LogLevel::Info, "EntityHooks: Player entity updated - Old: " +
-                                         format_address(reinterpret_cast<uintptr_t>(g_thePlayerEntity)) +
-                                         " New: " + format_address(reinterpret_cast<uintptr_t>(this_ptr)) +
-                                         " Name: '" + entityName + "'");
-            }
-
-            g_thePlayerEntity = this_ptr;
-        }
+        logger.log(LogLevel::Warning, "EntityHooks: Unknown exception in constructor detour");
     }
 
     return result;
@@ -153,7 +161,6 @@ bool initializeEntityHooks(uintptr_t moduleBase, size_t moduleSize)
 
     try
     {
-        // Find CEntity constructor target
         auto ctorPattern = DMKScanner::parse_aob(CENTITY_CONSTRUCTOR_CALLER_AOB);
         if (!ctorPattern.has_value())
         {
@@ -176,7 +183,6 @@ bool initializeEntityHooks(uintptr_t moduleBase, size_t moduleSize)
         logger.log(LogLevel::Info, "EntityHooks: CEntity constructor found at " +
                                  format_address(constructorAddress.value()));
 
-        // Create hook using DMKHookManager
         DMKHookManager &hook_manager = DMKHookManager::get_instance();
 
         auto ctorResult = hook_manager.create_inline_hook(
@@ -230,7 +236,6 @@ void cleanupEntityHooks()
     DMKLogger &logger = DMKLogger::get_instance();
     DMKHookManager &hook_manager = DMKHookManager::get_instance();
 
-    // Remove constructor hook
     if (!g_CEntityConstructorHookId.empty())
     {
         (void)hook_manager.remove_hook(g_CEntityConstructorHookId);
@@ -239,7 +244,6 @@ void cleanupEntityHooks()
         logger.log(LogLevel::Info, "EntityHooks: Constructor hook removed");
     }
 
-    // Clear function pointers and entity reference
     {
         std::lock_guard<std::mutex> lock(g_entityMutex);
         g_funcCEntitySetWorldTM = nullptr;

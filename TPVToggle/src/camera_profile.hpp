@@ -1,13 +1,13 @@
 
-#ifndef CAMERA_PROFILE_H
-#define CAMERA_PROFILE_H
+#ifndef CAMERA_PROFILE_HPP
+#define CAMERA_PROFILE_HPP
 
 #include <string>
 #include <vector>
 #include <mutex>
 #include <memory>
-#include "math_utils.h"
-#include "transition_manager.h"
+#include "math_utils.hpp"
+#include "transition_manager.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -199,4 +199,4 @@ private:
     static constexpr int SAVE_DEBOUNCE_SECONDS = 2; // Debounce window
 };
 
-#endif // CAMERA_PROFILE_H
+#endif // CAMERA_PROFILE_HPP

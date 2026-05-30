@@ -1,4 +1,5 @@
-#pragma once
+#ifndef MATH_UTILS_HPP
+#define MATH_UTILS_HPP
 
 #include <cmath>
 #include <DirectXMath.h>
@@ -81,7 +82,7 @@ struct Quaternion
     float x, y, z, w;
 
     // Tolerance for floating point comparisons
-    static constexpr float QUAT_EPSILON = 1e-4f; // Adjust tolerance as needed
+    static constexpr float QUAT_EPSILON = 1e-4f; // Tolerance for component-wise quaternion equality.
 
     Quaternion(float _x = 0.0f, float _y = 0.0f, float _z = 0.0f, float _w = 1.0f) : x(_x), y(_y), z(_z), w(_w) {}
 
@@ -154,3 +155,5 @@ struct Quaternion
         return Quaternion::FromXMVector(result);
     }
 };
+
+#endif // MATH_UTILS_HPP

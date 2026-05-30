@@ -5,7 +5,8 @@
  * Provides functions to initialize and manage hooks for entity tracking,
  * primarily focused on identifying and tracking the player entity.
  */
-#pragma once
+#ifndef ENTITY_HOOKS_HPP
+#define ENTITY_HOOKS_HPP
 
 #include <cstdint>
 
@@ -42,3 +43,5 @@ void ResetPlayerEntityIfDestroyed(GameStructures::CEntity *entity);
  * @return Pointer to player entity or nullptr if not found
  */
 GameStructures::CEntity *GetPlayerEntity();
+
+#endif // ENTITY_HOOKS_HPP

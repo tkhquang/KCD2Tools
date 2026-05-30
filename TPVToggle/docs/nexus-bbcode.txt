@@ -26,7 +26,7 @@ This mod enables toggling between first-person and third-person camera views in 
 [size=5]Linux / Steam Deck (Wine/Proton)[/size]
 Since this mod uses dinput8.dll as the ASI loader, you need to tell Wine/Proton to use the bundled DLL instead of its built-in version.
 
-[b]Steam:[/b] Go to the game's Properties → Launch Options and add:
+[b]Steam:[/b] Go to the game's Properties -> Launch Options and add:
 [code]WINEDLLOVERRIDES="dinput8=n,b" %command%[/code]
 
 [b]Command line:[/b] Prepend your launch command with:
@@ -97,7 +97,7 @@ ToggleKey = Gamepad_Y
 ToggleKey = Gamepad_LB+Gamepad_Y
 
 ; Example: Multiple independent combos (comma = OR between combos)
-; F3 alone OR (hold LB + press Y) — keyboard and gamepad interchangeably
+; F3 alone OR (hold LB + press Y) -- keyboard and gamepad interchangeably
 ToggleKey = F3,Gamepad_LB+Gamepad_Y
 [/code]
 

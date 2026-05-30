@@ -6,8 +6,8 @@
  * the game's UI overlay show and hide functions, eliminating the need for
  * polling-based overlay state detection.
  */
-#ifndef UI_OVERLAY_HOOKS_H
-#define UI_OVERLAY_HOOKS_H
+#ifndef UI_OVERLAY_HOOKS_HPP
+#define UI_OVERLAY_HOOKS_HPP
 
 #include <cstdint>
 
@@ -38,4 +38,4 @@ bool areUiOverlayHooksActive();
  */
 bool handleHoldToScrollKeyState(bool holdKeyPressed);
 
-#endif // UI_OVERLAY_HOOKS_H
+#endif // UI_OVERLAY_HOOKS_HPP

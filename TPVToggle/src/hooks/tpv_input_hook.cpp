@@ -5,14 +5,13 @@
  * Intercepts third-person camera input events to provide customizable
  * camera control including sensitivity adjustment and vertical limits.
  */
-#define _USE_MATH_DEFINES
-#include "tpv_input_hook.h"
-#include "constants.h"
-#include "game_structures.h"
-#include "utils.h"
-#include "global_state.h"
-#include "config.h"
-#include "ui_menu_hooks.h"
+#include "tpv_input_hook.hpp"
+#include "constants.hpp"
+#include "game_structures.hpp"
+#include "utils.hpp"
+#include "global_state.hpp"
+#include "config.hpp"
+#include "ui_menu_hooks.hpp"
 
 #include <DetourModKit.hpp>
 
@@ -21,7 +20,6 @@
 #include <cmath>
 
 using DetourModKit::LogLevel;
-using DMKFormat::format_address;
 using DMKFormat::format_hex;
 
 // External config reference
@@ -36,27 +34,15 @@ static std::string g_tpvInputHookId;
 // Original function pointer (trampoline from SafetyHook)
 static TpvCameraInputFunc fpTpvCameraInputOriginal = nullptr;
 
-// Camera control state
-static std::atomic<float> g_currentPitch(0.0f);      // Current camera pitch in radians
-static std::atomic<float> g_currentYaw(0.0f);        // Current camera yaw in radians
-static std::atomic<bool> g_limitsInitialized(false); // Whether pitch limits are initialized
+// Camera control state. Pitch is accumulated in degrees so it can be clamped to
+// the configured limits; the game already reports input deltas in degrees.
+static std::atomic<float> g_currentPitch(0.0f);
+static std::atomic<bool> g_limitsInitialized(false);
 
 // Mouse event IDs for TPV camera control
 constexpr int MOUSE_EVENT_ID_TPV_YAW = 0x10A;   // Horizontal rotation
 constexpr int MOUSE_EVENT_ID_TPV_PITCH = 0x10B; // Vertical rotation
 constexpr int MOUSE_EVENT_ID_TPV_ZOOM = 0x10C;  // Camera zoom
-
-// Convert degrees to radians
-inline float DegreesToRadians(float degrees)
-{
-    return degrees * (M_PI / 180.0f);
-}
-
-// Convert radians to degrees
-inline float RadiansToDegrees(float radians)
-{
-    return radians * (180.0f / M_PI);
-}
 
 /**
  * @brief Detour function for TPV camera input processing
@@ -68,8 +54,11 @@ static void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEvent
 {
     DMKLogger &logger = DMKLogger::get_instance();
 
-    // Validate input event pointer
-    if (!DMKMemory::is_readable(inputEventPtr, sizeof(GameStructures::InputEvent)))
+    // inputEventPtr is engine-handed and forwarded straight to the original, so
+    // it is live by definition; screen it with a cheap arithmetic check (no
+    // syscall, no region-cache lock) instead of an is_readable probe on this
+    // per-event path.
+    if (!DMKMemory::plausible_userspace_ptr(reinterpret_cast<uintptr_t>(inputEventPtr)))
     {
         if (fpTpvCameraInputOriginal)
             fpTpvCameraInputOriginal(thisPtr, inputEventPtr);
@@ -79,19 +68,17 @@ static void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEvent
     // Skip camera input processing if in-game menu is open
     if (isGameMenuOpen() || g_isOverlayActive.load())
     {
-        // When menu is open, just skip through
         return;
     }
 
-    // Cast to input event structure
     GameStructures::InputEvent *event = reinterpret_cast<GameStructures::InputEvent *>(inputEventPtr);
 
-    // Check if it's a mouse event for TPV camera
+    // eventByte0 == 0x01 and eventType == 0x08 identify a mouse-move event,
+    // the only class that carries TPV camera yaw/pitch/zoom deltas.
     if (event->eventByte0 == 0x01 && event->eventType == 0x08)
     {
         bool modifiedInput = false;
 
-        // Debug logging of raw input
         if (std::abs(event->deltaValue) > 1e-5f)
         {
             logger.log(LogLevel::Trace, "TPVInput RAW: EventID=" + format_hex(event->eventId) +
@@ -108,13 +95,7 @@ static void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEvent
             {
                 event->deltaValue *= sensitivity;
                 modifiedInput = true;
-            }
 
-            // Update current yaw for tracking (game values already in degrees)
-            g_currentYaw.store(g_currentYaw.load() + event->deltaValue);
-
-            if (modifiedInput)
-            {
                 logger.log(LogLevel::Trace, "TPVInput: Yaw adjusted with sensitivity " +
                                           std::to_string(sensitivity));
             }
@@ -123,7 +104,6 @@ static void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEvent
 
         case MOUSE_EVENT_ID_TPV_PITCH:
         {
-            // Get current config values
             float sensitivity = g_config.tpv_pitch_sensitivity;
             float pitchMin = g_config.tpv_pitch_min;
             float pitchMax = g_config.tpv_pitch_max;
@@ -132,42 +112,38 @@ static void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEvent
             {
                 float originalDelta = event->deltaValue;
 
-                // Apply vertical sensitivity
                 float adjustedDelta = event->deltaValue * sensitivity;
 
-                // Apply pitch limits if enabled
                 if (g_config.tpv_pitch_limits_enabled)
                 {
-                    // Initialize pitch if not already done
                     if (!g_limitsInitialized.load())
                     {
-                        // Start at neutral position
                         g_currentPitch.store(0.0f);
                         g_limitsInitialized.store(true);
-                        logger.log(LogLevel::Info, "TPVInput: Initialized pitch tracking at 0°");
+                        logger.log(LogLevel::Info, "TPVInput: Initialized pitch tracking at 0 deg");
                     }
 
-                    // Get current pitch and calculate new pitch (in degrees)
+                    // Track accumulated pitch in degrees so the proposed angle can
+                    // be clamped against the configured limits.
                     float currentPitch = g_currentPitch.load();
                     float proposedPitch = currentPitch + adjustedDelta;
 
-                    // Clamp to limits
                     float clampedPitch = std::clamp(proposedPitch, pitchMin, pitchMax);
 
-                    // Calculate actual delta after clamping
+                    // Feed the engine only the portion of the delta that survives
+                    // clamping, so it never rotates past the limit.
                     adjustedDelta = clampedPitch - currentPitch;
 
-                    // Update stored pitch
                     g_currentPitch.store(clampedPitch);
 
                     logger.log(LogLevel::Trace, "TPVInput PITCH: Original=" + std::to_string(originalDelta) +
                                               " Sens=" + std::to_string(sensitivity) +
                                               " AdjustedDelta=" + std::to_string(adjustedDelta) +
-                                              " Current=" + std::to_string(currentPitch) + "°" +
-                                              " Proposed=" + std::to_string(proposedPitch) + "°" +
-                                              " Clamped=" + std::to_string(clampedPitch) + "°" +
-                                              " Limits=[" + std::to_string(pitchMin) + "°, " +
-                                              std::to_string(pitchMax) + "°]");
+                                              " Current=" + std::to_string(currentPitch) + " deg" +
+                                              " Proposed=" + std::to_string(proposedPitch) + " deg" +
+                                              " Clamped=" + std::to_string(clampedPitch) + " deg" +
+                                              " Limits=[" + std::to_string(pitchMin) + " deg, " +
+                                              std::to_string(pitchMax) + " deg]");
                 }
                 else
                 {
@@ -177,7 +153,6 @@ static void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEvent
                                               " (No limits)");
                 }
 
-                // Apply the adjusted delta
                 event->deltaValue = adjustedDelta;
                 modifiedInput = true;
             }
@@ -193,7 +168,6 @@ static void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEvent
             break;
         }
 
-        // Log significant modifications
         if (modifiedInput)
         {
             logger.log(LogLevel::Trace, "TPVInput MODIFIED: EventID=" + format_hex(event->eventId) +
@@ -201,7 +175,6 @@ static void __fastcall Detour_TpvCameraInput(uintptr_t thisPtr, char *inputEvent
         }
     }
 
-    // Always call original function
     if (fpTpvCameraInputOriginal)
     {
         fpTpvCameraInputOriginal(thisPtr, inputEventPtr);
@@ -215,7 +188,6 @@ bool initializeTpvInputHook(uintptr_t moduleBase, size_t moduleSize)
 
     try
     {
-        // Use DMKHookManager to create hook via AOB scan
         DMKHookManager &hook_manager = DMKHookManager::get_instance();
 
         auto result = hook_manager.create_inline_hook_aob(
@@ -233,14 +205,6 @@ bool initializeTpvInputHook(uintptr_t moduleBase, size_t moduleSize)
         }
         g_tpvInputHookId = result.value();
 
-        // Get the target address for logging
-        (void)hook_manager.with_inline_hook(g_tpvInputHookId, [&](DMK::InlineHook &hook) {
-            logger.log(LogLevel::Info, "TPVInputHook: Found TPV input function at " +
-                                     format_address(hook.get_target_address()));
-            return true;
-        });
-
-        // Log configuration
         logger.log(LogLevel::Info, "TPVInputHook: Successfully installed with config:");
         logger.log(LogLevel::Info, "  - Yaw Sensitivity: " + std::to_string(g_config.tpv_yaw_sensitivity));
         logger.log(LogLevel::Info, "  - Pitch Sensitivity: " + std::to_string(g_config.tpv_pitch_sensitivity));
@@ -248,8 +212,8 @@ bool initializeTpvInputHook(uintptr_t moduleBase, size_t moduleSize)
         if (g_config.tpv_pitch_limits_enabled)
         {
             logger.log(LogLevel::Info, "  - Pitch Limits: " +
-                                     std::to_string(g_config.tpv_pitch_min) + "° to " +
-                                     std::to_string(g_config.tpv_pitch_max) + "°");
+                                     std::to_string(g_config.tpv_pitch_min) + " deg to " +
+                                     std::to_string(g_config.tpv_pitch_max) + " deg");
         }
         else
         {
@@ -287,23 +251,12 @@ void cleanupTpvInputHook()
         fpTpvCameraInputOriginal = nullptr;
     }
 
-    // Reset state
     g_currentPitch.store(0.0f);
-    g_currentYaw.store(0.0f);
     g_limitsInitialized.store(false);
 }
 
 void resetCameraAngles()
 {
     g_currentPitch.store(0.0f);
-    g_currentYaw.store(0.0f);
     g_limitsInitialized.store(false);
-}
-
-void update_orbital_camera_rotation_from_euler()
-{
-    // This is a placeholder for orbital camera functionality
-    // Currently the game handles camera rotation internally
-    // This function would be used for custom orbital camera mode
-    // which is not currently implemented in this version
 }
