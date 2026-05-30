@@ -1,53 +1,46 @@
 /**
  * @file global_state.cpp
- * @brief Definitions of all global variables shared across the mod.
+ * @brief Storage backing the cross-module shared-state accessors.
  */
 
 #include "global_state.hpp"
-#include <DetourModKit.hpp>
-#include "utils.hpp"
-#include "game_structures.hpp"
-#include "constants.hpp"
 
-// Module information
-uintptr_t g_ModuleBase = 0;
-size_t g_ModuleSize = 0;
-
-// Thread control
-HANDLE g_exitEvent = NULL;
-
-// Thread handles
-HANDLE g_hMonitorThread = NULL;
-HANDLE g_hOverlayThread = NULL;
-HANDLE g_hCameraProfileThread = NULL;
-
-// Game interface globals
+// Stable unmangled symbol for the resolved game context pointer (see header).
 extern "C"
 {
     std::byte *g_global_context_ptr_address = nullptr;
 }
 
-// Event hook globals
-std::byte *g_accumulatorWriteAddress = nullptr;
-std::byte g_originalAccumulatorWriteBytes[Constants::ACCUMULATOR_WRITE_INSTR_LENGTH] = {std::byte{0}};
-volatile float *g_scrollAccumulatorAddress = nullptr;
-volatile uintptr_t *g_scrollPtrStorageAddress = nullptr;
+namespace TPVToggle
+{
+    ModuleInfo &module_info() noexcept
+    {
+        static ModuleInfo state;
+        return state;
+    }
 
-// Thread communication atomics
-std::atomic<bool> g_isOverlayActive(false);
-std::atomic<bool> g_overlayFpvRequest(false);
-std::atomic<bool> g_overlayTpvRestoreRequest(false);
-std::atomic<bool> g_wasTpvBeforeOverlay(false);
-std::atomic<bool> g_accumulatorWriteNOPped(false);
-std::atomic<bool> g_holdToScrollActive(false);
+    OverlayState &overlay_state() noexcept
+    {
+        static OverlayState state;
+        return state;
+    }
 
-Vector3 g_latestTpvCameraForward = {0.0f, 1.0f, 0.0f};
+    ScrollHookState &scroll_hook_state() noexcept
+    {
+        static ScrollHookState state;
+        return state;
+    }
 
-CameraOffsetState g_currentCameraOffset;
-std::atomic<bool> g_cameraAdjustmentMode(false);
+    TpvCameraState &camera_state() noexcept
+    {
+        static TpvCameraState state;
+        return state;
+    }
 
-Vector3 g_playerWorldPosition(0.0f, 0.0f, 0.0f);
-Quaternion g_playerWorldOrientation = Quaternion::Identity();
+    PlayerTransform &player_transform() noexcept
+    {
+        static PlayerTransform state;
+        return state;
+    }
 
-GameStructures::CEntity *g_thePlayerEntity = nullptr;
-CEntity_SetWorldTM_Func_t g_funcCEntitySetWorldTM = nullptr;
+} // namespace TPVToggle

@@ -1,7 +1,7 @@
 {
   "configurations": [
     {
-      "name": "windows-gcc-x64",
+      "name": "windows-msvc-x64",
       "includePath": [
         "${workspaceFolder}/TPVToggle/src",
         "${workspaceFolder}/TPVToggle/external/DetourModKit/include",
@@ -9,11 +9,11 @@
         "${workspaceFolder}/TPVToggle/external/KCD2ModLoader/src",
         "${workspaceFolder}/**"
       ],
-      "defines": ["_DEBUG", "UNICODE", "_UNICODE"],
-      "compilerPath": "C:/msys64/mingw64/bin/gcc.exe",
-      "cStandard": "c23",
+      "defines": ["_DEBUG", "UNICODE", "_UNICODE", "WIN32", "_WINDOWS"],
+      "compilerPath": "cl.exe",
+      "cStandard": "c17",
       "cppStandard": "c++23",
-      "intelliSenseMode": "windows-gcc-x64"
+      "intelliSenseMode": "windows-msvc-x64"
     }
   ],
   "version": 4

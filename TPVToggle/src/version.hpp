@@ -1,5 +1,5 @@
 /**
- * @file version.h
+ * @file version.hpp
  * @brief Single source of truth for the mod's version and metadata.
  *
  * UPDATE VERSION MACROS BELOW when creating a new version release.
@@ -28,6 +28,8 @@
  * @namespace Version
  * @brief Contains constants and functions for version/build information.
  */
+namespace TPVToggle
+{
 namespace Version
 {
     // Numeric version components.
@@ -73,5 +75,6 @@ namespace Version
     void logVersionInfo();
 
 } // namespace Version
+} // namespace TPVToggle
 
 #endif // VERSION_HPP

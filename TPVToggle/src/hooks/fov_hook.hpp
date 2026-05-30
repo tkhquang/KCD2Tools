@@ -1,5 +1,5 @@
 /**
- * @file hooks/fov_hook.h
+ * @file hooks/fov_hook.hpp
  * @brief Header for TPV FOV hook functionality.
  *
  * Provides functions to initialize and manage the hook that modifies
@@ -9,9 +9,13 @@
 #define FOV_HOOK_HPP
 
 #include <cstdint>
+#include <cstddef>
 
-// Function signature for the TPV FOV calculation function
-typedef void(__fastcall *TpvFovCalculateFunc)(float *pViewStruct, float deltaTime);
+namespace TPVToggle
+{
+
+/** @brief Signature of the engine TPV FOV calculation function (trampoline type). */
+using TpvFovCalculateFunc = void(__fastcall *)(float *pViewStruct, float deltaTime);
 
 /**
  * @brief Initialize the TPV FOV hook.
@@ -20,17 +24,8 @@ typedef void(__fastcall *TpvFovCalculateFunc)(float *pViewStruct, float deltaTim
  * @param desired_fov_degrees Desired FOV in degrees (or -1 to disable).
  * @return true if initialization successful, false otherwise.
  */
-bool initializeFovHook(uintptr_t module_base, size_t module_size, float desired_fov_degrees);
+[[nodiscard]] bool initializeFovHook(uintptr_t module_base, size_t module_size, float desired_fov_degrees);
 
-/**
- * @brief Clean up FOV hook resources.
- */
-void cleanupFovHook();
-
-/**
- * @brief Check if FOV hook is active and ready.
- * @return true if hook is successfully installed and functional.
- */
-bool isFovHookActive();
+} // namespace TPVToggle
 
 #endif // FOV_HOOK_HPP

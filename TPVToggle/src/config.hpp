@@ -1,111 +1,100 @@
 /**
- * @file config.h
- * @brief Defines configuration structure and the loading function prototype.
+ * @file config.hpp
+ * @brief Configuration model and registration for the TPV Toggle mod.
  *
- * Contains the `Config` struct used to hold application settings loaded from
- * the INI configuration file (e.g., hotkeys, logging level, optional features).
+ * @details Settings split by access pattern:
+ *          - LiveSettings holds every value read on a hot path (per-frame detours,
+ *            poll threads) or across threads. They are std::atomic so INI
+ *            hot-reload (which runs the setters on the ConfigWatcher thread) never
+ *            races the game thread. They are bound with DMK::Config::register_atomic.
+ *          - Config holds init-only values applied once while the mod sets itself
+ *            up, plus the key-combo lists for hold bindings, which are parsed by
+ *            DMK::Config and consumed once when the InputManager hold bindings are
+ *            registered. Press bindings are registered separately via
+ *            DMK::Config::register_press_combo (see input registration).
  */
 #ifndef CONFIG_HPP
 #define CONFIG_HPP
 
-#include <vector>
-#include <string>
-
 #include <DetourModKit.hpp>
+
+#include <atomic>
+#include <string>
 
 /**
  * @struct Config
- * @brief Holds application settings parsed from the configuration INI file.
- *
- * Stores hotkey bindings, logging level, and optional features like overlay
- * detection and custom TPV FOV settings.
+ * @brief Init-only settings and the key lists for hold bindings.
  */
 struct Config
 {
-    // Key bindings (populated from INI via DMKConfig::register_key_combo).
-    DMKKeyComboList toggle_keys; /**< Keys that toggle between FPV/TPV. */
-    DMKKeyComboList fpv_keys;    /**< Keys that force First Person View. */
-    DMKKeyComboList tpv_keys;    /**< Keys that force Third Person View. */
+    // Optional features (read once during initialization).
+    bool enable_overlay_feature{true}; /**< Enable overlay detection and handling. */
+    float tpv_fov_degrees{-1.0f};      /**< Custom TPV FOV in degrees; -1.0f if disabled. */
 
-    // Other configurable settings from INI.
-    std::string log_level; /**< Logging level as string (e.g., "INFO", "DEBUG"). */
+    // Camera profile system (init-only portion).
+    std::string profile_directory{}; /**< Directory holding saved camera profiles. */
 
-    // Optional features
-    bool enable_overlay_feature; /**< Enable overlay detection and handling. */
-    float tpv_fov_degrees;       /**< Custom TPV FOV in degrees; -1.0f if disabled. */
+    // Transition settings (snapshotted into TransitionManager at init and on reload).
+    float transition_duration{0.3f};
+    bool use_spring_physics{false};
+    float spring_strength{10.0f};
+    float spring_damping{0.8f};
 
-    // Hold-key-to-scroll feature
-    DMKKeyComboList hold_scroll_keys; /**< Keys that, when held, enable mouse wheel scrolling. */
-
-    // TPV Camera Offset Settings
-    float tpv_offset_x;
-    float tpv_offset_y;
-    float tpv_offset_z;
-
-    // Camera profile system
-    bool enable_camera_profiles;
-    DMKKeyComboList master_toggle_keys;
-    DMKKeyComboList profile_save_keys;
-    DMKKeyComboList profile_cycle_keys;
-    DMKKeyComboList profile_reset_keys;
-    DMKKeyComboList profile_update_keys;
-    DMKKeyComboList profile_delete_keys;
-
-    // Offset adjustment keys
-    DMKKeyComboList offset_x_inc_keys;
-    DMKKeyComboList offset_x_dec_keys;
-    DMKKeyComboList offset_y_inc_keys;
-    DMKKeyComboList offset_y_dec_keys;
-    DMKKeyComboList offset_z_inc_keys;
-    DMKKeyComboList offset_z_dec_keys;
-
-    // Adjustment settings
-    float offset_adjustment_step;
-    std::string profile_directory;
-
-    // Transition settings
-    float transition_duration;
-    bool use_spring_physics;
-    float spring_strength;
-    float spring_damping;
-
-    // TPV Camera sensitivity settings
-    float tpv_pitch_sensitivity;
-    float tpv_yaw_sensitivity;
-    bool tpv_pitch_limits_enabled;
-    float tpv_pitch_min;
-    float tpv_pitch_max;
-
-    // Overlay restore delay
-    int overlay_restore_delay_ms;
-
-    Config() : log_level("INFO"),
-               enable_overlay_feature(true),
-               tpv_fov_degrees(-1.0f),
-               tpv_offset_x(0.0f),
-               tpv_offset_y(0.0f),
-               tpv_offset_z(0.0f),
-               enable_camera_profiles(false),
-               offset_adjustment_step(0.01f),
-               transition_duration(0.3f),
-               use_spring_physics(false),
-               spring_strength(10.0f),
-               spring_damping(0.8f),
-               tpv_pitch_sensitivity(1.0f),
-               tpv_yaw_sensitivity(1.0f),
-               tpv_pitch_limits_enabled(false),
-               tpv_pitch_min(-180.0f),
-               tpv_pitch_max(180.0f),
-               overlay_restore_delay_ms(200)
-    {
-    }
+    // Hold-binding key lists (parsed by DMK::Config; consumed once when the
+    // InputManager hold bindings are registered).
+    DMK::Config::KeyComboList hold_scroll_keys;
+    DMK::Config::KeyComboList offset_x_inc_keys;
+    DMK::Config::KeyComboList offset_x_dec_keys;
+    DMK::Config::KeyComboList offset_y_inc_keys;
+    DMK::Config::KeyComboList offset_y_dec_keys;
+    DMK::Config::KeyComboList offset_z_inc_keys;
+    DMK::Config::KeyComboList offset_z_dec_keys;
 };
 
-/**
- * @brief Loads configuration settings from an INI file using DetourModKit::Config.
- * @param ini_filename Base filename of the configuration file.
- * @return Config Structure containing the loaded configuration settings.
- */
-Config loadConfig(const std::string &ini_filename);
+/** @brief Process-wide init-only configuration (defined in config.cpp). */
+extern Config g_config;
+
+namespace TPVToggle
+{
+    /**
+     * @struct LiveSettings
+     * @brief Hot-path and cross-thread settings as atomics so INI hot-reload is
+     *        race-free against the game thread and the poll threads.
+     */
+    struct LiveSettings
+    {
+        std::atomic<bool> enableCameraProfiles{false};
+
+        // Static (profiles-disabled) third-person offset, read per frame.
+        std::atomic<float> tpvOffsetX{0.0f};
+        std::atomic<float> tpvOffsetY{0.0f};
+        std::atomic<float> tpvOffsetZ{0.0f};
+
+        // Camera input sensitivities and pitch limits, read per input event.
+        std::atomic<float> yawSensitivity{1.0f};
+        std::atomic<float> pitchSensitivity{1.0f};
+        std::atomic<bool> pitchLimitsEnabled{false};
+        std::atomic<float> pitchMin{-180.0f};
+        std::atomic<float> pitchMax{180.0f};
+
+        // Continuous offset-adjustment step, read by the profile poll thread.
+        std::atomic<float> offsetAdjustmentStep{0.01f};
+
+        // Delay before restoring TPV after an overlay closes, read by the monitor thread.
+        std::atomic<int> overlayRestoreDelayMs{200};
+    };
+
+    /** @brief Returns the process-wide live (atomic) settings. */
+    [[nodiscard]] LiveSettings &settings() noexcept;
+
+    /**
+     * @brief Registers every non-key configuration item with DMK::Config.
+     * @details Registers the log level, the LiveSettings atomics, and the Config
+     *          init-only values plus hold-binding key lists. Must be called before
+     *          DMK::Config::load(). Press bindings are registered separately.
+     */
+    void register_config_items();
+
+} // namespace TPVToggle
 
 #endif // CONFIG_HPP

@@ -1,5 +1,5 @@
 /**
- * @file hooks/ui_overlay_hooks.h
+ * @file hooks/ui_overlay_hooks.hpp
  * @brief Header for UI overlay hooks functionality.
  *
  * Provides functions to initialize and manage hooks that directly intercept
@@ -10,6 +10,10 @@
 #define UI_OVERLAY_HOOKS_HPP
 
 #include <cstdint>
+#include <cstddef>
+
+namespace TPVToggle
+{
 
 /**
  * @brief Initialize UI overlay hooks.
@@ -17,18 +21,7 @@
  * @param module_size Size of the target game module in bytes.
  * @return true if initialization successful, false otherwise.
  */
-bool initializeUiOverlayHooks(uintptr_t module_base, size_t module_size);
-
-/**
- * @brief Clean up UI overlay hook resources.
- */
-void cleanupUiOverlayHooks();
-
-/**
- * @brief Check if UI overlay hooks are active and ready.
- * @return true if all required hooks are successfully installed and functional.
- */
-bool areUiOverlayHooksActive();
+[[nodiscard]] bool initializeUiOverlayHooks(uintptr_t module_base, size_t module_size);
 
 /**
  * @brief Handler for hold-to-scroll key state changes
@@ -37,5 +30,7 @@ bool areUiOverlayHooksActive();
  * @return true if the state was successfully handled, false otherwise
  */
 bool handleHoldToScrollKeyState(bool holdKeyPressed);
+
+} // namespace TPVToggle
 
 #endif // UI_OVERLAY_HOOKS_HPP

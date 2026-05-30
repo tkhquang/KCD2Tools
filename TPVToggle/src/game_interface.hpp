@@ -1,5 +1,5 @@
 /**
- * @file game_interface.h
+ * @file game_interface.hpp
  * @brief Provides interface to game memory structures and state.
  *
  * Handles the complex pointer chain navigation to access game state like
@@ -14,18 +14,21 @@
 
 #include "math_utils.hpp"
 
+namespace TPVToggle
+{
+
 /**
  * @brief Initialize game interface with dynamic AOB scanning.
  * @param module_base Base address of the target game module.
  * @param module_size Size of the target game module in bytes.
  * @return true if initialization successful, false otherwise.
  */
-bool initializeGameInterface(uintptr_t module_base, size_t module_size);
+[[nodiscard]] bool initializeGameInterface(uintptr_t module_base, size_t module_size);
 
 /**
  * @brief Safely resets the scroll accumulator to zero
  * @param logReset Whether to log successful resets (to avoid log spam)
- * @return true if successfully reset, false if pointer invalid or memory not writable
+ * @return true if successfully reset, false if pointer invalid or already zero
  */
 bool resetScrollAccumulator(bool logReset = false);
 
@@ -36,16 +39,17 @@ void cleanupGameInterface();
 
 /**
  * @brief Gets the resolved address of the TPV flag.
- * @details Resolves the full pointer chain: global context -> camera manager -> TPV object -> flag.
+ * @details Resolves the pointer chain global context -> camera manager -> flag:
+ *          (*(*(storage) + OFFSET_ManagerPtrStorage)) + OFFSET_TpvFlag.
  * @return Pointer to TPV flag byte, or nullptr if resolution fails.
  */
-volatile std::byte *getResolvedTpvFlagAddress();
+[[nodiscard]] volatile std::byte *getResolvedTpvFlagAddress();
 
 /**
  * @brief Gets the current view state (FPV=0, TPV=1).
  * @return 0 for FPV, 1 for TPV, -1 on error.
  */
-int getViewState();
+[[nodiscard]] int getViewState();
 
 /**
  * @brief Sets the view state.
@@ -63,12 +67,13 @@ bool setViewState(BYTE new_state, int *key_pressed_vk = nullptr);
 bool safeToggleViewState(int *key_pressed_vk = nullptr);
 
 /**
- * @brief Gets the camera manager instance.
- * @details Used for FOV and other camera operations.
- * @return Pointer to camera manager, or 0 if not available.
+ * @brief Reads the player entity's world transform into position and orientation.
+ * @param outPosition Receives the world-space position.
+ * @param outOrientation Receives the world-space orientation.
+ * @return true on success, false if the player entity is null or unreadable.
  */
-extern "C" uintptr_t __cdecl getCameraManagerInstance();
-
 bool GetPlayerWorldTransform(Vector3 &outPosition, Quaternion &outOrientation);
+
+} // namespace TPVToggle
 
 #endif // GAME_INTERFACE_HPP

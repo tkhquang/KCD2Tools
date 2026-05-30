@@ -1,5 +1,5 @@
 /**
- * @file hooks/tpv_camera_hook.h
+ * @file hooks/tpv_camera_hook.hpp
  * @brief Header for third-person camera position offset hook.
  *
  * Provides functions to initialize and manage the hook that intercepts
@@ -10,17 +10,17 @@
 
 #include <cstdint>
 
+namespace TPVToggle
+{
+
 /**
  * @brief Initialize TPV camera update hook.
  * @param moduleBase Base address of the target game module
  * @param moduleSize Size of the target game module in bytes
  * @return true if initialization successful, false otherwise
  */
-bool initializeTpvCameraHook(uintptr_t moduleBase, size_t moduleSize);
+[[nodiscard]] bool initializeTpvCameraHook(uintptr_t moduleBase, size_t moduleSize);
 
-/**
- * @brief Cleanup TPV camera update hook.
- */
-void cleanupTpvCameraHook();
+} // namespace TPVToggle
 
 #endif // TPV_CAMERA_HOOK_HPP

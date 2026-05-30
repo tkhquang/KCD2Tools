@@ -1,79 +1,69 @@
 /**
  * @file camera_profile_thread.cpp
- * @brief Implements continuous camera offset adjustment using DMKInputManager.
+ * @brief Implements continuous camera offset adjustment via DMK::InputManager.
  *
  * Edge-triggered profile actions (save, cycle, reset, update, delete, master toggle)
- * are handled by DMKInputManager press callbacks registered in dllmain.cpp.
- * This thread only handles continuous offset adjustment by querying
- * is_binding_active() for the six offset direction bindings at ~60 Hz.
+ * are handled by DMK::InputManager press callbacks. This worker only handles
+ * continuous offset adjustment by querying is_binding_active() for the six offset
+ * direction bindings at ~60 Hz.
  */
 
 #include "camera_profile_thread.hpp"
 #include "camera_profile.hpp"
+#include "config.hpp"
 #include "global_state.hpp"
+#include "utils.hpp"
 
 #include <DetourModKit.hpp>
 
-using DetourModKit::LogLevel;
-
-/**
- * @brief Camera profile offset adjustment thread.
- * @details Polls InputManager binding states at ~60 Hz to apply continuous
- *          offset adjustments while keys are held. Only active when camera
- *          adjustment mode is enabled.
- */
-DWORD WINAPI CameraProfileThread(LPVOID param)
+namespace TPVToggle
 {
-    DMKLogger &logger = DMKLogger::get_instance();
-    logger.log(LogLevel::Info, "CameraProfileThread: Started");
 
-    CameraProfileThreadData *data = static_cast<CameraProfileThreadData *>(param);
-    if (!data)
-    {
-        logger.log(LogLevel::Error, "CameraProfileThread: NULL data received");
-        return 1;
-    }
-    float adjustmentStep = data->adjustmentStep;
-    delete data;
+void camera_profile_body(std::stop_token st)
+{
+    DMK::Logger &logger = DMK::Logger::get_instance();
+    logger.info("CameraProfile: Started (InputManager-driven offset adjustment)");
 
-    DMKInputManager &input_mgr = DMKInputManager::get_instance();
+    DMK::InputManager &input_mgr = DMK::InputManager::get_instance();
 
-    logger.log(LogLevel::Info, "CameraProfileThread: Using InputManager for offset adjustment queries");
-
-    while (WaitForSingleObject(g_exitEvent, 16) != WAIT_OBJECT_0) // ~60 Hz
+    while (sleep_until_stop(st, 16)) // ~60 Hz
     {
         try
         {
-            if (!g_cameraAdjustmentMode.load())
+            if (!camera_state().adjustmentMode.load())
                 continue;
 
+            const float step = settings().offsetAdjustmentStep.load();
             CameraProfileManager &profile_mgr = CameraProfileManager::getInstance();
 
             if (input_mgr.is_binding_active("offset_x_inc"))
-                profile_mgr.adjustOffset(adjustmentStep, 0.0f, 0.0f);
+                profile_mgr.adjustOffset(step, 0.0f, 0.0f);
             if (input_mgr.is_binding_active("offset_x_dec"))
-                profile_mgr.adjustOffset(-adjustmentStep, 0.0f, 0.0f);
+                profile_mgr.adjustOffset(-step, 0.0f, 0.0f);
             if (input_mgr.is_binding_active("offset_y_inc"))
-                profile_mgr.adjustOffset(0.0f, adjustmentStep, 0.0f);
+                profile_mgr.adjustOffset(0.0f, step, 0.0f);
             if (input_mgr.is_binding_active("offset_y_dec"))
-                profile_mgr.adjustOffset(0.0f, -adjustmentStep, 0.0f);
+                profile_mgr.adjustOffset(0.0f, -step, 0.0f);
             if (input_mgr.is_binding_active("offset_z_inc"))
-                profile_mgr.adjustOffset(0.0f, 0.0f, adjustmentStep);
+                profile_mgr.adjustOffset(0.0f, 0.0f, step);
             if (input_mgr.is_binding_active("offset_z_dec"))
-                profile_mgr.adjustOffset(0.0f, 0.0f, -adjustmentStep);
+                profile_mgr.adjustOffset(0.0f, 0.0f, -step);
         }
         catch (const std::exception &e)
         {
-            logger.log(LogLevel::Error, "CameraProfileThread: Exception: " + std::string(e.what()));
-            Sleep(1000);
+            logger.error("CameraProfile: Exception: {}", e.what());
+            if (!sleep_until_stop(st, 1000))
+                return;
         }
         catch (...)
         {
-            logger.log(LogLevel::Error, "CameraProfileThread: Unknown exception");
-            Sleep(1000);
+            logger.error("CameraProfile: Unknown exception");
+            if (!sleep_until_stop(st, 1000))
+                return;
         }
     }
 
-    logger.log(LogLevel::Info, "CameraProfileThread: Exiting");
-    return 0;
+    logger.info("CameraProfile: Exiting");
 }
+
+} // namespace TPVToggle

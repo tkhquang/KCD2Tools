@@ -1,5 +1,5 @@
 /**
- * @file camera_offset_state.h
+ * @file camera_offset_state.hpp
  * @brief Sequence-locked holder for the live third-person camera offset.
  */
 #ifndef CAMERA_OFFSET_STATE_HPP
