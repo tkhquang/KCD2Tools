@@ -29,7 +29,6 @@ struct Config
 {
     // Optional features (read once during initialization).
     bool enable_overlay_feature{true}; /**< Enable overlay detection and handling. */
-    float tpv_fov_degrees{-1.0f};      /**< Custom TPV FOV in degrees; -1.0f if disabled. */
 
     // Camera profile system (init-only portion).
     std::string profile_directory{}; /**< Directory holding saved camera profiles. */
@@ -69,6 +68,12 @@ namespace TPVToggle
         std::atomic<float> tpvOffsetX{0.0f};
         std::atomic<float> tpvOffsetY{0.0f};
         std::atomic<float> tpvOffsetZ{0.0f};
+
+        // Custom third-person FOV in degrees, read per frame by Detour_TpvCameraUpdate
+        // (which writes the radian-converted value into the output pose). Hot-
+        // reloadable: edit the INI and the next frame picks the new value up.
+        // Sentinel <= 0 disables the override.
+        std::atomic<float> tpvFovDegrees{-1.0f};
 
         // Camera input sensitivities and pitch limits, read per input event.
         std::atomic<float> yawSensitivity{1.0f};

@@ -64,7 +64,6 @@ set(COMMON_SOURCES
   src/version.cpp
   src/hooks/entity_hooks.cpp
   src/hooks/event_hooks.cpp
-  src/hooks/fov_hook.cpp
   src/hooks/tpv_camera_hook.cpp
   src/hooks/tpv_input_hook.cpp
   src/hooks/ui_menu_hooks.cpp

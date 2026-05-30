@@ -16,7 +16,6 @@
 #include "toggle_thread.hpp"
 #include "camera_profile_thread.hpp"
 #include "hooks/event_hooks.hpp"
-#include "hooks/fov_hook.hpp"
 #include "hooks/tpv_camera_hook.hpp"
 #include "hooks/tpv_input_hook.hpp"
 #include "hooks/ui_overlay_hooks.hpp"
@@ -121,15 +120,9 @@ static bool initialize_hooks()
         }
     }
 
-    if (g_config.tpv_fov_degrees > 0.0f)
-    {
-        if (!initializeFovHook(mod.base, mod.size, g_config.tpv_fov_degrees))
-        {
-            logger.warning("FOV hook initialization failed - FOV modification disabled");
-            g_config.tpv_fov_degrees = -1.0f;
-        }
-    }
-
+    // The TPV FOV override piggy-backs on the TPV camera detour below; the
+    // detour reads settings().tpvFovDegrees from the hot-reload atomic, so no
+    // separate FOV hook is installed here.
     if (!initializeTpvCameraHook(mod.base, mod.size))
     {
         logger.warning("TPV Camera Offset Hook initialization failed - Offset feature disabled");
