@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <numbers>
 #include <stdexcept>
 
 using DetourModKit::LogLevel;
@@ -110,6 +111,17 @@ static void Detour_TpvCameraUpdate_Impl(uintptr_t thisPtr, uintptr_t outputPoseP
     if (!DMK::Memory::plausible_userspace_ptr(outputPosePtr))
         return;
 
+    // Apply the custom TPV FOV in radians at Constants::OFFSET_TpvFovWrite of
+    // the output pose. The engine reinitializes the pose on every FPV<->TPV
+    // mode switch, so writing here every frame is what survives the toggle
+    // without a separate hook. Reading the configured degrees through the
+    // hot-reload atomic also picks up INI edits on the very next frame.
+    if (const float fovDegrees = settings().tpvFovDegrees.load(std::memory_order_relaxed); fovDegrees > 0.0f)
+    {
+        *reinterpret_cast<float *>(outputPosePtr + Constants::OFFSET_TpvFovWrite) =
+            fovDegrees * (std::numbers::pi_v<float> / 180.0f);
+    }
+
     Vector3 *positionPtr = reinterpret_cast<Vector3 *>(
         outputPosePtr + Constants::TPV_OUTPUT_POSE_POSITION_OFFSET);
     Quaternion *rotationPtr = reinterpret_cast<Quaternion *>(
@@ -161,12 +173,17 @@ bool initializeTpvCameraHook(uintptr_t moduleBase, size_t moduleSize)
 {
     DMK::Logger &logger = DMK::Logger::get_instance();
 
+    // The detour hosts both the position offset and the FOV override, so install
+    // it whenever any of those is active. A FOV-only configuration (offsets all
+    // zero, profiles disabled) must still pull the hook in or the override would
+    // never run.
     if (!settings().enableCameraProfiles.load() &&
         settings().tpvOffsetX.load() == 0.0f &&
         settings().tpvOffsetY.load() == 0.0f &&
-        settings().tpvOffsetZ.load() == 0.0f)
+        settings().tpvOffsetZ.load() == 0.0f &&
+        settings().tpvFovDegrees.load() <= 0.0f)
     {
-        logger.info("TpvCameraHook: Feature disabled (no offsets configured)");
+        logger.info("TpvCameraHook: Feature disabled (no offsets and no FOV configured)");
         return true;
     }
 

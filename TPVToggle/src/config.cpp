@@ -36,6 +36,7 @@ void register_config_items()
     DMK::Config::register_atomic<float>("Settings", "TpvOffsetX", "TPV Offset X", s.tpvOffsetX, 0.0f);
     DMK::Config::register_atomic<float>("Settings", "TpvOffsetY", "TPV Offset Y", s.tpvOffsetY, 0.0f);
     DMK::Config::register_atomic<float>("Settings", "TpvOffsetZ", "TPV Offset Z", s.tpvOffsetZ, 0.0f);
+    DMK::Config::register_atomic<float>("Settings", "TpvFovDegrees", "TPV FOV Degrees", s.tpvFovDegrees, -1.0f);
     DMK::Config::register_atomic<float>("CameraSensitivity", "YawSensitivity", "Yaw Sensitivity", s.yawSensitivity, 1.0f);
     DMK::Config::register_atomic<float>("CameraSensitivity", "PitchSensitivity", "Pitch Sensitivity", s.pitchSensitivity, 1.0f);
     DMK::Config::register_atomic<bool>("CameraSensitivity", "EnablePitchLimits", "Enable Pitch Limits", s.pitchLimitsEnabled, false);
@@ -47,8 +48,6 @@ void register_config_items()
     // Init-only values applied once during setup (and re-applied by the reload callback).
     DMK::Config::register_bool("Settings", "EnableOverlayFeature", "Enable Overlay Feature",
                                [](bool v) { g_config.enable_overlay_feature = v; }, true);
-    DMK::Config::register_float("Settings", "TpvFovDegrees", "TPV FOV Degrees",
-                               [](float v) { g_config.tpv_fov_degrees = v; }, -1.0f);
     DMK::Config::register_string("CameraProfiles", "ProfileDirectory", "Profile Directory",
                                  [](const std::string &v) { g_config.profile_directory = v; }, "");
     DMK::Config::register_float("CameraProfiles", "TransitionDuration", "Transition Duration",

@@ -66,23 +66,6 @@ namespace Constants
     constexpr const char *OVERLAY_CHECK_AOB_PATTERN =
         "48 83 BB D8 00 00 00 00 77 ?? 48 8B CB";
 
-    // WHGame.DLL+3602F0 - 48 8B C4              - mov rax,rsp
-    // WHGame.DLL+3602F3 - 48 89 58 08           - mov [rax+08],rbx
-    // WHGame.DLL+3602F7 - 48 89 70 10           - mov [rax+10],rsi
-    // WHGame.DLL+3602FB - 48 89 78 18           - mov [rax+18],rdi
-    // WHGame.DLL+3602FF - 55                    - push rbp
-    // WHGame.DLL+360300 - 41 54                 - push r12
-    // WHGame.DLL+360302 - 41 57                 - push r15
-    // WHGame.DLL+360304 - 48 8B EC              - mov rbp,rsp
-    // WHGame.DLL+360307 - 48 83 EC 70           - sub rsp,70 { 112 }
-    // WHGame.DLL+36030B - 33 F6                 - xor esi,esi
-    /**
-     * @brief AOB pattern for TPV FOV calculation function entry.
-     *        Targets the function that updates the view's field of view.
-     */
-    constexpr const char *TPV_FOV_CALCULATE_AOB_PATTERN =
-        "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 ?? ?? ?? ?? ?? 48 8B EC 48 83 EC ?? 33 F6";
-
     // WHGame.DLL+6192FA - 48 8B 15 4F98DC04     - mov rdx,[WHGame.DLL+53E2B50] { (1D22DCA7C40) }
     // WHGame.DLL+619301 - 48 8B CB              - mov rcx,rbx
     // WHGame.DLL+619304 - C7 42 14 08000000     - mov [rdx+14],00000008 { 8 }
