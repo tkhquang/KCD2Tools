@@ -354,19 +354,17 @@ bool GetPlayerWorldTransform(::Vector3 &outPosition, ::Quaternion &outOrientatio
     outPosition.y = playerMatrix.m[1][3];
     outPosition.z = playerMatrix.m[2][3];
 
-    // Extract rotation from the 3x3 part and convert to Quaternion
+    // CryEngine stores the rotation basis in the matrix COLUMNS (column-vector
+    // convention, world = M * local). DirectXMath uses row vectors with the basis in
+    // ROWS, so passing the engine matrix verbatim builds its transpose (the inverse
+    // rotation), and XMQuaternionRotationMatrix would return the conjugate of the true
+    // orientation. Transpose the 3x3 so each engine column becomes a DirectXMath row:
+    // Right = col0, Forward = col1, Up = col2.
     DirectX::XMMATRIX dxRotMatrix = DirectX::XMMatrixSet(
-        playerMatrix.m[0][0], playerMatrix.m[0][1], playerMatrix.m[0][2], 0.0f,
-        playerMatrix.m[1][0], playerMatrix.m[1][1], playerMatrix.m[1][2], 0.0f,
-        playerMatrix.m[2][0], playerMatrix.m[2][1], playerMatrix.m[2][2], 0.0f,
+        playerMatrix.m[0][0], playerMatrix.m[1][0], playerMatrix.m[2][0], 0.0f,
+        playerMatrix.m[0][1], playerMatrix.m[1][1], playerMatrix.m[2][1], 0.0f,
+        playerMatrix.m[0][2], playerMatrix.m[1][2], playerMatrix.m[2][2], 0.0f,
         0.0f, 0.0f, 0.0f, 1.0f);
-    // Note: CRYENGINE matrices (Matrix34_tpl specifically) store basis vectors as ROWS.
-    // m00, m01, m02 is the X-basis vector (Right).
-    // m10, m11, m12 is the Y-basis vector (Forward for CryEngine).
-    // m20, m21, m22 is the Z-basis vector (Up for CryEngine).
-    // The DirectX::XMMatrixSet function takes arguments row by row.
-    // So, the current mapping directly forms a matrix whose rows are these basis vectors.
-    // This is standard for creating a rotation matrix for DirectXMath.
     outOrientation = ::Quaternion::FromXMVector(DirectX::XMQuaternionRotationMatrix(dxRotMatrix));
 
     // Build and emit the verbose matrix dump only when trace logging is enabled;

@@ -17,8 +17,10 @@ namespace GameStructures
 
     /**
      * @brief 3x4 Matrix used by the game engine (CryEngine)
-     * @details Stores transformation matrix in row-major format
-     *          Rows 0-2: Rotation/Scale, Column 3: Translation
+     * @details Row-major 3x4 storage. CryEngine uses the column-vector convention
+     *          (world = M * local), so the 3x3 block holds the local-axis basis vectors
+     *          in its columns (X-Right = col0, Y-Forward = col1, Z-Up = col2) and column 3
+     *          holds translation.
      */
     struct Matrix34f
     {
@@ -32,25 +34,31 @@ namespace GameStructures
          */
         void Set(const Quaternion &q_orientation, const Vector3 &v_position)
         {
-            // Assumes CryEngine default: Y-Forward, Z-Up, X-Right for entity's local axes
-            // Matrix rows store these basis vectors in world space.
+            // CryEngine Matrix34 uses the column-vector convention (world = M * local),
+            // so the world-space basis vectors of the entity's local axes are the matrix
+            // COLUMNS, with translation in column 3. Local axes are X-Right, Y-Forward,
+            // Z-Up. Storing the basis as rows instead yields M transposed, which for an
+            // orthonormal rotation is the inverse orientation, so the entity would face
+            // the wrong way once this matrix reaches CEntity::SetWorldTM. The column
+            // layout is identifiable by the off-diagonal sign of a yaw block:
+            // m[0][1] = -sin, m[1][0] = +sin (the row layout swaps those signs).
             Vector3 R = q_orientation.Rotate(Vector3(1.0f, 0.0f, 0.0f)); // Local X axis (Right)
             Vector3 F = q_orientation.Rotate(Vector3(0.0f, 1.0f, 0.0f)); // Local Y axis (Forward)
             Vector3 U = q_orientation.Rotate(Vector3(0.0f, 0.0f, 1.0f)); // Local Z axis (Up)
 
-            // Row 0: Right vector components + Position X
+            // Row 0: X-components of (Right, Forward, Up) basis + Position X
             m[0][0] = R.x;
-            m[0][1] = R.y;
-            m[0][2] = R.z;
+            m[0][1] = F.x;
+            m[0][2] = U.x;
             m[0][3] = v_position.x;
-            // Row 1: Forward vector components + Position Y
-            m[1][0] = F.x;
+            // Row 1: Y-components of (Right, Forward, Up) basis + Position Y
+            m[1][0] = R.y;
             m[1][1] = F.y;
-            m[1][2] = F.z;
+            m[1][2] = U.y;
             m[1][3] = v_position.y;
-            // Row 2: Up vector components + Position Z
-            m[2][0] = U.x;
-            m[2][1] = U.y;
+            // Row 2: Z-components of (Right, Forward, Up) basis + Position Z
+            m[2][0] = R.z;
+            m[2][1] = F.z;
             m[2][2] = U.z;
             m[2][3] = v_position.z;
         }
