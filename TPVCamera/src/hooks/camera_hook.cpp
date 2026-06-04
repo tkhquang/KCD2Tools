@@ -1046,10 +1046,44 @@ static void offset_game_view_camera(uintptr_t camera, uintptr_t cview, uintptr_t
     {
         bool moving = cam.orbit_moving;
         const float move_magnitude = player_onaction_move_magnitude();
+        // Re-arm guard: a genuine release (magnitude below the stop threshold) must be observed since orbit
+        // engaged before a move-start is honoured. A stranded latch -- a held-move release swallowed on a
+        // combat action-map swap (see player_onaction_reset) -- reads > 0 with the keys up; without this guard
+        // it would re-trip orbit_moving the instant orbit restores and drive the body-turn with no input (the
+        // post-combat self-rotation). Arming only on a sub-stop reading means a fresh, observed press engages it.
+        static bool s_stale_suppress_logged = false;
+        if (move_magnitude < k_orbit_move_input_stop)
+        {
+            cam.orbit_move_armed = true;
+            s_stale_suppress_logged = false;
+        }
         if (!moving && move_magnitude > k_orbit_move_input_start)
         {
-            moving = true;
-            do_align = true; // idle -> moving edge: capture the camera heading
+            if (cam.orbit_move_armed)
+            {
+                moving = true;
+                do_align = true; // idle -> moving edge: capture the camera heading
+                // Diagnostic: what tripped the body-turn. move_magnitude near 1.0 with a movement key/stick =
+                // genuine locomotion; a smaller or unexpected value while the player is only free-looking
+                // points at game-driven movement (finishing-move / combat footwork) being mistaken for intent.
+                // state is the debounced GameState mask (see game_state.hpp) so we can tell whether a combat /
+                // aiming / cinematic state was active when the body-turn engaged.
+                DMK::Logger::get_instance().trace(
+                    "Orbit: move-orbit START (body-turn engaging) -- move_magnitude={:.2f}, continuous_align={}, "
+                    "state_mask=0x{:X}",
+                    move_magnitude, cfg.orbit_continuous_align.load(std::memory_order_relaxed),
+                    game_state_mask().load(std::memory_order_relaxed));
+            }
+            else if (!s_stale_suppress_logged)
+            {
+                // Unarmed (no release seen since orbit engaged) yet reading as movement: a stranded latch.
+                // Suppress the body-turn re-trip and log it once -- the diagnostic for the post-combat case.
+                DMK::Logger::get_instance().trace(
+                    "Orbit: suppressed a stale move re-trip (magnitude {:.2f}, no release observed since orbit "
+                    "engaged; likely a movement latch stranded by a combat action-map swap)",
+                    move_magnitude);
+                s_stale_suppress_logged = true;
+            }
         }
         else if (moving && move_magnitude < k_orbit_move_input_stop)
         {
@@ -1063,12 +1097,15 @@ static void offset_game_view_camera(uintptr_t camera, uintptr_t cview, uintptr_t
             // Bake the world-stable orbit angle back into the accumulator so free-look resumes from
             // exactly where the moving camera was, with no jump the instant movement stops.
             cam.orbit_yaw.store(orbit_yaw_deg, std::memory_order_relaxed);
+            DMK::Logger::get_instance().trace("Orbit: move-orbit STOP (body-turn releasing) -- move_magnitude={:.2f}",
+                                              move_magnitude);
         }
         cam.orbit_moving = moving;
     }
     else
     {
         cam.orbit_moving = false;
+        cam.orbit_move_armed = false; // require a fresh observed release after re-engaging orbit
     }
 
     // Capture the heading on move-start. Use the camera's POSITIONAL world yaw -- the eye-look yaw plus
@@ -1141,11 +1178,11 @@ static void offset_game_view_camera(uintptr_t camera, uintptr_t cview, uintptr_t
         s_body_turn_engaged = body_turn_active;
         if (body_turn_active)
         {
-            DMK::Logger::get_instance().debug("Camera: orbit body-turn ENGAGED (moving; heading locked to camera)");
+            DMK::Logger::get_instance().trace("Camera: orbit body-turn ENGAGED (moving; heading locked to camera)");
         }
         else
         {
-            DMK::Logger::get_instance().debug("Camera: orbit body-turn released");
+            DMK::Logger::get_instance().trace("Camera: orbit body-turn released");
         }
     }
     if (body_turn_active)
@@ -1481,7 +1518,15 @@ static void apply_orbit_exclude_policy(CameraState &cam, uint32_t state, uint32_
     }
     if (excluded)
     {
-        // Entering an excluded state: if free-look was on, turn it off and remember to restore it.
+        // Entering an excluded state (combat, dialogue, minigame) swaps the action map, which can swallow a
+        // held-move release and strand the movement-input latch > 0. Drop it now so when free-look restores on
+        // exit it cannot re-trip the body-turn with the keys released (the post-combat self-rotation). Logged
+        // with the cleared magnitude so the trace shows whether the latch WAS actually stranded.
+        const float stranded = player_onaction_reset();
+        DMK::Logger::get_instance().trace("Orbit: exclude-state entered; cleared move-latch (had magnitude "
+                                          "{:.2f}{})",
+                                          stranded, stranded > k_orbit_move_input_stop ? ", WAS STRANDED" : "");
+        // If free-look was on, turn it off and remember to restore it.
         s_suspended_orbit = cam.orbit_active.load(std::memory_order_relaxed);
         if (s_suspended_orbit)
         {
@@ -1644,8 +1689,26 @@ static void detour_frustum_build_impl(uintptr_t camera)
     s_offset_active.store(offset_engaged, std::memory_order_relaxed);
     reassert_head_visibility(offset_engaged);
 
+    // Edge tracker for the disengage cleanup below: true while the offset is rendering, so the cleanup runs
+    // ONCE on the third-person -> first-person transition, not every first-person frame.
+    static bool s_orbit_was_engaged = false;
     if (!offset_engaged)
     {
+        if (s_orbit_was_engaged)
+        {
+            // Just left third person (toggled to FPV, or a state suppressed the offset). Drop the orbit
+            // run-state so re-engaging is fresh: clear the move re-arm latch and force-clear any
+            // movement-input latch the game may have stranded on an action-map swap. Edge-gated so a key
+            // held in first person does not spam the reset/log every frame.
+            cam.orbit_move_armed = false;
+            const float stranded = player_onaction_reset();
+            if (stranded > k_orbit_move_input_stop)
+            {
+                DMK::Logger::get_instance().trace(
+                    "Orbit: TPV disengaged; cleared a stranded move-latch (magnitude {:.2f})", stranded);
+            }
+            s_orbit_was_engaged = false;
+        }
         cam.collision_valid = false;
         cam.collision_hold_timer = 0.0f;
         // First person (or suppressed): the camera is the eye, so the interaction hook must NOT redirect.
@@ -1661,6 +1724,7 @@ static void detour_frustum_build_impl(uintptr_t camera)
         Presets::reset_transition();
         return;
     }
+    s_orbit_was_engaged = true;
 
     // Resolve the active preset (by debounced state, or the overlay's editing pin) and ease the
     // live framing toward it BEFORE the matrix offset reads those settings this frame.
@@ -1792,20 +1856,29 @@ static void __fastcall detour_set_head_visibility(uintptr_t entity, bool hide_he
             return true; // block ONLY the look so the player look stays put while free-looking
         }
 
-        // Gamepad RIGHT STICK: latch the held DEFLECTION (-1..1); the render hook integrates it by rate
-        // (GamepadOrbitSpeed * delta_time). Blocking these is what stops the stick from ALSO turning
-        // the player while orbiting -- without capturing these ids, right-stick yaw still moves the camera WITH
-        // the player (it passes through) and vertical look is frozen (the orbit pitch-leveling overwrites it).
-        // Left stick (movement) keeps its own ids -> passes.
+        // Gamepad RIGHT STICK: latch the held DEFLECTION (-1..1) for the orbit rate integration, then ZERO
+        // the event value IN PLACE and let it PASS (do NOT block). A held analog stick drives an engine
+        // look-RATE that the engine only zeroes on a release event. BLOCKING swallows that release: if orbit
+        // engages while the stick is already deflected (e.g. you hold the right stick then toggle orbit, or an
+        // exclude state suspends/restores orbit mid-deflection), the engine keeps its last rate and SPINS the
+        // player look forever -- surviving a switch to first person and curable only by a hard input flush
+        // (menu / alt-tab). It is the same swallowed-release defect as the move latch, but stranding the
+        // ENGINE's own gamepad look. Zeroing the value instead means the engine continuously sees no
+        // deflection (so it never turns and never strands) while we keep the real value for the orbit camera;
+        // the release reaches the engine too. The mouse path above can still hard-block: a mouse delta is a
+        // one-shot nudge with no held rate, so there is nothing to strand. Left stick (movement) keeps its own
+        // ids and passes untouched.
         if (id == Constants::INPUT_PAD_LOOK_YAW_EVENT_ID)
         {
             cam.orbit_pad_yaw.store(value, std::memory_order_relaxed);
-            return true;
+            *reinterpret_cast<float *>(input_event + Constants::INPUT_EVENT_VALUE_OFFSET) = 0.0f;
+            return false;
         }
         if (id == Constants::INPUT_PAD_LOOK_PITCH_EVENT_ID)
         {
             cam.orbit_pad_pitch.store(value, std::memory_order_relaxed);
-            return true;
+            *reinterpret_cast<float *>(input_event + Constants::INPUT_EVENT_VALUE_OFFSET) = 0.0f;
+            return false;
         }
     }
 

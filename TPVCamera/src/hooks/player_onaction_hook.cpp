@@ -71,6 +71,24 @@ float player_onaction_move_magnitude()
     return magnitude;
 }
 
+float player_onaction_reset()
+{
+    // exchange() atomically reads-and-clears each slot, so a concurrent input-thread store of a fresh
+    // press is never lost (it simply re-latches after this returns). The largest cleared value is
+    // returned so the caller can tell whether the latch was genuinely stranded (> the stop threshold)
+    // versus already idle, which is the key signal in the log for the post-combat self-rotation bug.
+    float had = 0.0f;
+    for (size_t i = 0; i < k_move_count; ++i)
+    {
+        const float prev = s_move_values[i].exchange(0.0f, std::memory_order_relaxed);
+        if (prev > had)
+        {
+            had = prev;
+        }
+    }
+    return had;
+}
+
 /**
  * @brief Trace-only vocabulary probe: logs each distinct action name once so the on-foot movement-action
  *        names can be confirmed at runtime. Inert unless the trace log level is on; the dedup list

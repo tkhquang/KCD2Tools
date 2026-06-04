@@ -39,6 +39,19 @@ namespace TPVCamera
  */
 [[nodiscard]] float player_onaction_move_magnitude();
 
+/**
+ * @brief Force-clears every latched movement magnitude to 0 and returns the largest value that was set.
+ * @details The latch is normally cleared only by a matching value==0 release event. On a combat action-map
+ *          swap (drawing a weapon, entering a minigame) that release can be SWALLOWED, stranding a slot > 0 so
+ *          the orbit move-detection re-trips with the keys released -- the camera then keeps turning the body
+ *          to a heading no input is driving (the post-combat self-rotation). Callers invoke this on the edges
+ *          where a strand can occur (orbit toggle-off, orbit-exclude entry, TPV disengage) to drop the stale
+ *          latch. The returned magnitude lets the caller log whether the latch WAS stranded (compare against
+ *          the move-stop threshold). Touches only the relaxed atomics, so it is safe from any thread.
+ * @return The largest magnitude that was latched at the moment of the reset (0 if all slots were clear).
+ */
+float player_onaction_reset();
+
 } // namespace TPVCamera
 
 #endif // TPVCAMERA_PLAYER_ONACTION_HOOK_HPP

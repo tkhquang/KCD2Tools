@@ -140,6 +140,13 @@ namespace TPVCamera
         float orbit_steer_smooth{0.0f};
         bool orbit_steer_valid{false};
 
+        // Orbit move-detection re-arm latch (render thread only). A genuine sub-stop movement-input reading must
+        // be observed since orbit engaged before a move-start is honoured, so a stranded input latch (a held-move
+        // release swallowed on a combat action-map swap) cannot re-trip the body-turn with the keys released.
+        // Cleared when orbit disengages so re-engaging requires a fresh, observed press. Pairs with
+        // player_onaction_reset() (which drops the stale latch outright on the suspend/disengage edges).
+        bool orbit_move_armed{false};
+
         // Dynamic eye-height sync (render thread only). When DynamicEyeSync is on, eye_sync_applied is the
         // eased effective eye height: it re-anchors to the REAL first-person eye when a low pose (kneel /
         // pray, and other poses EyeHeight does not model) drops it OUT of range of the configured height,
