@@ -210,6 +210,15 @@ static void register_press_bindings()
                       cam.orbit_pitch.store(0.0f);
                   }
                   cam.orbit_active.store(new_state);
+                  if (!new_state)
+                  {
+                      // Disabling free-look clears no run-state on its own, so drop any stranded
+                      // movement-input latch here: otherwise a latch left > 0 (a release swallowed on a
+                      // combat action-map swap) re-trips the body-turn the next time orbit is enabled.
+                      const float stranded = player_onaction_reset();
+                      DMK::Logger::get_instance().trace("Orbit: toggled off; cleared move-latch (had magnitude {:.2f})",
+                                                        stranded);
+                  }
                   DMK::Logger::get_instance().info("Orbit camera {}", new_state ? "ENABLED" : "DISABLED");
               }, "F4,Gamepad_LB+Gamepad_LS");
 
