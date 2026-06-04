@@ -2,11 +2,14 @@
   "configurations": [
     {
       "name": "windows-msvc-x64",
+      "configurationProvider": "ms-vscode.cmake-tools",
       "includePath": [
         "${workspaceFolder}/TPVToggle/src",
         "${workspaceFolder}/TPVToggle/external/DetourModKit/include",
         "${workspaceFolder}/TPVToggle/external/json/include",
         "${workspaceFolder}/TPVToggle/external/KCD2ModLoader/src",
+        "${workspaceFolder}/TPVCamera/src",
+        "${workspaceFolder}/TPVCamera/external/DetourModKit/include",
         "${workspaceFolder}/**"
       ],
       "defines": ["_DEBUG", "UNICODE", "_UNICODE", "WIN32", "_WINDOWS"],

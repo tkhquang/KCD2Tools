@@ -4,6 +4,9 @@
 TPVToggle/build/*
 !TPVToggle/build/template
 
+TPVCamera/build/*
+!TPVCamera/build/template
+
 LootBeacon/build/*
 LootBeacon/src/**/*.pak
 

@@ -10,3 +10,6 @@
 [submodule "CryEngine"]
 	path = CryEngine
 	url = git@github.com:ValtoGameEngines/CryEngine.git
+[submodule "TPVCamera/external/DetourModKit"]
+	path = TPVCamera/external/DetourModKit
+	url = https://github.com/tkhquang/DetourModKit.git
