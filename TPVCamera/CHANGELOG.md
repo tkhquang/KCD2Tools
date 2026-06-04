@@ -2,6 +2,11 @@
 
 All notable changes to the TPVCamera mod will be documented in this file.
 
+## [1.0.1] - Free-Look Orbit Fixes
+
+- Fixed the free-look orbit camera sometimes spinning on its own and not stopping until you opened a menu
+- Fixed your character sometimes turning on its own after combat while free-look was on
+
 ## [1.0.0] - Initial Release
 
 - First release of TPVCamera, a third-person camera mod for Kingdom Come: Deliverance II
@@ -17,4 +22,5 @@ All notable changes to the TPVCamera mod will be documented in this file.
 - Third person stays out of every minigame (lockpicking, reading, alchemy, pickpocketing, and more), and you can give any minigame its own framing
 - Configurable hotkeys, with most changes applying while you play
 
+[1.0.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.0.1
 [1.0.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.0.0
