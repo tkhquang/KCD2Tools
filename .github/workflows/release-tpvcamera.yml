@@ -1,0 +1,342 @@
+name: TPVCamera - Version Bump and Release
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_part:
+        description: "Version part to bump"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      version_title:
+        description: "Version title (e.g., 'Feature Update')"
+        required: false
+        type: string
+      prerelease:
+        description: "Is this a pre-release?"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  bump-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: "recursive"
+          token: ${{ secrets.PAT }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Read changelog from file
+        id: read-changelog
+        run: |
+          # Check if the NEXT_CHANGELOG.md file exists
+          if (Test-Path "TPVCamera\docs\NEXT_CHANGELOG.md") {
+            $content = Get-Content "TPVCamera\docs\NEXT_CHANGELOG.md" -Raw
+
+            # Extract title from first line (removing ## prefix)
+            $title = ($content -split "`r?`n")[0] -replace "^##\s+", ""
+
+            # Get the rest as changelog content (skip first line, handle Windows/Unix newlines)
+            $changelogLines = ($content -split "`r?`n" | Select-Object -Skip 1) -join "%0A"
+
+            echo "SUGGESTED_TITLE=$title" >> $env:GITHUB_OUTPUT
+            echo "CHANGELOG=$changelogLines" >> $env:GITHUB_OUTPUT
+            echo "Using changelog from NEXT_CHANGELOG.md with suggested title: $title"
+          } else {
+            echo "No NEXT_CHANGELOG.md file found. Please create one before running this workflow."
+            exit 1
+          }
+        shell: pwsh
+
+      - name: Determine version title
+        id: determine-title
+        run: |
+          # Use the input title if provided, otherwise use the suggested title from the changelog
+          $titleToUse = "${{ inputs.version_title }}"
+          if ([string]::IsNullOrEmpty($titleToUse)) {
+            $titleToUse = "${{ steps.read-changelog.outputs.SUGGESTED_TITLE }}"
+            echo "Using title from changelog: $titleToUse"
+          } else {
+            echo "Using provided title: $titleToUse"
+          }
+          # Trim potential whitespace/newlines from title
+          $trimmedTitle = $titleToUse.Trim()
+          echo "TITLE=$trimmedTitle" >> $env:GITHUB_OUTPUT
+          echo "Final Title: $trimmedTitle" # Added for debugging
+        shell: pwsh
+
+      - name: Bump version and update changelog
+        id: bump
+        run: |
+          # Create a temporary file for the changelog to avoid command line escaping issues
+          # Replace %0A with actual newlines using PowerShell's backtick escape
+          $changelogContent = "${{ steps.read-changelog.outputs.CHANGELOG }}" -replace '%0A', "`n"
+          Set-Content -Path "temp_changelog.txt" -Value $changelogContent
+
+          # Ensure the title passed doesn't have unwanted characters
+          $safeTitle = "${{ steps.determine-title.outputs.TITLE }}"
+
+          # Run the version updater script with changelog from file
+          echo "Running Python script with title: $safeTitle" # Debugging line
+          $changelogArg = Get-Content -Path "temp_changelog.txt" -Raw
+          python TPVCamera/scripts/version_updater.py bump ${{ inputs.version_part }} --title "$safeTitle" --changelog "$changelogArg"
+
+          # Extract the new version from version.hpp
+          $version_h = Get-Content TPVCamera\src\version.hpp -Raw
+          $major = [regex]::Match($version_h, '#define\s+VERSION_MAJOR\s+(\d+)').Groups[1].Value
+          $minor = [regex]::Match($version_h, '#define\s+VERSION_MINOR\s+(\d+)').Groups[1].Value
+          $patch = [regex]::Match($version_h, '#define\s+VERSION_PATCH\s+(\d+)').Groups[1].Value
+          $new_version = "$major.$minor.$patch"
+
+          echo "NEW_VERSION=$new_version" >> $env:GITHUB_ENV
+          echo "VERSION_TAG=v$new_version" >> $env:GITHUB_ENV
+          echo "ARTIFACT_NAME=KCD2_TPVCamera_v${new_version}.zip" >> $env:GITHUB_ENV
+
+          # Clean up temp file
+          Remove-Item -Path "temp_changelog.txt"
+        shell: pwsh
+
+      - name: Build ASI plugin
+        run: |
+          # Verify submodules checked out by actions/checkout@v4
+          echo "--- Verifying submodule checkout ---"
+          ls -l TPVCamera/external/DetourModKit/include/DetourModKit.hpp # Check specific crucial file
+          ls -l TPVCamera/external/DetourModKit   # List directory
+          echo "--- Changing to TPVCamera directory ---"
+          cd TPVCamera
+          pwd # Confirm current directory
+          echo "--- Running cmake configure ---"
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          echo "--- Running cmake build ---"
+          cmake --build build --config Release --parallel
+        shell: bash
+
+      - name: Display build output
+        run: |
+          dir TPVCamera\build
+        shell: cmd
+
+      - name: Create ZIP archive
+        run: |
+          # Create package directory using template as base
+          $templateDir = "TPVCamera\build\template"
+          $packageDir = "TPVCamera\package"
+          $buildDir = "TPVCamera\build"
+
+          # Check if template directory exists
+          if (-not (Test-Path $templateDir)) {
+            Write-Error "Template directory not found: $templateDir"
+            exit 1
+          }
+
+          # Create package directory and copy template files
+          New-Item -ItemType Directory -Path $packageDir -Force
+          Copy-Item -Path "$templateDir\*" -Destination $packageDir -Recurse
+
+          # Copy the built ASI file
+          $asiSource = "$buildDir\KCD2_TPVCamera.asi"
+          if (Test-Path $asiSource) {
+            Copy-Item -Path $asiSource -Destination $packageDir\
+          } else {
+            Write-Error "ASI file not found at: $asiSource"
+            exit 1
+          }
+
+          # The presets JSON is intentionally NOT shipped: the mod creates it from embedded factory
+          # defaults on first run, so packaging it would overwrite a player's tuned presets on update.
+
+          # Create the ZIP archive
+          Compress-Archive -Path "$packageDir\*" -DestinationPath "${{ env.ARTIFACT_NAME }}" -Force
+
+          Write-Output "Created package: ${{ env.ARTIFACT_NAME }}"
+        shell: pwsh
+
+      # Only commit changes if this is NOT a pre-release
+      - name: Commit version changes
+        if: ${{ !inputs.prerelease }}
+        run: |
+          git config --local user.email "khacquang.trinh@gmail.com"
+          git config --local user.name "Quang Trinh"
+          git add TPVCamera/src/version.hpp TPVCamera/CHANGELOG.md TPVCamera/build/template/KCD2_TPVCamera_Readme.txt
+          git status
+          git commit -m "Bump TPVCamera version to ${{ env.NEW_VERSION }}"
+          git tag -a TPVCamera-${{ env.VERSION_TAG }} -m "Release ${{ env.VERSION_TAG }}"
+
+          # Get current branch name - for GitHub Actions environments
+          BRANCH_NAME=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
+          echo "Current branch: $BRANCH_NAME"
+
+          # Push to the appropriate branch
+          if [ "$BRANCH_NAME" = "main" ]; then
+            git push origin main
+          else
+            # We're on a feature branch
+            git push origin $BRANCH_NAME
+          fi
+
+          # Always push the tag
+          git push origin TPVCamera-${{ env.VERSION_TAG }}
+        shell: bash
+
+      # For pre-releases, just create the tag without committing changes
+      - name: Create tag for pre-release
+        if: ${{ inputs.prerelease }}
+        run: |
+          git config --local user.email "khacquang.trinh@gmail.com"
+          git config --local user.name "Quang Trinh"
+          git tag -a TPVCamera-${{ env.VERSION_TAG }} -m "Pre-release ${{ env.VERSION_TAG }}"
+          git push origin TPVCamera-${{ env.VERSION_TAG }}
+        shell: bash
+
+      - name: Prepare release body
+        id: prepare-release
+        run: |
+          # Write the changelog to a file first to avoid any issues with special characters
+          "${{ steps.read-changelog.outputs.CHANGELOG }}" -replace '%0A', "`n" | Out-File -FilePath "changelog_content.txt" -Encoding utf8
+
+          # Read the changelog from file
+          $changelog = Get-Content -Path "changelog_content.txt" -Raw
+
+          # Create the release body
+          $releaseBody = @'
+          # Kingdom Come: Deliverance II - Third Person Camera
+
+          ## Release {0} - {1}
+
+          A third-person camera for Kingdom Come: Deliverance II. The camera renders behind the player while aiming, looting, and combat keep working off the original first-person frame.
+
+          ## Changelog
+          {2}
+
+          ### Installation
+
+          1. Simply extract all files to your game directory:
+             `<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/`
+          2. Launch the game and press F3 (default), or hold LB + RB, to enter third-person
+
+          ### Note
+          This package includes everything you need:
+          - **KCD2_TPVCamera.asi** - The mod itself (built with [DetourModKit](https://github.com/tkhquang/DetourModKit))
+          - **KCD2_TPVCamera.ini** - Configuration file
+          - **dinput8.dll** - Ultimate ASI Loader by [ThirteenAG](https://github.com/ThirteenAG/Ultimate-ASI-Loader)
+          - **Documentation and license information**
+
+          The camera presets file (`KCD2_TPVCamera_presets.json`) is created automatically on first run and is
+          not bundled, so updating the mod never overwrites presets you have tuned in-game.
+
+          ### Configuration
+
+          Edit `KCD2_TPVCamera.ini` for hotkeys and global options. Camera framing is preset-driven:
+          open the in-game overlay (Insert) to tune and save presets, stored in `KCD2_TPVCamera_presets.json`.
+
+          See the [README](https://github.com/{3}/blob/main/TPVCamera/README.md) for detailed instructions.
+
+          ### Technical Details
+
+          This mod is built on **DetourModKit**, a lightweight C++ toolkit for game modding that provides:
+          - Safe function hooking via [SafetyHook](https://github.com/cursey/safetyhook)
+          - AOB (Array of Bytes) pattern scanning
+          - Configuration management
+          - Thread-safe logging
+          '@
+
+          # Format the release body with the values
+          $releaseBody = $releaseBody -f $env:VERSION_TAG, "${{ steps.determine-title.outputs.TITLE }}", $changelog, "${{ github.repository }}"
+
+          # Add pre-release notice if applicable
+          if ('${{ inputs.prerelease }}' -eq 'true') {
+            $preReleaseNotice = @'
+          ## PRE-RELEASE VERSION
+
+          This is a pre-release build for testing purposes. It may contain bugs or incomplete features.
+
+          '@
+            $releaseBody = $preReleaseNotice + $releaseBody
+          }
+
+          # Write to file for the release action
+          Set-Content -Path "release_body.txt" -Value $releaseBody -Encoding UTF8
+          echo "RELEASE_BODY_PATH=release_body.txt" >> $env:GITHUB_OUTPUT
+        shell: pwsh
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: ${{ env.ARTIFACT_NAME }}
+          name: KCD2 TPVCamera ${{ env.VERSION_TAG }} # Release name
+          tag_name: TPVCamera-${{ env.VERSION_TAG }} # The unique tag name created earlier
+          body_path: ${{ steps.prepare-release.outputs.RELEASE_BODY_PATH }}
+          draft: false
+          prerelease: ${{ inputs.prerelease }}
+
+      # Only archive the changelog if this is NOT a pre-release
+      - name: Archive NEXT_CHANGELOG.md
+        if: ${{ !inputs.prerelease && success() }}
+        run: |
+          # Get current branch name - for GitHub Actions environments
+          $branchName = $env:GITHUB_HEAD_REF
+          if ([string]::IsNullOrEmpty($branchName)) {
+            if ($env:GITHUB_REF -match "refs/heads/(.+)") {
+              $branchName = $matches[1]
+            }
+          }
+          Write-Output "Current branch for archiving: $branchName"
+
+          # Pull latest changes from the correct branch
+          git pull origin $branchName
+
+          $archiveDir = "TPVCamera\docs\archive"
+          $nextChangelogPath = "TPVCamera\docs\NEXT_CHANGELOG.md"
+
+          # Check if NEXT_CHANGELOG.md exists before trying to archive
+          if (-not (Test-Path $nextChangelogPath)) {
+            echo "$nextChangelogPath not found, cannot archive."
+            exit 1 # Or just warn and proceed
+          }
+
+          # Create archive directory if it doesn't exist
+          if (-not (Test-Path $archiveDir)) {
+            New-Item -Path $archiveDir -ItemType Directory
+          }
+
+          # Move the changelog to archive with a versioned name for clarity
+          $archiveFileName = "CHANGELOG_${{ env.VERSION_TAG }}.md" # Use version tag
+          Move-Item $nextChangelogPath "$archiveDir\$archiveFileName"
+          echo "Archived changelog to $archiveDir\$archiveFileName"
+
+          # Create an empty NEXT_CHANGELOG.md template for the next update
+          $template = @'
+          ## [Title for next release]
+
+          - New feature
+          - Bug fix
+          - Improvement
+          '@
+          Set-Content -Path $nextChangelogPath -Value $template
+          echo "Created new $nextChangelogPath template."
+
+          # Commit the changes to the current branch
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add "$nextChangelogPath" "$archiveDir\$archiveFileName"
+          git status
+          git commit -m "Chore: Archive TPVCamera changelog for ${{ env.VERSION_TAG }} and prepare for next release"
+          git push origin $branchName
+        shell: pwsh
