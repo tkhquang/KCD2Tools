@@ -60,6 +60,18 @@ void register_config_items()
 
     // Free-look orbit (non-preset, always-live; the orbit feel values are per-preset).
     DMK::Config::register_atomic<bool>("Orbit", "FreezeOrbitOnCursor", "Freeze Orbit On Cursor", s.freeze_orbit_on_cursor, true);
+    // OrbitHoldKey is the MOMENTARY free-look key (freelook): hold it to engage the orbit and release
+    // it to return to the precise camera-aim view, separate from the press-to-toggle OrbitToggleKey.
+    // It is a hold binding, so (like the zoom keys) the list is stashed in g_config for
+    // register_hold_bindings to consume once, and the setter re-binds the live hold in place on a
+    // hot-reload via update_binding_combos (see ZoomInKey for why that second call is needed). Empty
+    // by default so it is opt-in and never collides with a game key or the toggle binding.
+    DMK::Config::register_key_combo("Orbit", "OrbitHoldKey", "Orbit Hold Key",
+                                    [](const DMK::Config::KeyComboList &c) {
+                                        g_config.orbit_hold_keys = c;
+                                        DMK::InputManager::get_instance().update_binding_combos(k_orbit_hold_binding, c);
+                                    },
+                                    "");
 
     // Camera collision (non-preset, always-live; Enable/Skin/ReturnSpeed are per-preset).
     DMK::Config::register_atomic<bool>("Collision", "UseSphereCollision", "Use Sphere Collision", s.use_sphere_collision, true);

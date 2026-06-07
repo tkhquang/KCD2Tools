@@ -7,10 +7,11 @@
  *            detour) or across threads. They are std::atomic so INI hot-reload
  *            (which runs the setters on the ConfigWatcher thread) never races the
  *            game thread. They are bound with DMK::Config::register_atomic.
- *          - Config holds the key-combo lists for the zoom hold bindings, parsed
- *            by DMK::Config and consumed once when the InputManager hold bindings
- *            are registered. The press bindings (view toggle, force FPV/TPV, orbit)
- *            are registered separately via DMK::Config::register_press_combo.
+ *          - Config holds the key-combo lists for the hold bindings (zoom and the
+ *            momentary free-look orbit), parsed by DMK::Config and consumed once when
+ *            the InputManager hold bindings are registered. The press bindings (view
+ *            toggle, force FPV/TPV, orbit toggle) are registered separately via
+ *            DMK::Config::register_press_combo.
  */
 #ifndef TPVCAMERA_CONFIG_HPP
 #define TPVCAMERA_CONFIG_HPP
@@ -22,15 +23,17 @@
 
 /**
  * @struct Config
- * @brief Key lists for the zoom hold bindings.
+ * @brief Key lists for the hold bindings (zoom and momentary free-look orbit).
  */
 struct Config
 {
-    // Hold-binding key lists (parsed by DMK::Config; consumed once when the
-    // InputManager hold bindings are registered; the detour queries them by name
-    // per frame to drive the follow distance).
+    // Hold-binding key lists (parsed by DMK::Config; consumed once when the InputManager hold
+    // bindings are registered). The detour queries the zoom lists by name per frame to drive the
+    // follow distance; the orbit-hold list instead drives a momentary free-look engage on the press
+    // edge and a release on the release edge (register_hold is edge-triggered), so it is never polled.
     DMK::Config::KeyComboList zoom_in_keys;
     DMK::Config::KeyComboList zoom_out_keys;
+    DMK::Config::KeyComboList orbit_hold_keys;
 };
 
 /** @brief Process-wide init-only configuration (defined in config.cpp). */
