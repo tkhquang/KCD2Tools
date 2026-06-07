@@ -2,9 +2,11 @@
  * @file constants.hpp
  * @brief Central definitions for constants used throughout the mod.
  *
- * Includes version info, filenames, AOB patterns, and memory offsets. Memory
- * locations are resolved via AOB patterns so they survive game updates. Static
- * vtable/code addresses are translated to runtime via module_base + (static - IMAGE_BASE).
+ * Includes version info, filenames, memory offsets, RTTI type names, and engine
+ * flag values. Code/data locations are resolved by the multi-candidate AOB
+ * cascades in aob_resolver.hpp so they survive game updates; the few static
+ * vtable/code addresses kept here are translated to runtime via
+ * module_base + (static - IMAGE_BASE) and serve only as last-resort fallbacks.
  */
 #ifndef TPVCAMERA_CONSTANTS_HPP
 #define TPVCAMERA_CONSTANTS_HPP
@@ -51,56 +53,13 @@ namespace Constants
     /** @brief Default logging level ("INFO"). */
     constexpr const char *DEFAULT_LOG_LEVEL = "INFO";
 
-    // --- AOB (Array-of-Bytes) Patterns ---
-
-    // Fast-path return of the TLS-guarded accessor (sub_18091C138) that yields the global context /
-    // entity-subsystem registry pointer (qword_18549B4B0). Its +0x38 slot is the camera-manager root the
-    // game-state detection walks (see OFFSET_MANAGER_PTR_STORAGE); game_interface.cpp resolves the RIP-relative
-    // MOV (two bytes past the match) to that storage slot.
-    //   WHGame.DLL+91C15F - 7F 0D                 - jg short loc_18091C16E
-    //   WHGame.DLL+91C161 - 48 8B 05 ?? ?? ?? ??  - mov rax, [qword_18549B4B0]
-    //   WHGame.DLL+91C168 - 48 83 C4 20           - add rsp, 20h
-    //   WHGame.DLL+91C16C - 5B                    - pop rbx
-    //   WHGame.DLL+91C16D - C3                    - ret
-    // The leading `jg` is a short Jcc rel8, normally a weak anchor (the rel8/rel32 encoding can flip), but
-    // here it only skips the 13-byte fast-path epilogue (mov+add+pop+ret) -- a fixed distance far inside rel8
-    // range -- so the encoding is stable. It is also load-bearing: the mov+epilogue tail alone is NOT unique
-    // (sibling magic-static accessors share it); only the preceding `jg` (the guard's signed-greater compare)
-    // isolates this site.
-    /**
-     * @brief AOB anchored on the global-context accessor's fast-path return. The RIP-relative MOV two bytes
-     *        into the match loads the global context / camera-manager-root pointer.
-     */
-    constexpr const char *CONTEXT_PTR_LOAD_AOB_PATTERN =
-        "7F ?? 48 8B 05 ?? ?? ?? ?? 48 83 C4 ?? 5B C3";
-
-    // AOB for the camera frustum-builder (CCamera::UpdateFrustumPlanes). It reads the
-    // camera's 3x4 matrix (rcx -> matrix at +0) and computes the world-space cull
-    // planes from it. This is the hook target for the third-person camera:
-    // the offset must be applied to the camera matrix HERE, before the cull planes are
-    // computed, so culling matches the third-person view (offsetting only the rendered
-    // matrix afterwards leaves the frustum culling from the eye, which hides nearby
-    // geometry). Every gameplay camera (first-person, combat via its private inner
-    // camera, mount) funnels into this builder for the active CView, so one gated hook
-    // covers them all.
-    //
-    // This function has many callers (shadow, reflection, and portal cameras all rebuild
-    // their frustums here), so the detour must gate to the game view camera by checking
-    // that (camera - SVIEWPARAMS_VIEWMATRIX_OFFSET), the CView that embeds it, carries
-    // the CView vtable.
-    //
-    // Signature: __int64 __fastcall(camera /*rcx*/). Prologue:
-    //   WHGame.DLL+537E04 - 48 8B C4              - mov rax,rsp
-    //   WHGame.DLL+537E07 - 55 53 56 57 41 54 41 55 41 56 41 57 - push rbp/rbx/rsi/rdi/r12..r15
-    //   WHGame.DLL+537E13 - 48 8D 68 98           - lea rbp,[rax-68]
-    //   WHGame.DLL+537E17 - 48 81 EC 28 01 00 00  - sub rsp,128
-    //   WHGame.DLL+537E1E - F3 0F 10 09           - movss xmm1,[rcx]   (read matrix)
-    //   WHGame.DLL+537E22 - 48 8B D9              - mov rbx,rcx        (camera)
-    //
-    // The lea displacement and the sub-rsp immediate are wildcarded for frame-size
-    // resilience; the matrix layout and the call signature are stable across patches.
-    constexpr const char *FRUSTUM_BUILD_AOB_PATTERN =
-        "48 8B C4 55 53 56 57 41 54 41 55 41 56 41 57 48 8D 68 ?? 48 81 EC ?? ?? 00 00 F3 0F 10 09 48 8B D9";
+    // All AOB signatures are defined as multi-candidate cascades in aob_resolver.hpp
+    // (k_contextCandidates, k_frustumCandidates, ...). The global-context cascade
+    // resolves the storage slot whose +0x38 reaches the camera-manager root the
+    // game-state detection walks (see OFFSET_MANAGER_PTR_STORAGE); the frustum-builder
+    // cascade resolves CCamera::UpdateFrustumPlanes, the matrix-offset hook target that
+    // every gameplay camera funnels through (gated to the game view by the embedding
+    // CView vtable, camera - SVIEWPARAMS_VIEWMATRIX_OFFSET).
 
     // Static image base of WHGame.DLL; used to translate static vtable/code addresses
     // into runtime addresses (runtime = module_base + (static - IMAGE_BASE)).
@@ -115,7 +74,7 @@ namespace Constants
 
     // Player look/aim orientation chain. Used to LEVEL the aim pitch while free-look orbit is active
     // so the character's head and the eye look forward (not just the camera). Chain:
-    //   g_env (GENV_STATIC) -> p_game (g_env + GENV_PGAME_OFFSET)
+    //   g_env base (k_genvCandidates cascade) -> p_game (g_env + GENV_PGAME_OFFSET)
     //   -> CCryAction = p_game->IGame::GetIGameFramework() (vtable slot 16 = IGAME_GET_FRAMEWORK_VTABLE_OFFSET)
     //   -> p_action_game (CCryAction + CCRYACTION_ACTIONGAME_OFFSET)
     //   -> C_Player    (p_action_game + CACTIONGAME_LOCAL_ACTOR_OFFSET), validated by its RTTI type name
@@ -125,21 +84,11 @@ namespace Constants
     // The look quaternion the cameras read (controller + 0x24) is DERIVED from this scalar pitch+yaw
     // EVERY frame, so writing that quat is overwritten -- the SCALAR pitch is what must be written to
     // level the aim. Both copies are written so any internal current/target smoothing also settles at level.
-    // g_env (SSystemGlobalEnvironment) base. Resolved patch-resiliently at startup from a
-    // `lea rdx, [g_env]` instruction via GENV_LOAD_AOB_PATTERN; this static RVA is only the
-    // fallback used if that AOB ever drifts.
+    // g_env (SSystemGlobalEnvironment) base. Resolved patch-resiliently at startup from
+    // `lea/mov [rip+g_env]` reference sites via the k_genvCandidates cascade
+    // (aob_resolver.hpp); this static RVA is only the fallback used if every candidate
+    // ever drifts.
     constexpr uintptr_t GENV_STATIC = 0x18492B800;
-    // Unique AOB whose `lea rdx, [g_env]` resolves the g_env base. The lea is at +3 (disp32 at
-    // +6, instruction length 7); the window spans the following
-    // `mov rcx,[rip]; mov rax,[rcx]; call [rax+18h]` tail to stay unique. The two RIP
-    // displacements and the call rel32 are wildcarded so only opcodes anchor the match.
-    constexpr const char *GENV_LOAD_AOB_PATTERN =
-        "4C 8B C7 48 8D 15 ?? ?? ?? ?? 48 8B CB E8 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? 48 8B D3 48 8B 01 FF 50 18";
-    // Byte offset of the `lea rdx, [g_env]` inside a GENV_LOAD_AOB_PATTERN match, and the
-    // disp32 offset / length of that lea, fed to Scanner::resolve_rip_relative.
-    constexpr ptrdiff_t GENV_LOAD_AOB_LEA_OFFSET = 3;
-    constexpr ptrdiff_t GENV_LOAD_LEA_DISP_OFFSET = 3;
-    constexpr size_t GENV_LOAD_LEA_LENGTH = 7;
     // RTTI type-descriptor name of C_Player, used to validate the resolved actor (replaces a
     // hardcoded vtable address so the check survives patches).
     constexpr const char *C_PLAYER_RTTI_NAME = ".?AVC_Player@entitymodule@wh@@";
@@ -177,50 +126,30 @@ namespace Constants
     constexpr ptrdiff_t ANIMCHAR_OVERRIDE_ROT_ACTIVE_OFFSET = 0x1D8; // BYTE, set to 1 each frame (consume-once)
     constexpr ptrdiff_t ANIMCHAR_OVERRIDE_ROT_QUAT_OFFSET = 0x1DC;   // world Quat XYZW (16 bytes)
 
-    // AOB for the head-visibility setter (signature void __fastcall(this /*rcx*/,
-    // bool hide_head /*dl*/, char flags /*r8b*/)). The first-person rig hides the
-    // player head; forcing hide_head to false keeps it visible while the third-person
-    // offset is rendering so the player is not headless from behind.
-    //   WHGame.DLL+1356EDC - 48 89 5C 24 10        - mov [rsp+10],rbx
-    //   WHGame.DLL+1356EE1 - 48 89 74 24 18        - mov [rsp+18],rsi
-    //   WHGame.DLL+1356EE6 - 57                    - push rdi
-    //   WHGame.DLL+1356EE7 - 48 83 EC ??           - sub rsp,frame
-    //   WHGame.DLL+1356EEB - 41 8A F0              - mov sil,r8b
-    constexpr const char *SET_HEAD_VISIBILITY_AOB_PATTERN =
-        "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC ?? 41 8A F0";
+    // The head-visibility setter (k_headVisibilityCandidates) has signature
+    // void __fastcall(this /*rcx*/, bool hide_head /*dl*/, char flags /*r8b*/). The
+    // first-person rig hides the player head; forcing hide_head to false keeps it
+    // visible while the third-person offset is rendering so the player is not headless
+    // from behind.
 
-    // Global action dispatcher (sub_1808EBEE4): the C++ source of Lua Player:OnAction. Fires once per
-    // action-map action with its name and post-action-map value:
+    // Global action dispatcher (k_actionDispatchCandidates): the C++ source of Lua Player:OnAction. Fires
+    // once per action-map action with its name and post-action-map value:
     //   _QWORD*(this /*rcx*/, const char** action_name /*rdx*/, uint activation /*r8d*/, float value /*xmm3*/)
     // The value is device-agnostic (keyboard, gamepad and rebinds all funnel through the same action
     // name), so reading the xi_movey / xi_movex axis here gives movement INTENT -- nonzero while a key is
-    // held even when a wall arrests the body, which the body-position speed cannot distinguish. Prologue
-    // anchor: `movss [rax+20h], xmm3` (stores the float value arg) + push rbp/rdi/r14; the trailing lea
-    // offset and stack size are wildcarded so a patch that shifts the frame size still matches.
-    constexpr const char *ACTION_DISPATCH_AOB_PATTERN =
-        "48 8B C4 48 89 58 10 48 89 70 18 F3 0F 11 58 20 55 57 41 56 48 8D 68 ?? 48 81 EC ?? ?? ?? ??";
+    // held even when a wall arrests the body, which the body-position speed cannot distinguish.
     // The movement action names are matched in player_onaction_hook.cpp (a small candidate list across the
     // xi_* / movement_* / move* action maps); a trace-level probe there logs each distinct action name once so
     // the on-foot movement axis vocabulary can be confirmed at runtime.
 
     // --- Physics world raycast (camera collision + aim convergence) ---
-    // IPhysicalWorld::RayWorldIntersection inline helper (sub_180484944). Casts a world
-    // ray and fills a ray_hit; returns the hit count. Signature (Microsoft x64):
+    // IPhysicalWorld::RayWorldIntersection inline helper (k_rayWorldIntersectionCandidates). Casts a
+    // world ray and fills a ray_hit; returns the hit count. Signature (Microsoft x64):
     //   int(this /*rcx = p_physical_world*/, const Vec3* org /*rdx*/, const Vec3* dir /*r8*/,
     //       int objtypes /*r9d*/, uint flags, ray_hit* hits, int n_max_hits, void* p_skip_ents,
     //       int n_skip_ents, void* p_foreign_data, int i_foreign_data, const char* p_name_tag)
-    // dir is NOT normalized -- its length is the maximum ray length, and ray_hit.dist is
-    // the world-space distance to the hit. A sibling helper (sub_1838D6E3C) shares this exact
-    // prologue and its first inner call, then diverges in how it stages the next call's arguments,
-    // so the prologue window alone matches both. The pattern extends past that shared call into the
-    // body, where this helper does `mov r9d, imm32` while the sibling does `mov rcx, r9` -- that
-    // opcode difference isolates sub_180484944 to a single match. The prologue lea displacement, the
-    // sub-rsp immediate, the two frame-local lea displacements, the shared call rel32, and the r9d
-    // immediate are all wildcarded so only opcodes anchor the match.
-    constexpr const char *RAY_WORLD_INTERSECTION_AOB_PATTERN =
-        "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 4C 89 70 20 55 48 8D 68 ?? 48 81 EC ?? ?? 00 00 "
-        "48 8B DA 49 8B F8 33 D2 4C 8B F1 48 8D 4D ?? 41 8B F1 44 8D 42 70 E8 ?? ?? ?? ?? 8B 43 08 "
-        "48 8D 55 ?? F2 0F 10 03 41 B9 ?? ?? ?? ??";
+    // dir is NOT normalized -- its length is the maximum ray length, and ray_hit.dist is the
+    // world-space distance to the hit.
 
     // p_physical_world (IPhysicalWorld*) is a member of the g_env struct: its slot address is
     // g_env + PHYSICAL_WORLD_OFFSET. It is derived from the patch-resiliently resolved g_env
@@ -269,7 +198,23 @@ namespace Constants
     // sets rwi_colltype_any so the ray reports hits whatever the surface collision class; without
     // it a surface that does not match the default collision filter is skipped (a phantom miss
     // that let the camera/crosshair punch through). It only adds valid hits, never removes them.
-    constexpr unsigned int RWI_FLAGS_STOP_AT_SOLID = 0x40F;
+    //
+    // The high word adds an explicit geometry collide-type request: geom_colltype_ray (0x00020000) |
+    // geom_colltype_player (0x80000000). Fabric tent/awning/stall ROOFS in KCD2 are static collision-PROXY
+    // meshes flagged geom_colltype_player but NOT geom_colltype_ray (MTL_FLAG_COLLISION_PROXY), so a plain
+    // colltype_any ray slid straight through them and the third-person camera buried itself in the cloth.
+    // Requesting ray|player colltype makes RayWorldIntersection report those proxies, so the camera collides
+    // with fabric roofs while still hitting normal world geometry (objtypes stay RWI_OBJTYPES_CAMERA 0x101).
+    // Verified live on retail 1.5.5. (See docs/analysis/foliage_occlusion_findings.md.)
+    //
+    // Composed from the named physinterface.h bit values rather than a magic literal so the intent is
+    // self-documenting and each contributing flag is independently auditable.
+    constexpr unsigned int RWI_STOP_AT_PIERCEABLE = 0x0000000F; // stop at the first solid (non-pierceable) hit
+    constexpr unsigned int RWI_COLLTYPE_ANY = 0x00000400;       // report a hit whatever the surface collision class
+    constexpr unsigned int GEOM_COLLTYPE_RAY = 0x00020000;      // request geometry flagged as ray-collidable
+    constexpr unsigned int GEOM_COLLTYPE_PLAYER = 0x80000000;   // also request player-collidable proxies (fabric roofs)
+    constexpr unsigned int RWI_FLAGS_STOP_AT_SOLID =
+        RWI_STOP_AT_PIERCEABLE | RWI_COLLTYPE_ANY | GEOM_COLLTYPE_RAY | GEOM_COLLTYPE_PLAYER; // 0x8002040F
 
     // --- Swept-sphere camera collision (IPhysicalWorld::PrimitiveWorldIntersection) ---
     // A single thin RayWorldIntersection ray to a sweeping endpoint (the camera rotates+moves
@@ -326,97 +271,38 @@ namespace Constants
     // interaction call comes from C_PlayerInteractor look-ray builder sub_1808333C8 (which reads the
     // gameplay camera pos@+60 / rotation@+72 and forms origin@interactor+0x3E8 / dir@+0x3F4).
     //
-    // INTERACTION_RAY_BUILD = sub_180530584 entry (the query builder we hook; no RIP-relative bytes).
-    constexpr const char *INTERACTION_RAY_BUILD_AOB_PATTERN =
-        "F2 0F 10 02 4C 8B D1 4C 8B 5C 24 30 F2 0F 11 01 8B 42 08 89 41 08 F2 41 0F 10 00";
-    // INTERACTOR_LOOKRAY = sub_1808333C8 entry. Used only to bound the call site: the builder hook acts
-    // only when its return address lies inside this function, so other (camera/AI/audio) ray queries are
-    // never touched. The look-ray call sits ~0x259 in; the bound covers the whole function.
-    constexpr const char *INTERACTOR_LOOKRAY_AOB_PATTERN =
-        "48 8B C4 48 89 58 10 48 89 70 18 55 57 41 54 41 56 41 57 48 8D A8 ?? ?? FF FF 48 81 EC ?? ?? "
-        "00 00 0F 29 70 C8 0F 29 78 B8 44 0F 29 40 A8 44 0F 29 50 98 44 0F 29 58 88";
+    // k_interactionRayBuildCandidates resolves the query builder entry (the function the mod hooks).
+    // k_interactorLookRayCandidates resolves the look-ray builder entry, used only to bound the call
+    // site: the builder hook acts only when its return address lies inside [entry, entry +
+    // INTERACTOR_LOOKRAY_SPAN), so other (camera/AI/audio) ray queries are never touched.
     constexpr size_t INTERACTOR_LOOKRAY_SPAN = 0x500; // caller-range bound for the return-address filter
     // The dir argument (r8 / a3) points at a Vec3 (x,y,z) whose length is the ray reach; the redirect rewrites
     // x,y,z to the crosshair forward and preserves the reach. The origin (rdx / a2) Vec3 is slid forward along
     // that same ray to the player-eye projection (see redirect_interaction_ray), so the engine's interaction
     // range cap is measured from ~eye rather than from the camera standing FollowDistance behind.
 
-    // INTERACTION_ONSCREEN_CHECK = sub_18093C170: projects a candidate's world interaction point through the
-    // gameplay camera (qword_18492B908) and rejects it when it falls outside the on-screen reticle range.
-    // The single gate that drops the shrine when the body is not turned -- it projects
-    // off-reticle in the gameplay camera even though centered in the offset render view. The hook force-passes
-    // ONLY candidates whose world point lies along the published crosshair ray (perp distance below the max
-    // below); all others fall through to the original. Args: a1=rcx a2=rdx(&worldPoint Vec3) a3=r8(&out 2D
-    // screen coords, written) a4=r9(config). Prologue ends with mov rcx,[rip+disp] -> qword_18492B908.
-    constexpr const char *INTERACTION_ONSCREEN_CHECK_AOB_PATTERN =
-        "4C 8B DC 49 89 5B 10 49 89 73 18 49 89 4B 08 57 48 83 EC ?? 48 8B 0D ?? ?? ?? ?? 49 8D 70 04";
+    // k_interactionOnScreenCandidates resolves the on-screen reticle gate: it projects a candidate's
+    // world interaction point through the gameplay camera and rejects it when it falls outside the
+    // on-screen reticle range. This is the single gate that drops the shrine when the body is not
+    // turned (it projects off-reticle in the gameplay camera even though centered in the offset render
+    // view). The hook force-passes ONLY candidates whose world point lies along the published crosshair
+    // ray (perp distance below the max below); all others fall through to the original. Args: a1=rcx
+    // a2=rdx(&worldPoint Vec3) a3=r8(&out 2D screen coords, written) a4=r9(config).
     constexpr float INTERACTION_ONSCREEN_RAY_PERP_MAX = 0.85f; // m; max perp distance to the crosshair ray
     constexpr float INTERACTION_ONSCREEN_CENTER = 50.0f;       // screen-center coord (priority = dist from it)
 
-    // AOB patterns for direct UI overlay hooks. The camera reads overlay_state().active to
-    // suppress the offset while an overlay (inventory, map, dialog, codex) is up.
-    // sub_1808C3AFC (HideOverlays):
-    //   WHGame.DLL+8C3AFC - 44 88 44 24 18          - mov [rsp+18h], r8b
-    //   WHGame.DLL+8C3B01 - 53                      - push rbx
-    //   WHGame.DLL+8C3B02 - 48 83 EC 20             - sub rsp, 20h
-    //   WHGame.DLL+8C3B06 - 0F B6 C2                - movzx eax, dl
-    //   WHGame.DLL+8C3B09 - 48 8B D9                - mov rbx, rcx
-    //   WHGame.DLL+8C3B0C - 48 8D 15 ?? ?? ?? ??    - lea rdx, ["HideOverlays"]
-    //   WHGame.DLL+8C3B13 - C6 84 08 B8 00 00 00 01 - mov byte ptr [rax+rcx+0B8h], 1
-    constexpr const char *UI_OVERLAY_HIDE_AOB_PATTERN =
-        "44 88 44 24 18 53 48 83 EC ?? 0F B6 C2 48 8B D9 48 8D 15 ?? ?? ?? ?? C6 84 ?? ?? ?? ?? ?? 01";
+    // The UI overlay hooks (k_overlayHideCandidates / k_overlayShowCandidates) bracket
+    // HideOverlays / ShowOverlays. The camera reads overlay_state().active to suppress the offset
+    // while an overlay (inventory, map, dialog, codex) is up.
 
-    // sub_1808C3BB8 (ShowOverlays):
-    //   WHGame.DLL+8C3BB8 - 44 88 44 24 18          - mov [rsp+18h], r8b
-    //   WHGame.DLL+8C3BBD - 53                      - push rbx
-    //   WHGame.DLL+8C3BBE - 48 83 EC 20             - sub rsp, 20h
-    //   WHGame.DLL+8C3BC2 - 0F B6 C2                - movzx eax, dl
-    //   WHGame.DLL+8C3BC5 - 48 8B D9                - mov rbx, rcx
-    //   WHGame.DLL+8C3BC8 - 80 BC 08 B8 00 00 00 00 - cmp byte ptr [rax+rcx+0B8h], 0
-    //   WHGame.DLL+8C3BD0 - 74 48                   - jz short loc_1808C3C1A
-    // The sub-rsp immediate is wildcarded (frame resilience) and the pattern deliberately stops
-    // before the trailing `jz short`: a Jcc rel8 opcode can flip to the rel32 form across patches,
-    // and the cmp byte ptr [rax+rcx+0B8h], 0 prefix is already unique on its own.
-    constexpr const char *UI_OVERLAY_SHOW_AOB_PATTERN =
-        "44 88 44 24 18 53 48 83 EC ?? 0F B6 C2 48 8B D9 80 BC ?? ?? ?? ?? ?? 00";
+    // The UI menu hooks (k_menuOpenCandidates / k_menuCloseCandidates) bracket the menu-open
+    // (vftable[1]) and menu-close (vftable[2]) entries.
 
-    // --- UI Menu Hook Patterns ---
-    // Inside sub_180C0B618 (UI menu open, vftable[1]):
-    //   WHGame.DLL+C0B64E - 48 8B 41 B0           - mov rax, [rcx-50h]
-    //   WHGame.DLL+C0B652 - 48 8B 48 30           - mov rcx, [rax+30h]
-    //   WHGame.DLL+C0B656 - 48 8B 01              - mov rax, [rcx]
-    //   WHGame.DLL+C0B659 - FF 10                 - call qword ptr [rax]
-    //   WHGame.DLL+C0B65B - 48 8D 15 ?? ?? ?? ??  - lea rdx, ["SetInputId"]
-    /** @brief AOB pattern for UI menu open function (vftable[1]). */
-    constexpr const char *UI_MENU_OPEN_AOB_PATTERN =
-        "48 8B 41 B0 48 8B 48 30 48 8B 01 FF 10 48 8D 15 ?? ?? ?? ??";
-
-    // Inside sub_180C0B260 (UI menu close, vftable[2]); the register ModRM bytes are wildcarded so the pattern
-    // matches regardless of whether the build holds the object in rbx (as below) or rdi:
-    //   WHGame.DLL+C0B3EE - 8A 53 48              - mov dl, [rbx+48h]
-    //   WHGame.DLL+C0B3F1 - 48 8D 4B 28           - lea rcx, [rbx+28h]
-    //   WHGame.DLL+C0B3F5 - C6 43 49 00           - mov byte ptr [rbx+49h], 0
-    //   WHGame.DLL+C0B3F9 - E8 ?? ?? ?? ??        - call sub_180393794
-    //   WHGame.DLL+C0B3FE - C6 43 48 00           - mov byte ptr [rbx+48h], 0
-    /** @brief AOB pattern for UI menu close function (vftable[2]). */
-    constexpr const char *UI_MENU_CLOSE_AOB_PATTERN =
-        "8A ?? 48 48 8D ?? 28 C6 ?? 49 00 E8 ?? ?? ?? ?? C6 ?? 48 00";
-
-    // Generic input-event dispatcher: void __fastcall(controller /*rcx*/, event /*rdx*/,
-    // char /*r8b*/). Every input event (movement and look, FPV and TPV) funnels through
-    // here. The free-look hooks it to capture the mouse-look delta and freeze
-    // look input while orbiting. The event layout matches the INPUT_EVENT_* offsets below
-    // (type at INPUT_EVENT_TYPE_OFFSET == MOUSE_INPUT_TYPE_ID for mouse, id at
-    // INPUT_EVENT_ID_OFFSET, delta float at INPUT_EVENT_VALUE_OFFSET).
-    //   mov [rsp+8],rbx; push rdi; sub rsp,30; mov rbx,rdx (event); mov rdi,rcx (ctrl);
-    //   test r8b,r8b; jnz; cmp [rcx+0xD8],r8b; jz ...
-    // The sub-rsp immediate and the jnz rel8 displacement (the skip over the cmp+jz block) are
-    // wildcarded for patch resilience. The jnz OPCODE byte is kept literal: it only skips that fixed
-    // 13-byte block (cmp + jz rel32), far inside rel8 range, so the encoding stays the 2-byte 75 form
-    // across builds (same reasoning as the CONTEXT_PTR_LOAD jg anchor). The cmp [rcx+0xD8],r8b
-    // landmark keeps the match unique.
-    constexpr const char *INPUT_DISPATCHER_AOB_PATTERN =
-        "48 89 5C 24 08 57 48 83 EC ?? 48 8B DA 48 8B F9 45 84 C0 75 ?? 44 38 81 D8 00 00 00 0F 84";
+    // Generic input-event dispatcher (k_inputDispatchCandidates): void __fastcall(controller /*rcx*/,
+    // event /*rdx*/, char /*r8b*/). Every input event (movement and look, FPV and TPV) funnels through
+    // here. The free-look hooks it to capture the mouse-look delta and freeze look input while orbiting.
+    // The event layout matches the INPUT_EVENT_* offsets below (type at INPUT_EVENT_TYPE_OFFSET ==
+    // MOUSE_INPUT_TYPE_ID for mouse, id at INPUT_EVENT_ID_OFFSET, delta float at INPUT_EVENT_VALUE_OFFSET).
 
     // Look-axis event ids (SInputEvent.keyId / EKeyId, KCD-renumbered) matched on the analog look channel
     // together with MOUSE_INPUT_TYPE_ID below (which is actually EInputState::eIS_Changed, NOT a device

@@ -1,41 +1,40 @@
-[size=6]Kingdom Come: Deliverance II - Third Person Camera[/size]
-
 [size=5]Foreword[/size]
-A while back I made [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1550]KCD2_TPVToggle[/url], which switches on the game's built-in debug third-person camera. That camera was never meant for normal play, so working around its quirks and restrictions turned into a rabbit hole, and I ended up spending far more time fixing broken things than building anything new.
+A while back I made [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1550]Third Person View (TPV Camera) Enabler[/url], which switches on the game's built-in debug third-person camera. That camera was never meant for normal play, so working around its quirks and restrictions turned into a rabbit hole, and I ended up spending far more time fixing broken things than building anything new.
 
 This mod is a complete rewrite from the opposite direction. Instead of borrowing the debug camera, it leaves the game in its normal first-person mode and rebuilds the third-person view on top of it, then adds the parts that actually matter: simple camera collision and raycast-based crosshair alignment. It is much simpler, and it genuinely works better. The funny part is that doing it this way came together in about two weeks, against the better part of a month I spent patching the old approach.
 
 It is still early days, so if anything feels off or you have an idea that would make it better, please let me know. I hope you enjoy it, and thank you for giving it a try.
 
-[size=5]Description[/size]
-A third-person camera mod for Kingdom Come: Deliverance II, with camera collision and frustum-culling correction, a partial raycast-based crosshair fix, and an experimental free-look orbit mode.
+[size=2]Note: Please forgive me for the bad video quality and framerate T_T[/size]
 
-Third-person turns on automatically once you reach gameplay; press the toggle key to switch back, or set AutoEnableTPV = false in the INI to start in first-person.
+[youtube]NuCQHDoQnVE[/youtube]
 
 [size=5]Key Features[/size]
 [list]
-[*] Third-person view you can toggle on and off at any time (default: F3, or hold LB + RB)
-[*] Over-the-shoulder framing with adjustable distance, height, and side offset
-[*] Zoom the camera in and out on the fly
-[*] Basic free-look orbit to look around your character (early, see Known Limitations)
-[*] Automatic view switching by situation: switch to first or third person when you enter combat, aiming a bow, dialogue, minigames, riding, or menus (you can still toggle manually during it), restoring your previous view when it ends
-[*] In-game preset manager: edit, add, and save camera presets from an overlay; built-in presets for normal play, combat, aiming, horseback, sneaking, and special poses (lying down, sitting, kneeling, riding a cart) apply automatically by situation, and you can bind your own presets to combinations of states (such as aiming while crouched), with the most specific match winning
-[*] Camera collision that pulls the view in so it does not clip through walls
-[*] Crosshair stays lined up with what you point at
-[*] Full keyboard and XInput controller support
-[*] Almost every setting is editable live while the game runs
-[*] [url=https://github.com/tkhquang/KCD2Tools]Open-source[/url] with full transparency
+[*]Third-person view you can toggle on and off at any time (default: F3, or hold LB + RB)[/*]
+[*]Over-the-shoulder framing with adjustable distance, height, and side offset[/*]
+[*]Zoom the camera in and out on the fly[/*]
+[*]Basic free-look orbit to look around your character (early, see Known Limitations)[/*]
+[*]Automatic view switching by situation: switch to first or third person when you enter combat, aiming a bow, dialogue, minigames, riding, or menus (you can still toggle manually during it), restoring your previous view when it ends[/*]
+[*]In-game preset manager: edit, add, and save camera presets from an overlay; built-in presets for normal play, combat, aiming, horseback, sneaking, and special poses (lying down, sitting, kneeling, riding a cart) apply automatically by situation, and you can bind your own presets to combinations of states (such as aiming while crouched), with the most specific match winning[/*]
+[*]Camera collision that pulls the view in so it does not clip through walls[/*]
+[*]Crosshair stays lined up with what you point at (partly, only for interactions and not 100% yet)[/*]
+[*]Full keyboard and XInput controller support[/*]
+[*]Almost every setting is editable live while the game runs[/*]
+[*][url=https://github.com/tkhquang/KCD2Tools]Open-source[/url] with full transparency[/*]
 [/list]
+Third-person turns on automatically once you reach gameplay; press the toggle key to switch back, or set AutoEnableTPV = false in the INI to start in first-person.
 
 [size=5]Requirements[/size]
 [list]
-[*] Kingdom Come: Deliverance II (Steam version)
+[*]Kingdom Come: Deliverance II (Steam version)[/*]
 [/list]
 
 [size=5]Installation[/size]
 1. If you have the older [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1550]KCD2_TPVToggle[/url] mod installed, remove it first: delete KCD2_TPVToggle.asi and KCD2_TPVToggle.ini from your game directory. TPVCamera replaces it, and running both third-person camera mods at once will conflict.
 2. Extract all files from the archive to your game directory:
-  [code]<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/[/code]
+ 
+[code]<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/[/code]
 3. Launch the game; third-person turns on automatically. Press F3 (or hold LB + RB) to toggle back to first-person
 
 [size=5]Linux / Steam Deck (Wine/Proton)[/size]
@@ -50,70 +49,84 @@ Since this mod uses dinput8.dll as the ASI loader, you need to tell Wine/Proton 
 [size=5]Default Controls[/size]
 All keys are rebindable in KCD2_TPVCamera.ini.
 [list]
-[*] [b]Enter / exit third-person:[/b] F3, or hold LB + RB
-[*] [b]Toggle free-look orbit:[/b] F4, or hold LB + click the left stick (LS)
-[*] [b]Open preset manager overlay:[/b] Home
-[*] [b]Zoom in:[/b] LShift + PageUp, or hold LB + D-pad up
-[*] [b]Zoom out:[/b] LShift + PageDown, or hold LB + D-pad down
-[*] [b]Force first-person / force third-person:[/b] unbound by default
+[*][b]Enter / exit third-person:[/b] F3, or hold LB + RB[/*]
+[*][b]Toggle free-look orbit:[/b] F4, or hold LB + click the left stick (LS)[/*]
+[*][b]Open preset manager overlay:[/b] Home[/*]
+[*][b]Zoom in:[/b] LShift + PageUp, or hold LB + D-pad up[/*]
+[*][b]Zoom out:[/b] LShift + PageDown, or hold LB + D-pad down[/*]
+[*][b]Force first-person / force third-person:[/b] unbound by default[/*]
 [/list]
 
 [size=5]Configuration[/size]
 Edit KCD2_TPVCamera.ini, grouped into:
 [list]
-[*] [b][Settings][/b] - log level, the view hotkeys, the preset-overlay key, and the start-of-session auto-enable flags
-[*] [b][Camera][/b] - zoom keys, the camera-space interaction toggle, and the view-transition ease (the framing itself is per-preset)
-[*] [b][Orbit][/b] - the free-look orbit key and the cursor freeze (the orbit feel is per-preset)
-[*] [b][Collision][/b] - the sphere-vs-ray collision probe and its radius (enable, skin, and return speed are per-preset)
-[*] [b][StateBehavior][/b] - switch first/third person on entering a situation (combat, aiming, dialogue, minigame, mount, menu, overlay), restore the prior view on exit (manual toggles during it stick), and suspend/restore free-look in chosen situations
-[*] [b][Presets][/b] - the preset blend speed; the camera framing lives in the in-game preset manager (open with Home) and is stored in KCD2_TPVCamera_presets.json next to the INI. That file is created automatically from the built-in defaults on first run; it is not shipped, so updating the mod never overwrites presets you have tuned
+[*][b][Settings][/b] - log level, the view hotkeys, the preset-overlay key, and the start-of-session auto-enable flags[/*]
+[*][b][Camera][/b] - zoom keys, the camera-space interaction toggle, and the view-transition ease (the framing itself is per-preset)[/*]
+[*][b][Orbit][/b] - the free-look orbit key and the cursor freeze (the orbit feel is per-preset)[/*]
+[*][b][Collision][/b] - the sphere-vs-ray collision probe and its radius (enable, skin, and return speed are per-preset)[/*]
+[*][b][StateBehavior][/b] - switch first/third person on entering a situation (combat, aiming, dialogue, minigame, mount, menu, overlay), restore the prior view on exit (manual toggles during it stick), and suspend/restore free-look in chosen situations[/*]
+[*][b][Presets][/b] - the preset blend speed; the camera framing lives in the in-game preset manager (open with Home) and is stored in KCD2_TPVCamera_presets.json next to the INI. That file is created automatically from the built-in defaults on first run; it is not shipped, so updating the mod never overwrites presets you have tuned[/*]
 [/list]
 Most values apply the next frame after you save the file.
 
 [size=5]Using with Controllers[/size]
-DetourModKit supports gamepad input natively via the XInput API. You can use gamepad button names directly in the INI, for example:
+[url=https://github.com/tkhquang/DetourModKit#supported-input-names]DetourModKit [/url]supports gamepad input natively via the XInput API. You can use gamepad button names directly in the INI, for example:
 [code]ToggleViewKey = F3,Gamepad_LB+Gamepad_RB[/code]
 Xbox controllers work natively. For PS4/PS5/Switch controllers, use DS4Windows, Steam Input, or a similar tool to present your controller as XInput.
+
+[size=4]Hotkey Format[/size]
+[list]
+[*]Named keys: [b]T[/b], [b]F3[/b], [b]Numpad1[/b], [b]Mouse4[/b], [b]Gamepad_A[/b], etc.[/*]
+[*]Modifiers: [b]Ctrl[/b], [b]Shift[/b], [b]Alt[/b] (or LCtrl, RCtrl, etc.)[/*]
+[*]Multiple combos: [b]T,Gamepad_LB+Gamepad_Y[/b] (T alone OR hold LB + press Y)[/*]
+[*]Empty value = disabled[/*]
+[/list]
+
+See the full list at the [url=https://github.com/tkhquang/DetourModKit?tab=readme-ov-file#supported-input-names]Supported Input Names[/url] reference.
 
 [size=5]Recommended Mods[/size]
 These pair well with a third-person camera:
 [list]
-[*] [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/93]No Helmet Vision[/url] - removes the helmet vision letterbox/black bars that look out of place in third-person.
-[*] [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/269]First Person Overhaul[/url] - keeps certain scripted actions and interactions in third person instead of forcing the view back to first person.
-[*] [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/2497]Alternate Combat[/url] (optional) - modifies combat and camera lock-on behaviour to make melee combat more free and target switching easier.
+[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/93]No Helmet Vision[/url] - removes the helmet vision letterbox/black bars that look out of place in third-person.[/*]
+[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/269]First Person Overhaul[/url] - keeps certain actions and interactions in third person instead of forcing the view back to game default camera.[/*]
+[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/2497]Alternate Combat[/url] (optional) - modifies combat and camera lock-on behaviour to make melee combat more free and target switching easier.[/*]
 [/list]
 
 [size=5]Known Limitations[/size]
 [list]
-[*] Free-look orbit is a raw proof-of-concept: fine for swinging the camera around to look at the front of Henry, but rough for normal gameplay (interaction while orbiting does not work yet).
-[*] Free-look orbit conflicts with the game's own camera control on horseback and in combat, so it is auto-disabled in those situations.
-[*] The first-person body rig can still look slightly off from behind in some animations.
-[*] Camera collision keeps the view out of walls but has no soft-edge smoothing yet.
-[*] The raycast-based crosshair fix is partial: it does not cover every interaction type, so some still show parallax or an offset, and in a dense area with several interactables the use-prompt can jump back and forth.
-[*] Certain world interactions in third person can still be janky or buggy; toggle the camera off if one looks wrong.
-[*] The preset overlay does not hook the game's swap chain by design: it renders through a private WARP device and composites with a GDI blit, which keeps it compatible with overlays and injectors like ReShade and OptiScaler. The trade-off is a frame-rate hit while the overlay is open; since it is a tuning panel you open briefly rather than play with, that is acceptable.
+[*]Free-look orbit is a raw proof-of-concept: fine for swinging the camera around to look at the front of Henry, but rough for normal gameplay (interaction while orbiting does not work yet).[/*]
+[*]Free-look orbit conflicts with the game's own camera control on horseback and in combat, so it is auto-disabled in those situations.[/*]
+[*]The first-person body rig can still look slightly off from behind in some animations.[/*]
+[*]Camera collision keeps the view out of walls but has no soft-edge smoothing yet.[/*]
+[*]The raycast-based crosshair fix is partial: it does not cover every interaction type, so some still show parallax or an offset, and in a dense area with several interactables the use-prompt can jump back and forth.[/*]
+[*]Certain world interactions in third person can still be janky or buggy; toggle the camera off if one looks wrong.[/*]
+[*]The preset overlay does not hook the game's swap chain by design: it renders through a private WARP device and composites with a GDI blit, which keeps it compatible with overlays and injectors like ReShade and OptiScaler. The trade-off is a frame-rate hit while the overlay is open; since it is a tuning panel you open briefly rather than play with, that is acceptable.[/*]
 [/list]
 
 [size=5]Roadmap[/size]
 [list]
-[*] Rework the free-look orbit so it is usable in normal gameplay (interaction during orbit, smoother engage/release, better mouse feel), including resolving the conflict with the game's own camera on horseback and in combat where orbit is currently auto-disabled.
-[*] Soft-edge camera collision so the view eases around obstacles instead of snapping.
-[*] Handle thin occluders (fence rails, thin foliage) between the camera and the character more cleanly.
-[*] Fix shadows being cut off behind the character (the shadow cascade still follows the first-person eye).
-[*] Extend the raycast-based crosshair/interaction fix to cover more interaction types and stop the use-prompt jumping between nearby interactables in dense areas.
+[*]Rework the free-look orbit so it is usable in normal gameplay (interaction during orbit, smoother engage/release, better mouse feel), including resolving the conflict with the game's own camera on horseback and in combat where orbit is currently auto-disabled.[/*]
+[*]Soft-edge camera collision so the view eases around obstacles instead of snapping.[/*]
+[*]Handle thin occluders (fence rails, thin foliage) between the camera and the character more cleanly.[/*]
+[*]Fix shadows being cut off behind the character (the shadow cascade still follows the first-person eye).[/*]
+[*]Extend the raycast-based crosshair/interaction fix to cover more interaction types and stop the use-prompt jumping between nearby interactables in dense areas.[/*]
 [/list]
 
-[b]After a game update:[/b] The AOB (Array-of-Bytes) pattern scanning automatically adapts to minor game changes, but major updates may require a mod update if core game functions have been modified.
+[b]After a game update:[/b] The mod locates each game function it hooks through several fallback signatures, so it automatically adapts to minor game changes. Major updates may still require a mod update if core game functions have been heavily rewritten.
 
 [size=5]Credits & Source Code[/size]
 Built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url] for core functionality.
 
 [list]
-[*] [url=https://github.com/ThirteenAG]ThirteenAG[/url] for the Ultimate ASI Loader
-[*] [url=https://github.com/cursey]cursey[/url] for SafetyHook
-[*] Brodie Thiesfield for SimpleIni
-[*] Frans 'Otis_Inf' Bouma for his camera tools and inspiration
-[*] Warhorse Studios for creating this amazing game
+[*][url=https://github.com/ThirteenAG/Ultimate-ASI-Loader]Ultimate ASI Loader[/url] by ThirteenAG - ASI loading layer[/*]
+[*][url=https://github.com/cursey/safetyhook]SafetyHook[/url] by cursey - inline / mid-function hooking[/*]
+[*][url=https://github.com/zyantific/zydis]Zydis[/url] / [url=https://github.com/zyantific/zycore-c]Zycore[/url] by Florian Bernd & Joel Höner - x86/x64 disassembly (used by SafetyHook)[/*]
+[*][url=https://github.com/brofield/simpleini]SimpleIni[/url] by Brodie Thiesfield - INI configuration parser[/*]
+[*][url=https://github.com/nlohmann/json]nlohmann/json[/url] by Niels Lohmann - JSON preset serialization[/*]
+[*][url=https://github.com/ocornut/imgui]Dear ImGui[/url] by Omar Cornut - overlay GUI[/*]
+[*][url=https://github.com/microsoft/DirectXMath]DirectXMath[/url] by Microsoft - math primitives[/*]
+[*][url=https://github.com/FransBouma]Frans 'Otis_Inf' Bouma[/url] - for his camera tools and inspiration, plus modding direction and guidance[/*]
+[*]Warhorse Studios for creating this amazing game[/*]
 [/list]
 
 All my Kingdom Come: Deliverance II mods and tools can be found in this [url=https://github.com/tkhquang/KCD2Tools]GitHub repository[/url]. Feel free to contribute or suggest improvements!

@@ -8,7 +8,7 @@
  */
 
 #include "game_interface.hpp"
-#include "constants.hpp"
+#include "aob_resolver.hpp"
 #include "global_state.hpp"
 
 #include <DetourModKit.hpp>
@@ -28,31 +28,24 @@ bool initialize_game_interface(uintptr_t module_base, size_t module_size)
     {
         logger.info("GameInterface: Initializing with dynamic AOB scanning...");
 
-        auto ctx_pat = DMK::Scanner::parse_aob(Constants::CONTEXT_PTR_LOAD_AOB_PATTERN);
-        if (!ctx_pat.has_value())
+        // The cascade's RipRelative candidates each resolve the same global-context storage slot
+        // (the RIP-relative MOV/load target), so the returned address is the slot directly.
+        const uintptr_t ctx_slot = resolve_address(Aob::k_contextCandidates, "GlobalContextPtr");
+        if (ctx_slot == 0)
         {
-            throw std::runtime_error("Failed to parse context pointer AOB pattern");
+            throw std::runtime_error("Context pointer cascade did not resolve");
         }
 
-        const std::byte *ctx_aob = DMK::Scanner::find_pattern(reinterpret_cast<const std::byte *>(module_base), module_size, *ctx_pat);
-        if (!ctx_aob)
+        // The storage slot lives in the game image; reject a resolution that lands outside it.
+        const uintptr_t module_end = module_base + module_size;
+        if (ctx_slot < module_base || ctx_slot >= module_end)
         {
-            throw std::runtime_error("Context pointer AOB pattern not found");
+            throw std::runtime_error("Context pointer storage resolved outside module bounds");
         }
 
-        logger.debug("GameInterface: Found context AOB at {}", format_address(reinterpret_cast<uintptr_t>(ctx_aob)));
+        g_global_context_ptr_address = reinterpret_cast<std::byte *>(ctx_slot);
 
-        // Resolve RIP-relative target: mov rax, [rip + offset] (48 8B 05 xx xx xx xx).
-        // The AOB match is 2 bytes before the MOV instruction.
-        auto ctx_target_addr = DMK::Scanner::resolve_rip_relative(ctx_aob + 2, 3, 7);
-        if (!ctx_target_addr.has_value())
-        {
-            throw std::runtime_error("Failed to resolve context pointer RIP-relative address");
-        }
-
-        g_global_context_ptr_address = reinterpret_cast<std::byte *>(ctx_target_addr.value());
-
-        logger.info("GameInterface: Global context pointer storage at {}", format_address(ctx_target_addr.value()));
+        logger.info("GameInterface: Global context pointer storage at {}", format_address(ctx_slot));
 
         return true;
     }

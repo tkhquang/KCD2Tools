@@ -225,9 +225,15 @@ cmake --build --preset msvc-dev
 - `src/config.cpp`, `src/global_state.cpp`, `src/tpv_camera.cpp` - configuration, shared state,
   and the mod lifecycle
 
-Game addresses are located patch-resiliently: code via AOB pattern scanning, the `gEnv` global
-via a RIP-relative AOB (with a static fallback), and engine object types via their MSVC RTTI
-names rather than hardcoded vtable addresses.
+Game addresses are located patch-resiliently. Every hooked function and read global is found
+through a multi-candidate AOB cascade (`src/aob_resolver.hpp`): each target carries three ordered
+signatures, most-specific first, and the first that resolves wins, so a game patch only has to
+leave one anchor intact for the feature to keep working. At least one candidate per cascade
+anchors past the function prologue, so resolution still succeeds when another mod has inline-hooked
+the entry. The `gEnv` global resolves through the same cascade (with a static RVA fallback), and
+engine object types are matched by their MSVC RTTI names rather than hardcoded vtable addresses.
+The cascade signatures follow DetourModKit's
+[AOB signature guide](https://github.com/tkhquang/DetourModKit/blob/main/docs/misc/aob-signatures.md).
 
 ## Credits
 
