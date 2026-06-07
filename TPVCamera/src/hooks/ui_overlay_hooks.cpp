@@ -61,12 +61,11 @@ bool initialize_ui_overlay_hooks(uintptr_t module_base, size_t module_size)
     try
     {
         DMK::HookManager &hook_manager = DMK::HookManager::get_instance();
-        const uintptr_t module_end = module_base + module_size;
 
-        const uintptr_t hide_addr = resolve_address(Aob::k_overlayHideCandidates, "HideOverlays");
-        if (hide_addr == 0 || hide_addr < module_base || hide_addr >= module_end)
+        const uintptr_t hide_addr = resolve_address(Aob::k_overlayHideCandidates, "HideOverlays", module_base, module_size);
+        if (hide_addr == 0)
         {
-            throw std::runtime_error("HideOverlays cascade did not resolve inside module bounds");
+            throw std::runtime_error("HideOverlays cascade did not resolve");
         }
         auto hide_result = hook_manager.create_inline_hook(
             "HideOverlays",
@@ -80,10 +79,10 @@ bool initialize_ui_overlay_hooks(uintptr_t module_base, size_t module_size)
                                      std::string(DMK::Hook::error_to_string(hide_result.error())));
         }
 
-        const uintptr_t show_addr = resolve_address(Aob::k_overlayShowCandidates, "ShowOverlays");
-        if (show_addr == 0 || show_addr < module_base || show_addr >= module_end)
+        const uintptr_t show_addr = resolve_address(Aob::k_overlayShowCandidates, "ShowOverlays", module_base, module_size);
+        if (show_addr == 0)
         {
-            throw std::runtime_error("ShowOverlays cascade did not resolve inside module bounds");
+            throw std::runtime_error("ShowOverlays cascade did not resolve");
         }
         auto show_result = hook_manager.create_inline_hook(
             "ShowOverlays",

@@ -173,9 +173,8 @@ bool initialize_player_onaction_hook(uintptr_t module_base, size_t module_size)
     DMK::Logger &logger = DMK::Logger::get_instance();
     try
     {
-        const uintptr_t dispatch_addr = resolve_address(Aob::k_actionDispatchCandidates, "PlayerOnActionDispatch");
-        const uintptr_t module_end = module_base + module_size;
-        if (dispatch_addr == 0 || dispatch_addr < module_base || dispatch_addr >= module_end)
+        const uintptr_t dispatch_addr = resolve_address(Aob::k_actionDispatchCandidates, "PlayerOnActionDispatch", module_base, module_size);
+        if (dispatch_addr == 0)
         {
             logger.warning(
                 "PlayerOnAction: action dispatcher cascade unresolved; orbit move-detection uses body speed");

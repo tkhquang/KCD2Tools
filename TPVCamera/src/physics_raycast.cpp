@@ -39,10 +39,9 @@ bool initialize_physics_raycast(uintptr_t module_base, size_t module_size, uintp
 {
     DMK::Logger &logger = DMK::Logger::get_instance();
 
-    // resolve_cascade scans every executable region, so confirm the resolved helper lies inside
-    // the game image before it is called through.
-    const uintptr_t ray_fn = resolve_address(Aob::k_rayWorldIntersectionCandidates, "RayWorldIntersection");
-    if (ray_fn == 0 || ray_fn < module_base || ray_fn >= module_base + module_size)
+    // The module-scoped cascade resolves the helper inside the game image or returns 0.
+    const uintptr_t ray_fn = resolve_address(Aob::k_rayWorldIntersectionCandidates, "RayWorldIntersection", module_base, module_size);
+    if (ray_fn == 0)
     {
         logger.warning("PhysicsRaycast: RayWorldIntersection not found (game patched?); collision/aim raycast unavailable");
         return false;

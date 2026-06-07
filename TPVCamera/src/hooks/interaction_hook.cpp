@@ -301,24 +301,22 @@ bool initialize_interaction_hook(uintptr_t module_base, size_t module_size)
 
     try
     {
-        const uintptr_t module_end = module_base + module_size;
-
-        // Resolve the interactor look-ray builder entry -> the caller-range filter bound.
-        // resolve_cascade scans every executable region, so confirm the resolved entry lies inside
-        // the game image: an out-of-module collision would yield a bogus return-address range.
-        const uintptr_t lookray = resolve_address(Aob::k_interactorLookRayCandidates, "InteractorLookRay");
-        if (lookray == 0 || lookray < module_base || lookray >= module_end)
+        // Resolve the interactor look-ray builder entry -> the caller-range filter bound. The
+        // module-scoped cascade keeps the resolved entry inside the game image or returns 0, so a
+        // cross-module collision can no longer yield a bogus return-address range.
+        const uintptr_t lookray = resolve_address(Aob::k_interactorLookRayCandidates, "InteractorLookRay", module_base, module_size);
+        if (lookray == 0)
         {
-            throw std::runtime_error("Interactor look-ray builder cascade did not resolve inside module bounds");
+            throw std::runtime_error("Interactor look-ray builder cascade did not resolve");
         }
         s_lookray_lo = lookray;
         s_lookray_hi = s_lookray_lo + Constants::INTERACTOR_LOOKRAY_SPAN;
 
         // Hook the ray-query builder.
-        const uintptr_t hook_addr = resolve_address(Aob::k_interactionRayBuildCandidates, "InteractionRayBuild");
-        if (hook_addr == 0 || hook_addr < module_base || hook_addr >= module_end)
+        const uintptr_t hook_addr = resolve_address(Aob::k_interactionRayBuildCandidates, "InteractionRayBuild", module_base, module_size);
+        if (hook_addr == 0)
         {
-            throw std::runtime_error("Interaction ray-build address resolved outside module bounds");
+            throw std::runtime_error("Interaction ray-build cascade did not resolve");
         }
 
         auto result = DMK::HookManager::get_instance().create_inline_hook(
@@ -334,8 +332,8 @@ bool initialize_interaction_hook(uintptr_t module_base, size_t module_size)
 
         // Hook the on-screen reticle projection gate -- the gate that drops shrines/beds/doors when the
         // body is not turned. Non-fatal: failure leaves shrine interaction body-driven.
-        const uintptr_t onscreen = resolve_address(Aob::k_interactionOnScreenCandidates, "InteractionOnScreenCheck");
-        if (onscreen != 0 && onscreen >= module_base && onscreen < module_end)
+        const uintptr_t onscreen = resolve_address(Aob::k_interactionOnScreenCandidates, "InteractionOnScreenCheck", module_base, module_size);
+        if (onscreen != 0)
         {
             auto onscreen_result = DMK::HookManager::get_instance().create_inline_hook(
                 "InteractionOnScreenCheck",

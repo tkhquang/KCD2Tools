@@ -29,18 +29,12 @@ bool initialize_game_interface(uintptr_t module_base, size_t module_size)
         logger.info("GameInterface: Initializing with dynamic AOB scanning...");
 
         // The cascade's RipRelative candidates each resolve the same global-context storage slot
-        // (the RIP-relative MOV/load target), so the returned address is the slot directly.
-        const uintptr_t ctx_slot = resolve_address(Aob::k_contextCandidates, "GlobalContextPtr");
+        // (the RIP-relative MOV/load target), so the returned address is the slot directly. The
+        // module-scoped resolver guarantees the slot lies inside the game image or returns 0.
+        const uintptr_t ctx_slot = resolve_address(Aob::k_contextCandidates, "GlobalContextPtr", module_base, module_size);
         if (ctx_slot == 0)
         {
             throw std::runtime_error("Context pointer cascade did not resolve");
-        }
-
-        // The storage slot lives in the game image; reject a resolution that lands outside it.
-        const uintptr_t module_end = module_base + module_size;
-        if (ctx_slot < module_base || ctx_slot >= module_end)
-        {
-            throw std::runtime_error("Context pointer storage resolved outside module bounds");
         }
 
         g_global_context_ptr_address = reinterpret_cast<std::byte *>(ctx_slot);
