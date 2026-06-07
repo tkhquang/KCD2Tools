@@ -7,7 +7,7 @@
  */
 
 #include "ui_menu_hooks.hpp"
-#include "constants.hpp"
+#include "aob_resolver.hpp"
 
 #include <DetourModKit.hpp>
 
@@ -109,43 +109,16 @@ bool initialize_ui_menu_hooks(uintptr_t module_base, size_t module_size)
 
     try
     {
-        auto open_pattern = DMK::Scanner::parse_aob(Constants::UI_MENU_OPEN_AOB_PATTERN);
-        if (!open_pattern.has_value())
-        {
-            throw std::runtime_error("Failed to parse menu open AOB pattern");
-        }
+        // Each cascade resolves the function entry directly (P1 anchors on the entry; the
+        // mid-body P2/P3 fallbacks walk back to it via their negative disp_offset).
+        const uintptr_t menu_open_addr = resolve_address(Aob::k_menuOpenCandidates, "MenuOpen");
+        const uintptr_t menu_close_addr = resolve_address(Aob::k_menuCloseCandidates, "MenuClose");
 
-        auto close_pattern = DMK::Scanner::parse_aob(Constants::UI_MENU_CLOSE_AOB_PATTERN);
-        if (!close_pattern.has_value())
-        {
-            throw std::runtime_error("Failed to parse menu close AOB pattern");
-        }
-
-        const std::byte *menu_open_hook_address = DMK::Scanner::find_pattern(reinterpret_cast<const std::byte *>(module_base), module_size, *open_pattern);
-        if (!menu_open_hook_address)
-        {
-            throw std::runtime_error("Menu open function pattern not found");
-        }
-
-        const std::byte *menu_close_hook_address = DMK::Scanner::find_pattern(reinterpret_cast<const std::byte *>(module_base), module_size, *close_pattern);
-        if (!menu_close_hook_address)
-        {
-            throw std::runtime_error("Menu close function pattern not found");
-        }
-
-        // The AOB matches an instruction inside each function body; step back a
-        // fixed delta to the real entry point that SafetyHook must patch.
-        //   open:  match is +0x36 into the function (entry sub_180C0B618)
-        //   close: match is +0x18E into the function (entry sub_180C0B260)
-        uintptr_t menu_open_addr = reinterpret_cast<uintptr_t>(menu_open_hook_address) - 0x36;
-        uintptr_t menu_close_addr = reinterpret_cast<uintptr_t>(menu_close_hook_address) - 0x18E;
-
-        // The back-step is only valid if the computed entry still lies inside the
-        // module; a future pattern collision elsewhere could otherwise point the
-        // hook at an unrelated address.
+        // A mid-body fallback could in theory walk back onto a future pattern collision, so
+        // confirm each resolved entry still lies inside the module before hooking it.
         const uintptr_t module_end = module_base + module_size;
-        if (menu_open_addr < module_base || menu_open_addr >= module_end ||
-            menu_close_addr < module_base || menu_close_addr >= module_end)
+        if (menu_open_addr == 0 || menu_open_addr < module_base || menu_open_addr >= module_end ||
+            menu_close_addr == 0 || menu_close_addr < module_base || menu_close_addr >= module_end)
         {
             throw std::runtime_error("Menu function entry point resolved outside module bounds");
         }

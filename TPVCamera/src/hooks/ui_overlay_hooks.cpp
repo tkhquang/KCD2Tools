@@ -10,7 +10,7 @@
  */
 
 #include "ui_overlay_hooks.hpp"
-#include "constants.hpp"
+#include "aob_resolver.hpp"
 #include "global_state.hpp"
 
 #include <DetourModKit.hpp>
@@ -61,13 +61,16 @@ bool initialize_ui_overlay_hooks(uintptr_t module_base, size_t module_size)
     try
     {
         DMK::HookManager &hook_manager = DMK::HookManager::get_instance();
+        const uintptr_t module_end = module_base + module_size;
 
-        auto hide_result = hook_manager.create_inline_hook_aob(
+        const uintptr_t hide_addr = resolve_address(Aob::k_overlayHideCandidates, "HideOverlays");
+        if (hide_addr == 0 || hide_addr < module_base || hide_addr >= module_end)
+        {
+            throw std::runtime_error("HideOverlays cascade did not resolve inside module bounds");
+        }
+        auto hide_result = hook_manager.create_inline_hook(
             "HideOverlays",
-            module_base,
-            module_size,
-            Constants::UI_OVERLAY_HIDE_AOB_PATTERN,
-            0,
+            hide_addr,
             reinterpret_cast<void *>(hide_overlays_detour),
             reinterpret_cast<void **>(&s_hide_overlays_original));
 
@@ -77,12 +80,14 @@ bool initialize_ui_overlay_hooks(uintptr_t module_base, size_t module_size)
                                      std::string(DMK::Hook::error_to_string(hide_result.error())));
         }
 
-        auto show_result = hook_manager.create_inline_hook_aob(
+        const uintptr_t show_addr = resolve_address(Aob::k_overlayShowCandidates, "ShowOverlays");
+        if (show_addr == 0 || show_addr < module_base || show_addr >= module_end)
+        {
+            throw std::runtime_error("ShowOverlays cascade did not resolve inside module bounds");
+        }
+        auto show_result = hook_manager.create_inline_hook(
             "ShowOverlays",
-            module_base,
-            module_size,
-            Constants::UI_OVERLAY_SHOW_AOB_PATTERN,
-            0,
+            show_addr,
             reinterpret_cast<void *>(show_overlays_detour),
             reinterpret_cast<void **>(&s_show_overlays_original));
 

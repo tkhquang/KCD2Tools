@@ -4,6 +4,7 @@
  */
 
 #include "physics_raycast.hpp"
+#include "aob_resolver.hpp"
 #include "constants.hpp"
 
 #include <DetourModKit.hpp>
@@ -38,29 +39,23 @@ bool initialize_physics_raycast(uintptr_t module_base, size_t module_size, uintp
 {
     DMK::Logger &logger = DMK::Logger::get_instance();
 
-    const auto pattern = DMK::Scanner::parse_aob(Constants::RAY_WORLD_INTERSECTION_AOB_PATTERN);
-    if (!pattern.has_value())
-    {
-        logger.warning("PhysicsRaycast: failed to parse RayWorldIntersection pattern; collision/aim raycast unavailable");
-        return false;
-    }
-
-    const std::byte *match = DMK::Scanner::find_pattern(
-        reinterpret_cast<const std::byte *>(module_base), module_size, *pattern);
-    if (match == nullptr)
+    // resolve_cascade scans every executable region, so confirm the resolved helper lies inside
+    // the game image before it is called through.
+    const uintptr_t ray_fn = resolve_address(Aob::k_rayWorldIntersectionCandidates, "RayWorldIntersection");
+    if (ray_fn == 0 || ray_fn < module_base || ray_fn >= module_base + module_size)
     {
         logger.warning("PhysicsRaycast: RayWorldIntersection not found (game patched?); collision/aim raycast unavailable");
         return false;
     }
 
-    s_ray_world_intersection = reinterpret_cast<RayWorldIntersectionFn>(reinterpret_cast<uintptr_t>(match));
+    s_ray_world_intersection = reinterpret_cast<RayWorldIntersectionFn>(ray_fn);
     // p_physical_world is a member of the g_env struct (see PHYSICAL_WORLD_OFFSET); deriving its
     // slot from the patch-resiliently resolved g_env base avoids a second hardcoded address.
     s_physical_world_global_addr = g_env + Constants::PHYSICAL_WORLD_OFFSET;
     s_game_module = {module_base, module_base + module_size};
 
     logger.info("PhysicsRaycast: RayWorldIntersection at {}, p_physical_world slot at {}",
-                DMK::Format::format_address(reinterpret_cast<uintptr_t>(match)),
+                DMK::Format::format_address(ray_fn),
                 DMK::Format::format_address(s_physical_world_global_addr));
     return true;
 }

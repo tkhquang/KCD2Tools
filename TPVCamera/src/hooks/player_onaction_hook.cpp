@@ -4,7 +4,7 @@
  */
 
 #include "hooks/player_onaction_hook.hpp"
-#include "constants.hpp"
+#include "aob_resolver.hpp"
 
 #include <DetourModKit.hpp>
 
@@ -173,9 +173,18 @@ bool initialize_player_onaction_hook(uintptr_t module_base, size_t module_size)
     DMK::Logger &logger = DMK::Logger::get_instance();
     try
     {
+        const uintptr_t dispatch_addr = resolve_address(Aob::k_actionDispatchCandidates, "PlayerOnActionDispatch");
+        const uintptr_t module_end = module_base + module_size;
+        if (dispatch_addr == 0 || dispatch_addr < module_base || dispatch_addr >= module_end)
+        {
+            logger.warning(
+                "PlayerOnAction: action dispatcher cascade unresolved; orbit move-detection uses body speed");
+            return false;
+        }
+
         DMK::HookManager &hook_manager = DMK::HookManager::get_instance();
-        auto result = hook_manager.create_inline_hook_aob(
-            "PlayerOnActionDispatch", module_base, module_size, Constants::ACTION_DISPATCH_AOB_PATTERN, 0,
+        auto result = hook_manager.create_inline_hook(
+            "PlayerOnActionDispatch", dispatch_addr,
             reinterpret_cast<void *>(detour_action_dispatch),
             reinterpret_cast<void **>(&s_action_dispatch_original));
 

@@ -32,6 +32,7 @@
  */
 
 #include "interaction_hook.hpp"
+#include "aob_resolver.hpp"
 #include "config.hpp"
 #include "constants.hpp"
 #include "global_state.hpp"
@@ -300,36 +301,22 @@ bool initialize_interaction_hook(uintptr_t module_base, size_t module_size)
 
     try
     {
-        const auto *base = reinterpret_cast<const std::byte *>(module_base);
         const uintptr_t module_end = module_base + module_size;
 
-        // Resolve sub_1808333C8 (interactor look-ray builder) -> the caller-range filter bound.
-        auto lookray_pattern = DMK::Scanner::parse_aob(Constants::INTERACTOR_LOOKRAY_AOB_PATTERN);
-        if (!lookray_pattern.has_value())
+        // Resolve the interactor look-ray builder entry -> the caller-range filter bound.
+        // resolve_cascade scans every executable region, so confirm the resolved entry lies inside
+        // the game image: an out-of-module collision would yield a bogus return-address range.
+        const uintptr_t lookray = resolve_address(Aob::k_interactorLookRayCandidates, "InteractorLookRay");
+        if (lookray == 0 || lookray < module_base || lookray >= module_end)
         {
-            throw std::runtime_error("Failed to parse interactor look-ray AOB pattern");
+            throw std::runtime_error("Interactor look-ray builder cascade did not resolve inside module bounds");
         }
-        const std::byte *lookray = DMK::Scanner::find_pattern(base, module_size, *lookray_pattern);
-        if (!lookray)
-        {
-            throw std::runtime_error("Interactor look-ray builder pattern not found");
-        }
-        s_lookray_lo = reinterpret_cast<uintptr_t>(lookray);
+        s_lookray_lo = lookray;
         s_lookray_hi = s_lookray_lo + Constants::INTERACTOR_LOOKRAY_SPAN;
 
-        // Hook the ray-query builder (sub_180530584).
-        auto build_pattern = DMK::Scanner::parse_aob(Constants::INTERACTION_RAY_BUILD_AOB_PATTERN);
-        if (!build_pattern.has_value())
-        {
-            throw std::runtime_error("Failed to parse interaction ray-build AOB pattern");
-        }
-        const std::byte *build = DMK::Scanner::find_pattern(base, module_size, *build_pattern);
-        if (!build)
-        {
-            throw std::runtime_error("Interaction ray-build pattern not found");
-        }
-        const uintptr_t hook_addr = reinterpret_cast<uintptr_t>(build);
-        if (hook_addr < module_base || hook_addr >= module_end)
+        // Hook the ray-query builder.
+        const uintptr_t hook_addr = resolve_address(Aob::k_interactionRayBuildCandidates, "InteractionRayBuild");
+        if (hook_addr == 0 || hook_addr < module_base || hook_addr >= module_end)
         {
             throw std::runtime_error("Interaction ray-build address resolved outside module bounds");
         }
@@ -345,36 +332,27 @@ bool initialize_interaction_hook(uintptr_t module_base, size_t module_size)
                                      std::string(DMK::Hook::error_to_string(result.error())));
         }
 
-        // Hook the on-screen reticle projection gate (sub_18093C170) -- the gate that drops shrines/
-        // beds/doors when the body is not turned. Non-fatal: failure leaves shrine interaction body-driven.
-        auto onscreen_pattern = DMK::Scanner::parse_aob(Constants::INTERACTION_ONSCREEN_CHECK_AOB_PATTERN);
-        if (onscreen_pattern.has_value())
+        // Hook the on-screen reticle projection gate -- the gate that drops shrines/beds/doors when the
+        // body is not turned. Non-fatal: failure leaves shrine interaction body-driven.
+        const uintptr_t onscreen = resolve_address(Aob::k_interactionOnScreenCandidates, "InteractionOnScreenCheck");
+        if (onscreen != 0 && onscreen >= module_base && onscreen < module_end)
         {
-            const std::byte *onscreen = DMK::Scanner::find_pattern(base, module_size, *onscreen_pattern);
-            if (onscreen != nullptr)
+            auto onscreen_result = DMK::HookManager::get_instance().create_inline_hook(
+                "InteractionOnScreenCheck",
+                onscreen,
+                reinterpret_cast<void *>(on_screen_check_detour),
+                reinterpret_cast<void **>(&s_onscreen_original));
+            if (!onscreen_result.has_value())
             {
-                auto onscreen_result = DMK::HookManager::get_instance().create_inline_hook(
-                    "InteractionOnScreenCheck",
-                    reinterpret_cast<uintptr_t>(onscreen),
-                    reinterpret_cast<void *>(on_screen_check_detour),
-                    reinterpret_cast<void **>(&s_onscreen_original));
-                if (!onscreen_result.has_value())
-                {
-                    logger.warning("InteractionHook[init]: on-screen reticle hook failed ({}); shrine "
-                                   "interaction stays body-driven (look-ray/loot unaffected).",
-                                   std::string(DMK::Hook::error_to_string(onscreen_result.error())));
-                }
-            }
-            else
-            {
-                logger.warning("InteractionHook[init]: on-screen reticle pattern not found; shrine "
-                               "interaction stays body-driven (look-ray/loot unaffected).");
+                logger.warning("InteractionHook[init]: on-screen reticle hook failed ({}); shrine "
+                               "interaction stays body-driven (look-ray/loot unaffected).",
+                               std::string(DMK::Hook::error_to_string(onscreen_result.error())));
             }
         }
         else
         {
-            logger.warning("InteractionHook[init]: failed to parse on-screen reticle AOB; shrine gate "
-                           "disabled.");
+            logger.warning("InteractionHook[init]: on-screen reticle cascade unresolved; shrine "
+                           "interaction stays body-driven (look-ray/loot unaffected).");
         }
 
         return true;

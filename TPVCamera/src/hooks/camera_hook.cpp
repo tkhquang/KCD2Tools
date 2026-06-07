@@ -24,6 +24,7 @@
  */
 
 #include "camera_hook.hpp"
+#include "aob_resolver.hpp"
 #include "constants.hpp"
 #include "config.hpp"
 #include "global_state.hpp"
@@ -1908,35 +1909,24 @@ static void __fastcall detour_input_dispatch(uintptr_t controller, uintptr_t inp
 
 /**
  * @brief Resolves the SSystemGlobalEnvironment (g_env) base, patch-resiliently.
- * @details Anchors on a unique `lea rdx, [g_env]` instruction (GENV_LOAD_AOB_PATTERN) and
- *          resolves its RIP-relative target, so the address survives game patches that shift
- *          the RVA. Falls back to the known static RVA if the AOB ever drifts, so the camera
- *          still functions on the build it was authored against. The result is screened as a
- *          plausible user-space pointer before it is accepted.
- * @return The g_env base address (AOB result, or the static fallback).
+ * @details Resolves the g_env base from the k_genvCandidates cascade (each candidate is a
+ *          RIP-relative lea/mov [rip+g_env] reference site), so the address survives game
+ *          patches that shift the RVA. Falls back to the known static RVA if every candidate
+ *          drifts, so the camera still functions on the build it was authored against. The
+ *          result is screened as a plausible user-space pointer before it is accepted.
+ * @return The g_env base address (cascade result, or the static fallback).
  */
-static uintptr_t resolve_genv(uintptr_t module_base, size_t module_size)
+static uintptr_t resolve_genv(uintptr_t module_base)
 {
     DMK::Logger &logger = DMK::Logger::get_instance();
 
-    auto pattern = DMK::Scanner::parse_aob(Constants::GENV_LOAD_AOB_PATTERN);
-    if (pattern.has_value())
+    // The cascade's RipRelative candidates each resolve the g_env base from a different
+    // lea/mov [rip+g_env] reference site; the result is screened as a plausible pointer.
+    const uintptr_t resolved = resolve_address(Aob::k_genvCandidates, "Genv");
+    if (resolved != 0 && DMK::Memory::plausible_userspace_ptr(resolved))
     {
-        const std::byte *match = DMK::Scanner::find_pattern(
-            reinterpret_cast<const std::byte *>(module_base), module_size, *pattern);
-        if (match)
-        {
-            // The lea is GENV_LOAD_AOB_LEA_OFFSET bytes into the match; resolve its disp32.
-            const auto resolved = DMK::Scanner::resolve_rip_relative(
-                match + Constants::GENV_LOAD_AOB_LEA_OFFSET,
-                Constants::GENV_LOAD_LEA_DISP_OFFSET,
-                Constants::GENV_LOAD_LEA_LENGTH);
-            if (resolved.has_value() && DMK::Memory::plausible_userspace_ptr(*resolved))
-            {
-                logger.info("Camera: g_env resolved via AOB at {}", DMK::Format::format_address(*resolved));
-                return *resolved;
-            }
-        }
+        logger.info("Camera: g_env resolved via AOB at {}", DMK::Format::format_address(resolved));
+        return resolved;
     }
 
     const uintptr_t fallback = module_base + (Constants::GENV_STATIC - Constants::IMAGE_BASE);
@@ -1958,7 +1948,7 @@ bool initialize_camera(uintptr_t module_base, size_t module_size)
 
     // Resolve g_env once (patch-resilient AOB, static RVA fallback). The CView vtable is
     // identified lazily by RTTI on the first game-view camera, so nothing is resolved here.
-    s_genv_runtime = resolve_genv(module_base, module_size);
+    s_genv_runtime = resolve_genv(module_base);
 
     // Resolve the engine ray helper for collision + aim convergence. Best-effort: on a miss
     // those features no-op (the camera still renders), so the result is intentionally discarded.
@@ -1968,14 +1958,21 @@ bool initialize_camera(uintptr_t module_base, size_t module_size)
     {
         DMK::HookManager &hook_manager = DMK::HookManager::get_instance();
 
+        // resolve_cascade scans every executable region, not just this module, so each resolved
+        // entry is screened against the game image bounds before it is hooked (a mid-body
+        // walk-back candidate could otherwise land an entry on a future cross-module collision).
+        const uintptr_t module_end = module_base + module_size;
+
         // Hook the camera frustum builder -- the matrix-offset point; without it the feature
-        // does nothing. Located by AOB at the function prologue (offset 0 into the match).
-        auto frustum_result = hook_manager.create_inline_hook_aob(
+        // does nothing. Resolved by the frustum cascade to the function entry.
+        const uintptr_t frustum_addr = resolve_address(Aob::k_frustumCandidates, "CameraFrustumBuild");
+        if (frustum_addr == 0 || frustum_addr < module_base || frustum_addr >= module_end)
+        {
+            throw std::runtime_error("Failed to resolve frustum builder cascade inside module bounds");
+        }
+        auto frustum_result = hook_manager.create_inline_hook(
             "CameraFrustumBuild",
-            module_base,
-            module_size,
-            Constants::FRUSTUM_BUILD_AOB_PATTERN,
-            0,
+            frustum_addr,
             reinterpret_cast<void *>(detour_frustum_build),
             reinterpret_cast<void **>(&s_frustum_build_original));
 
@@ -1987,37 +1984,47 @@ bool initialize_camera(uintptr_t module_base, size_t module_size)
 
         // The head-visibility hook is best-effort: if it fails the camera still works,
         // the player just appears headless from behind, so a miss is a warning.
-        auto head_result = hook_manager.create_inline_hook_aob(
-            "SetHeadVisibility",
-            module_base,
-            module_size,
-            Constants::SET_HEAD_VISIBILITY_AOB_PATTERN,
-            0,
-            reinterpret_cast<void *>(detour_set_head_visibility),
-            reinterpret_cast<void **>(&s_set_head_visibility_original));
-
-        if (!head_result.has_value())
+        const uintptr_t head_addr = resolve_address(Aob::k_headVisibilityCandidates, "SetHeadVisibility");
+        if (head_addr == 0 || head_addr < module_base || head_addr >= module_end)
         {
-            logger.warning("Camera: Head visibility hook failed ({}); player may appear headless from behind",
-                           DMK::Hook::error_to_string(head_result.error()));
+            logger.warning("Camera: Head visibility cascade unresolved; player may appear headless from behind");
+        }
+        else
+        {
+            auto head_result = hook_manager.create_inline_hook(
+                "SetHeadVisibility",
+                head_addr,
+                reinterpret_cast<void *>(detour_set_head_visibility),
+                reinterpret_cast<void **>(&s_set_head_visibility_original));
+
+            if (!head_result.has_value())
+            {
+                logger.warning("Camera: Head visibility hook failed ({}); player may appear headless from behind",
+                               DMK::Hook::error_to_string(head_result.error()));
+            }
         }
 
         // The input-dispatcher hook powers free-look orbit. Best-effort: a miss only
         // disables orbit, the offset camera still works. The detour is inert until the
         // orbit key is held, so it is harmless when free-look is unused.
-        auto input_result = hook_manager.create_inline_hook_aob(
-            "CameraInputDispatch",
-            module_base,
-            module_size,
-            Constants::INPUT_DISPATCHER_AOB_PATTERN,
-            0,
-            reinterpret_cast<void *>(detour_input_dispatch),
-            reinterpret_cast<void **>(&s_input_dispatch_original));
-
-        if (!input_result.has_value())
+        const uintptr_t input_addr = resolve_address(Aob::k_inputDispatchCandidates, "CameraInputDispatch");
+        if (input_addr == 0 || input_addr < module_base || input_addr >= module_end)
         {
-            logger.warning("Camera: Input dispatcher hook failed ({}); free-look orbit unavailable",
-                           DMK::Hook::error_to_string(input_result.error()));
+            logger.warning("Camera: Input dispatcher cascade unresolved; free-look orbit unavailable");
+        }
+        else
+        {
+            auto input_result = hook_manager.create_inline_hook(
+                "CameraInputDispatch",
+                input_addr,
+                reinterpret_cast<void *>(detour_input_dispatch),
+                reinterpret_cast<void **>(&s_input_dispatch_original));
+
+            if (!input_result.has_value())
+            {
+                logger.warning("Camera: Input dispatcher hook failed ({}); free-look orbit unavailable",
+                               DMK::Hook::error_to_string(input_result.error()));
+            }
         }
 
         logger.info("Camera: Third-person camera hooks installed");
