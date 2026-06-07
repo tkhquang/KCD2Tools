@@ -5,19 +5,29 @@
  * Every memory location the mod hooks or reads is located by a cascade of
  * ordered AOB candidates rather than a single signature, so a game patch that
  * shifts code only has to leave ONE of three anchors intact for the feature to
- * keep working. Resolution is delegated to DetourModKit's cascading scanner
- * (DMK::Scanner::resolve_cascade); resolve_address() flattens its
- * std::expected return into the uintptr_t-or-zero shape the call sites use.
+ * keep working. Resolution is delegated to DetourModKit's module-scoped cascade
+ * scanner (DMK::Scanner::resolve_cascade_in_module, DMK 3.5.0+): the search is
+ * confined to the WHGame.dll image the caller passes as module_base/module_size,
+ * NOT the whole process. This is deliberate. WHGame.dll is a normal unpacked PE
+ * with every target inside it, so a whole-process scan (resolve_cascade /
+ * scan_executable_regions) buys nothing and is actively unsafe -- a generic
+ * prologue/epilogue candidate can false-match inside another injected module (a
+ * graphics overlay, a sibling mod) and, because the cascade is first-match-wins,
+ * shadow the correct in-module match, disabling the feature or hooking an
+ * unrelated site. resolve_address() flattens the std::expected return into the
+ * uintptr_t-or-zero shape the call sites use.
  *
  * Candidate ordering is most-specific first (P1), so a tight anchor wins before
  * a looser fallback. Each cascade carries at least one candidate anchored PAST
  * the 5-byte function prologue (a negative disp_offset that walks back to the
  * entry); that mid-body anchor still matches when a sibling mod has inline-hooked
- * the entry, because it never reads the overwritten bytes. For that reason, and
- * because these targets may be reshaped by a future game patch (not merely
- * inline-hooked), the resolver uses the STRICT resolve_cascade and NOT the
- * prologue-rewrite fallback: a full miss is a clean failure, never a guess at an
- * unrelated near-JMP site (see external DMK docs/misc/aob-signatures.md section 6.4).
+ * the entry, because the overwritten prologue makes the earlier candidates miss
+ * and the scan falls through to it. Every candidate keeps the DMK default
+ * require_unique=true: a pattern matching more than once inside the image is
+ * skipped as ambiguous (every candidate below is verified to match exactly once
+ * over the full WHGame.dll image), so a freak collision falls through to the next
+ * candidate rather than resolving blindly. A full cascade miss is a clean failure
+ * (0), never a guess at an unrelated near-JMP site.
  *
  * Resolution shapes (DMK::Scanner::ResolveMode):
  *   - Direct      address = match + disp_offset. Entry-hook targets resolve to the
@@ -50,20 +60,21 @@ namespace TPVCamera
     {
         /**
          * @brief Resolve the first matching candidate of a cascade to an absolute
-         *        address, or 0 on total failure.
-         * @details The cascade already logs the winning candidate on success; on
-         *          failure this emits a single Warning so call sites can stay
-         *          focused on conditional feature wiring. Uses the strict
-         *          resolve_cascade (no prologue-rewrite fallback) so a full miss
-         *          is reported as a hard failure rather than a guess at an
-         *          unrelated near-JMP. Resolution still works through a
-         *          sibling-hooked prologue via the mid-body candidates each
-         *          cascade carries.
+         *        address inside the game module, or 0 on total failure.
+         * @details Delegates to DMK::Scanner::resolve_cascade_in_module, which
+         *          scans only [module_base, module_base + module_size) and rejects
+         *          any candidate that resolves outside it, so a bad candidate falls
+         *          through to the next rather than being returned. The cascade logs
+         *          the winning candidate on success; on failure this emits a single
+         *          Warning so call sites can stay focused on conditional feature
+         *          wiring.
          */
         [[nodiscard]] inline std::uintptr_t resolve_cascade_or_zero(
-            std::span<const AddrCandidate> candidates, std::string_view label)
+            std::span<const AddrCandidate> candidates, std::string_view label,
+            std::uintptr_t module_base, std::size_t module_size)
         {
-            const auto hit = DMK::Scanner::resolve_cascade(candidates, label);
+            const DMK::Memory::ModuleRange range{module_base, module_base + module_size};
+            const auto hit = DMK::Scanner::resolve_cascade_in_module(candidates, label, range);
             if (hit.has_value())
             {
                 return hit->address;
@@ -77,14 +88,16 @@ namespace TPVCamera
     } // namespace detail
 
     /**
-     * @brief Resolve a candidate cascade to an absolute address, or 0 on failure.
+     * @brief Resolve a candidate cascade to an absolute address inside the game
+     *        module (module_base/module_size), or 0 on failure.
      */
     template <std::size_t N>
     [[nodiscard]] inline std::uintptr_t resolve_address(
-        const AddrCandidate (&candidates)[N], std::string_view label)
+        const AddrCandidate (&candidates)[N], std::string_view label,
+        std::uintptr_t module_base, std::size_t module_size)
     {
         return detail::resolve_cascade_or_zero(
-            std::span<const AddrCandidate>{candidates, N}, label);
+            std::span<const AddrCandidate>{candidates, N}, label, module_base, module_size);
     }
 
     namespace Aob

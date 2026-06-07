@@ -1,5 +1,3 @@
-## [Title for next release]
+## Fixes and Improvements
 
-- New feature
-- Bug fix
-- Improvement
+- Fixed a startup issue that could stop the third-person camera from loading when other mods or graphics overlays were running

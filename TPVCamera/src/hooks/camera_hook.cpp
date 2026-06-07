@@ -1916,13 +1916,13 @@ static void __fastcall detour_input_dispatch(uintptr_t controller, uintptr_t inp
  *          result is screened as a plausible user-space pointer before it is accepted.
  * @return The g_env base address (cascade result, or the static fallback).
  */
-static uintptr_t resolve_genv(uintptr_t module_base)
+static uintptr_t resolve_genv(uintptr_t module_base, size_t module_size)
 {
     DMK::Logger &logger = DMK::Logger::get_instance();
 
     // The cascade's RipRelative candidates each resolve the g_env base from a different
     // lea/mov [rip+g_env] reference site; the result is screened as a plausible pointer.
-    const uintptr_t resolved = resolve_address(Aob::k_genvCandidates, "Genv");
+    const uintptr_t resolved = resolve_address(Aob::k_genvCandidates, "Genv", module_base, module_size);
     if (resolved != 0 && DMK::Memory::plausible_userspace_ptr(resolved))
     {
         logger.info("Camera: g_env resolved via AOB at {}", DMK::Format::format_address(resolved));
@@ -1948,7 +1948,7 @@ bool initialize_camera(uintptr_t module_base, size_t module_size)
 
     // Resolve g_env once (patch-resilient AOB, static RVA fallback). The CView vtable is
     // identified lazily by RTTI on the first game-view camera, so nothing is resolved here.
-    s_genv_runtime = resolve_genv(module_base);
+    s_genv_runtime = resolve_genv(module_base, module_size);
 
     // Resolve the engine ray helper for collision + aim convergence. Best-effort: on a miss
     // those features no-op (the camera still renders), so the result is intentionally discarded.
@@ -1958,17 +1958,13 @@ bool initialize_camera(uintptr_t module_base, size_t module_size)
     {
         DMK::HookManager &hook_manager = DMK::HookManager::get_instance();
 
-        // resolve_cascade scans every executable region, not just this module, so each resolved
-        // entry is screened against the game image bounds before it is hooked (a mid-body
-        // walk-back candidate could otherwise land an entry on a future cross-module collision).
-        const uintptr_t module_end = module_base + module_size;
-
         // Hook the camera frustum builder -- the matrix-offset point; without it the feature
-        // does nothing. Resolved by the frustum cascade to the function entry.
-        const uintptr_t frustum_addr = resolve_address(Aob::k_frustumCandidates, "CameraFrustumBuild");
-        if (frustum_addr == 0 || frustum_addr < module_base || frustum_addr >= module_end)
+        // does nothing. The module-scoped cascade resolves to the function entry inside the game
+        // image or returns 0, so no separate bounds check is needed here.
+        const uintptr_t frustum_addr = resolve_address(Aob::k_frustumCandidates, "CameraFrustumBuild", module_base, module_size);
+        if (frustum_addr == 0)
         {
-            throw std::runtime_error("Failed to resolve frustum builder cascade inside module bounds");
+            throw std::runtime_error("Failed to resolve frustum builder cascade");
         }
         auto frustum_result = hook_manager.create_inline_hook(
             "CameraFrustumBuild",
@@ -1984,8 +1980,8 @@ bool initialize_camera(uintptr_t module_base, size_t module_size)
 
         // The head-visibility hook is best-effort: if it fails the camera still works,
         // the player just appears headless from behind, so a miss is a warning.
-        const uintptr_t head_addr = resolve_address(Aob::k_headVisibilityCandidates, "SetHeadVisibility");
-        if (head_addr == 0 || head_addr < module_base || head_addr >= module_end)
+        const uintptr_t head_addr = resolve_address(Aob::k_headVisibilityCandidates, "SetHeadVisibility", module_base, module_size);
+        if (head_addr == 0)
         {
             logger.warning("Camera: Head visibility cascade unresolved; player may appear headless from behind");
         }
@@ -2007,8 +2003,8 @@ bool initialize_camera(uintptr_t module_base, size_t module_size)
         // The input-dispatcher hook powers free-look orbit. Best-effort: a miss only
         // disables orbit, the offset camera still works. The detour is inert until the
         // orbit key is held, so it is harmless when free-look is unused.
-        const uintptr_t input_addr = resolve_address(Aob::k_inputDispatchCandidates, "CameraInputDispatch");
-        if (input_addr == 0 || input_addr < module_base || input_addr >= module_end)
+        const uintptr_t input_addr = resolve_address(Aob::k_inputDispatchCandidates, "CameraInputDispatch", module_base, module_size);
+        if (input_addr == 0)
         {
             logger.warning("Camera: Input dispatcher cascade unresolved; free-look orbit unavailable");
         }

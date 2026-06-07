@@ -110,17 +110,13 @@ bool initialize_ui_menu_hooks(uintptr_t module_base, size_t module_size)
     try
     {
         // Each cascade resolves the function entry directly (P1 anchors on the entry; the
-        // mid-body P2/P3 fallbacks walk back to it via their negative disp_offset).
-        const uintptr_t menu_open_addr = resolve_address(Aob::k_menuOpenCandidates, "MenuOpen");
-        const uintptr_t menu_close_addr = resolve_address(Aob::k_menuCloseCandidates, "MenuClose");
-
-        // A mid-body fallback could in theory walk back onto a future pattern collision, so
-        // confirm each resolved entry still lies inside the module before hooking it.
-        const uintptr_t module_end = module_base + module_size;
-        if (menu_open_addr == 0 || menu_open_addr < module_base || menu_open_addr >= module_end ||
-            menu_close_addr == 0 || menu_close_addr < module_base || menu_close_addr >= module_end)
+        // mid-body P2/P3 fallbacks walk back to it via their negative disp_offset). The
+        // module-scoped resolver keeps each entry inside the game image or returns 0.
+        const uintptr_t menu_open_addr = resolve_address(Aob::k_menuOpenCandidates, "MenuOpen", module_base, module_size);
+        const uintptr_t menu_close_addr = resolve_address(Aob::k_menuCloseCandidates, "MenuClose", module_base, module_size);
+        if (menu_open_addr == 0 || menu_close_addr == 0)
         {
-            throw std::runtime_error("Menu function entry point resolved outside module bounds");
+            throw std::runtime_error("Menu function entry cascade did not resolve");
         }
 
         DMK::HookManager &hook_manager = DMK::HookManager::get_instance();
