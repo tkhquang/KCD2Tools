@@ -2,6 +2,12 @@
 
 All notable changes to the TPVCamera mod will be documented in this file.
 
+## [1.0.2] - Fixes and Improvements
+
+- Free-look orbit no longer turns off during the hole-digging minigame
+- The third-person camera no longer slips through fabric tent, awning, and stall roofs
+- Made the mod more likely to keep working after a game update
+
 ## [1.0.1] - Free-Look Orbit Fixes
 
 - Fixed the free-look orbit camera sometimes spinning on its own and not stopping until you opened a menu
@@ -22,5 +28,6 @@ All notable changes to the TPVCamera mod will be documented in this file.
 - Third person stays out of every minigame (lockpicking, reading, alchemy, pickpocketing, and more), and you can give any minigame its own framing
 - Configurable hotkeys, with most changes applying while you play
 
+[1.0.2]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.0.2
 [1.0.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.0.1
 [1.0.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.0.0
