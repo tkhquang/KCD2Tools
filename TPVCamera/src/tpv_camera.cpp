@@ -51,6 +51,35 @@ static std::vector<DMK::Config::InputBindingGuard> s_binding_guards;
 }
 
 /**
+ * @brief Engages free-look orbit, seeding the orbit angles to the configured centre.
+ * @details Seeds yaw/pitch to 0,0 (directly behind the player -- the camera's resting offset) so a
+ *          fresh engage always starts from the centred pose, then flips orbit_active on. Shared by
+ *          the orbit toggle, the momentary hold binding, and the start-of-session auto-enable so
+ *          "engage" means exactly the same thing at every entry point.
+ */
+static void orbit_engage()
+{
+    CameraState &cam = camera_state();
+    cam.orbit_yaw.store(0.0f);
+    cam.orbit_pitch.store(0.0f);
+    cam.orbit_active.store(true);
+}
+
+/**
+ * @brief Disengages free-look orbit and drops any stranded movement-input latch.
+ * @details Turning orbit off clears no run-state on its own, so a latch left > 0 (a held-move
+ *          release swallowed on a combat action-map swap) would re-trip the body-turn the next time
+ *          orbit engages; player_onaction_reset() drops it here. Shared by the orbit toggle and the
+ *          hold-release path.
+ */
+static void orbit_disengage()
+{
+    camera_state().orbit_active.store(false);
+    const float stranded = player_onaction_reset();
+    DMK::Logger::get_instance().trace("Orbit: disengaged; cleared move-latch (had magnitude {:.2f})", stranded);
+}
+
+/**
  * @brief Resolves the game module base and size into TPVCamera::module_info().
  * @details Polls for the module for up to ~3 seconds because an ASI can attach
  *          fractionally before WHGame.dll finishes mapping.
@@ -189,36 +218,23 @@ static void register_press_bindings()
                   DMK::Logger::get_instance().info("Third-person camera ENABLED (force TPV)");
               }, "");
 
-    // Free-look orbit: press to TOGGLE. While on, the mouse orbits the camera around the
-    // character (the look stays put), you can still move and act, and starting to move turns
-    // the character to face the camera direction. Seed the orbit angles on enable from the
-    // configured initial yaw/pitch (the camera's start/centre offset; 0,0 = directly behind).
+    // Free-look orbit: press to TOGGLE on/off. While on, the mouse orbits the camera around the
+    // character (the look stays put), you can still move and act, and starting to move turns the
+    // character to face the camera direction. The momentary OrbitHoldKey below is the alternative
+    // freelook style (hold to engage, release to return). OrbitExcludeState only auto-disables
+    // free-look when you ENTER those states (e.g. mounting); it does not forbid manually turning it
+    // back on there (Combat and Mount are excluded because free-look currently fights the game's own
+    // camera control in those states).
     // Default: F4, or hold LB + click the left stick (LS) on a controller.
     add_press("Orbit", "OrbitToggleKey", "Orbit Toggle Key", "orbit_toggle",
               [] {
                   if (is_ui_blocking_input())
                       return;
-                  CameraState &cam = camera_state();
-                  const bool new_state = !cam.orbit_active.load();
+                  const bool new_state = !camera_state().orbit_active.load();
                   if (new_state)
-                  {
-                      // Engaging: seed the orbit angles to the configured centre. OrbitExcludeState only
-                      // auto-disables free-look when you ENTER those states (e.g. mounting); it does not
-                      // forbid manually turning it back on there. (Combat and Mount are excluded because
-                      // free-look currently fights the game's own camera control in those states.)
-                      cam.orbit_yaw.store(0.0f);
-                      cam.orbit_pitch.store(0.0f);
-                  }
-                  cam.orbit_active.store(new_state);
-                  if (!new_state)
-                  {
-                      // Disabling free-look clears no run-state on its own, so drop any stranded
-                      // movement-input latch here: otherwise a latch left > 0 (a release swallowed on a
-                      // combat action-map swap) re-trips the body-turn the next time orbit is enabled.
-                      const float stranded = player_onaction_reset();
-                      DMK::Logger::get_instance().trace("Orbit: toggled off; cleared move-latch (had magnitude {:.2f})",
-                                                        stranded);
-                  }
+                      orbit_engage();
+                  else
+                      orbit_disengage();
                   DMK::Logger::get_instance().info("Orbit camera {}", new_state ? "ENABLED" : "DISABLED");
               }, "F4,Gamepad_LB+Gamepad_LS");
 
@@ -229,17 +245,46 @@ static void register_press_bindings()
 }
 
 /**
- * @brief Registers the zoom hold bindings after the INI key lists have been loaded.
- * @details DMK has no hold-combo helper, so the INI keys are parsed by
- *          register_config_items and the InputManager hold bindings are created here
- *          from the resulting lists. The callbacks are empty; the frustum-builder detour
- *          queries the hold state by name each frame to drive the follow distance.
+ * @brief Registers the hold bindings after the INI key lists have been loaded.
+ * @details DMK has no hold-combo helper, so the INI keys are parsed by register_config_items and
+ *          the InputManager hold bindings are created here from the resulting lists. The zoom
+ *          callbacks are empty -- the frustum-builder detour queries their hold state by name each
+ *          frame to drive the follow distance. The orbit-hold callback instead engages/releases
+ *          free-look directly on its key edges (momentary freelook), so nothing polls it per frame.
  */
 static void register_hold_bindings()
 {
     DMK::InputManager &input_mgr = DMK::InputManager::get_instance();
     input_mgr.register_hold(k_zoom_in_binding, g_config.zoom_in_keys, [](bool) {});
     input_mgr.register_hold(k_zoom_out_binding, g_config.zoom_out_keys, [](bool) {});
+
+    // Momentary free-look (freelook, as in ArmA / DayZ / PUBG): hold OrbitHoldKey to engage the
+    // orbit and release to return to the precise camera-aim view. register_hold fires the callback
+    // with true on the press edge and false on release (and false at shutdown for an active hold),
+    // so the press engages and the release disengages. s_engaged_by_hold records whether THIS hold
+    // turned orbit on, so the release only undoes what the hold engaged: if orbit was already
+    // toggled on via OrbitToggleKey, the press is a no-op and the release leaves it on. The engage
+    // is gated on the UI like the toggle; the release is always honoured (even under UI) so a
+    // momentary orbit can never get stuck on. The callback runs only on the input poll thread (and,
+    // for the shutdown release, after that thread has joined), so the static needs no lock.
+    input_mgr.register_hold(k_orbit_hold_binding, g_config.orbit_hold_keys,
+                            [](bool pressed) {
+                                static bool s_engaged_by_hold = false;
+                                if (pressed)
+                                {
+                                    if (is_ui_blocking_input() || camera_state().orbit_active.load())
+                                        return;
+                                    orbit_engage();
+                                    s_engaged_by_hold = true;
+                                    DMK::Logger::get_instance().info("Orbit camera ENABLED (hold)");
+                                }
+                                else if (s_engaged_by_hold)
+                                {
+                                    orbit_disengage();
+                                    s_engaged_by_hold = false;
+                                    DMK::Logger::get_instance().info("Orbit camera DISABLED (hold released)");
+                                }
+                            });
 }
 
 /**
@@ -321,9 +366,7 @@ bool init()
         }
         if (startup.auto_enable_orbit.load(std::memory_order_relaxed))
         {
-            cam.orbit_yaw.store(0.0f, std::memory_order_relaxed);
-            cam.orbit_pitch.store(0.0f, std::memory_order_relaxed);
-            cam.orbit_active.store(true, std::memory_order_relaxed);
+            orbit_engage();
             logger.info("AutoEnableOrbit: free-look orbit enabled on start");
         }
     }

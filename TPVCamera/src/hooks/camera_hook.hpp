@@ -20,11 +20,13 @@
 namespace TPVCamera
 {
 
-// InputManager binding names for the zoom hold keys. They are registered in
-// tpv_camera.cpp and queried per frame in the frustum-builder detour, so both
-// sites must agree on the exact spelling.
+// InputManager binding names shared across the registration site (tpv_camera.cpp) and the INI
+// hot-reload re-bind (config.cpp), so every site agrees on the exact spelling. The zoom holds are
+// queried per frame in the frustum-builder detour to drive the follow distance; the orbit hold is
+// edge-driven (its callback engages/releases free-look directly on the key edges), not polled.
 inline constexpr const char *k_zoom_in_binding = "camera_zoom_in";
 inline constexpr const char *k_zoom_out_binding = "camera_zoom_out";
+inline constexpr const char *k_orbit_hold_binding = "orbit_hold";
 
 /**
  * @brief Installs the third-person camera hooks.

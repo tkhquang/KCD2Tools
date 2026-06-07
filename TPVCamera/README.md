@@ -54,9 +54,14 @@ All keys are rebindable in `KCD2_TPVCamera.ini`. Defaults:
 | Force first-person         | (unbound)           | (unbound)              |
 | Force third-person         | (unbound)           | (unbound)              |
 | Toggle free-look orbit     | `F4`                | hold `LB` + click `LS` |
+| Hold for free-look orbit   | (unbound)           | (unbound)              |
 | Open preset manager        | `Home`              | (unbound)              |
 | Zoom in                    | `LShift + PageUp`   | hold `LB` + D-pad up   |
 | Zoom out                   | `LShift + PageDown` | hold `LB` + D-pad down |
+
+Free-look orbit has two styles: `OrbitToggleKey` (default `F4`) latches it on and off, while
+`OrbitHoldKey` (unbound by default) is a momentary "freelook" you hold to look around and release
+to snap straight back to the aim camera. Bind `OrbitHoldKey` in the INI to use it.
 
 ## How It Works
 
@@ -75,7 +80,7 @@ Edit `KCD2_TPVCamera.ini`. It is grouped into:
 
 - `[Settings]` - log level, the view hotkeys (`ToggleViewKey`, `ForceFPVKey`, `ForceTPVKey`), the preset-overlay key (`ToggleOverlayKey`), and the start-of-session auto-enable flags
 - `[Camera]` - zoom keys, the camera-space interaction toggle, and the view-transition ease (the framing itself is per-preset; see `[Presets]`)
-- `[Orbit]` - the free-look orbit key and the cursor freeze (the orbit feel is per-preset)
+- `[Orbit]` - the free-look orbit keys (press-to-toggle and momentary hold) and the cursor freeze (the orbit feel is per-preset)
 - `[Collision]` - the sphere-vs-ray collision probe and its radius (enable, skin, and return speed are per-preset)
 - `[StateBehavior]` - switch first/third person on entering a situation (combat, aiming, dialogue, minigame, mount, menu, overlay), restore the prior view on exit (manual toggles during it stick), and suspend/restore free-look in chosen situations
 - `[Presets]` - the preset blend speed; the camera framing lives in the in-game preset manager (open with `ToggleOverlayKey`) and is stored in `KCD2_TPVCamera_presets.json` next to the INI. That file is created automatically from the built-in defaults on first run; it is not shipped, so updating the mod never overwrites presets you have tuned
