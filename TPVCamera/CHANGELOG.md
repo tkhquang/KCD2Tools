@@ -2,6 +2,11 @@
 
 All notable changes to the TPVCamera mod will be documented in this file.
 
+## [1.1.0] - Fixes and Improvements
+
+- Added an optional hold-to-look key for the free-look orbit: hold it to swing the camera around, release to snap back to the aiming view
+- Fixed a startup issue that could stop the third-person camera from loading when other mods or graphics overlays were running
+
 ## [1.0.2] - Fixes and Improvements
 
 - Free-look orbit no longer turns off during the hole-digging minigame
@@ -28,6 +33,7 @@ All notable changes to the TPVCamera mod will be documented in this file.
 - Third person stays out of every minigame (lockpicking, reading, alchemy, pickpocketing, and more), and you can give any minigame its own framing
 - Configurable hotkeys, with most changes applying while you play
 
+[1.1.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.1.0
 [1.0.2]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.0.2
 [1.0.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.0.1
 [1.0.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.0.0

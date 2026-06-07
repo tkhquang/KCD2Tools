@@ -1,5 +1,5 @@
 KINGDOM COME: DELIVERANCE II - THIRD PERSON CAMERA
-Version 1.0.2
+Version 1.1.0
 
 INSTALLATION:
 1. Extract all files to: <KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/
