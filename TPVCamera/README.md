@@ -29,8 +29,10 @@ start in first-person instead.
 1. If you previously installed the older **KCD2_TPVToggle** mod, remove it first: delete
    `KCD2_TPVToggle.asi` and `KCD2_TPVToggle.ini` from the game's binary folder. TPVCamera replaces it,
    and running both third-person camera mods at once will conflict.
-2. Extract all files into your game's binary folder:
-   `<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/`
+2. Extract all files into your game's binary folder (the `Bin/Win64MasterMaster...` subfolder that contains
+   `WHGame.dll`). On Steam this is
+   `<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/`; the GOG version uses its own
+   `Bin/Win64MasterMaster...` folder.
 3. Launch the game; third-person turns on automatically once you reach gameplay.
 4. Press `F3` (default), or hold `LB + RB` on a controller, to toggle back to first-person.
 
@@ -236,7 +238,7 @@ cmake --build --preset msvc-dev
   and the mod lifecycle
 
 Game addresses are located patch-resiliently. Every hooked function and read global is found
-through a multi-candidate AOB cascade (`src/aob_resolver.hpp`): each target carries three ordered
+through a multi-candidate AOB cascade (`src/aob_resolver.hpp`): each target carries several ordered
 signatures, most-specific first, and the first that resolves wins, so a game patch only has to
 leave one anchor intact for the feature to keep working. The cascade is scanned only inside the
 `WHGame.dll` image, so a signature that happens to also appear in another injected mod or graphics

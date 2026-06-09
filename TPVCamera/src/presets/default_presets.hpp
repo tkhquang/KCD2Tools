@@ -59,7 +59,7 @@ inline constexpr const char *k_default_presets_json = R"json(
         "orbit_return_speed": 8.0,
         "orbit_sensitivity": 0.2,
         "orbit_smoothing": 0.5,
-        "zoom_step": 1.0
+        "zoom_step": 4.0
       }
     },
     {
@@ -90,7 +90,7 @@ inline constexpr const char *k_default_presets_json = R"json(
         "orbit_return_speed": 8.0,
         "orbit_sensitivity": 0.2,
         "orbit_smoothing": 0.5,
-        "zoom_step": 1.0
+        "zoom_step": 4.0
       }
     },
     {
@@ -121,7 +121,7 @@ inline constexpr const char *k_default_presets_json = R"json(
         "orbit_return_speed": 8.0,
         "orbit_sensitivity": 0.2,
         "orbit_smoothing": 0.5,
-        "zoom_step": 1.0
+        "zoom_step": 4.0
       }
     },
     {
@@ -152,7 +152,7 @@ inline constexpr const char *k_default_presets_json = R"json(
         "orbit_return_speed": 8.0,
         "orbit_sensitivity": 0.2,
         "orbit_smoothing": 0.5,
-        "zoom_step": 1.0
+        "zoom_step": 4.0
       }
     },
     {
@@ -183,7 +183,7 @@ inline constexpr const char *k_default_presets_json = R"json(
         "orbit_return_speed": 8.0,
         "orbit_sensitivity": 0.2,
         "orbit_smoothing": 0.5,
-        "zoom_step": 1.0
+        "zoom_step": 4.0
       }
     },
     {
@@ -214,7 +214,7 @@ inline constexpr const char *k_default_presets_json = R"json(
         "orbit_return_speed": 8.0,
         "orbit_sensitivity": 0.2,
         "orbit_smoothing": 0.5,
-        "zoom_step": 1.0
+        "zoom_step": 4.0
       }
     },
     {
@@ -245,7 +245,7 @@ inline constexpr const char *k_default_presets_json = R"json(
         "orbit_return_speed": 8.0,
         "orbit_sensitivity": 0.2,
         "orbit_smoothing": 0.5,
-        "zoom_step": 1.0
+        "zoom_step": 4.0
       }
     },
     {
@@ -276,7 +276,7 @@ inline constexpr const char *k_default_presets_json = R"json(
         "orbit_return_speed": 8.0,
         "orbit_sensitivity": 0.2,
         "orbit_smoothing": 0.5,
-        "zoom_step": 1.0
+        "zoom_step": 4.0
       }
     },
     {
@@ -307,7 +307,7 @@ inline constexpr const char *k_default_presets_json = R"json(
         "orbit_return_speed": 8.0,
         "orbit_sensitivity": 0.2,
         "orbit_smoothing": 0.5,
-        "zoom_step": 1.0
+        "zoom_step": 4.0
       }
     }
   ]

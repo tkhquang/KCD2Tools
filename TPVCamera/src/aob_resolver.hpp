@@ -351,20 +351,35 @@ namespace TPVCamera
         };
 
         // --- UI menu-close entry (vftable[2]) -------------------------------
-        // Direct entry hook. P1 anchors on the entry prologue through the
-        // `cmp byte [rsi+0A0h], 0` field test. P2 is the mid-body anchor on the
-        // deactivate store (`mov byte [rbx+49h], 0; call;
-        // mov byte [rbx+48h], 0`) with the register ModRM bytes wildcarded so it
-        // matches whether the object is held in rbx or rdi; it walks back 0x18E.
-        // P3 anchors on the field-test branch and walks back 0x0F.
+        // Direct entry hook. The object pointer (this - 0x58) lives in a
+        // compiler-allocated register that differs across build configs, which
+        // also shifts the prologue length: the Steam build uses rsi and saves it
+        // with an extra `mov [rsp+20h], rsi` (5 bytes) before `push rdi`, while
+        // the GOG build uses rdi and saves only `push rdi`. That changes both the
+        // prologue LENGTH and the ModRM bytes of `lea r,[rcx-58h]` /
+        // `cmp byte [r+0A0h], 0`, so a single entry pattern cannot span both, and
+        // a single mid-body walk-back distance is build-specific too (the Steam
+        // body is 0x18E entry->store; GOG is 0x15F, so the old -0x18E anchor
+        // landed 0x2F before the GOG entry, inside the previous function). P1 is
+        // the Steam rsi-form entry; P2 is the GOG/alt-register entry (save-one-reg
+        // form) with the lea/cmp register ModRM wildcarded so it tolerates any
+        // object register. Both are disp 0 (entry-anchored, build-robust), so a
+        // GOG match wins before the mis-calibrated walk-backs are reached. P3/P4
+        // are last-resort mid-body anchors (used only if both entry forms miss):
+        // P3 the deactivate store (`mov byte [r+49h], 0; call;
+        // mov byte [r+48h], 0`, register ModRM wildcarded) walking back 0x18E, P4
+        // the field-test branch walking back 0x0F.
         inline constexpr AddrCandidate k_menuCloseCandidates[] = {
-            {"MenuClose_P1_EntryFieldTest",
+            {"MenuClose_P1_EntryFieldTestRsi",
              "48 89 5C 24 18 48 89 74 24 20 57 48 83 EC 30 48 8D 71 A8 48 8B D9 80 BE A0 00 00 00 00",
              ResolveMode::Direct, 0, 0},
-            {"MenuClose_P2_DeactivateStore",
+            {"MenuClose_P2_EntryFieldTestAltReg",
+             "48 89 5C 24 18 57 48 83 EC 30 48 8D ?? A8 48 8B D9 80 ?? A0 00 00 00 00",
+             ResolveMode::Direct, 0, 0},
+            {"MenuClose_P3_DeactivateStore",
              "8A ?? 48 48 8D ?? 28 C6 ?? 49 00 E8 ?? ?? ?? ?? C6 ?? 48 00",
              ResolveMode::Direct, -0x18E, 0},
-            {"MenuClose_P3_FieldTestBranch",
+            {"MenuClose_P4_FieldTestBranch",
              "48 8D 71 A8 48 8B D9 80 BE A0 00 00 00 00 0F 84 ?? ?? ?? ?? E8",
              ResolveMode::Direct, -0x0F, 0},
         };
