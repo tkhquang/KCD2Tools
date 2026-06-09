@@ -57,6 +57,7 @@ All keys are rebindable in KCD2_TPVCamera.ini.
 [*][b]Zoom out:[/b] LShift + PageDown, or hold LB + D-pad down[/*]
 [*][b]Force first-person / force third-person:[/b] unbound by default[/*]
 [/list]
+On a controller the zoom shares the D-pad with the game's inventory/map shortcut, so the mod hides that D-pad button from the game while you zoom (the ZoomInKey.Consume / ZoomOutKey.Consume keys, on by default) so finishing a zoom does not open the inventory or map. Set them to false if you would rather the D-pad keep reaching the game. The keyboard zoom keys are unaffected.
 
 [size=5]Configuration[/size]
 Edit KCD2_TPVCamera.ini, grouped into:

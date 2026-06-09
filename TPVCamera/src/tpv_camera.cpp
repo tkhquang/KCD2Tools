@@ -245,18 +245,30 @@ static void register_press_bindings()
 }
 
 /**
- * @brief Registers the hold bindings after the INI key lists have been loaded.
- * @details DMK has no hold-combo helper, so the INI keys are parsed by register_config_items and
- *          the InputManager hold bindings are created here from the resulting lists. The zoom
- *          callbacks are empty -- the frustum-builder detour queries their hold state by name each
- *          frame to drive the follow distance. The orbit-hold callback instead engages/releases
- *          free-look directly on its key edges (momentary freelook), so nothing polls it per frame.
+ * @brief Registers the hold bindings (and the zoom triggers' optional INI consume flags) before load().
+ * @details DMK has no hold-combo helper, so the holds are created here from g_config (seeded with the
+ *          default combos by register_config_items); DMK::Config::load() then applies the INI combos
+ *          via update_binding_combos, the same way the press combos rebind on load. The zoom callbacks
+ *          are empty -- the frustum-builder detour queries their hold state by name each frame to drive
+ *          the follow distance. The orbit-hold callback instead engages/releases free-look directly on
+ *          its key edges (momentary freelook), so nothing polls it per frame.
  */
 static void register_hold_bindings()
 {
     DMK::InputManager &input_mgr = DMK::InputManager::get_instance();
     input_mgr.register_hold(k_zoom_in_binding, g_config.zoom_in_keys, [](bool) {});
     input_mgr.register_hold(k_zoom_out_binding, g_config.zoom_out_keys, [](bool) {});
+
+    // Passthrough suppression for the gamepad zoom triggers, on by default and toggled per binding from
+    // the INI (ZoomInKey.Consume / ZoomOutKey.Consume). While enabled, DMK masks just the bound D-pad
+    // button out of the XInput state the game reads, so the LB + D-pad up/down zoom combo does not also
+    // fire the game's inventory/map shortcut as the gesture ends. Only the trigger button is masked
+    // (never the LB modifier, and keyboard zoom is never affected), and the mask is latched to the
+    // physical D-pad release plus a short grace window, so releasing LB a frame early cannot leak a
+    // bare D-pad press. Registered after the holds they target and before DMK::Config::load(), so the
+    // INI value lands on an existing binding at load and on every reload.
+    DMK::Config::register_consume_flag("Camera", "ZoomInKey.Consume", "Zoom In Consume", k_zoom_in_binding, true);
+    DMK::Config::register_consume_flag("Camera", "ZoomOutKey.Consume", "Zoom Out Consume", k_zoom_out_binding, true);
 
     // Momentary free-look (freelook, as in ArmA / DayZ / PUBG): hold OrbitHoldKey to engage the
     // orbit and release to return to the precise camera-aim view. register_hold fires the callback
@@ -317,9 +329,13 @@ bool init()
     logger.info("----------------------------------------");
     Version::log_version_info();
 
-    // Register every config item and the press bindings, then load and log once.
+    // Register every config item, then the press and hold bindings, then load and log once. The
+    // bindings are all registered before load() so the INI key combos (and the optional consume flags
+    // on the gamepad zoom triggers) apply to them during load, exactly as the press combos rebind on
+    // load.
     register_config_items();
     register_press_bindings();
+    register_hold_bindings();
     DMK::Config::load(Constants::get_config_filename());
     DMK::Config::log_all();
 
@@ -345,8 +361,6 @@ bool init()
     if (!initialize_hooks())
         return false;
 
-    // Hold bindings need the loaded key lists; register them before starting the poll.
-    register_hold_bindings();
     DMK::InputManager::get_instance().start();
     logger.info("InputManager started");
 

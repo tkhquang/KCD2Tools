@@ -1,5 +1,4 @@
 ## [Title for next release]
 
-- New feature
-- Bug fix
-- Improvement
+- Fixed the controller zoom (hold LB + D-pad up/down) sometimes opening the inventory or map when you finish zooming
+- Updated the bundled modding toolkit to the latest version

@@ -63,6 +63,11 @@ Free-look orbit has two styles: `OrbitToggleKey` (default `F4`) latches it on an
 `OrbitHoldKey` (unbound by default) is a momentary "freelook" you hold to look around and release
 to snap straight back to the aim camera. Bind `OrbitHoldKey` in the INI to use it.
 
+On a controller the zoom shares the D-pad with the game's inventory/map shortcut, so the mod hides
+that D-pad button from the game while you zoom (the `ZoomInKey.Consume` / `ZoomOutKey.Consume` keys,
+on by default) so finishing a zoom does not open the inventory or map. Set them to `false` if you
+would rather the D-pad keep reaching the game. The keyboard zoom keys are unaffected.
+
 ## How It Works
 
 The camera hooks the engine's frustum builder and offsets the game view camera's matrix there,
