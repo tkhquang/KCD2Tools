@@ -2,6 +2,13 @@
 
 All notable changes to the TPVCamera mod will be documented in this file.
 
+## [1.2.0] - GOG Support and Fixes
+
+- Fixed the controller zoom (hold LB + D-pad up/down) sometimes opening the inventory or map when you finish zooming
+- Updated the bundled modding toolkit to the latest version
+- Added support for the GOG version of the game
+- Made the camera zoom in and out in bigger steps so it moves faster per press
+
 ## [1.1.0] - Fixes and Improvements
 
 - Added an optional hold-to-look key for the free-look orbit: hold it to swing the camera around, release to snap back to the aiming view
@@ -33,6 +40,7 @@ All notable changes to the TPVCamera mod will be documented in this file.
 - Third person stays out of every minigame (lockpicking, reading, alchemy, pickpocketing, and more), and you can give any minigame its own framing
 - Configurable hotkeys, with most changes applying while you play
 
+[1.2.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.2.0
 [1.1.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.1.0
 [1.0.2]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.0.2
 [1.0.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.0.1
