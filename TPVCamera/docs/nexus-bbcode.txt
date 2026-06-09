@@ -27,12 +27,12 @@ Third-person turns on automatically once you reach gameplay; press the toggle ke
 
 [size=5]Requirements[/size]
 [list]
-[*]Kingdom Come: Deliverance II (Steam version)[/*]
+[*]Kingdom Come: Deliverance II (Steam or GOG version)[/*]
 [/list]
 
 [size=5]Installation[/size]
 1. If you have the older [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1550]KCD2_TPVToggle[/url] mod installed, remove it first: delete KCD2_TPVToggle.asi and KCD2_TPVToggle.ini from your game directory. TPVCamera replaces it, and running both third-person camera mods at once will conflict.
-2. Extract all files from the archive to your game directory:
+2. Extract all files from the archive to your game's binary folder, the Bin/Win64MasterMaster... subfolder that contains WHGame.dll. On Steam that is:
  
 [code]<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/[/code]
 3. Launch the game; third-person turns on automatically. Press F3 (or hold LB + RB) to toggle back to first-person
