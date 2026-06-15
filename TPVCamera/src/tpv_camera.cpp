@@ -7,6 +7,7 @@
  */
 
 #include "tpv_camera.hpp"
+#include "aob_resolver.hpp"
 #include "config.hpp"
 #include "constants.hpp"
 #include "global_state.hpp"
@@ -135,30 +136,36 @@ static bool initialize_hooks()
     DMK::Logger &logger = DMK::Logger::get_instance();
     const ModuleInfo &mod = module_info();
 
+    // Resolve every game-image anchor in one parallel pass, confined to the WHGame.dll image range,
+    // before any module init reads its target. resolve_all_anchors() logs a per-anchor status and a
+    // quality summary; each init below reads its address via anchor_address(), and a mandatory anchor
+    // that did not resolve fails the init that needs it.
+    resolve_all_anchors(mod.base, mod.size);
+
     // Built-in view flag, read by the camera gate to avoid stacking on the engine's own TPV.
-    if (!initialize_game_interface(mod.base, mod.size))
+    if (!initialize_game_interface())
     {
         logger.warning("Game interface initialization failed - built-in TPV detection disabled");
     }
 
-    if (!initialize_ui_menu_hooks(mod.base, mod.size))
+    if (!initialize_ui_menu_hooks())
     {
         logger.warning("UI Menu hooks initialization failed - menu suppression disabled");
     }
 
-    if (!initialize_ui_overlay_hooks(mod.base, mod.size))
+    if (!initialize_ui_overlay_hooks())
     {
         logger.warning("UI Overlay hooks initialization failed - overlay suppression disabled");
     }
 
-    if (!initialize_interaction_hook(mod.base, mod.size))
+    if (!initialize_interaction_hook())
     {
         logger.warning("Interaction hook initialization failed - camera-space interaction disabled");
     }
 
     // Device-agnostic movement intent for the orbit move-detection. Best-effort: a miss falls back to
     // body-position speed, so the camera still works without it.
-    if (!initialize_player_onaction_hook(mod.base, mod.size))
+    if (!initialize_player_onaction_hook())
     {
         logger.warning("Player OnAction hook initialization failed - orbit move-detection uses body speed");
     }
@@ -400,6 +407,12 @@ void shutdown()
 {
     DMK::Logger &logger = DMK::Logger::get_instance();
     logger.info("Shutdown: starting teardown");
+
+    // One-line health snapshot before teardown: hook population + intentional-leak counters (DMK 3.8.0
+    // diagnostics). The hooks are still installed here -- DMK_Shutdown() removes them after this returns.
+    const DMK::Diagnostics::Snapshot diag = DMK::Diagnostics::collect(DMK::HookManager::get_instance());
+    logger.info("Diagnostics: {} hooks ({} active, {} disabled), {} intentional leaks", diag.hooks_total,
+                diag.hooks_active, diag.hooks_disabled, diag.total_intentional_leaks);
 
     // Stop the INI watcher first so no reload setter runs during teardown.
     DMK::Config::disable_auto_reload();

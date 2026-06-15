@@ -68,26 +68,18 @@ namespace
  */
 [[nodiscard]] uint32_t poll_active_camera_state() noexcept
 {
-    if (!g_global_context_ptr_address)
+    const auto context_slot = g_global_context_ptr_address.load(std::memory_order_relaxed);
+    if (!context_slot)
     {
         return 0;
     }
-    const auto context = DMK::Memory::seh_read<uintptr_t>(reinterpret_cast<uintptr_t>(g_global_context_ptr_address));
-    if (!context || !DMK::Memory::plausible_userspace_ptr(*context))
-    {
-        return 0;
-    }
-    const auto manager = DMK::Memory::seh_read<uintptr_t>(*context + Constants::OFFSET_MANAGER_PTR_STORAGE);
-    if (!manager || !DMK::Memory::plausible_userspace_ptr(*manager))
-    {
-        return 0;
-    }
-    const auto active_camera = DMK::Memory::seh_read<uintptr_t>(*manager + Constants::OFFSET_ACTIVE_CAMERA);
-    if (!active_camera || !DMK::Memory::plausible_userspace_ptr(*active_camera))
-    {
-        return 0;
-    }
-    const auto vtable = DMK::Memory::seh_read<uintptr_t>(*active_camera);
+    // One guarded walk: g_global_context -> camera manager (OFFSET_MANAGER_PTR_STORAGE) -> active camera
+    // (OFFSET_ACTIVE_CAMERA) -> vtable. seh_read_chain screens every intermediate link with
+    // plausible_userspace_ptr under a single fault guard; the terminal vtable value it returns is not
+    // range-checked by the chain, so it is screened here to match the previous per-hop walk.
+    const auto vtable = DMK::Memory::seh_read_chain<uintptr_t>(
+        reinterpret_cast<uintptr_t>(context_slot),
+        {0, Constants::OFFSET_MANAGER_PTR_STORAGE, Constants::OFFSET_ACTIVE_CAMERA, 0});
     if (!vtable || !DMK::Memory::plausible_userspace_ptr(*vtable))
     {
         return 0;
@@ -141,27 +133,19 @@ namespace
  */
 [[nodiscard]] uint32_t poll_active_minigame(uintptr_t c_player) noexcept
 {
-    if (!g_global_context_ptr_address)
+    const auto context_slot = g_global_context_ptr_address.load(std::memory_order_relaxed);
+    if (!context_slot)
     {
         return 0;
     }
-    const auto context = DMK::Memory::seh_read<uintptr_t>(reinterpret_cast<uintptr_t>(g_global_context_ptr_address));
-    if (!context || !DMK::Memory::plausible_userspace_ptr(*context))
-    {
-        return 0;
-    }
-    const auto subsystem = DMK::Memory::seh_read<uintptr_t>(*context + Constants::OFFSET_MINIGAME_SUBSYSTEM);
-    if (!subsystem || !DMK::Memory::plausible_userspace_ptr(*subsystem))
-    {
-        return 0;
-    }
-    const auto manager = DMK::Memory::seh_read<uintptr_t>(*subsystem + Constants::OFFSET_MINIGAME_MANAGER);
-    if (!manager || !DMK::Memory::plausible_userspace_ptr(*manager))
-    {
-        return 0;
-    }
-    // Sentinel head of the circular list: an empty map links the head's next back to the head itself.
-    const auto head = DMK::Memory::seh_read<uintptr_t>(*manager + Constants::OFFSET_MINIGAME_MAP_HEAD);
+    // Walk g_global_context -> minigame subsystem -> manager -> circular-list sentinel head under one
+    // fault guard (each intermediate link screened by plausible_userspace_ptr). The head value the chain
+    // returns is screened here (the chain does not range-check the terminal read). An empty map links the
+    // head's next back to the head itself, so the begin read below is deliberately NOT plausibility-screened.
+    const auto head = DMK::Memory::seh_read_chain<uintptr_t>(
+        reinterpret_cast<uintptr_t>(context_slot),
+        {0, Constants::OFFSET_MINIGAME_SUBSYSTEM, Constants::OFFSET_MINIGAME_MANAGER,
+         Constants::OFFSET_MINIGAME_MAP_HEAD});
     if (!head || !DMK::Memory::plausible_userspace_ptr(*head))
     {
         return 0;

@@ -38,6 +38,8 @@
 
 #include <DetourModKit.hpp>
 
+#include <windows.h>
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -348,7 +350,11 @@ static void apply_orbit_aim_control_impl(float pitch_ease, bool set_yaw, float y
     }
     // Ease the SCALAR pitch toward 0 (level). Both synchronized copies are written so any internal
     // current/target smoothing also settles at level. A sane pitch is within about +/- 1.6 rad; a
-    // wild or non-finite value means the layout drifted, so that write is skipped.
+    // wild or non-finite value means the layout drifted, so that write is skipped. The stores go
+    // through a volatile pointer: the engine consumes these scalars on its own thread, so volatile
+    // makes the consume-once write explicit and stops the compiler eliding or reordering it (the same
+    // foreign-write intent the body-turn active byte uses; this is a hardware-I/O-style boundary, not
+    // inter-thread synchronization of our own state).
     if (pitch_ease > 0.0f)
     {
         const uintptr_t pitch_addr = *controller + Constants::LOOK_CONTROLLER_PITCH_OFFSET;
@@ -356,18 +362,20 @@ static void apply_orbit_aim_control_impl(float pitch_ease, bool set_yaw, float y
         if (pitch_value && *pitch_value > -3.2f && *pitch_value < 3.2f)
         {
             const float levelled = *pitch_value * (1.0f - pitch_ease);
-            *reinterpret_cast<float *>(pitch_addr) = levelled;
-            *reinterpret_cast<float *>(*controller + Constants::LOOK_CONTROLLER_PITCH2_OFFSET) = levelled;
+            *reinterpret_cast<volatile float *>(pitch_addr) = levelled;
+            *reinterpret_cast<volatile float *>(*controller + Constants::LOOK_CONTROLLER_PITCH2_OFFSET) = levelled;
         }
     }
 
     // Set the look YAW (heading) to face the camera direction. The character moves along this heading,
     // so this is what turns the body and makes movement camera-relative on the idle -> moving edge.
-    // Both synchronized copies are written.
-    if (set_yaw)
+    // Both synchronized copies are written (volatile, as for the pitch). yaw_value is finite-checked
+    // first: a non-finite heading (a layout drift feeding NaN through the derivation) must never be
+    // written into the engine's look state.
+    if (set_yaw && std::isfinite(yaw_value))
     {
-        *reinterpret_cast<float *>(*controller + Constants::LOOK_CONTROLLER_YAW_OFFSET) = yaw_value;
-        *reinterpret_cast<float *>(*controller + Constants::LOOK_CONTROLLER_YAW2_OFFSET) = yaw_value;
+        *reinterpret_cast<volatile float *>(*controller + Constants::LOOK_CONTROLLER_YAW_OFFSET) = yaw_value;
+        *reinterpret_cast<volatile float *>(*controller + Constants::LOOK_CONTROLLER_YAW2_OFFSET) = yaw_value;
     }
 }
 
@@ -507,10 +515,19 @@ static void offset_game_view_camera(uintptr_t camera, uintptr_t cview, uintptr_t
     // than the matrix columns keeps the basis idempotent across the frustum builder's same-frame
     // rebuilds (we overwrite the matrix, never the pose, so the pose stays the clean eye input).
     // The matrix to offset is the camera's 3x4 at offset 0 (cview + SVIEWPARAMS_VIEWMATRIX_OFFSET).
-    const Vector3 eye_position = *reinterpret_cast<const Vector3 *>(
-        cview + Constants::SVIEWPARAMS_POSITION_OFFSET);
-    const Quaternion eye_rotation = *reinterpret_cast<const Quaternion *>(
-        cview + Constants::SVIEWPARAMS_ROTATION_OFFSET);
+    // The eye pose is read through seh_read (memcpy semantics into a trivially-copyable Vector3 /
+    // Quaternion): it screens the source against the low-address floor and a wrap guard, swallows an
+    // access fault via its own SEH frame, and avoids the type-pun UB of a placement reinterpret_cast
+    // read, so a stale/torn cview fails closed here rather than depending solely on the outer detour
+    // SEH frame.
+    const auto eye_position_read = DMK::Memory::seh_read<Vector3>(cview + Constants::SVIEWPARAMS_POSITION_OFFSET);
+    const auto eye_rotation_read = DMK::Memory::seh_read<Quaternion>(cview + Constants::SVIEWPARAMS_ROTATION_OFFSET);
+    if (!eye_position_read || !eye_rotation_read)
+    {
+        return; // CView pose read faulted; leave the view untouched this frame
+    }
+    const Vector3 eye_position = *eye_position_read;
+    const Quaternion eye_rotation = *eye_rotation_read;
     const Vector3 right = eye_rotation.rotate(Vector3{1.0f, 0.0f, 0.0f});
     const Vector3 forward = eye_rotation.rotate(Vector3{0.0f, 1.0f, 0.0f});
     const Vector3 up = eye_rotation.rotate(Vector3{0.0f, 0.0f, 1.0f});
@@ -1359,16 +1376,8 @@ static void offset_game_view_camera(uintptr_t camera, uintptr_t cview, uintptr_t
     // (worst at close range -- you cannot loot/use what the crosshair appears to be on). The hook
     // re-origins the cone onto this pose when InteractFromCamera is set. valid is true only here (while
     // the offset is engaged); the suppression path below clears it, so first person leaves the game alone.
-    {
-        InteractionAimPose &aim = interaction_aim_pose();
-        aim.pos_x.store(final_position.x, std::memory_order_relaxed);
-        aim.pos_y.store(final_position.y, std::memory_order_relaxed);
-        aim.pos_z.store(final_position.z, std::memory_order_relaxed);
-        aim.dir_x.store(screen_forward.x, std::memory_order_relaxed);
-        aim.dir_y.store(screen_forward.y, std::memory_order_relaxed);
-        aim.dir_z.store(screen_forward.z, std::memory_order_relaxed);
-        aim.valid.store(true, std::memory_order_relaxed);
-    }
+    interaction_aim_pose().store(final_position.x, final_position.y, final_position.z, screen_forward.x,
+                                 screen_forward.y, screen_forward.z);
 }
 
 /**
@@ -1713,7 +1722,7 @@ static void detour_frustum_build_impl(uintptr_t camera)
         cam.collision_valid = false;
         cam.collision_hold_timer = 0.0f;
         // First person (or suppressed): the camera is the eye, so the interaction hook must NOT redirect.
-        interaction_aim_pose().valid.store(false, std::memory_order_relaxed);
+        interaction_aim_pose().invalidate();
         cam.orbit_level_blend = 0.0f;
         cam.orbit_render_valid = false; // next engaged frame snaps the orbit low-pass instead of easing across the gap
         cam.orbit_steer_valid = false;  // and the continuous-align steer low-pass
@@ -1916,13 +1925,14 @@ static void __fastcall detour_input_dispatch(uintptr_t controller, uintptr_t inp
  *          result is screened as a plausible user-space pointer before it is accepted.
  * @return The g_env base address (cascade result, or the static fallback).
  */
-static uintptr_t resolve_genv(uintptr_t module_base, size_t module_size)
+static uintptr_t resolve_genv(uintptr_t module_base)
 {
     DMK::Logger &logger = DMK::Logger::get_instance();
 
-    // The cascade's RipRelative candidates each resolve the g_env base from a different
-    // lea/mov [rip+g_env] reference site; the result is screened as a plausible pointer.
-    const uintptr_t resolved = resolve_address(Aob::k_genvCandidates, "Genv", module_base, module_size);
+    // The Genv cascade's RipRelative candidates each resolve the g_env base from a different
+    // lea/mov [rip+g_env] reference site (resolved up front by resolve_all_anchors()); the result is
+    // screened as a plausible pointer.
+    const uintptr_t resolved = anchor_address(AnchorId::Genv);
     if (resolved != 0 && DMK::Memory::plausible_userspace_ptr(resolved))
     {
         logger.info("Camera: g_env resolved via AOB at {}", DMK::Format::format_address(resolved));
@@ -1948,7 +1958,7 @@ bool initialize_camera(uintptr_t module_base, size_t module_size)
 
     // Resolve g_env once (patch-resilient AOB, static RVA fallback). The CView vtable is
     // identified lazily by RTTI on the first game-view camera, so nothing is resolved here.
-    s_genv_runtime = resolve_genv(module_base, module_size);
+    s_genv_runtime = resolve_genv(module_base);
 
     // Resolve the engine ray helper for collision + aim convergence. Best-effort: on a miss
     // those features no-op (the camera still renders), so the result is intentionally discarded.
@@ -1958,10 +1968,14 @@ bool initialize_camera(uintptr_t module_base, size_t module_size)
     {
         DMK::HookManager &hook_manager = DMK::HookManager::get_instance();
 
+        // Fail closed if a resolved entry leads with a call/breakpoint byte (a cascade mis-resolution or
+        // a foreign int3 stub); a sibling mod's E9 jump-hook does not trip this, so layering still works.
+        const DMK::HookConfig hook_config{.prologue_policy = DMK::InlineProloguePolicy::Fail};
+
         // Hook the camera frustum builder -- the matrix-offset point; without it the feature
         // does nothing. The module-scoped cascade resolves to the function entry inside the game
         // image or returns 0, so no separate bounds check is needed here.
-        const uintptr_t frustum_addr = resolve_address(Aob::k_frustumCandidates, "CameraFrustumBuild", module_base, module_size);
+        const uintptr_t frustum_addr = anchor_address(AnchorId::Frustum);
         if (frustum_addr == 0)
         {
             throw std::runtime_error("Failed to resolve frustum builder cascade");
@@ -1970,7 +1984,8 @@ bool initialize_camera(uintptr_t module_base, size_t module_size)
             "CameraFrustumBuild",
             frustum_addr,
             reinterpret_cast<void *>(detour_frustum_build),
-            reinterpret_cast<void **>(&s_frustum_build_original));
+            reinterpret_cast<void **>(&s_frustum_build_original),
+            hook_config);
 
         if (!frustum_result.has_value())
         {
@@ -1980,7 +1995,7 @@ bool initialize_camera(uintptr_t module_base, size_t module_size)
 
         // The head-visibility hook is best-effort: if it fails the camera still works,
         // the player just appears headless from behind, so a miss is a warning.
-        const uintptr_t head_addr = resolve_address(Aob::k_headVisibilityCandidates, "SetHeadVisibility", module_base, module_size);
+        const uintptr_t head_addr = anchor_address(AnchorId::HeadVisibility);
         if (head_addr == 0)
         {
             logger.warning("Camera: Head visibility cascade unresolved; player may appear headless from behind");
@@ -1991,7 +2006,8 @@ bool initialize_camera(uintptr_t module_base, size_t module_size)
                 "SetHeadVisibility",
                 head_addr,
                 reinterpret_cast<void *>(detour_set_head_visibility),
-                reinterpret_cast<void **>(&s_set_head_visibility_original));
+                reinterpret_cast<void **>(&s_set_head_visibility_original),
+                hook_config);
 
             if (!head_result.has_value())
             {
@@ -2003,7 +2019,7 @@ bool initialize_camera(uintptr_t module_base, size_t module_size)
         // The input-dispatcher hook powers free-look orbit. Best-effort: a miss only
         // disables orbit, the offset camera still works. The detour is inert until the
         // orbit key is held, so it is harmless when free-look is unused.
-        const uintptr_t input_addr = resolve_address(Aob::k_inputDispatchCandidates, "CameraInputDispatch", module_base, module_size);
+        const uintptr_t input_addr = anchor_address(AnchorId::InputDispatch);
         if (input_addr == 0)
         {
             logger.warning("Camera: Input dispatcher cascade unresolved; free-look orbit unavailable");
@@ -2014,7 +2030,8 @@ bool initialize_camera(uintptr_t module_base, size_t module_size)
                 "CameraInputDispatch",
                 input_addr,
                 reinterpret_cast<void *>(detour_input_dispatch),
-                reinterpret_cast<void **>(&s_input_dispatch_original));
+                reinterpret_cast<void **>(&s_input_dispatch_original),
+                hook_config);
 
             if (!input_result.has_value())
             {

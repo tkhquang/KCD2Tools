@@ -404,6 +404,23 @@ DWORD WINAPI render_thread(LPVOID)
 {
     DMK::Logger &logger = DMK::Logger::get_instance();
 
+    // Make THIS overlay thread per-monitor (v2) DPI aware before any window creation or size query, so
+    // the layered overlay window, its GetClientRect/GetWindowRect reads, and the UpdateLayeredWindow
+    // composite all work in physical pixels and stay aligned on scaled (>100%) displays. This is
+    // thread-scoped, so it never changes the host game's process-wide DPI awareness (the mod is injected
+    // and must not alter the game's own rendering). Resolved dynamically because the API is Windows 10
+    // 1607+; on older systems the overlay keeps its prior behavior. The context value
+    // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 == (HANDLE)-4 is spelled out so the call does not depend
+    // on the SDK's WINVER gating that declaration.
+    if (const HMODULE user32 = GetModuleHandleW(L"user32.dll"))
+    {
+        using SetThreadDpiAwarenessContextFn = HANDLE(WINAPI *)(HANDLE);
+        const auto set_thread_dpi = reinterpret_cast<SetThreadDpiAwarenessContextFn>(
+            GetProcAddress(user32, "SetThreadDpiAwarenessContext"));
+        if (set_thread_dpi)
+            (void)set_thread_dpi(reinterpret_cast<HANDLE>(static_cast<INT_PTR>(-4)));
+    }
+
     s_game_hwnd = wait_for_game_window(logger);
     if (!s_game_hwnd)
         return 0;

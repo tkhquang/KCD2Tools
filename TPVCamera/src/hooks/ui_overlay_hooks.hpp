@@ -10,19 +10,15 @@
 #ifndef TPVCAMERA_UI_OVERLAY_HOOKS_HPP
 #define TPVCAMERA_UI_OVERLAY_HOOKS_HPP
 
-#include <cstdint>
-#include <cstddef>
-
 namespace TPVCamera
 {
 
 /**
- * @brief Initialize UI overlay hooks.
- * @param module_base Base address of the target game module.
- * @param module_size Size of the target game module in bytes.
- * @return true if initialization successful, false otherwise.
+ * @brief Installs the UI overlay show/hide hooks from the pre-resolved anchors.
+ * @return true if both hooks installed, false otherwise.
+ * @note Call after resolve_all_anchors(); the hook targets are read via anchor_address().
  */
-[[nodiscard]] bool initialize_ui_overlay_hooks(uintptr_t module_base, size_t module_size);
+[[nodiscard]] bool initialize_ui_overlay_hooks();
 
 } // namespace TPVCamera
 

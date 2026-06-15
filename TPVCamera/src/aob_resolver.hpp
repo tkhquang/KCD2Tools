@@ -1,6 +1,6 @@
 /**
  * @file aob_resolver.hpp
- * @brief Cascading AOB candidate tables and the resolve helper for the mod.
+ * @brief Cascading AOB candidate tables and the declarative anchor registry for the mod.
  *
  * Every memory location the mod hooks or reads is located by a cascade of
  * ordered AOB candidates rather than a single signature, so a game patch that
@@ -14,8 +14,10 @@
  * prologue/epilogue candidate can false-match inside another injected module (a
  * graphics overlay, a sibling mod) and, because the cascade is first-match-wins,
  * shadow the correct in-module match, disabling the feature or hooking an
- * unrelated site. resolve_address() flattens the std::expected return into the
- * uintptr_t-or-zero shape the call sites use.
+ * unrelated site. The cascade tables are wrapped one-to-one as RipGlobal entries
+ * in a declarative DMK::Anchors registry (AnchorId below); resolve_all_anchors()
+ * resolves the whole table in one parallel pass at startup and anchor_address()
+ * returns each resolved address (or 0 on a cascade miss) to the call sites.
  *
  * Candidate ordering is most-specific first (P1), so a tight anchor wins before
  * a looser fallback. Each cascade carries at least one candidate anchored PAST
@@ -48,57 +50,11 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <span>
-#include <string_view>
 
 namespace TPVCamera
 {
     using AddrCandidate = DMK::Scanner::AddrCandidate;
     using ResolveMode = DMK::Scanner::ResolveMode;
-
-    namespace detail
-    {
-        /**
-         * @brief Resolve the first matching candidate of a cascade to an absolute
-         *        address inside the game module, or 0 on total failure.
-         * @details Delegates to DMK::Scanner::resolve_cascade_in_module, which
-         *          scans only [module_base, module_base + module_size) and rejects
-         *          any candidate that resolves outside it, so a bad candidate falls
-         *          through to the next rather than being returned. The cascade logs
-         *          the winning candidate on success; on failure this emits a single
-         *          Warning so call sites can stay focused on conditional feature
-         *          wiring.
-         */
-        [[nodiscard]] inline std::uintptr_t resolve_cascade_or_zero(
-            std::span<const AddrCandidate> candidates, std::string_view label,
-            std::uintptr_t module_base, std::size_t module_size)
-        {
-            const DMK::Memory::ModuleRange range{module_base, module_base + module_size};
-            const auto hit = DMK::Scanner::resolve_cascade_in_module(candidates, label, range);
-            if (hit.has_value())
-            {
-                return hit->address;
-            }
-
-            DMK::Logger::get_instance().warning(
-                "{} resolve cascade failed: {}", label,
-                DMK::Scanner::resolve_error_to_string(hit.error()));
-            return 0;
-        }
-    } // namespace detail
-
-    /**
-     * @brief Resolve a candidate cascade to an absolute address inside the game
-     *        module (module_base/module_size), or 0 on failure.
-     */
-    template <std::size_t N>
-    [[nodiscard]] inline std::uintptr_t resolve_address(
-        const AddrCandidate (&candidates)[N], std::string_view label,
-        std::uintptr_t module_base, std::size_t module_size)
-    {
-        return detail::resolve_cascade_or_zero(
-            std::span<const AddrCandidate>{candidates, N}, label, module_base, module_size);
-    }
 
     namespace Aob
     {
@@ -384,6 +340,51 @@ namespace TPVCamera
              ResolveMode::Direct, -0x0F, 0},
         };
     } // namespace Aob
+
+    /**
+     * @brief Stable identity for every game-image anchor the mod resolves at startup.
+     * @details Indexes both the declarative anchor table resolved once by resolve_all_anchors() and the
+     *          address store read by anchor_address(). The enumerator order IS the table order; Count is
+     *          the element count and is not a valid anchor.
+     */
+    enum class AnchorId : std::size_t
+    {
+        Context,              // global-context storage slot (camera-manager root)
+        Genv,                 // SSystemGlobalEnvironment base
+        Frustum,              // camera frustum builder (mandatory hook target)
+        HeadVisibility,       // head-visibility setter
+        InputDispatch,        // generic input-event dispatcher
+        ActionDispatch,       // global action dispatcher (Lua Player:OnAction source)
+        RayWorldIntersection, // IPhysicalWorld::RayWorldIntersection helper (called, not hooked)
+        InteractionRayBuild,  // interaction ray-query builder
+        InteractorLookRay,    // interactor look-ray builder (used as a caller-range bound, not hooked)
+        InteractionOnScreen,  // on-screen reticle projection gate
+        OverlayHide,          // HideOverlays
+        OverlayShow,          // ShowOverlays
+        MenuOpen,             // UI menu-open entry
+        MenuClose,            // UI menu-close entry
+        Count,
+    };
+
+    /**
+     * @brief Resolves every game-image anchor in one parallel pass and records the results.
+     * @details Builds the declarative DMK::Anchors table over the cascade candidate arrays above (each a
+     *          RipGlobal anchor whose candidates already select Direct vs RIP-relative resolution) and
+     *          resolves it with Anchors::resolve_all_parallel, confined to the WHGame.dll image
+     *          [module_base, module_base + module_size). The explicit range is required: the DMK default
+     *          host_module_range() is the host EXE, not WHGame.dll. Each resolved address is stored for
+     *          anchor_address(); a per-anchor status line plus an assess_quality() summary are logged. A
+     *          best-effort anchor that misses records 0 and its consumer degrades; the mandatory anchors
+     *          (Context, Frustum) are reported so the caller can fail init when anchor_address() is 0.
+     * @note Setup/control-plane only: allocates and spawns a transient worker pool. Call once at init.
+     */
+    void resolve_all_anchors(std::uintptr_t module_base, std::size_t module_size);
+
+    /**
+     * @brief Returns the resolved absolute address for an anchor, or 0 if it did not resolve.
+     * @note Valid only after resolve_all_anchors() has run; returns 0 before then or on a cascade miss.
+     */
+    [[nodiscard]] std::uintptr_t anchor_address(AnchorId id) noexcept;
 } // namespace TPVCamera
 
 #endif // TPVCAMERA_AOB_RESOLVER_HPP

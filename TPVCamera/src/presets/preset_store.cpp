@@ -13,10 +13,12 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <optional>
 #include <string>
+#include <system_error>
 
 namespace TPVCamera::Presets
 {
@@ -338,13 +340,48 @@ void PresetStore::save()
         arr.push_back(preset_to_json(p));
     root["presets"] = std::move(arr);
 
-    std::ofstream out(m_file_path, std::ios::trunc);
-    if (!out)
+    // Atomic write: serialize to a sibling temp file, flush and close it, then rename it over the
+    // target. A crash mid-write can only ever leave the temp truncated, never the live file, so the
+    // user's preset set survives (load() falls back to factory defaults only on a genuinely corrupt
+    // file, and an in-place truncation would have looked exactly like one). std::filesystem::rename
+    // replaces the destination on Windows (MoveFileEx semantics), so the swap is atomic on one volume.
+    const std::string temp_path = m_file_path + ".tmp";
+    try
     {
-        logger.warning("Preset save failed: cannot open {}", m_file_path);
+        std::ofstream out(temp_path, std::ios::trunc);
+        if (!out)
+        {
+            logger.warning("Preset save failed: cannot open {}", temp_path);
+            return;
+        }
+        // dump(2) can throw (e.g. nlohmann type_error.316 on invalid UTF-8 in a preset string); the catch
+        // below treats it like a write failure so the live preset file is never disturbed.
+        out << root.dump(2);
+        out.flush();
+        if (!out)
+        {
+            logger.warning("Preset save failed: write error on {}", temp_path);
+            return;
+        }
+    } // close the stream so the rename sees a fully flushed file
+    catch (const std::exception &e)
+    {
+        logger.warning("Preset save failed: serialization error ({})", e.what());
+        std::error_code remove_ec;
+        std::filesystem::remove(temp_path, remove_ec); // do not leave a partial temp behind
         return;
     }
-    out << root.dump(2);
+
+    std::error_code rename_ec;
+    std::filesystem::rename(temp_path, m_file_path, rename_ec);
+    if (rename_ec)
+    {
+        logger.warning("Preset save failed: cannot replace {} ({})", m_file_path, rename_ec.message());
+        std::error_code remove_ec;
+        std::filesystem::remove(temp_path, remove_ec); // best-effort: do not leave the temp behind
+        return;
+    }
+
     m_dirty = false;
     logger.info("Presets saved to {}", m_file_path);
 }

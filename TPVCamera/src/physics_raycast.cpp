@@ -9,6 +9,8 @@
 
 #include <DetourModKit.hpp>
 
+#include <windows.h>
+
 #include <cmath>
 #include <cstring>
 #include <intrin.h>
@@ -39,8 +41,9 @@ bool initialize_physics_raycast(uintptr_t module_base, size_t module_size, uintp
 {
     DMK::Logger &logger = DMK::Logger::get_instance();
 
-    // The module-scoped cascade resolves the helper inside the game image or returns 0.
-    const uintptr_t ray_fn = resolve_address(Aob::k_rayWorldIntersectionCandidates, "RayWorldIntersection", module_base, module_size);
+    // The module-scoped cascade resolved the helper inside the game image (or 0 on a miss); read here
+    // from the anchor registry resolved at startup by resolve_all_anchors().
+    const uintptr_t ray_fn = anchor_address(AnchorId::RayWorldIntersection);
     if (ray_fn == 0)
     {
         logger.warning("PhysicsRaycast: RayWorldIntersection not found (game patched?); collision/aim raycast unavailable");

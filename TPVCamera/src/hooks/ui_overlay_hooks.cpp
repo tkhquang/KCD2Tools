@@ -29,8 +29,10 @@ static ShowOverlaysFunc s_show_overlays_original = nullptr;
 
 /**
  * @brief HideOverlays detour: a UI element is about to show, so mark the overlay active.
- * @details Calls the original exactly once before the mod-side flag store; guarding
- *          the original inside the try would let an exception call it a second time.
+ * @details Calls the original exactly once before the mod-side flag store. No SEH frame is needed
+ *          (unlike the deref-heavy camera/interaction detours): this detour only calls the trampoline
+ *          (the engine's own function, whose faults are the engine's) and stores a mod-owned atomic, so
+ *          it performs no foreign-memory dereference of its own.
  */
 static void __fastcall hide_overlays_detour(void *this_ptr, uint8_t param_byte, char param_char)
 {
@@ -43,7 +45,9 @@ static void __fastcall hide_overlays_detour(void *this_ptr, uint8_t param_byte, 
 
 /**
  * @brief ShowOverlays detour: the UI element is closing, so clear the overlay flag.
- * @details Calls the original exactly once before the mod-side flag store.
+ * @details Calls the original exactly once before the mod-side flag store. No SEH frame is needed: like
+ *          the hide detour it only calls the trampoline and stores a mod-owned atomic, performing no
+ *          foreign-memory dereference of its own.
  */
 static void __fastcall show_overlays_detour(void *this_ptr, uint8_t param_byte, char param_char)
 {
@@ -54,15 +58,19 @@ static void __fastcall show_overlays_detour(void *this_ptr, uint8_t param_byte, 
     overlay_state().active.store(false, std::memory_order_relaxed);
 }
 
-bool initialize_ui_overlay_hooks(uintptr_t module_base, size_t module_size)
+bool initialize_ui_overlay_hooks()
 {
     DMK::Logger &logger = DMK::Logger::get_instance();
+
+    // Fail closed if the resolved entry leads with a call/breakpoint byte (a cascade mis-resolution or a
+    // foreign int3 stub); a sibling mod's E9 jump-hook does not trip this gate, so layering still works.
+    const DMK::HookConfig hook_config{.prologue_policy = DMK::InlineProloguePolicy::Fail};
 
     try
     {
         DMK::HookManager &hook_manager = DMK::HookManager::get_instance();
 
-        const uintptr_t hide_addr = resolve_address(Aob::k_overlayHideCandidates, "HideOverlays", module_base, module_size);
+        const uintptr_t hide_addr = anchor_address(AnchorId::OverlayHide);
         if (hide_addr == 0)
         {
             throw std::runtime_error("HideOverlays cascade did not resolve");
@@ -71,7 +79,8 @@ bool initialize_ui_overlay_hooks(uintptr_t module_base, size_t module_size)
             "HideOverlays",
             hide_addr,
             reinterpret_cast<void *>(hide_overlays_detour),
-            reinterpret_cast<void **>(&s_hide_overlays_original));
+            reinterpret_cast<void **>(&s_hide_overlays_original),
+            hook_config);
 
         if (!hide_result.has_value())
         {
@@ -79,7 +88,7 @@ bool initialize_ui_overlay_hooks(uintptr_t module_base, size_t module_size)
                                      std::string(DMK::Hook::error_to_string(hide_result.error())));
         }
 
-        const uintptr_t show_addr = resolve_address(Aob::k_overlayShowCandidates, "ShowOverlays", module_base, module_size);
+        const uintptr_t show_addr = anchor_address(AnchorId::OverlayShow);
         if (show_addr == 0)
         {
             throw std::runtime_error("ShowOverlays cascade did not resolve");
@@ -88,7 +97,8 @@ bool initialize_ui_overlay_hooks(uintptr_t module_base, size_t module_size)
             "ShowOverlays",
             show_addr,
             reinterpret_cast<void *>(show_overlays_detour),
-            reinterpret_cast<void **>(&s_show_overlays_original));
+            reinterpret_cast<void **>(&s_show_overlays_original),
+            hook_config);
 
         if (!show_result.has_value())
         {
