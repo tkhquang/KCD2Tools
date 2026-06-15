@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.25)
+cmake_minimum_required(VERSION 3.28)
 
 # Derive the project version from src/version.hpp, the single source of truth
 # (scripts/version_updater.py bumps only that header). PROJECT_VERSION currently feeds only the
