@@ -6,3 +6,5 @@
 - The third-person camera now automatically adapts to many game updates that move data around internally, so a common patch no longer breaks it before the mod is updated
 - Stays safe to load alongside other mods, and falls back to its previous behaviour if a game update changes too much
 - Various under-the-hood stability and reliability fixes
+- Standardised the source-code formatting and added automatic style enforcement for future development
+- Cleaned up developer comments and documentation for consistency, with no change to in-game behaviour

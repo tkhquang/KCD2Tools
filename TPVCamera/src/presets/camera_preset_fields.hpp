@@ -18,33 +18,43 @@
 namespace TPVCamera::Presets
 {
 
-/** @brief Editor widget kind for a preset field. */
-enum class FieldType
-{
-    Float,
-    Bool,
-};
+    /** @brief Editor widget kind for a preset field. */
+    enum class FieldType
+    {
+        Float,
+        Bool,
+    };
 
-/**
- * @struct PresetField
- * @brief Metadata for one editable CameraPreset field.
- */
-struct PresetField
-{
-    const char *key;          ///< Stable JSON key (also the persisted identifier).
-    const char *label;        ///< ImGui label.
-    const char *tooltip;      ///< Hover help (may be empty).
-    const char *group;        ///< UI section: "Framing" | "Orbit" | "Collision".
-    FieldType type;           ///< Float or Bool.
-    float CameraPreset::*f;   ///< Member pointer when type == Float (else nullptr).
-    bool CameraPreset::*b;    ///< Member pointer when type == Bool (else nullptr).
-    float min_value;          ///< Slider lower bound (Float only).
-    float max_value;          ///< Slider upper bound (Float only).
-    float fine_step;          ///< Single-arrow increment (Float only); the << / >> double arrows step 10x this.
-};
+    /**
+     * @struct PresetField
+     * @brief Metadata for one editable CameraPreset field.
+     */
+    struct PresetField
+    {
+        /// Stable JSON key (also the persisted identifier).
+        const char *key;
+        /// ImGui label.
+        const char *label;
+        /// Hover help (may be empty).
+        const char *tooltip;
+        /// UI section: "Framing" | "Orbit" | "Collision".
+        const char *group;
+        /// Float or Bool.
+        FieldType type;
+        /// Member pointer when type == Float (else nullptr).
+        float CameraPreset::*f;
+        /// Member pointer when type == Bool (else nullptr).
+        bool CameraPreset::*b;
+        /// Slider lower bound (Float only).
+        float min_value;
+        /// Slider upper bound (Float only).
+        float max_value;
+        /// Single-arrow increment (Float only); the << / >> double arrows step 10x this.
+        float fine_step;
+    };
 
-/** @brief Returns the ordered table of editable preset fields. */
-[[nodiscard]] std::span<const PresetField> fields() noexcept;
+    /** @brief Returns the ordered table of editable preset fields. */
+    [[nodiscard]] std::span<const PresetField> fields() noexcept;
 
 } // namespace TPVCamera::Presets
 

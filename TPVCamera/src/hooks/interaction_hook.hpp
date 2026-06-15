@@ -16,16 +16,16 @@
 namespace TPVCamera
 {
 
-/**
- * @brief Installs the interaction look-ray redirect (sub_180530584) and the on-screen reticle gate
- *        (sub_18093C170) from the pre-resolved anchors.
- * @details Best-effort: on a pattern miss the feature simply no-ops (interaction stays vanilla) and the
- *          rest of the mod is unaffected. The detours are also a no-op at runtime unless InteractFromCamera
- *          is enabled AND the third-person offset is engaged, so first person is never touched.
- * @return true if the look-ray builder hook was installed.
- * @note Call after resolve_all_anchors(); the hook targets are read via anchor_address().
- */
-[[nodiscard]] bool initialize_interaction_hook();
+    /**
+     * @brief Installs the interaction look-ray redirect (sub_180530584) and the on-screen reticle gate
+     *        (sub_18093C170) from the pre-resolved anchors.
+     * @details Best-effort: on a pattern miss the feature simply no-ops (interaction stays vanilla) and the
+     *          rest of the mod is unaffected. The detours are also a no-op at runtime unless InteractFromCamera
+     *          is enabled AND the third-person offset is engaged, so first person is never touched.
+     * @return true if the look-ray builder hook was installed.
+     * @note Call after resolve_all_anchors(); the hook targets are read via anchor_address().
+     */
+    [[nodiscard]] bool initialize_interaction_hook();
 
 } // namespace TPVCamera
 

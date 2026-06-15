@@ -194,7 +194,7 @@ This mod requires:
 ### Prerequisites
 
 - Visual Studio 2022 (MSVC toolchain) with the C++ workload
-- CMake 3.25 or newer
+- CMake 3.28 or newer
 - Git (for submodules)
 
 ### Building with CMake (MSVC)
@@ -220,6 +220,15 @@ place (press Numpad 0 in game) for fast iteration.
 cmake --preset msvc-dev -DTPVCAMERA_GAME_DIR="<game>/Bin/Win64MasterMasterSteamPGO"
 cmake --build --preset msvc-dev
 ```
+
+### Code style
+
+The C++ sources follow a hard 120-column baseline and DetourModKit's coding conventions
+([AGENTS.md](https://github.com/tkhquang/DetourModKit/blob/main/AGENTS.md)), codified in
+`.clang-format` (clang-format 20), `.editorconfig`, and an
+advisory `.clang-tidy`. Run the formatter over any changed sources before committing and keep it
+idempotent (`clang-format --dry-run --Werror` must be silent). Editor IntelliSense and build tasks
+are configured at the repository-root `.vscode/`, not under `TPVCamera/`.
 
 ## Architecture
 

@@ -213,8 +213,7 @@ namespace TPVCamera
          *         is published or the read could not be confirmed tear-free (the out params are untouched).
          * @note Callback-safe: a bounded retry caps the seqlock spin and fails closed.
          */
-        [[nodiscard]] bool load(float &px, float &py, float &pz, float &dx, float &dy,
-                                float &dz) const noexcept;
+        [[nodiscard]] bool load(float &px, float &py, float &pz, float &dx, float &dy, float &dz) const noexcept;
 
         /// Marks the published pose invalid (first person / offset suppressed).
         void invalidate() noexcept;

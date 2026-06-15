@@ -19,36 +19,36 @@
 namespace TPVCamera::Overlay
 {
 
-/**
- * @brief Starts the overlay host (creates the WARP device, ImGui context and render thread).
- * @return True on success; false if device/ImGui init failed (the mod still runs without UI).
- */
-[[nodiscard]] bool start();
+    /**
+     * @brief Starts the overlay host (creates the WARP device, ImGui context and render thread).
+     * @return True on success; false if device/ImGui init failed (the mod still runs without UI).
+     */
+    [[nodiscard]] bool start();
 
-/** @brief Stops the render thread and tears down ImGui + the WARP device. Safe if not started. */
-void stop();
+    /** @brief Stops the render thread and tears down ImGui + the WARP device. Safe if not started. */
+    void stop();
 
-/** @brief Toggles overlay visibility (bind to a hotkey). */
-void toggle();
+    /** @brief Toggles overlay visibility (bind to a hotkey). */
+    void toggle();
 
-/** @brief Shows or hides the overlay. */
-void set_visible(bool visible);
+    /** @brief Shows or hides the overlay. */
+    void set_visible(bool visible);
 
-/** @brief Whether the overlay window is currently shown. */
-[[nodiscard]] bool is_visible() noexcept;
+    /** @brief Whether the overlay window is currently shown. */
+    [[nodiscard]] bool is_visible() noexcept;
 
-/**
- * @brief Whether the overlay is visible and ImGui wants the mouse/keyboard this frame.
- * @details Lets the rest of the mod gate game input while the user interacts with the panel.
- */
-[[nodiscard]] bool wants_input() noexcept;
+    /**
+     * @brief Whether the overlay is visible and ImGui wants the mouse/keyboard this frame.
+     * @details Lets the rest of the mod gate game input while the user interacts with the panel.
+     */
+    [[nodiscard]] bool wants_input() noexcept;
 
-/**
- * @brief Renders the preset-manager window contents.
- * @details Implemented in overlay_ui.cpp; called by the overlay render loop inside an
- *          active ImGui frame. Drives PresetStore CRUD and the field editors.
- */
-void draw_ui();
+    /**
+     * @brief Renders the preset-manager window contents.
+     * @details Implemented in overlay_ui.cpp; called by the overlay render loop inside an
+     *          active ImGui frame. Drives PresetStore CRUD and the field editors.
+     */
+    void draw_ui();
 
 } // namespace TPVCamera::Overlay
 

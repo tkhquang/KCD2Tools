@@ -69,14 +69,11 @@ namespace TPVCamera
         // (cmp qword [rax+0E0h] / mov [rax+0F8h]). Three independent code sites
         // means a patch must move all three before the slot is lost.
         inline constexpr AddrCandidate k_contextCandidates[] = {
-            {"Context_P1_GuardJgFastPathMov",
-             "7F ?? 48 8B 05 ?? ?? ?? ?? 48 83 C4 ?? 5B C3",
-             ResolveMode::RipRelative, 5, 9},
-            {"Context_P2_LoadCheckFieldE0",
-             "48 8B 05 ?? ?? ?? ?? 48 83 B8 E0 00 00 00 00 74 ?? 42 8B 04 33 39 05",
+            {"Context_P1_GuardJgFastPathMov", "7F ?? 48 8B 05 ?? ?? ?? ?? 48 83 C4 ?? 5B C3", ResolveMode::RipRelative,
+             5, 9},
+            {"Context_P2_LoadCheckFieldE0", "48 8B 05 ?? ?? ?? ?? 48 83 B8 E0 00 00 00 00 74 ?? 42 8B 04 33 39 05",
              ResolveMode::RipRelative, 3, 7},
-            {"Context_P3_LoadFieldF8Jnz",
-             "48 8B 05 ?? ?? ?? ?? 48 8B A8 F8 00 00 00 75 ?? E8",
+            {"Context_P3_LoadFieldF8Jnz", "48 8B 05 ?? ?? ?? ?? 48 8B A8 F8 00 00 00 75 ?? E8",
              ResolveMode::RipRelative, 3, 7},
         };
 
@@ -116,8 +113,8 @@ namespace TPVCamera
              "55 53 56 57 41 54 41 55 41 56 41 57 48 8D 68 ?? 48 81 EC ?? ?? 00 00 F3 0F 10 09 48 8B D9 F3 0F 10 59 08",
              ResolveMode::Direct, -3, 0},
             {"Frustum_P3_MatrixReadBody",
-             "F3 0F 10 09 48 8B D9 F3 0F 10 59 08 F3 0F 10 51 10 F3 0F 10 41 24 F3 0F 10 61 28",
-             ResolveMode::Direct, -0x1A, 0},
+             "F3 0F 10 09 48 8B D9 F3 0F 10 59 08 F3 0F 10 51 10 F3 0F 10 41 24 F3 0F 10 61 28", ResolveMode::Direct,
+             -0x1A, 0},
         };
 
         // --- Head-visibility setter entry -----------------------------------
@@ -126,14 +123,12 @@ namespace TPVCamera
         // the `mov dil,dl; mov rbx,rcx; call; test al,al` body for extra pinning.
         // P3 drops the two stack-save stores and walks back 0x0A from the push.
         inline constexpr AddrCandidate k_headVisibilityCandidates[] = {
-            {"Head_P1_PrologueMovSil",
-             "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC ?? 41 8A F0",
-             ResolveMode::Direct, 0, 0},
+            {"Head_P1_PrologueMovSil", "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC ?? 41 8A F0", ResolveMode::Direct, 0,
+             0},
             {"Head_P2_PrologueMovSilCall",
              "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC ?? 41 8A F0 40 8A FA 48 8B D9 E8 ?? ?? ?? ?? 84 C0",
              ResolveMode::Direct, 0, 0},
-            {"Head_P3_BodyMovSilDilRbx",
-             "57 48 83 EC ?? 41 8A F0 40 8A FA 48 8B D9 E8 ?? ?? ?? ?? 84 C0 74",
+            {"Head_P3_BodyMovSilDilRbx", "57 48 83 EC ?? 41 8A F0 40 8A FA 48 8B D9 E8 ?? ?? ?? ?? 84 C0 74",
              ResolveMode::Direct, -0x0A, 0},
         };
 
@@ -147,11 +142,12 @@ namespace TPVCamera
              "48 89 5C 24 08 57 48 83 EC ?? 48 8B DA 48 8B F9 45 84 C0 75 ?? 44 38 81 D8 00 00 00 0F 84",
              ResolveMode::Direct, 0, 0},
             {"Input_P2_GuardThroughPitchCmp",
-             "48 89 5C 24 08 57 48 83 EC ?? 48 8B DA 48 8B F9 45 84 C0 75 ?? 44 38 81 D8 00 00 00 0F 84 ?? ?? ?? ?? 83 7A 10 FF 0F 84",
+             "48 89 5C 24 08 57 48 83 EC ?? 48 8B DA 48 8B F9 45 84 C0 75 ?? 44 38 81 D8 00 00 00 0F 84 "
+             "?? ?? ?? ?? 83 7A 10 FF 0F 84",
              ResolveMode::Direct, 0, 0},
             {"Input_P3_BodyGuardCmpPitch",
-             "48 8B DA 48 8B F9 45 84 C0 75 ?? 44 38 81 D8 00 00 00 0F 84 ?? ?? ?? ?? 83 7A 10 FF",
-             ResolveMode::Direct, -0x0A, 0},
+             "48 8B DA 48 8B F9 45 84 C0 75 ?? 44 38 81 D8 00 00 00 0F 84 ?? ?? ?? ?? 83 7A 10 FF", ResolveMode::Direct,
+             -0x0A, 0},
         };
 
         // --- Global action dispatcher entry (Lua Player:OnAction source) -----
@@ -164,10 +160,12 @@ namespace TPVCamera
              "48 8B C4 48 89 58 10 48 89 70 18 F3 0F 11 58 20 55 57 41 56 48 8D 68 ?? 48 81 EC ?? ?? ?? ??",
              ResolveMode::Direct, 0, 0},
             {"Action_P2_PrologueThroughMovaps",
-             "48 8B C4 48 89 58 10 48 89 70 18 F3 0F 11 58 20 55 57 41 56 48 8D 68 ?? 48 81 EC ?? ?? ?? ?? 0F 29 70 ?? 48 8B F9",
+             "48 8B C4 48 89 58 10 48 89 70 18 F3 0F 11 58 20 55 57 41 56 48 8D 68 ?? 48 81 EC ?? ?? ?? ?? "
+             "0F 29 70 ?? 48 8B F9",
              ResolveMode::Direct, 0, 0},
             {"Action_P3_MovssValBody",
-             "F3 0F 11 58 20 55 57 41 56 48 8D 68 ?? 48 81 EC ?? ?? ?? ?? 0F 29 70 ?? 48 8B F9 8B 41 18 41 BE 01 00 00 00",
+             "F3 0F 11 58 20 55 57 41 56 48 8D 68 ?? 48 81 EC ?? ?? ?? ?? "
+             "0F 29 70 ?? 48 8B F9 8B 41 18 41 BE 01 00 00 00",
              ResolveMode::Direct, -0x0B, 0},
         };
 
@@ -203,8 +201,8 @@ namespace TPVCamera
         // and walks back 0x1B.
         inline constexpr AddrCandidate k_interactionRayBuildCandidates[] = {
             {"RayBuild_P1_VecCopyHead",
-             "F2 0F 10 02 4C 8B D1 4C 8B 5C 24 30 F2 0F 11 01 8B 42 08 89 41 08 F2 41 0F 10 00",
-             ResolveMode::Direct, 0, 0},
+             "F2 0F 10 02 4C 8B D1 4C 8B 5C 24 30 F2 0F 11 01 8B 42 08 89 41 08 F2 41 0F 10 00", ResolveMode::Direct, 0,
+             0},
             {"RayBuild_P2_VecCopyExtended",
              "F2 0F 10 02 4C 8B D1 4C 8B 5C 24 30 F2 0F 11 01 8B 42 08 89 41 08 F2 41 0F 10 00 "
              "F2 0F 11 41 0C 41 8B 40 08 89 41 14",
@@ -263,11 +261,12 @@ namespace TPVCamera
              "44 88 44 24 18 53 48 83 EC ?? 0F B6 C2 48 8B D9 48 8D 15 ?? ?? ?? ?? C6 84 ?? ?? ?? ?? ?? 01",
              ResolveMode::Direct, 0, 0},
             {"OverlayHide_P2_SetFlagThroughCall",
-             "44 88 44 24 18 53 48 83 EC ?? 0F B6 C2 48 8B D9 48 8D 15 ?? ?? ?? ?? C6 84 ?? ?? ?? ?? ?? 01 48 8D 4C 24 ?? E8",
+             "44 88 44 24 18 53 48 83 EC ?? 0F B6 C2 48 8B D9 48 8D 15 ?? ?? ?? ?? C6 84 ?? ?? ?? ?? ?? 01 "
+             "48 8D 4C 24 ?? E8",
              ResolveMode::Direct, 0, 0},
             {"OverlayHide_P3_BodySetFlag",
-             "0F B6 C2 48 8B D9 48 8D 15 ?? ?? ?? ?? C6 84 ?? ?? ?? ?? ?? 01 48 8D 4C 24 ?? E8",
-             ResolveMode::Direct, -0x0A, 0},
+             "0F B6 C2 48 8B D9 48 8D 15 ?? ?? ?? ?? C6 84 ?? ?? ?? ?? ?? 01 48 8D 4C 24 ?? E8", ResolveMode::Direct,
+             -0x0A, 0},
         };
 
         // --- ShowOverlays entry ---------------------------------------------
@@ -278,8 +277,7 @@ namespace TPVCamera
         // call. P3 drops the prologue and walks back 0x0A.
         inline constexpr AddrCandidate k_overlayShowCandidates[] = {
             {"OverlayShow_P1_PrologueTestFlag",
-             "44 88 44 24 18 53 48 83 EC ?? 0F B6 C2 48 8B D9 80 BC ?? ?? ?? ?? ?? 00",
-             ResolveMode::Direct, 0, 0},
+             "44 88 44 24 18 53 48 83 EC ?? 0F B6 C2 48 8B D9 80 BC ?? ?? ?? ?? ?? 00", ResolveMode::Direct, 0, 0},
             {"OverlayShow_P2_TestThroughClear",
              "44 88 44 24 18 53 48 83 EC ?? 0F B6 C2 48 8B D9 80 BC ?? ?? ?? ?? ?? 00 ?? ?? C6 84 ?? ?? ?? ?? ?? 00 E8",
              ResolveMode::Direct, 0, 0},
@@ -298,11 +296,9 @@ namespace TPVCamera
             {"MenuOpen_P1_EntryFieldTest",
              "48 89 5C 24 10 48 89 74 24 18 55 57 41 56 48 8B EC 48 83 EC 50 48 8D 71 A8 44 8A F2 80 BE 70 06 00 00 00",
              ResolveMode::Direct, 0, 0},
-            {"MenuOpen_P2_VtableCallSetInput",
-             "48 8B 41 B0 48 8B 48 30 48 8B 01 FF 10 48 8D 15 ?? ?? ?? ??",
+            {"MenuOpen_P2_VtableCallSetInput", "48 8B 41 B0 48 8B 48 30 48 8B 01 FF 10 48 8D 15 ?? ?? ?? ??",
              ResolveMode::Direct, -0x36, 0},
-            {"MenuOpen_P3_FieldTestBranch",
-             "80 BE 70 06 00 00 00 48 8B F9 0F 84 ?? ?? ?? ?? 80 79 48 00 0F 85",
+            {"MenuOpen_P3_FieldTestBranch", "80 BE 70 06 00 00 00 48 8B F9 0F 84 ?? ?? ?? ?? 80 79 48 00 0F 85",
              ResolveMode::Direct, -0x1C, 0},
         };
 
@@ -315,8 +311,8 @@ namespace TPVCamera
         // prologue LENGTH and the ModRM bytes of `lea r,[rcx-58h]` /
         // `cmp byte [r+0A0h], 0`, so a single entry pattern cannot span both, and
         // a single mid-body walk-back distance is build-specific too (the Steam
-        // body is 0x18E entry->store; GOG is 0x15F, so the old -0x18E anchor
-        // landed 0x2F before the GOG entry, inside the previous function). P1 is
+        // body is 0x18E entry->store while GOG is 0x15F, so a fixed -0x18E walk-back
+        // would land 0x2F before the GOG entry, inside the preceding function). P1 is
         // the Steam rsi-form entry; P2 is the GOG/alt-register entry (save-one-reg
         // form) with the lea/cmp register ModRM wildcarded so it tolerates any
         // object register. Both are disp 0 (entry-anchored, build-robust), so a
@@ -330,13 +326,10 @@ namespace TPVCamera
              "48 89 5C 24 18 48 89 74 24 20 57 48 83 EC 30 48 8D 71 A8 48 8B D9 80 BE A0 00 00 00 00",
              ResolveMode::Direct, 0, 0},
             {"MenuClose_P2_EntryFieldTestAltReg",
-             "48 89 5C 24 18 57 48 83 EC 30 48 8D ?? A8 48 8B D9 80 ?? A0 00 00 00 00",
-             ResolveMode::Direct, 0, 0},
-            {"MenuClose_P3_DeactivateStore",
-             "8A ?? 48 48 8D ?? 28 C6 ?? 49 00 E8 ?? ?? ?? ?? C6 ?? 48 00",
+             "48 89 5C 24 18 57 48 83 EC 30 48 8D ?? A8 48 8B D9 80 ?? A0 00 00 00 00", ResolveMode::Direct, 0, 0},
+            {"MenuClose_P3_DeactivateStore", "8A ?? 48 48 8D ?? 28 C6 ?? 49 00 E8 ?? ?? ?? ?? C6 ?? 48 00",
              ResolveMode::Direct, -0x18E, 0},
-            {"MenuClose_P4_FieldTestBranch",
-             "48 8D 71 A8 48 8B D9 80 BE A0 00 00 00 00 0F 84 ?? ?? ?? ?? E8",
+            {"MenuClose_P4_FieldTestBranch", "48 8D 71 A8 48 8B D9 80 BE A0 00 00 00 00 0F 84 ?? ?? ?? ?? E8",
              ResolveMode::Direct, -0x0F, 0},
         };
     } // namespace Aob
