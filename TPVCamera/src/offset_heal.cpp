@@ -52,8 +52,8 @@ constexpr std::size_t k_heal_window_default = 0x100;
 // this mangled type." Each is keyed on a type that is stable across patches (an engine/base type or an
 // already-trusted concrete type), per the rtti_dissect guidance. base is filled at call time. The
 // indirection records the slot SHAPE: every member here is a pointer-to-object EXCEPT the missile
-// controller, which is constructed in-place inside C_Player (its first qword is the vtable), so its slot is
-// a direct object base.
+// controller, which is constructed in-place inside C_Player (its first qword is the vtable), so it is a
+// direct object base matched with CompleteObject (see k_missile_lm for why CompleteObject, not ObjectBase).
 constexpr DMK::Rtti::Landmark k_entity_lm{
     .nominal_offset = Constants::C_PLAYER_ENTITY_OFFSET,
     .expected_mangled = Constants::C_ENTITY_RTTI_NAME,
@@ -69,7 +69,13 @@ constexpr DMK::Rtti::Landmark k_actormodel_lm{
 constexpr DMK::Rtti::Landmark k_missile_lm{
     .nominal_offset = Constants::C_PLAYER_MISSILE_CONTROLLER_OFFSET,
     .expected_mangled = Constants::C_MISSILE_CONTROLLER_RTTI_NAME,
-    .indirection = DMK::Rtti::Indirection::ObjectBase}; // embedded object, not a pointer
+    // Embedded object, not a pointer. CompleteObject matches only the primary subobject (COL.offset == 0),
+    // where ObjectBase would match any subobject: under multiple inheritance every base carries its own
+    // vtable and each vtable's COL names the same most-derived type, so a window scan keyed on ObjectBase
+    // could latch a secondary base and heal to an offset shifted by that subobject delta (a silent,
+    // confidence-full off-by-a-subobject heal). The embedded member's nominal slot already holds the primary
+    // vtable, so CompleteObject only adds the MI guard for the drift scan and never changes the nominal match.
+    .indirection = DMK::Rtti::Indirection::CompleteObject};
 constexpr DMK::Rtti::Landmark k_animchar_lm{
     .nominal_offset = Constants::ANIMATED_HUMAN_ANIMCHAR_OFFSET,
     .expected_mangled = Constants::ANIMATED_CHARACTER_RTTI_NAME,
