@@ -142,6 +142,12 @@ namespace TPVCamera
         // Start-of-session auto-enable flags, read ONCE during init(). Disabled by default.
         std::atomic<bool> auto_enable_tpv{false};   // enter third-person automatically on game start
         std::atomic<bool> auto_enable_orbit{false}; // engage free-look orbit automatically on game start
+
+        // Advanced. Per-side search radius (bytes) the RTTI self-heal scans around each nominal offset to
+        // recover a field after a game patch shifts the struct layout (see offset_heal.cpp). Read once when
+        // the heal runs (not a hot path); clamped to the DMK maximum. Larger tolerates a bigger insertion at
+        // a slightly higher risk of a wrong heal onto a same-typed neighbour. Not for normal users to touch.
+        std::atomic<int> self_heal_window{0x100};
     };
 
     /** @brief Returns the process-wide live (atomic) settings. */

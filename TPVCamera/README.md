@@ -252,6 +252,17 @@ fallback), and engine object types are matched by their MSVC RTTI names rather t
 addresses. The cascade signatures follow DetourModKit's
 [AOB signature guide](https://github.com/tkhquang/DetourModKit/blob/main/docs/misc/aob-signatures.md).
 
+The AOB cascades resolve struct base addresses; a self-healing offset layer (`src/offset_heal.hpp`)
+covers the field offsets walked inside those structs. A game patch that inserts or removes a member
+shifts every field after it, so each in-scope offset is keyed to the MSVC RTTI name of the object its
+slot points at, and DetourModKit's reverse-RTTI self-heal (`rtti_dissect.hpp`) scans a small window
+around the nominal offset for the slot that still resolves to that type. The recovery runs once per
+session the first time a live, RTTI-validated player and context resolve (never per frame); the
+per-frame chains then read the cached offset. The look controller, whose pointee has no RTTI of its
+own, is bracketed by its two RTTI-typed neighbours and only moves when both agree on one shift.
+Everything is fail-closed: an offset the heal cannot recover stays at its built-in value, so the mod
+degrades to its previous behaviour rather than reading the wrong memory.
+
 ## Credits
 
 - [ThirteenAG](https://github.com/ThirteenAG) - for the Ultimate ASI Loader
