@@ -51,6 +51,9 @@ void register_config_items()
     DMK::Config::register_atomic<bool>("Settings", "AutoEnableTPV", "Auto Enable TPV", s.auto_enable_tpv, true);
     DMK::Config::register_atomic<bool>("Settings", "AutoEnableOrbit", "Auto Enable Orbit", s.auto_enable_orbit, false);
 
+    // Advanced: RTTI self-heal search radius (see offset_heal.cpp). Not for normal users.
+    DMK::Config::register_atomic<int>("Advanced", "SelfHealWindow", "Self Heal Window", s.self_heal_window, 0x100);
+
     // Camera framing. The follow distance, offsets, eye height, aim focus, follow yaw/pitch, the orbit
     // tuning, and the per-preset collision values are all OWNED BY PRESETS (in the shipped presets JSON,
     // applied to the live atomics each frame), so they are NOT INI settings -- tune them in the overlay.

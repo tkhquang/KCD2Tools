@@ -82,7 +82,9 @@ void resolve_all_anchors(std::uintptr_t module_base, std::size_t module_size)
         if (entry.status == DMK::Anchors::AnchorStatus::Resolved)
         {
             s_resolved_addresses[i] = static_cast<std::uintptr_t>(entry.value);
-            logger.info("Anchor {} -> {}", entry.label, DMK::Format::format_address(s_resolved_addresses[i]));
+            // Per-anchor address is for RE / external tooling, not routine status, so keep it at Debug; the
+            // one-line quality summary below is the default-level health check, and a failure still warns.
+            logger.debug("Anchor {} -> {}", entry.label, DMK::Format::format_address(s_resolved_addresses[i]));
         }
         else
         {

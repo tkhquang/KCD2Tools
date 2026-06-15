@@ -30,6 +30,7 @@
 #include "global_state.hpp"
 #include "game_state.hpp"
 #include "game_structures.hpp"
+#include "offset_heal.hpp"
 #include "math_utils.hpp"
 #include "physics_raycast.hpp"
 #include "hooks/ui_menu_hooks.hpp"
@@ -45,6 +46,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -237,28 +239,70 @@ static uintptr_t resolve_c_player()
     {
         return 0;
     }
-    const auto c_player =
-        DMK::Memory::seh_read<uintptr_t>(*p_action_game + Constants::CACTIONGAME_LOCAL_ACTOR_OFFSET);
-    if (!c_player || !DMK::Memory::plausible_userspace_ptr(*c_player))
+
+    // Read the local actor through the self-healed CActionGame offset, then confirm it is a real C_Player
+    // by its vtable. C_Player is found THROUGH this offset, so the offset cannot be healed from a resolved
+    // C_Player; instead, when the cached slot holds a populated object that is NOT a C_Player (the
+    // signature of a CActionGame layout drift), attempt a bounded recovery scan and re-read. The nominal
+    // slot is probed first inside the heal, so an undrifted build never scans.
+    RuntimeOffsets &offsets = runtime_offsets();
+    auto player = DMK::Memory::seh_read<uintptr_t>(
+        *p_action_game + offsets.cactiongame_local_actor.load(std::memory_order_relaxed));
+    const auto is_c_player = [](const std::optional<uintptr_t> &candidate) {
+        if (!candidate || !DMK::Memory::plausible_userspace_ptr(*candidate))
+        {
+            return false;
+        }
+        const auto vt = DMK::Memory::seh_read<uintptr_t>(*candidate);
+        return vt.has_value() && DMK::Rtti::vtable_is_type(*vt, Constants::C_PLAYER_RTTI_NAME);
+    };
+    bool player_valid = is_c_player(player);
+    if (!player_valid && player && DMK::Memory::plausible_userspace_ptr(*player))
+    {
+        // The cached slot holds a populated object that is NOT a C_Player: the signature of a CActionGame
+        // layout drift. Recover the offset by scanning CActionGame for the C_Player slot, then re-read and
+        // re-validate. A successful recovery updates the cache, so the read above succeeds on later frames
+        // and this branch stops being entered (the natural stop). The scan is RATE-LIMITED to a fixed frame
+        // interval rather than capped by a fixed number of attempts: the heal contract forbids scanning
+        // every frame (it is syscall-heavy), but a hard attempt cap could be exhausted by a slow save/level
+        // load, where the real player may not be seated until many seconds after this slot first reads
+        // populated-but-wrong, permanently disabling recovery before the player even exists. An interval
+        // never gives up, so it keeps retrying until the player appears; on a truly unrecoverable drift it
+        // settles into a cheap periodic scan, not a per-frame one. The first entered frame scans immediately
+        // (counter starts at 0), so an undrifted-with-real-drift build recovers on the first opportunity.
+        constexpr int k_local_actor_retry_interval_frames = 30; // about 0.5s at 60 FPS between scans
+        static int s_frames_until_retry = 0;
+        if (s_frames_until_retry > 0)
+        {
+            --s_frames_until_retry;
+        }
+        else
+        {
+            s_frames_until_retry = k_local_actor_retry_interval_frames;
+            const std::ptrdiff_t healed = heal_local_actor_offset(*p_action_game);
+            player = DMK::Memory::seh_read<uintptr_t>(*p_action_game + healed);
+            player_valid = is_c_player(player);
+        }
+    }
+    if (!player_valid)
     {
         return 0;
     }
-    const auto vt = DMK::Memory::seh_read<uintptr_t>(*c_player);
-    if (!vt || !DMK::Rtti::vtable_is_type(*vt, Constants::C_PLAYER_RTTI_NAME))
-    {
-        return 0;
-    }
+
+    // A real C_Player is in hand: heal its rooted offsets once (one-shot internally), so the per-frame aim
+    // and body-turn walks read the recovered offsets on a drifted build.
+    heal_player_offsets(*player);
 
     // Log the resolved C_Player and cached CCryAction only when the player pointer CHANGES (once on first
     // resolve, and again after a reload / new player) so the address is available for external tooling
     // without flooding the log.
     {
         static uintptr_t s_logged_player{0};
-        if (*c_player != s_logged_player)
+        if (*player != s_logged_player)
         {
-            s_logged_player = *c_player;
+            s_logged_player = *player;
             DMK::Logger::get_instance().debug("C_Player resolved={} (CCryAction={})",
-                                              DMK::Format::format_address(*c_player),
+                                              DMK::Format::format_address(*player),
                                               DMK::Format::format_address(s_cry_action));
         }
     }
@@ -267,7 +311,7 @@ static uintptr_t resolve_c_player()
     // wait on this so it never sizes itself to the transient loading window.
     game_world_ready().store(true, std::memory_order_relaxed);
 
-    return *c_player;
+    return *player;
 }
 
 /**
@@ -330,8 +374,8 @@ static void apply_orbit_aim_control_impl(float pitch_ease, bool set_yaw, float y
     {
         return;
     }
-    const auto c_player =
-        DMK::Memory::seh_read<uintptr_t>(*p_action_game + Constants::CACTIONGAME_LOCAL_ACTOR_OFFSET);
+    const auto c_player = DMK::Memory::seh_read<uintptr_t>(
+        *p_action_game + runtime_offsets().cactiongame_local_actor.load(std::memory_order_relaxed));
     if (!c_player || !DMK::Memory::plausible_userspace_ptr(*c_player))
     {
         return;
@@ -342,8 +386,8 @@ static void apply_orbit_aim_control_impl(float pitch_ease, bool set_yaw, float y
     {
         return;
     }
-    const auto controller =
-        DMK::Memory::seh_read<uintptr_t>(*c_player + Constants::C_PLAYER_LOOK_CONTROLLER_OFFSET);
+    const auto controller = DMK::Memory::seh_read<uintptr_t>(
+        *c_player + runtime_offsets().c_player_look_controller.load(std::memory_order_relaxed));
     if (!controller || !DMK::Memory::plausible_userspace_ptr(*controller))
     {
         return;
@@ -421,14 +465,15 @@ static void apply_orbit_body_turn_impl(float target_yaw)
 
     // C_Player -> C_AnimatedHuman (+0x268) -> CAnimatedCharacter (+0x20). Validate the animchar vtable
     // before touching its override fields; a mismatch means the layout drifted, so skip this frame.
-    const auto animated_human =
-        DMK::Memory::seh_read<uintptr_t>(c_player + Constants::C_PLAYER_ANIMATED_HUMAN_OFFSET);
+    const RuntimeOffsets &offsets = runtime_offsets();
+    const auto animated_human = DMK::Memory::seh_read<uintptr_t>(
+        c_player + offsets.c_player_animated_human.load(std::memory_order_relaxed));
     if (!animated_human || !DMK::Memory::plausible_userspace_ptr(*animated_human))
     {
         return;
     }
-    const auto anim_char =
-        DMK::Memory::seh_read<uintptr_t>(*animated_human + Constants::ANIMATED_HUMAN_ANIMCHAR_OFFSET);
+    const auto anim_char = DMK::Memory::seh_read<uintptr_t>(
+        *animated_human + offsets.animated_human_animchar.load(std::memory_order_relaxed));
     if (!anim_char || !DMK::Memory::plausible_userspace_ptr(*anim_char))
     {
         return;
@@ -609,7 +654,8 @@ static void offset_game_view_camera(uintptr_t camera, uintptr_t cview, uintptr_t
         uintptr_t entity_addr = 0;
         if (c_player != 0)
         {
-            const auto ent = DMK::Memory::seh_read<uintptr_t>(c_player + Constants::C_PLAYER_ENTITY_OFFSET);
+            const auto ent = DMK::Memory::seh_read<uintptr_t>(
+                c_player + runtime_offsets().c_player_entity.load(std::memory_order_relaxed));
             if (ent && DMK::Memory::plausible_userspace_ptr(*ent))
             {
                 entity_addr = *ent;

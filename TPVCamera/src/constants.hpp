@@ -97,6 +97,13 @@ namespace Constants
     constexpr ptrdiff_t CCRYACTION_ACTIONGAME_OFFSET = 0x88;
     constexpr ptrdiff_t CACTIONGAME_LOCAL_ACTOR_OFFSET = 0xA40;
     constexpr ptrdiff_t C_PLAYER_LOOK_CONTROLLER_OFFSET = 0x238;
+    // The look-controller pointee is a non-polymorphic struct with no RTTI, so the self-heal layer cannot
+    // match it by type directly. C_HitDeathReactions is the RTTI-typed member at the immediately adjacent
+    // qword (C_Player + 0x240); pairing it with the entity pointer (C_Player + 0x38) brackets the
+    // look-controller slot so its offset rides a uniform layout shift only when both straddling neighbours
+    // agree on one delta, and stays nominal otherwise (fail-closed). See offset_heal.cpp.
+    constexpr ptrdiff_t C_PLAYER_HIT_DEATH_REACTIONS_OFFSET = 0x240;
+    constexpr const char *C_HIT_DEATH_REACTIONS_RTTI_NAME = ".?AVC_HitDeathReactions@entitymodule@wh@@";
     constexpr ptrdiff_t LOOK_CONTROLLER_PITCH_OFFSET = 0x8;   // scalar look pitch (radians, 0 = level)
     constexpr ptrdiff_t LOOK_CONTROLLER_PITCH2_OFFSET = 0x48; // synchronized pitch copy
     // Scalar look yaw (radians; horizontal forward = (-sin yaw, cos yaw)), with a synchronized copy.
@@ -119,7 +126,12 @@ namespace Constants
     //   then write animchar+ANIMCHAR_OVERRIDE_ROT_ACTIVE_OFFSET = 1 and the world quat (XYZW) at
     //   animchar+ANIMCHAR_OVERRIDE_ROT_QUAT_OFFSET.
     constexpr ptrdiff_t C_PLAYER_ENTITY_OFFSET = 0x38; // C_Player -> CEntity (resolve fresh each frame)
+    // RTTI type-descriptor name of CEntity, the self-heal anchor for the entity pointer. CEntity is a
+    // stable engine base type (per the self-heal guidance to key on a base, not a game-specific subtype).
+    constexpr const char *C_ENTITY_RTTI_NAME = ".?AVCEntity@@";
     constexpr ptrdiff_t C_PLAYER_ANIMATED_HUMAN_OFFSET = 0x268;
+    // RTTI type-descriptor name of C_AnimatedHuman, the self-heal anchor for the animated-human pointer.
+    constexpr const char *C_ANIMATED_HUMAN_RTTI_NAME = ".?AVC_AnimatedHuman@animationmodule@wh@@";
     constexpr ptrdiff_t ANIMATED_HUMAN_ANIMCHAR_OFFSET = 0x20;
     // RTTI type-descriptor name of CAnimatedCharacter, used to validate the resolved animchar.
     constexpr const char *ANIMATED_CHARACTER_RTTI_NAME = ".?AVCAnimatedCharacter@@";
@@ -319,6 +331,8 @@ namespace Constants
     // Global-context -> camera-manager pointer. The manager is the root the game-state detection
     // walks to read the active camera (see OFFSET_ACTIVE_CAMERA below and game_state.cpp).
     constexpr ptrdiff_t OFFSET_MANAGER_PTR_STORAGE = 0x38; // Global context to camera manager
+    // RTTI type-descriptor name of the camera manager, the self-heal anchor for OFFSET_MANAGER_PTR_STORAGE.
+    constexpr const char *C_CAMERA_MANAGER_RTTI_NAME = ".?AVC_CameraManager@game@wh@@";
 
     // --- Game-state detection (see game_state.cpp) ---
     // Active-camera pointer on the wh::game::C_CameraManager (the same manager reached via
@@ -352,6 +366,8 @@ namespace Constants
     // OFFSET_MINIGAME_NODE_VALUE; the minigame's owning C_Human/C_Player is at OFFSET_MINIGAME_OWNER.
     // The concrete minigame's RTTI then identifies WHICH minigame (see the names below).
     constexpr ptrdiff_t OFFSET_MINIGAME_SUBSYSTEM = 0x128; // global context -> minigame subsystem pointer
+    // RTTI type-descriptor name of the minigame subsystem, the self-heal anchor for OFFSET_MINIGAME_SUBSYSTEM.
+    constexpr const char *C_PLAYER_MODULE_RTTI_NAME = ".?AVC_PlayerModule@playermodule@wh@@";
     constexpr ptrdiff_t OFFSET_MINIGAME_MANAGER = 0x18;    // subsystem -> C_MinigameManager (getter inlined)
     constexpr ptrdiff_t OFFSET_MINIGAME_MAP_HEAD = 0x20;   // manager -> minigame-map sentinel node pointer
     constexpr ptrdiff_t OFFSET_MINIGAME_NODE_NEXT = 0x00;  // list node -> next node (sentinel terminates)

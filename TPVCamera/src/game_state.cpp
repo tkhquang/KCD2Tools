@@ -11,6 +11,7 @@
 #include "game_state.hpp"
 #include "constants.hpp"
 #include "global_state.hpp"
+#include "offset_heal.hpp"
 #include "hooks/ui_menu_hooks.hpp"
 
 #include <DetourModKit.hpp>
@@ -61,10 +62,11 @@ namespace
 
 /**
  * @brief Resolves the active camera and classifies it, returning 0 on any failed read.
- * @details Walks g_global_context -> camera manager (OFFSET_MANAGER_PTR_STORAGE) -> active camera
- *          (OFFSET_ACTIVE_CAMERA) -> vtable, each link SEH-guarded and screened as a plausible
- *          user-space pointer. The manager is the same wh::game::C_CameraManager the built-in TPV
- *          flag is read from, so the chain reuses the already-resolved context pointer storage.
+ * @details Dereferences the global-context slot to the context object first (so the self-heal can scan the
+ *          anchored base), then once the world is live heals the context member offsets one-shot, then walks
+ *          context -> camera manager (self-healed OFFSET_MANAGER_PTR_STORAGE) -> active camera
+ *          (OFFSET_ACTIVE_CAMERA) -> vtable, each link SEH-guarded and screened as a plausible user-space
+ *          pointer. The manager is the same wh::game::C_CameraManager the built-in TPV flag is read from.
  */
 [[nodiscard]] uint32_t poll_active_camera_state() noexcept
 {
@@ -73,13 +75,25 @@ namespace
     {
         return 0;
     }
-    // One guarded walk: g_global_context -> camera manager (OFFSET_MANAGER_PTR_STORAGE) -> active camera
-    // (OFFSET_ACTIVE_CAMERA) -> vtable. seh_read_chain screens every intermediate link with
+    // Resolve the context object first so the self-heal can run against it. Gating the heal on the world
+    // being live (rather than on the manager slot being populated) keeps a camera-manager OFFSET drift
+    // recoverable: the heal scans the anchored context base, never navigating through the offset it heals.
+    const auto context = DMK::Memory::seh_read<uintptr_t>(reinterpret_cast<uintptr_t>(context_slot));
+    if (!context || !DMK::Memory::plausible_userspace_ptr(*context))
+    {
+        return 0;
+    }
+    if (game_world_ready().load(std::memory_order_relaxed))
+    {
+        heal_context_offsets(*context);
+    }
+    // One guarded walk: context object -> camera manager (self-healed OFFSET_MANAGER_PTR_STORAGE) -> active
+    // camera (OFFSET_ACTIVE_CAMERA) -> vtable. seh_read_chain screens every intermediate link with
     // plausible_userspace_ptr under a single fault guard; the terminal vtable value it returns is not
     // range-checked by the chain, so it is screened here to match the previous per-hop walk.
     const auto vtable = DMK::Memory::seh_read_chain<uintptr_t>(
-        reinterpret_cast<uintptr_t>(context_slot),
-        {0, Constants::OFFSET_MANAGER_PTR_STORAGE, Constants::OFFSET_ACTIVE_CAMERA, 0});
+        *context, {runtime_offsets().context_manager.load(std::memory_order_relaxed),
+                   Constants::OFFSET_ACTIVE_CAMERA, 0});
     if (!vtable || !DMK::Memory::plausible_userspace_ptr(*vtable))
     {
         return 0;
@@ -144,8 +158,8 @@ namespace
     // head's next back to the head itself, so the begin read below is deliberately NOT plausibility-screened.
     const auto head = DMK::Memory::seh_read_chain<uintptr_t>(
         reinterpret_cast<uintptr_t>(context_slot),
-        {0, Constants::OFFSET_MINIGAME_SUBSYSTEM, Constants::OFFSET_MINIGAME_MANAGER,
-         Constants::OFFSET_MINIGAME_MAP_HEAD});
+        {0, runtime_offsets().context_minigame_subsystem.load(std::memory_order_relaxed),
+         Constants::OFFSET_MINIGAME_MANAGER, Constants::OFFSET_MINIGAME_MAP_HEAD});
     if (!head || !DMK::Memory::plausible_userspace_ptr(*head))
     {
         return 0;
@@ -212,7 +226,9 @@ namespace
  */
 [[nodiscard]] bool poll_missile_aiming(uintptr_t c_player) noexcept
 {
-    const auto vtable = DMK::Memory::seh_read<uintptr_t>(c_player + Constants::C_PLAYER_MISSILE_CONTROLLER_OFFSET);
+    const std::ptrdiff_t missile_offset =
+        runtime_offsets().c_player_missile_controller.load(std::memory_order_relaxed);
+    const auto vtable = DMK::Memory::seh_read<uintptr_t>(c_player + missile_offset);
     if (!vtable || !DMK::Memory::plausible_userspace_ptr(*vtable))
     {
         return false;
@@ -233,8 +249,8 @@ namespace
     // The aim flag is a single BYTE: the surrounding bytes pack a separate "weapon in hand" flag,
     // so reading a dword would also fire when the weapon is merely drawn (in hand not aiming = 0,
     // raised/aiming = 1).
-    const auto aim_flag = DMK::Memory::seh_read<uint8_t>(
-        c_player + Constants::C_PLAYER_MISSILE_CONTROLLER_OFFSET + Constants::MISSILE_CONTROLLER_AIM_FLAG_OFFSET);
+    const auto aim_flag =
+        DMK::Memory::seh_read<uint8_t>(c_player + missile_offset + Constants::MISSILE_CONTROLLER_AIM_FLAG_OFFSET);
     return aim_flag && *aim_flag != 0;
 }
 
@@ -256,7 +272,8 @@ namespace
  */
 [[nodiscard]] uint32_t poll_stance(uintptr_t c_player) noexcept
 {
-    const auto actor_model = DMK::Memory::seh_read<uintptr_t>(c_player + Constants::C_PLAYER_ACTOR_MODEL_OFFSET);
+    const auto actor_model = DMK::Memory::seh_read<uintptr_t>(
+        c_player + runtime_offsets().c_player_actor_model.load(std::memory_order_relaxed));
     if (!actor_model || !DMK::Memory::plausible_userspace_ptr(*actor_model))
     {
         return 0u;
