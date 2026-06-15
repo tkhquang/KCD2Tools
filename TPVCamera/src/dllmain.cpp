@@ -44,11 +44,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD ul_reason_for_call, LPVOID lp_rese
 
         // No process-name gate: the WHGame.dll module check in init() is the gate.
         const DMK::Bootstrap::ModInfo info{
-            Constants::MOD_NAME,
-            Constants::LOG_FILE_NAME,
-            "",
-            Constants::INSTANCE_MUTEX_PREFIX,
-            async_cfg,
+            Constants::MOD_NAME, Constants::LOG_FILE_NAME, "", Constants::INSTANCE_MUTEX_PREFIX, async_cfg,
         };
 
         return DMK::Bootstrap::on_dll_attach(h_module, info, &init_mod, &shutdown_mod);

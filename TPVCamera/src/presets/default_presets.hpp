@@ -23,8 +23,8 @@
 namespace TPVCamera::Presets
 {
 
-/// Canonical factory presets as a JSON document, parsed once at runtime to seed/repair the store.
-inline constexpr const char *k_default_presets_json = R"json(
+    /// Canonical factory presets as a JSON document, parsed once at runtime to seed/repair the store.
+    inline constexpr const char *k_default_presets_json = R"json(
 {
   "version": 1,
   "editing": "DEFAULT",

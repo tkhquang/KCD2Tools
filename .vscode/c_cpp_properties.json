@@ -1,20 +1,81 @@
 {
+  // One configuration per C++ module. Both modules build with the Visual Studio
+  // 2022 generator, which does not emit a compile_commands.json, so each include
+  // root and define is listed explicitly (matching the module's CMakeLists and the
+  // headers its DetourModKit submodule / FetchContent dependencies provide). Pick
+  // the matching configuration from the C/C++ config selector in the status bar
+  // for the module you are editing. The generated dependency headers live under
+  // build/dev-msvc/_deps, so configure that preset once (cmake --preset msvc-dev)
+  // before IntelliSense can resolve them.
   "configurations": [
     {
-      "name": "windows-msvc-x64",
-      "configurationProvider": "ms-vscode.cmake-tools",
+      "name": "TPVCamera (MSVC)",
+      "includePath": [
+        "${workspaceFolder}/TPVCamera/src",
+        "${workspaceFolder}/TPVCamera/external/DetourModKit/include",
+        "${workspaceFolder}/TPVCamera/external/DetourModKit/external/DirectXMath/Inc",
+        "${workspaceFolder}/TPVCamera/external/DetourModKit/external/simpleini",
+        "${workspaceFolder}/TPVCamera/external/DetourModKit/external/safetyhook/include",
+        "${workspaceFolder}/TPVCamera/build/dev-msvc/external/DetourModKit/generated",
+        "${workspaceFolder}/TPVCamera/build/dev-msvc/_deps/imgui-src",
+        "${workspaceFolder}/TPVCamera/build/dev-msvc/_deps/imgui-src/backends",
+        "${workspaceFolder}/TPVCamera/build/dev-msvc/_deps/nlohmann_json-src/include",
+        "${workspaceFolder}/TPVCamera/build/dev-msvc/_deps/zydis-src/include",
+        "${workspaceFolder}/TPVCamera/build/dev-msvc/_deps/zydis-build",
+        "${workspaceFolder}/TPVCamera/build/dev-msvc/_deps/zydis-src/dependencies/zycore/include",
+        "${workspaceFolder}/TPVCamera/build/dev-msvc/_deps/zydis-build/zycore"
+      ],
+      "defines": [
+        "_DEBUG",
+        "WIN32",
+        "_WINDOWS",
+        "NOMINMAX",
+        "WIN32_LEAN_AND_MEAN",
+        "WINVER=0x0A00",
+        "_WIN32_WINNT=0x0A00",
+        "_XM_SSE_INTRINSICS_",
+        "SAFETYHOOK_NO_DLL",
+        "ZYCORE_STATIC_BUILD",
+        "ZYDIS_STATIC_BUILD",
+        "TPVCAMERA_DEV_BUILD"
+      ],
+      "compilerPath": "cl.exe",
+      "cStandard": "c23",
+      "cppStandard": "c++23",
+      "intelliSenseMode": "windows-msvc-x64"
+    },
+    {
+      "name": "TPVToggle (MSVC)",
       "includePath": [
         "${workspaceFolder}/TPVToggle/src",
         "${workspaceFolder}/TPVToggle/external/DetourModKit/include",
+        "${workspaceFolder}/TPVToggle/external/DetourModKit/external/DirectXMath/Inc",
+        "${workspaceFolder}/TPVToggle/external/DetourModKit/external/simpleini",
+        "${workspaceFolder}/TPVToggle/external/DetourModKit/external/safetyhook/include",
+        "${workspaceFolder}/TPVToggle/build/dev-msvc/external/DetourModKit/generated",
         "${workspaceFolder}/TPVToggle/external/json/include",
         "${workspaceFolder}/TPVToggle/external/KCD2ModLoader/src",
-        "${workspaceFolder}/TPVCamera/src",
-        "${workspaceFolder}/TPVCamera/external/DetourModKit/include",
-        "${workspaceFolder}/**"
+        "${workspaceFolder}/TPVToggle/build/dev-msvc/_deps/zydis-src/include",
+        "${workspaceFolder}/TPVToggle/build/dev-msvc/_deps/zydis-build",
+        "${workspaceFolder}/TPVToggle/build/dev-msvc/_deps/zydis-src/dependencies/zycore/include",
+        "${workspaceFolder}/TPVToggle/build/dev-msvc/_deps/zydis-build/zycore"
       ],
-      "defines": ["_DEBUG", "UNICODE", "_UNICODE", "WIN32", "_WINDOWS"],
+      "defines": [
+        "_DEBUG",
+        "WIN32",
+        "_WINDOWS",
+        "NOMINMAX",
+        "WIN32_LEAN_AND_MEAN",
+        "WINVER=0x0A00",
+        "_WIN32_WINNT=0x0A00",
+        "_XM_SSE_INTRINSICS_",
+        "SAFETYHOOK_NO_DLL",
+        "ZYCORE_STATIC_BUILD",
+        "ZYDIS_STATIC_BUILD",
+        "TPVTOGGLE_DEV_BUILD"
+      ],
       "compilerPath": "cl.exe",
-      "cStandard": "c17",
+      "cStandard": "c23",
       "cppStandard": "c++23",
       "intelliSenseMode": "windows-msvc-x64"
     }

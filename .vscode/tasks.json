@@ -1,0 +1,39 @@
+{
+  "version": "2.0.0",
+  // CMake resolves through the Visual Studio 2022 toolchain. Each C++ module owns
+  // its own CMakePresets.json, so tasks run from the module directory. The
+  // msvc-dev preset builds the two-DLL hot-reload configuration; msvc-release
+  // builds the single production ASI.
+  "tasks": [
+    {
+      "label": "TPVCamera: configure (msvc-dev)",
+      "type": "shell",
+      "command": "cmake --preset msvc-dev",
+      "options": { "cwd": "${workspaceFolder}/TPVCamera" },
+      "problemMatcher": []
+    },
+    {
+      "label": "TPVCamera: build (msvc-dev)",
+      "type": "shell",
+      "command": "cmake --build --preset msvc-dev",
+      "options": { "cwd": "${workspaceFolder}/TPVCamera" },
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$msCompile"]
+    },
+    {
+      "label": "TPVToggle: configure (msvc-dev)",
+      "type": "shell",
+      "command": "cmake --preset msvc-dev",
+      "options": { "cwd": "${workspaceFolder}/TPVToggle" },
+      "problemMatcher": []
+    },
+    {
+      "label": "TPVToggle: build (msvc-dev)",
+      "type": "shell",
+      "command": "cmake --build --preset msvc-dev",
+      "options": { "cwd": "${workspaceFolder}/TPVToggle" },
+      "group": "build",
+      "problemMatcher": ["$msCompile"]
+    }
+  ]
+}

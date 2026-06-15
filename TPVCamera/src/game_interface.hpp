@@ -12,19 +12,19 @@
 namespace TPVCamera
 {
 
-/**
- * @brief Stores the resolved global-context pointer for the game-state camera reads.
- * @details Reads the Context anchor (resolved by resolve_all_anchors()) and stores the slot for the
- *          game-state camera reads (game_state.cpp); without this call those reads find no state.
- * @return true if the context anchor resolved, false otherwise.
- * @note Call after resolve_all_anchors().
- */
-[[nodiscard]] bool initialize_game_interface();
+    /**
+     * @brief Stores the resolved global-context pointer for the game-state camera reads.
+     * @details Reads the Context anchor (resolved by resolve_all_anchors()) and stores the slot for the
+     *          game-state camera reads (game_state.cpp); without this call those reads find no state.
+     * @return true if the context anchor resolved, false otherwise.
+     * @note Call after resolve_all_anchors().
+     */
+    [[nodiscard]] bool initialize_game_interface();
 
-/**
- * @brief Clean up game interface resources.
- */
-void cleanup_game_interface();
+    /**
+     * @brief Clean up game interface resources.
+     */
+    void cleanup_game_interface();
 
 } // namespace TPVCamera
 

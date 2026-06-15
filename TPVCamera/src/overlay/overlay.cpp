@@ -19,43 +19,43 @@
 namespace TPVCamera::Overlay
 {
 
-bool start()
-{
-    DMK::Logger &logger = DMK::Logger::get_instance();
-    if (!Detail::dx_start())
+    bool start()
     {
-        logger.error("[overlay] Failed to start render thread");
-        return false;
+        DMK::Logger &logger = DMK::Logger::get_instance();
+        if (!Detail::dx_start())
+        {
+            logger.error("[overlay] Failed to start render thread");
+            return false;
+        }
+        logger.info("[overlay] Render thread started");
+        return true;
     }
-    logger.info("[overlay] Render thread started");
-    return true;
-}
 
-void stop()
-{
-    Detail::dx_stop();
-}
+    void stop()
+    {
+        Detail::dx_stop();
+    }
 
-void toggle()
-{
-    Detail::dx_set_visible(!Detail::dx_is_visible());
-}
+    void toggle()
+    {
+        Detail::dx_set_visible(!Detail::dx_is_visible());
+    }
 
-void set_visible(bool visible)
-{
-    Detail::dx_set_visible(visible);
-}
+    void set_visible(bool visible)
+    {
+        Detail::dx_set_visible(visible);
+    }
 
-bool is_visible() noexcept
-{
-    return Detail::dx_is_visible();
-}
+    bool is_visible() noexcept
+    {
+        return Detail::dx_is_visible();
+    }
 
-bool wants_input() noexcept
-{
-    if (!is_visible() || !Detail::dx_is_ready())
-        return false;
-    return Detail::dx_wants_input();
-}
+    bool wants_input() noexcept
+    {
+        if (!is_visible() || !Detail::dx_is_ready())
+            return false;
+        return Detail::dx_wants_input();
+    }
 
 } // namespace TPVCamera::Overlay

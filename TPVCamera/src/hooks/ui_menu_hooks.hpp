@@ -11,18 +11,18 @@
 namespace TPVCamera
 {
 
-/**
- * @brief Installs the UI menu open/close hooks from the pre-resolved anchors.
- * @return true if both hooks installed, false otherwise.
- * @note Call after resolve_all_anchors(); the hook targets are read via anchor_address().
- */
-[[nodiscard]] bool initialize_ui_menu_hooks();
+    /**
+     * @brief Installs the UI menu open/close hooks from the pre-resolved anchors.
+     * @return true if both hooks installed, false otherwise.
+     * @note Call after resolve_all_anchors(); the hook targets are read via anchor_address().
+     */
+    [[nodiscard]] bool initialize_ui_menu_hooks();
 
-/**
- * @brief Check if the in-game menu is currently open.
- * @return true if the menu is open, false otherwise.
- */
-[[nodiscard]] bool is_game_menu_open() noexcept;
+    /**
+     * @brief Check if the in-game menu is currently open.
+     * @return true if the menu is open, false otherwise.
+     */
+    [[nodiscard]] bool is_game_menu_open() noexcept;
 
 } // namespace TPVCamera
 

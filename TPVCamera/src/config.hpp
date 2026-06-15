@@ -53,33 +53,39 @@ namespace TPVCamera
         // live in the presets JSON and are tuned in the overlay. The factory default VALUES live in
         // CameraPreset (camera_preset.hpp, equal to the built-in DEFAULT preset); settings() seeds these
         // atomics from a default-constructed CameraPreset at startup, so they are only value-initialized
-        // here. Do NOT re-introduce literal defaults: that duplicated CameraPreset and drifted from it.
+        // here. Do NOT add literal defaults: they would duplicate CameraPreset and drift from it.
         std::atomic<float> follow_distance{};     // follow distance, units behind the pivot
         std::atomic<float> follow_distance_min{}; // closest the zoom keys allow
         std::atomic<float> follow_distance_max{}; // farthest the zoom keys allow
         std::atomic<float> zoom_step{};           // distance change per second while a zoom key is held
         std::atomic<float> offset_up{};           // pivot raise along the world-up axis
-        std::atomic<float> eye_height{};          // anchor height above the player body origin (0 = anchor to the bobbing FP eye)
-        std::atomic<bool> dynamic_eye_sync{};     // re-anchor eye height to the real FP eye on low poses (kneel/pray) out of EyeHeight range
-        std::atomic<float> offset_right{};        // pivot shift along the camera right axis
-        std::atomic<float> aim_focus_distance{};  // crosshair convergence depth, meters (0 = track follow distance)
-        std::atomic<float> follow_yaw{};          // static resting orbit yaw around the pivot, degrees (0 = directly behind)
-        std::atomic<float> follow_pitch{};        // static resting orbit pitch around the pivot, degrees (0 = level)
-        std::atomic<float> fov{};                 // third-person field of view, degrees (0 = use the game FOV)
+        std::atomic<float>
+            eye_height{}; // anchor height above the player body origin (0 = anchor to the bobbing FP eye)
+        std::atomic<bool> dynamic_eye_sync{}; // re-anchor eye height to the real FP eye on low poses (kneel/pray) out
+                                              // of EyeHeight range
+        std::atomic<float> offset_right{};    // pivot shift along the camera right axis
+        std::atomic<float> aim_focus_distance{}; // crosshair convergence depth, meters (0 = track follow distance)
+        std::atomic<float> follow_yaw{};   // static resting orbit yaw around the pivot, degrees (0 = directly behind)
+        std::atomic<float> follow_pitch{}; // static resting orbit pitch around the pivot, degrees (0 = level)
+        std::atomic<float> fov{};          // third-person field of view, degrees (0 = use the game FOV)
 
         // Free-look orbit. The orbit-feel values are preset-owned (seeded/overwritten like the framing
         // above); freeze_orbit_on_cursor is an always-live INI setting (not preset-owned), so it keeps
         // its registered default.
-        std::atomic<float> orbit_sensitivity{};     // free-look MOUSE sensitivity multiplier (mouse delta * this)
-        std::atomic<float> gamepad_orbit_speed{};   // free-look GAMEPAD right-stick rate, deg/sec at full deflection
-        std::atomic<float> orbit_pitch_min{};       // lowest free-look pitch, degrees
-        std::atomic<float> orbit_pitch_max{};       // highest free-look pitch, degrees
-        std::atomic<float> orbit_return_speed{};    // ease-back-to-center speed on release (0 = stay)
-        std::atomic<float> orbit_smoothing{};       // free-look angle low-pass strength, 0..1 (0 = off/raw, higher = smoother but more lag)
+        std::atomic<float> orbit_sensitivity{};   // free-look MOUSE sensitivity multiplier (mouse delta * this)
+        std::atomic<float> gamepad_orbit_speed{}; // free-look GAMEPAD right-stick rate, deg/sec at full deflection
+        std::atomic<float> orbit_pitch_min{};     // lowest free-look pitch, degrees
+        std::atomic<float> orbit_pitch_max{};     // highest free-look pitch, degrees
+        std::atomic<float> orbit_return_speed{};  // ease-back-to-center speed on release (0 = stay)
+        std::atomic<float>
+            orbit_smoothing{}; // free-look angle low-pass strength, 0..1 (0 = off/raw, higher = smoother but more lag)
         std::atomic<bool> orbit_level_aim{};        // level the real player aim/head while orbiting
         std::atomic<bool> orbit_body_turn{};        // force the character body to face the camera heading while moving
-        std::atomic<bool> orbit_continuous_align{}; // GTA-style: body continuously follows the camera while moving (false = capture heading once, hold it)
-        std::atomic<bool> freeze_orbit_on_cursor{true}; // hold the free-look orbit still while the game shows the OS cursor (a UI is up: menu / loot / trade / dialogue) so cursor motion does not turn the camera
+        std::atomic<bool> orbit_continuous_align{}; // GTA-style: body continuously follows the camera while moving
+                                                    // (false = capture heading once, hold it)
+        std::atomic<bool> freeze_orbit_on_cursor{
+            true}; // hold the free-look orbit still while the game shows the OS cursor (a UI is up: menu / loot / trade
+                   // / dialogue) so cursor motion does not turn the camera
 
         // Camera collision. Enable/Skin/ReturnSpeed are preset-owned (seeded/overwritten like the framing
         // above); UseSphereCollision, CollisionRadius and the thin-skip cap below are always-live INI
@@ -91,8 +97,8 @@ namespace TPVCamera
         // continuous as the sweep grazes edges, so the camera does not pump in dense geometry the way a
         // single thin ray does. The radius IS the standoff (collision_skin is not applied on this path).
         // Falls back to the thin ray automatically when the engine sweep is unavailable or faults.
-        std::atomic<bool> use_sphere_collision{true};   // swept sphere (PWI) vs single thin ray (RWI)
-        std::atomic<float> collision_radius{0.15f};     // swept-sphere radius = standoff from surfaces, meters
+        std::atomic<bool> use_sphere_collision{true}; // swept sphere (PWI) vs single thin ray (RWI)
+        std::atomic<float> collision_radius{0.15f};   // swept-sphere radius = standoff from surfaces, meters
         // Skip standalone THIN scenery during camera collision: if a hit physics entity's smallest world-AABB
         // dimension is below this many meters, the camera ignores it and re-casts to the surface behind, so a
         // lone stick / pole / thin sign becomes transparent like grass. 0 (or empty in the INI) = feature OFF

@@ -182,10 +182,10 @@ namespace Constants
 
     // ray_hit field offsets (CryEngine physinterface.h; struct size 0x50).
     constexpr size_t RAY_HIT_SIZE = 0x50;
-    constexpr ptrdiff_t RAY_HIT_OFFSET_DISTANCE = 0x00;  // float, world distance along dir
-    constexpr ptrdiff_t RAY_HIT_OFFSET_COLLIDER = 0x08;  // IPhysicalEntity* pCollider (the entity hit)
-    constexpr ptrdiff_t RAY_HIT_OFFSET_POINT = 0x24;     // Vec3 world hit position
-    constexpr ptrdiff_t RAY_HIT_OFFSET_NORMAL = 0x30;    // Vec3 surface normal
+    constexpr ptrdiff_t RAY_HIT_OFFSET_DISTANCE = 0x00; // float, world distance along dir
+    constexpr ptrdiff_t RAY_HIT_OFFSET_COLLIDER = 0x08; // IPhysicalEntity* pCollider (the entity hit)
+    constexpr ptrdiff_t RAY_HIT_OFFSET_POINT = 0x24;    // Vec3 world hit position
+    constexpr ptrdiff_t RAY_HIT_OFFSET_NORMAL = 0x30;   // Vec3 surface normal
 
     // CPhysicalEntity / CPhysicalPlaceholder world AABB (m_BBox): min @ +0x08, max @ +0x14, each a Vec3.
     // Across many CPhysicalEntity colliders (buildings ~2-4m, a post ~0.72m, fence enclosures) each reads a
@@ -205,7 +205,7 @@ namespace Constants
     // only the world, without needing a per-frame skip-entities list. Trade-off: the camera also glides
     // through movable rigids (crates, barrels, cart, an open/closed door leaf); add a player skip-ents
     // list and restore ent_rigid only if those must block the view.
-    constexpr int RWI_OBJTYPES_CAMERA = 0x101;             // ent_static | ent_terrain (solid world only)
+    constexpr int RWI_OBJTYPES_CAMERA = 0x101; // ent_static | ent_terrain (solid world only)
     // rwi_stop_at_pierceable (0x0F) | rwi_colltype_any (0x400). Every engine camera/aim caller
     // sets rwi_colltype_any so the ray reports hits whatever the surface collision class; without
     // it a surface that does not match the default collision filter is skipped (a phantom miss
@@ -255,24 +255,26 @@ namespace Constants
     // the constructing caller (sub_180817E4C). The struct is heavily reorganized vs the generic
     // CryEngine header, so these are build-specific. Confidence noted per field; the OUTPUT/lock
     // fields (engine writes through them) are the only memory-safety-critical ones and are CONFIRMED.
-    constexpr size_t SPWI_PARAMS_SIZE = 0x100;             // ctor memsets 0xE8; pad to 0x100
-    constexpr ptrdiff_t SPWI_OFF_ITYPE = 0x18;             // int primitive type   (CONFIRMED, matches header)
-    constexpr ptrdiff_t SPWI_OFF_PPRIM = 0x20;             // const primitive*     (CONFIRMED, matches header)
-    constexpr ptrdiff_t SPWI_OFF_SWEEPDIR = 0x8C;          // Vec3 sweep vector    (CONFIRMED: impl |dir|^2>0 -> sweep)
-    constexpr ptrdiff_t SPWI_OFF_FLAGS = 0x98;             // int rwi-style flags  (CONFIRMED: impl tests &0x800 rwi_queue) -- NOT entTypes
-    constexpr ptrdiff_t SPWI_OFF_ENTTYPES = 0x9C;          // entity_query_flags slot per header decl order, but DEAD
-                                                           //                       in this fork: the impl (sub_1808182A0) has
-                                                           //                       ZERO reads of +0x9C, so the sphere CANNOT be
-                                                           //                       type-filtered (it always queries ent_all).
-                                                           //                       Actors are excluded by the fan-authority gate
-                                                           //                       in camera_hook instead, NOT by this field.
-    constexpr ptrdiff_t SPWI_OFF_PPCONTACT = 0xA0;         // geom_contact** OUT   (CONFIRMED, engine writes *ppcontact)
-    constexpr ptrdiff_t SPWI_OFF_GEOMFLAGSALL = 0xA8;      // int                  (tentative: filtering only)
-    constexpr ptrdiff_t SPWI_OFF_GEOMFLAGSANY = 0xAC;      // int                  (tentative: filtering only)
-    constexpr ptrdiff_t SPWI_OFF_NSKIPENTS = 0xB8;         // int                  (CONFIRMED: impl clamps to <=4)
-    constexpr ptrdiff_t SPWI_OFF_PSKIPENTS = 0xC0;         // IPhysicalEntity**    (CONFIRMED: impl indexes pSkipEnts[i])
-    constexpr ptrdiff_t SPWI_OFF_LOCK_IACTIVE = 0xD8;      // int  WriteLockCond.iActive (CONFIRMED)
-    constexpr ptrdiff_t SPWI_OFF_LOCK_PRW = 0xE0;          // int* WriteLockCond.prw     (CONFIRMED; self-ptr = thread-safe, no global lock)
+    constexpr size_t SPWI_PARAMS_SIZE = 0x100;    // ctor memsets 0xE8; pad to 0x100
+    constexpr ptrdiff_t SPWI_OFF_ITYPE = 0x18;    // int primitive type   (CONFIRMED, matches header)
+    constexpr ptrdiff_t SPWI_OFF_PPRIM = 0x20;    // const primitive*     (CONFIRMED, matches header)
+    constexpr ptrdiff_t SPWI_OFF_SWEEPDIR = 0x8C; // Vec3 sweep vector    (CONFIRMED: impl |dir|^2>0 -> sweep)
+    constexpr ptrdiff_t SPWI_OFF_FLAGS =
+        0x98; // int rwi-style flags  (CONFIRMED: impl tests &0x800 rwi_queue) -- NOT entTypes
+    constexpr ptrdiff_t SPWI_OFF_ENTTYPES = 0x9C; // entity_query_flags slot per header decl order, but DEAD
+                                                  //                       in this fork: the impl (sub_1808182A0) has
+                                                  //                       ZERO reads of +0x9C, so the sphere CANNOT be
+                                                  //                       type-filtered (it always queries ent_all).
+                                                  //                       Actors are excluded by the fan-authority gate
+                                                  //                       in camera_hook instead, NOT by this field.
+    constexpr ptrdiff_t SPWI_OFF_PPCONTACT = 0xA0;    // geom_contact** OUT   (CONFIRMED, engine writes *ppcontact)
+    constexpr ptrdiff_t SPWI_OFF_GEOMFLAGSALL = 0xA8; // int                  (tentative: filtering only)
+    constexpr ptrdiff_t SPWI_OFF_GEOMFLAGSANY = 0xAC; // int                  (tentative: filtering only)
+    constexpr ptrdiff_t SPWI_OFF_NSKIPENTS = 0xB8;    // int                  (CONFIRMED: impl clamps to <=4)
+    constexpr ptrdiff_t SPWI_OFF_PSKIPENTS = 0xC0;    // IPhysicalEntity**    (CONFIRMED: impl indexes pSkipEnts[i])
+    constexpr ptrdiff_t SPWI_OFF_LOCK_IACTIVE = 0xD8; // int  WriteLockCond.iActive (CONFIRMED)
+    constexpr ptrdiff_t SPWI_OFF_LOCK_PRW =
+        0xE0; // int* WriteLockCond.prw     (CONFIRMED; self-ptr = thread-safe, no global lock)
 
     // --- Camera-space interaction (door/usable look-at ray redirect) ---
     // The player interactor (wh::entitymodule::C_PlayerInteractor) selects the "press to use" target by
@@ -437,8 +439,8 @@ namespace Constants
     // SVIEWPARAMS_VIEWMATRIX_OFFSET is the start of the embedded render CCamera: a 3x4 Matrix34
     // (rotation basis in columns, translation in column 3). The frustum builder is called with a
     // pointer to this embedded camera, so CView = camera - SVIEWPARAMS_VIEWMATRIX_OFFSET.
-    constexpr ptrdiff_t SVIEWPARAMS_POSITION_OFFSET = 0x14;  // Vec3 camera world eye position
-    constexpr ptrdiff_t SVIEWPARAMS_ROTATION_OFFSET = 0x20;  // Quat (x,y,z,w) eye orientation
+    constexpr ptrdiff_t SVIEWPARAMS_POSITION_OFFSET = 0x14;   // Vec3 camera world eye position
+    constexpr ptrdiff_t SVIEWPARAMS_ROTATION_OFFSET = 0x20;   // Quat (x,y,z,w) eye orientation
     constexpr ptrdiff_t SVIEWPARAMS_VIEWMATRIX_OFFSET = 0xE8; // embedded render CCamera (3x4 matrix at +0)
 
     // Render CCamera internals that SetFrustum (sub_1805392FC) writes right before the frustum builder
