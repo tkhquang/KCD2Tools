@@ -106,6 +106,7 @@ endif()
 
 # --- Source Files ---
 set(COMMON_SOURCES
+  src/aob_resolver.cpp
   src/config.cpp
   src/game_interface.cpp
   src/game_state.cpp
@@ -128,9 +129,11 @@ set(COMMON_SOURCES
 )
 
 # Applies the settings shared by the production ASI and the dev logic DLL: include
-# paths, link libraries, and the Release size/opt flags. /O1 favors size (suited to
-# an injected DLL); /Gy + /Gw with /OPT:REF + /OPT:ICF let the linker drop and fold
-# unused functions and data.
+# paths, link libraries, and the Release speed/opt flags. /O2 favors speed: the
+# overlay renders through a software WARP device with a per-pixel premultiply loop
+# every frame, so the few KB /O1 would save are not worth deoptimizing that path on
+# an .asi where image size is not a real constraint. /Gy + /Gw with /OPT:REF +
+# /OPT:ICF still let the linker drop and fold unused functions and data.
 function(configure_logic_target target)
   target_include_directories(${target} PRIVATE src)
   # imgui_lib brings the ImGui + Win32/DX11 backend include paths transitively.
@@ -139,7 +142,7 @@ function(configure_logic_target target)
   target_link_libraries(${target} PRIVATE
     DetourModKit imgui_lib nlohmann_json::nlohmann_json
     psapi user32 kernel32 d3d11 dxgi gdi32 winmm)
-  target_compile_options(${target} PRIVATE $<$<CONFIG:Release>:/O1 /Gy /Gw>)
+  target_compile_options(${target} PRIVATE $<$<CONFIG:Release>:/O2 /Gy /Gw>)
   target_link_options(${target} PRIVATE $<$<CONFIG:Release>:/OPT:REF /OPT:ICF>)
 endfunction()
 

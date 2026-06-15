@@ -99,13 +99,12 @@ std::atomic<unsigned long long> s_onscreen_forced{0}; // checks force-passed for
  */
 bool redirect_interaction_ray(uintptr_t origin, uintptr_t dir) noexcept
 {
-    InteractionAimPose &aim = interaction_aim_pose();
-    const float px = aim.pos_x.load(std::memory_order_relaxed);
-    const float py = aim.pos_y.load(std::memory_order_relaxed);
-    const float pz = aim.pos_z.load(std::memory_order_relaxed);
-    const float dx = aim.dir_x.load(std::memory_order_relaxed);
-    const float dy = aim.dir_y.load(std::memory_order_relaxed);
-    const float dz = aim.dir_z.load(std::memory_order_relaxed);
+    float px, py, pz, dx, dy, dz;
+    if (!interaction_aim_pose().load(px, py, pz, dx, dy, dz))
+    {
+        // No coherent valid pose (first person, or raced with an invalidate); leave the ray unchanged.
+        return false;
+    }
 
     float eye[3] = {0.0f, 0.0f, 0.0f};
     float dold[3] = {0.0f, 0.0f, 0.0f};
@@ -212,7 +211,7 @@ uintptr_t __fastcall ray_query_build_detour(uintptr_t out, uintptr_t origin, uin
         {
             s_last_reason = "InteractFromCamera=off";
         }
-        else if (!interaction_aim_pose().valid.load(std::memory_order_relaxed))
+        else if (!interaction_aim_pose().is_valid())
         {
             s_last_reason = "first-person (offset not engaged)";
         }
@@ -250,8 +249,9 @@ char __fastcall on_screen_check_detour(uintptr_t a1, uintptr_t a2, float *a3, ui
 {
     s_onscreen_calls.fetch_add(1, std::memory_order_relaxed);
 
+    float ex, ey, ez, dx, dy, dz;
     if (a2 == 0 || a3 == nullptr || !settings().interact_from_camera.load(std::memory_order_relaxed) ||
-        !interaction_aim_pose().valid.load(std::memory_order_relaxed))
+        !interaction_aim_pose().load(ex, ey, ez, dx, dy, dz))
     {
         return s_onscreen_original(a1, a2, a3, a4);
     }
@@ -260,13 +260,6 @@ char __fastcall on_screen_check_detour(uintptr_t a1, uintptr_t a2, float *a3, ui
     __try
     {
         const float *p = reinterpret_cast<const float *>(a2); // candidate world interaction point
-        InteractionAimPose &aim = interaction_aim_pose();
-        const float ex = aim.pos_x.load(std::memory_order_relaxed);
-        const float ey = aim.pos_y.load(std::memory_order_relaxed);
-        const float ez = aim.pos_z.load(std::memory_order_relaxed);
-        const float dx = aim.dir_x.load(std::memory_order_relaxed);
-        const float dy = aim.dir_y.load(std::memory_order_relaxed);
-        const float dz = aim.dir_z.load(std::memory_order_relaxed);
         const float vx = p[0] - ex, vy = p[1] - ey, vz = p[2] - ez;
         const float t = vx * dx + vy * dy + vz * dz; // projection onto the crosshair ray (unit dir)
         if (t > 0.1f)                                 // candidate must be in front of the camera
@@ -295,16 +288,20 @@ char __fastcall on_screen_check_detour(uintptr_t a1, uintptr_t a2, float *a3, ui
 
 } // namespace
 
-bool initialize_interaction_hook(uintptr_t module_base, size_t module_size)
+bool initialize_interaction_hook()
 {
     DMK::Logger &logger = DMK::Logger::get_instance();
 
+    // Fail closed if a resolved entry leads with a call/breakpoint byte; a sibling mod's E9 jump-hook
+    // does not trip this, so the cascade's entry-anchored layering still works.
+    const DMK::HookConfig hook_config{.prologue_policy = DMK::InlineProloguePolicy::Fail};
+
     try
     {
-        // Resolve the interactor look-ray builder entry -> the caller-range filter bound. The
-        // module-scoped cascade keeps the resolved entry inside the game image or returns 0, so a
-        // cross-module collision can no longer yield a bogus return-address range.
-        const uintptr_t lookray = resolve_address(Aob::k_interactorLookRayCandidates, "InteractorLookRay", module_base, module_size);
+        // The interactor look-ray builder entry -> the caller-range filter bound. The module-scoped
+        // cascade kept the resolved entry inside the game image or returns 0, so a cross-module collision
+        // can no longer yield a bogus return-address range.
+        const uintptr_t lookray = anchor_address(AnchorId::InteractorLookRay);
         if (lookray == 0)
         {
             throw std::runtime_error("Interactor look-ray builder cascade did not resolve");
@@ -313,7 +310,7 @@ bool initialize_interaction_hook(uintptr_t module_base, size_t module_size)
         s_lookray_hi = s_lookray_lo + Constants::INTERACTOR_LOOKRAY_SPAN;
 
         // Hook the ray-query builder.
-        const uintptr_t hook_addr = resolve_address(Aob::k_interactionRayBuildCandidates, "InteractionRayBuild", module_base, module_size);
+        const uintptr_t hook_addr = anchor_address(AnchorId::InteractionRayBuild);
         if (hook_addr == 0)
         {
             throw std::runtime_error("Interaction ray-build cascade did not resolve");
@@ -323,7 +320,8 @@ bool initialize_interaction_hook(uintptr_t module_base, size_t module_size)
             "InteractionRayBuild",
             hook_addr,
             reinterpret_cast<void *>(ray_query_build_detour),
-            reinterpret_cast<void **>(&s_original));
+            reinterpret_cast<void **>(&s_original),
+            hook_config);
         if (!result.has_value())
         {
             throw std::runtime_error("Failed to create interaction ray hook: " +
@@ -332,14 +330,15 @@ bool initialize_interaction_hook(uintptr_t module_base, size_t module_size)
 
         // Hook the on-screen reticle projection gate -- the gate that drops shrines/beds/doors when the
         // body is not turned. Non-fatal: failure leaves shrine interaction body-driven.
-        const uintptr_t onscreen = resolve_address(Aob::k_interactionOnScreenCandidates, "InteractionOnScreenCheck", module_base, module_size);
+        const uintptr_t onscreen = anchor_address(AnchorId::InteractionOnScreen);
         if (onscreen != 0)
         {
             auto onscreen_result = DMK::HookManager::get_instance().create_inline_hook(
                 "InteractionOnScreenCheck",
                 onscreen,
                 reinterpret_cast<void *>(on_screen_check_detour),
-                reinterpret_cast<void **>(&s_onscreen_original));
+                reinterpret_cast<void **>(&s_onscreen_original),
+                hook_config);
             if (!onscreen_result.has_value())
             {
                 logger.warning("InteractionHook[init]: on-screen reticle hook failed ({}); shrine "

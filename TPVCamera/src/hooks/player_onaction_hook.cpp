@@ -8,12 +8,15 @@
 
 #include <DetourModKit.hpp>
 
+#include <windows.h>
+
+#include <array>
 #include <atomic>
 #include <cmath>
-#include <cstring>
 #include <exception>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace TPVCamera
@@ -38,12 +41,12 @@ static std::atomic<bool> s_available{false};
 // -1..1, magnitude taken). The input is nonzero the instant a key is pressed and stays nonzero while a key is
 // held against a wall, which body-position speed cannot do. The probe below logs each distinct action name
 // once (trace level) so this vocabulary can be confirmed at runtime.
-static const char *k_move_actions[] = {
+static constexpr std::array<std::string_view, 8> k_move_actions = {
     "moveforward", "moveback", "moveleft", "moveright", // keyboard digital (one per direction)
     "xi_movey", "xi_movex",                             // gamepad left-stick (signed analog)
     "movement_y", "movement_x",                         // named analog aliases (some device/rebind paths)
 };
-static constexpr size_t k_move_count = sizeof(k_move_actions) / sizeof(k_move_actions[0]);
+static constexpr size_t k_move_count = k_move_actions.size();
 
 // One latched |value| per movement action, written on the input thread and read on the render thread.
 // Value-initialized to 0; relaxed atomics suffice (a one-frame-stale signal is harmless).
@@ -137,10 +140,13 @@ static void capture_movement_input(const char **action_name, float value)
     // Latch this action's magnitude (|value|) into its own slot; player_onaction_move_magnitude takes the
     // largest across slots. Each action owns a slot, so an independent release (value 0) does not clobber
     // another still-held source (keyboard + stick). Digital keys report ~1 held / 0 released; an analog axis
-    // reports a signed deflection, so its magnitude is taken regardless of direction.
+    // reports a signed deflection, so its magnitude is taken regardless of direction. The name is screened
+    // above; building the view here (one strlen) runs under the detour's SEH frame, so even a malformed
+    // engine string fails closed rather than faulting.
+    const std::string_view name_view(name);
     for (size_t i = 0; i < k_move_count; ++i)
     {
-        if (std::strcmp(name, k_move_actions[i]) == 0)
+        if (k_move_actions[i] == name_view)
         {
             s_move_values[i].store(std::fabs(value), std::memory_order_relaxed);
             break;
@@ -168,12 +174,12 @@ static uintptr_t __fastcall detour_action_dispatch(uintptr_t self, const char **
                : 0;
 }
 
-bool initialize_player_onaction_hook(uintptr_t module_base, size_t module_size)
+bool initialize_player_onaction_hook()
 {
     DMK::Logger &logger = DMK::Logger::get_instance();
     try
     {
-        const uintptr_t dispatch_addr = resolve_address(Aob::k_actionDispatchCandidates, "PlayerOnActionDispatch", module_base, module_size);
+        const uintptr_t dispatch_addr = anchor_address(AnchorId::ActionDispatch);
         if (dispatch_addr == 0)
         {
             logger.warning(
@@ -182,10 +188,14 @@ bool initialize_player_onaction_hook(uintptr_t module_base, size_t module_size)
         }
 
         DMK::HookManager &hook_manager = DMK::HookManager::get_instance();
+        // Fail closed if the resolved entry leads with a call/breakpoint byte (a sibling mod's E9 jump
+        // hook does not trip this, so layering still works).
+        const DMK::HookConfig hook_config{.prologue_policy = DMK::InlineProloguePolicy::Fail};
         auto result = hook_manager.create_inline_hook(
             "PlayerOnActionDispatch", dispatch_addr,
             reinterpret_cast<void *>(detour_action_dispatch),
-            reinterpret_cast<void **>(&s_action_dispatch_original));
+            reinterpret_cast<void **>(&s_action_dispatch_original),
+            hook_config);
 
         if (!result.has_value())
         {

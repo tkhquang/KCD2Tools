@@ -15,12 +15,16 @@
 #include <cstddef>
 #include <cstdint>
 
-// Resolved base address of the game's global context. Kept as a stable
-// unmangled symbol (rather than namespaced state) so it can be located from
-// external tooling such as Cheat Engine or x64dbg during reverse-engineering.
+// Resolved base address of the game's global context. Kept as a stable unmangled symbol (rather than
+// namespaced state) so it can be located from external tooling such as Cheat Engine or x64dbg during
+// reverse-engineering. Atomic because the render thread reads it (the camera/minigame chain walks in
+// game_state.cpp) while shutdown nulls it on the bootstrap thread before the hooks are removed; relaxed
+// is sufficient (a standalone pointer, no dependent data published through it, and each chain walk
+// independently validates the value it reads). std::atomic<std::byte *> is lock-free and layout-identical
+// to a raw pointer on x64, so external tooling still reads it as a plain pointer.
 extern "C"
 {
-    extern std::byte *g_global_context_ptr_address;
+    extern std::atomic<std::byte *> g_global_context_ptr_address;
 }
 
 namespace TPVCamera
@@ -180,20 +184,60 @@ namespace TPVCamera
      *          shoulder offset (worst at close range -- you cannot interact with what the crosshair is
      *          on). The frustum-builder detour publishes the final rendered camera position + crosshair
      *          direction here each engaged frame; the interactor eye-copy detour reads it to re-origin the
-     *          cone onto the screen centre. valid is true ONLY while the offset is engaged (in first
-     *          person the camera IS the eye, so the hook leaves the game untouched). Written and read on
-     *          different points of the frame (possibly different threads); relaxed atomics are sufficient
-     *          since a one-frame-stale selection pose is harmless.
+     *          cone onto the screen centre. A published pose is valid ONLY while the offset is engaged (in
+     *          first person the camera IS the eye, so the hook leaves the game untouched).
+     *
+     *          The pose is published as a tear-free seqlock snapshot. The producer and consumer run at
+     *          different points of the frame (and possibly on different threads), so reading the seven
+     *          fields independently could mix a position from frame N with a direction from frame N+1 --
+     *          an incoherent pose, not merely a stale one, which would aim the interaction ray at nothing.
+     *          The seqlock makes every read observe one coherent frame or fail closed (no pose). A
+     *          one-frame-stale but coherent pose is harmless for use-target selection.
      */
-    struct InteractionAimPose
+    class InteractionAimPose
     {
-        std::atomic<float> pos_x{0.0f}; // rendered camera position (new cone origin)
-        std::atomic<float> pos_y{0.0f};
-        std::atomic<float> pos_z{0.0f};
-        std::atomic<float> dir_x{0.0f}; // crosshair direction (new scoring axis)
-        std::atomic<float> dir_y{1.0f};
-        std::atomic<float> dir_z{0.0f};
-        std::atomic<bool> valid{false};
+    public:
+        /**
+         * @brief Publishes a coherent pose snapshot (camera position + crosshair direction) as valid.
+         * @details Seqlock writer: marks the sequence odd, writes the payload behind a release fence,
+         *          then marks it even to publish. Single-producer (the frustum-builder detour is the only
+         *          writer). Callback-safe: no allocation, no lock.
+         */
+        void store(float px, float py, float pz, float dx, float dy, float dz) noexcept;
+
+        /**
+         * @brief Reads a coherent pose snapshot.
+         * @param px,py,pz Filled with the rendered camera position (the new cone origin).
+         * @param dx,dy,dz Filled with the crosshair direction (the new scoring axis).
+         * @return true and fills the out params when a valid tear-free pose was read; false when no pose
+         *         is published or the read could not be confirmed tear-free (the out params are untouched).
+         * @note Callback-safe: a bounded retry caps the seqlock spin and fails closed.
+         */
+        [[nodiscard]] bool load(float &px, float &py, float &pz, float &dx, float &dy,
+                                float &dz) const noexcept;
+
+        /// Marks the published pose invalid (first person / offset suppressed).
+        void invalidate() noexcept;
+
+        /// Returns whether a valid pose is currently published (tear-free seqlock read of the flag).
+        [[nodiscard]] bool is_valid() const noexcept;
+
+    private:
+        // Seqlock sequence: even = stable, odd = write in progress. The producer brackets its payload
+        // writes between the odd and even transitions; a reader retries while it observes an odd or
+        // changed sequence, so a partially written pose is never returned.
+        std::atomic<std::uint32_t> m_seq{0};
+        // Pose payload. The seqlock sequence provides coherence (no mixed frame) and the release/acquire
+        // fences provide the publish ordering; the fields are relaxed atomics (not plain) so a producer
+        // store racing a consumer load is well-defined rather than a data race, which keeps the seqlock
+        // correct on any memory model, not just x86 TSO.
+        std::atomic<float> m_pos_x{0.0f};
+        std::atomic<float> m_pos_y{0.0f};
+        std::atomic<float> m_pos_z{0.0f};
+        std::atomic<float> m_dir_x{0.0f};
+        std::atomic<float> m_dir_y{1.0f};
+        std::atomic<float> m_dir_z{0.0f};
+        std::atomic<bool> m_valid{false};
     };
 
     /** @brief Returns the process-wide resolved game module info. */

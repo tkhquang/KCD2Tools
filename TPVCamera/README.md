@@ -240,13 +240,16 @@ cmake --build --preset msvc-dev
 Game addresses are located patch-resiliently. Every hooked function and read global is found
 through a multi-candidate AOB cascade (`src/aob_resolver.hpp`): each target carries several ordered
 signatures, most-specific first, and the first that resolves wins, so a game patch only has to
-leave one anchor intact for the feature to keep working. The cascade is scanned only inside the
+leave one anchor intact for the feature to keep working. The cascades are declared as a single
+DetourModKit anchor registry (`src/aob_resolver.cpp`) and resolved in one parallel pass at startup,
+which logs a per-anchor status and an overall quality summary. The cascade is scanned only inside the
 `WHGame.dll` image, so a signature that happens to also appear in another injected mod or graphics
 overlay can never be mistaken for the game's. At least one candidate per cascade anchors past the
-function prologue, so resolution still succeeds when another mod has inline-hooked the entry. The
-`gEnv` global resolves through the same cascade (with a static RVA fallback), and engine object
-types are matched by their MSVC RTTI names rather than hardcoded vtable addresses.
-The cascade signatures follow DetourModKit's
+function prologue, so resolution still succeeds when another mod has inline-hooked the entry; the
+hooks themselves install with a fail-closed prologue check so a mis-resolved entry is refused rather
+than patched blindly. The `gEnv` global resolves through the same cascade (with a static RVA
+fallback), and engine object types are matched by their MSVC RTTI names rather than hardcoded vtable
+addresses. The cascade signatures follow DetourModKit's
 [AOB signature guide](https://github.com/tkhquang/DetourModKit/blob/main/docs/misc/aob-signatures.md).
 
 ## Credits

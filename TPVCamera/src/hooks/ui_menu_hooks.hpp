@@ -8,19 +8,15 @@
 #ifndef TPVCAMERA_UI_MENU_HOOKS_HPP
 #define TPVCAMERA_UI_MENU_HOOKS_HPP
 
-#include <cstdint>
-#include <cstddef>
-
 namespace TPVCamera
 {
 
 /**
- * @brief Initialize UI menu hooks.
- * @param module_base Base address of the target game module.
- * @param module_size Size of the target game module in bytes.
- * @return true if initialization successful, false otherwise.
+ * @brief Installs the UI menu open/close hooks from the pre-resolved anchors.
+ * @return true if both hooks installed, false otherwise.
+ * @note Call after resolve_all_anchors(); the hook targets are read via anchor_address().
  */
-[[nodiscard]] bool initialize_ui_menu_hooks(uintptr_t module_base, size_t module_size);
+[[nodiscard]] bool initialize_ui_menu_hooks();
 
 /**
  * @brief Check if the in-game menu is currently open.

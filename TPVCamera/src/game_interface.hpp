@@ -9,21 +9,17 @@
 #ifndef TPVCAMERA_GAME_INTERFACE_HPP
 #define TPVCAMERA_GAME_INTERFACE_HPP
 
-#include <cstdint>
-#include <cstddef>
-
 namespace TPVCamera
 {
 
 /**
- * @brief Initialize game interface with dynamic AOB scanning.
- * @details Resolves the global-context pointer storage from the module image and stores it for the
+ * @brief Stores the resolved global-context pointer for the game-state camera reads.
+ * @details Reads the Context anchor (resolved by resolve_all_anchors()) and stores the slot for the
  *          game-state camera reads (game_state.cpp); without this call those reads find no state.
- * @param module_base Base address of the target game module.
- * @param module_size Size of the target game module in bytes.
- * @return true if initialization successful, false otherwise.
+ * @return true if the context anchor resolved, false otherwise.
+ * @note Call after resolve_all_anchors().
  */
-[[nodiscard]] bool initialize_game_interface(uintptr_t module_base, size_t module_size);
+[[nodiscard]] bool initialize_game_interface();
 
 /**
  * @brief Clean up game interface resources.

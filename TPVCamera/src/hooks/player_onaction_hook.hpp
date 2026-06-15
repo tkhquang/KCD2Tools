@@ -16,17 +16,15 @@
 #ifndef TPVCAMERA_PLAYER_ONACTION_HOOK_HPP
 #define TPVCAMERA_PLAYER_ONACTION_HOOK_HPP
 
-#include <cstddef>
-#include <cstdint>
-
 namespace TPVCamera
 {
 
 /**
- * @brief Installs the player OnAction / action-dispatcher hook.
+ * @brief Installs the player OnAction / action-dispatcher hook from the pre-resolved anchor.
  * @return true if the dispatcher was located and hooked.
+ * @note Call after resolve_all_anchors(); the hook target is read via anchor_address().
  */
-[[nodiscard]] bool initialize_player_onaction_hook(uintptr_t module_base, size_t module_size);
+[[nodiscard]] bool initialize_player_onaction_hook();
 
 /** @brief Whether the OnAction hook resolved (callers use the input signal only when true). */
 [[nodiscard]] bool player_onaction_available();
