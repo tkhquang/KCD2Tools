@@ -72,11 +72,17 @@ namespace TPVCamera
         // Free-look orbit. The orbit-feel values are preset-owned (seeded/overwritten like the framing
         // above); freeze_orbit_on_cursor is an always-live INI setting (not preset-owned), so it keeps
         // its registered default.
-        std::atomic<float> orbit_sensitivity{};   // free-look MOUSE sensitivity multiplier (mouse delta * this)
-        std::atomic<float> gamepad_orbit_speed{}; // free-look GAMEPAD right-stick rate, deg/sec at full deflection
-        std::atomic<float> orbit_pitch_min{};     // lowest free-look pitch, degrees
-        std::atomic<float> orbit_pitch_max{};     // highest free-look pitch, degrees
-        std::atomic<float> orbit_return_speed{};  // ease-back-to-center speed on release (0 = stay)
+        std::atomic<float>
+            orbit_sensitivity_x{}; // free-look MOUSE yaw sensitivity multiplier (mouse delta * this; negative inverts)
+        std::atomic<float> orbit_sensitivity_y{}; // free-look MOUSE pitch sensitivity multiplier (mouse delta * this;
+                                                  // negative inverts)
+        std::atomic<float>
+            gamepad_orbit_speed_x{}; // free-look GAMEPAD right-stick yaw rate, deg/sec at full deflection (neg inverts)
+        std::atomic<float> gamepad_orbit_speed_y{}; // free-look GAMEPAD right-stick pitch rate, deg/sec at full
+                                                    // deflection (neg inverts)
+        std::atomic<float> orbit_pitch_min{};       // lowest free-look pitch, degrees
+        std::atomic<float> orbit_pitch_max{};       // highest free-look pitch, degrees
+        std::atomic<float> orbit_return_speed{};    // ease-back-to-center speed on release (0 = stay)
         std::atomic<float>
             orbit_smoothing{}; // free-look angle low-pass strength, 0..1 (0 = off/raw, higher = smoother but more lag)
         std::atomic<bool> orbit_level_aim{};        // level the real player aim/head while orbiting

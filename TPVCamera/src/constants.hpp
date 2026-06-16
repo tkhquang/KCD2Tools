@@ -374,7 +374,7 @@ namespace Constants
     // SEH-guarded and sanitized to printable chars, so a wrong offset / null logs harmlessly rather than
     // faulting; the logged bbox size/pos identifies the brush regardless.
     constexpr ptrdiff_t STATOBJ_CGF_NAME_OFFSET = 0xA0;
-    constexpr ptrdiff_t RENDERMESH_NVERTS_OFFSET = 0x7C;  // int vertex count (== IRenderMesh::GetVerticesCount)
+    constexpr ptrdiff_t RENDERMESH_NVERTS_OFFSET = 0x7C; // int vertex count (== IRenderMesh::GetVerticesCount)
     // IRenderMesh::GetPosPtr(int32& stride /*rdx*/, uint32 flags /*r8d*/, int32 offset /*r9d*/) -> uint8*:
     // vtable slot 43 in this fork. With FSL_READ it returns decoded float3 positions, stride 12.
     constexpr ptrdiff_t RENDERMESH_VTABLE_GETPOSPTR_OFFSET = 43 * 8;
@@ -384,10 +384,10 @@ namespace Constants
     // in this fork (verified live). The triangle list (3 indices/tri) lets the coverage gate measure the actual
     // SURFACE the brush covers, not just its vertices -- vertex-density-independent, so a sparse scattered prop
     // (the char standing in a gap) reads low while a contiguous cloth canopy reads high.
-    constexpr ptrdiff_t RENDERMESH_NINDICES_OFFSET = 0x78;          // int index count (== GetIndicesCount)
+    constexpr ptrdiff_t RENDERMESH_NINDICES_OFFSET = 0x78; // int index count (== GetIndicesCount)
     constexpr ptrdiff_t RENDERMESH_VTABLE_GETINDEXPTR_OFFSET = 54 * 8;
-    constexpr int RENDER_OCCLUSION_INDEX_MAX = 3000000;                 // sanity cap on a mesh's index count
-    constexpr int RENDER_COVERAGE_COLUMNS = 8;                     // char-box columns per band for surface fill
+    constexpr int RENDER_OCCLUSION_INDEX_MAX = 3000000; // sanity cap on a mesh's index count
+    constexpr int RENDER_COVERAGE_COLUMNS = 8;          // char-box columns per band for surface fill
     // Radius of the tube around the pivot->camera sightline within which a cloth vertex counts as occluding the
     // view. It must exceed the cloth mesh's vertex spacing (so a crossing is never missed through a gap between
     // vertices) and doubles as the camera's standoff below the canopy. RENDER_OCCLUSION_MIN_COLUMN_VERTS is the
@@ -450,7 +450,7 @@ namespace Constants
     constexpr int INPUT_LOOK_PITCH_EVENT_ID = 0x10B; // mouse vertical look (eKI_MouseY); value = delta
     // Gamepad RIGHT-STICK axes (xi_thumbrx / xi_thumbry, verified via the XInput symbol table in WHGame).
     // Same eIS_Changed channel, but value at +0x18 is the analog DEFLECTION (-1..1, post-deadzone), not a
-    // delta -- the orbit hook latches it and the render hook integrates it by rate (GamepadOrbitSpeed deg/s).
+    // delta -- the orbit hook latches it and the render hook integrates it by rate (GamepadOrbitSpeed X/Y deg/s).
     constexpr int INPUT_PAD_LOOK_YAW_EVENT_ID = 0x21A;   // right-stick X (horizontal)
     constexpr int INPUT_PAD_LOOK_PITCH_EVENT_ID = 0x21B; // right-stick Y (vertical)
 

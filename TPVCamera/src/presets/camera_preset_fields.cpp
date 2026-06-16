@@ -86,14 +86,26 @@ namespace TPVCamera::Presets
                         "Framing", &CameraPreset::fov, 0.0f, 120.0f, 1.0f),
 
             // Orbit (free-look).
-            float_field("orbit_sensitivity", "Orbit Sensitivity",
-                        "Free-look MOUSE sensitivity, as a multiplier (negative inverts the direction). Gamepad "
-                        "uses Gamepad Orbit Speed instead. Your normal in-game look sensitivity is unchanged.",
-                        "Orbit", &CameraPreset::orbit_sensitivity, -3.0f, 3.0f, 0.01f),
-            float_field("gamepad_orbit_speed", "Gamepad Orbit Speed",
-                        "How fast the gamepad right stick orbits, in degrees/second at full stick. Independent of "
-                        "Orbit Sensitivity (which is mouse-only) -- raise it if the stick feels slower than the mouse.",
-                        "Orbit", &CameraPreset::gamepad_orbit_speed, 30.0f, 720.0f, 5.0f),
+            float_field("orbit_sensitivity_x", "Orbit Sensitivity X",
+                        "Free-look MOUSE horizontal (yaw) sensitivity, as a multiplier. Set a NEGATIVE value to "
+                        "invert left/right. Gamepad uses Gamepad Orbit Speed X instead. Your normal in-game look "
+                        "sensitivity is unchanged.",
+                        "Orbit", &CameraPreset::orbit_sensitivity_x, -3.0f, 3.0f, 0.01f),
+            float_field("orbit_sensitivity_y", "Orbit Sensitivity Y",
+                        "Free-look MOUSE vertical (pitch) sensitivity, as a multiplier. Set a NEGATIVE value to "
+                        "invert up/down. Gamepad uses Gamepad Orbit Speed Y instead. Your normal in-game look "
+                        "sensitivity is unchanged.",
+                        "Orbit", &CameraPreset::orbit_sensitivity_y, -3.0f, 3.0f, 0.01f),
+            float_field("gamepad_orbit_speed_x", "Gamepad Orbit Speed X",
+                        "How fast the gamepad right stick orbits horizontally (yaw), in degrees/second at full stick. "
+                        "Set a NEGATIVE value to invert left/right. Independent of Orbit Sensitivity X (which is "
+                        "mouse-only).",
+                        "Orbit", &CameraPreset::gamepad_orbit_speed_x, -720.0f, 720.0f, 5.0f),
+            float_field("gamepad_orbit_speed_y", "Gamepad Orbit Speed Y",
+                        "How fast the gamepad right stick orbits vertically (pitch), in degrees/second at full stick. "
+                        "Set a NEGATIVE value to invert up/down. Independent of Orbit Sensitivity Y (which is "
+                        "mouse-only).",
+                        "Orbit", &CameraPreset::gamepad_orbit_speed_y, -720.0f, 720.0f, 5.0f),
             float_field("orbit_pitch_min", "Orbit Pitch Min",
                         "Lowest angle free-look can tilt down to, in degrees (negative looks down).", "Orbit",
                         &CameraPreset::orbit_pitch_min, -89.0f, 0.0f, 0.01f),

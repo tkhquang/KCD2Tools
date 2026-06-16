@@ -22,10 +22,13 @@
 #include "camera_preset.hpp"
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace TPVCamera::Presets
 {
+
+    struct PresetField; // defined in camera_preset_fields.hpp; used here only by reference
 
     /**
      * @brief The embedded factory copy of a built-in preset by @p name, or a struct-default CameraPreset for
@@ -82,7 +85,25 @@ namespace TPVCamera::Presets
         /** @brief Sets the 2-vs-3 decimal editing precision and marks the store dirty. */
         void set_value_compact(bool compact);
 
-        /** @brief Whether there are changes not yet written to disk. */
+        /** @brief Whether preset field @p key is shared (kept identical) across every preset. Persisted in JSON root.
+         */
+        [[nodiscard]] bool is_field_shared(std::string_view key) const noexcept;
+        /**
+         * @brief Links/unlinks preset field @p key so its value is shared across every preset.
+         * @details Enabling immediately copies the editing preset's value of @p key into every preset (broadcast)
+         *          so they all match, then republishes; disabling just drops the link (values stay where they are).
+         *          Unknown keys are ignored. The shared-key set is persisted in the presets JSON root.
+         */
+        void set_field_shared(std::string_view key, bool shared);
+        /**
+         * @brief Copies the editing preset's value of shared field @p key into every preset, then republishes.
+         * @details The live-sync half of a shared field: call after the editor mutates a shared field so the new
+         *          value lands in every preset. No-op for an unknown key or an out-of-range editing index.
+         */
+        void broadcast_field(std::string_view key);
+
+        /** @brief Whether there are unsaved preset VALUE changes (drives the Save indicator). UI-only bookkeeping
+         *         such as the editing selection or overlay scale does not count here; it persists on shutdown. */
         [[nodiscard]] bool dirty() const noexcept { return m_dirty; }
 
         /**
@@ -138,13 +159,27 @@ namespace TPVCamera::Presets
         [[nodiscard]] int find_by_name(const std::string &name) const;
         [[nodiscard]] bool name_in_use(const std::string &name, int ignore_index) const;
         [[nodiscard]] std::string make_unique_name(const std::string &base) const;
+        /** @brief Copies field @p field's value from the editing preset into every preset (no save/publish). */
+        void copy_field_from_editing(const PresetField &field) noexcept;
+        /** @brief Recomputes m_dirty as the difference between the live presets/shared set and the saved baseline. */
+        void recompute_dirty() noexcept;
+        /** @brief Snapshots the live presets/shared set as the saved baseline (after a successful load/save). */
+        void capture_saved_baseline();
 
         std::vector<CameraPreset> m_presets;
         int m_editing_index = 0;
         bool m_editing_pinned = false;
-        bool m_dirty = false;
+        bool m_dirty = false;       // unsaved preset VALUE changes; drives the Save * highlight and forces a save
+        bool m_prefs_dirty = false; // unsaved editor/UI bookkeeping (selection, scale, precision): flushed on
+                                    // shutdown but NOT surfaced as a pending value change
         float m_ui_scale = 1.0f;
         bool m_value_compact = true;
+        std::vector<std::string> m_shared_fields; // preset field keys kept identical across every preset
+        // Snapshot of the on-disk state (presets + shared set) taken at the last successful load/save. The Save
+        // indicator (m_dirty) is the difference between the live data and this baseline, so reverting an edit back
+        // to the saved value clears it.
+        std::vector<CameraPreset> m_saved_presets;
+        std::vector<std::string> m_saved_shared_fields;
         std::string m_file_path;
     };
 

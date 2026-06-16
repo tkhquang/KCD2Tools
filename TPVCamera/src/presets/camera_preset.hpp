@@ -64,10 +64,15 @@ namespace TPVCamera::Presets
         float follow_pitch = 0.0f;        // static resting orbit pitch around the pivot, degrees (0 = level)
         float fov = 60.0f;                // third-person FOV in degrees (0 = use the game FOV / no override)
 
-        // Free-look orbit.
-        float orbit_sensitivity = 0.2f;
-        float gamepad_orbit_speed =
-            200.0f; // gamepad right-stick orbit rate, deg/sec at full deflection (mouse uses orbit_sensitivity)
+        // Free-look orbit. Sensitivity (mouse) and speed (gamepad) are split per axis so each axis can be
+        // inverted on its own: a negative value flips that axis. X drives yaw (look left/right); Y drives
+        // pitch (look up/down).
+        float orbit_sensitivity_x = 0.2f; // free-look MOUSE yaw sensitivity multiplier (negative inverts left/right)
+        float orbit_sensitivity_y = 0.2f; // free-look MOUSE pitch sensitivity multiplier (negative inverts up/down)
+        float gamepad_orbit_speed_x = 200.0f; // gamepad right-stick YAW rate, deg/sec at full deflection (negative
+                                              // inverts; mouse uses orbit_sensitivity_x)
+        float gamepad_orbit_speed_y = 200.0f; // gamepad right-stick PITCH rate, deg/sec at full deflection (negative
+                                              // inverts; mouse uses orbit_sensitivity_y)
         float orbit_pitch_min = -50.0f;
         float orbit_pitch_max = 75.0f;
         float orbit_return_speed = 8.0f;
@@ -80,6 +85,10 @@ namespace TPVCamera::Presets
         bool enable_collision = true;
         float collision_skin = 0.2f;
         float collision_return_speed = 6.0f;
+
+        // Content equality over every persisted field, so the store can detect when an edit has been reverted
+        // back to the saved value and clear the unsaved-changes indicator (see PresetStore::recompute_dirty).
+        bool operator==(const CameraPreset &) const = default;
     };
 
     /// Reserved built-in preset names (case-sensitive). These cannot be removed or renamed.

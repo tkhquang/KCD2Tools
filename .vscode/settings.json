@@ -1,6 +1,6 @@
 {
   // 120-column baseline (codified in the C++ modules' .clang-format, ColumnLimit: 120).
-  "[cpp]": {
+  "[cpp][ini]": {
     "editor.rulers": [120],
     "editor.wordWrapColumn": 120
   },
