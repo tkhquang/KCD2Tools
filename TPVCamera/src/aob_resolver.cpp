@@ -55,6 +55,7 @@ namespace TPVCamera
             rip_global("ShowOverlays", Aob::k_overlayShowCandidates),
             rip_global("MenuOpen", Aob::k_menuOpenCandidates),
             rip_global("MenuClose", Aob::k_menuCloseCandidates),
+            rip_global("GetObjectsInBox", Aob::k_getObjectsInBoxCandidates),
         }};
 
         // Resolved absolute addresses, indexed by AnchorId; 0 means unresolved. Zero-initialized (constant

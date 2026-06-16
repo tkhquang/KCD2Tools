@@ -19,7 +19,7 @@ start in first-person instead.
 - Basic free-look orbit to look around your character (early; see Known Limitations)
 - Automatic view switching by situation: switch to first or third person when you enter combat, aiming a bow, dialogue, minigames, riding, or menus (you can still toggle manually during it), with your previous view restored when the situation ends
 - In-game preset manager: edit, add, and save camera presets from an overlay; built-in presets for normal play, combat, aiming, horseback, sneaking, and special poses (lying down, sitting, kneeling, riding a cart) apply automatically by situation, and you can bind your own presets to combinations of states (such as aiming while crouched), with the most specific match winning
-- Camera collision that pulls the view in so it does not clip through walls or terrain
+- Camera collision with an optional see-through mode (off by default) that ignores thin posts, rails and fences you can see past and keeps out of corners, plus a cloth-roof clamp (on by default) so a look-down is not buried in tent or awning fabric; all tunable in the INI
 - Crosshair convergence so the screen-center reticle lines up with what you point at
 - Full keyboard and XInput controller support
 - Almost every setting is editable live while the game runs
@@ -88,7 +88,7 @@ Edit `KCD2_TPVCamera.ini`. It is grouped into:
 - `[Settings]` - log level, the view hotkeys (`ToggleViewKey`, `ForceFPVKey`, `ForceTPVKey`), the preset-overlay key (`ToggleOverlayKey`), and the start-of-session auto-enable flags
 - `[Camera]` - zoom keys, the camera-space interaction toggle, and the view-transition ease (the framing itself is per-preset; see `[Presets]`)
 - `[Orbit]` - the free-look orbit keys (press-to-toggle and momentary hold) and the cursor freeze (the orbit feel is per-preset)
-- `[Collision]` - the sphere-vs-ray collision probe and its radius (enable, skin, and return speed are per-preset)
+- `[Collision]` - the collision probe and radius, `UseCoverageCollision` (only pull in for things that hide your character) with its coverage / side-wall options, and the independent `UseRenderOcclusion` cloth-roof clamp (enable, skin, and return speed are per-preset)
 - `[StateBehavior]` - switch first/third person on entering a situation (combat, aiming, dialogue, minigame, mount, menu, overlay), restore the prior view on exit (manual toggles during it stick), and suspend/restore free-look in chosen situations
 - `[Presets]` - the preset blend speed; the camera framing lives in the in-game preset manager (open with `ToggleOverlayKey`) and is stored in `KCD2_TPVCamera_presets.json` next to the INI. That file is created automatically from the built-in defaults on first run; it is not shipped, so updating the mod never overwrites presets you have tuned
 

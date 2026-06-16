@@ -34,6 +34,9 @@ namespace TPVCamera
         Vector3 m_normal{};
         /// IPhysicalEntity* of the entity hit (ray path only; 0 on the sphere path).
         uintptr_t m_collider{0};
+        /// Non-zero when the hit is the global TERRAIN heightmap (ray_hit.bTerrain); 0 for brushes / 0 on the
+        /// sphere path. The engine's own ground flag -- used to always block the terrain (no under-world clip).
+        int m_terrain{0};
     };
 
     /**
@@ -120,18 +123,45 @@ namespace TPVCamera
                                                       const uintptr_t *skip_ents = nullptr, int n_skip_ents = 0);
 
     /**
-     * @brief Multi-ray fan that SKIPS standalone thin scenery, re-casting to the real surface behind it.
-     * @details For each fan result it looks up the hit physics entity's world AABB (PHYS_ENTITY_BBOX_*) and, if
-     *          the smallest dimension is below @p thin_max_size, treats it as ignorable thin scenery (a lone
-     *          stick / pole / thin sign): the entity is added to a skip list and the fan re-cast, up to a small
-     *          cap, so the camera blocks on the first NON-thin surface (or nothing). @p thin_max_size <= 0
-     *          disables the check (returns a plain @ref ray_fan_sweep, no bbox reads). An unreadable bbox counts
-     *          as NOT thin (keep colliding -- the safe default). Cannot drop multi-rail fences (one mesh).
-     * @return The nearest non-thin hit, or std::nullopt (every layer thin / all rays miss).
+     * @brief Fraction (0..1) of the character's silhouette occluded by WORLD geometry as seen from @p camera.
+     * @details Samples a small grid over the character body (four vertical levels head->shins x three columns
+     *          across the shoulders, relative to @p pivot at ~eye height) and casts a ray from @p camera to each;
+     *          a sample counts as occluded when world geometry lies before it. The player body is ent_living and
+     *          must be excluded by a world-only @p objtypes (ent_static | ent_terrain), so the character never
+     *          occludes itself. Used to gate camera collision: a thin pole / rail that hides little of the
+     *          character returns a low fraction (ignore it, no camera jump); a wall or a near post that hides
+     *          most of it returns a high fraction (collide). Distance-aware by construction (a closer obstacle
+     *          of the same size hides more), which a fixed width / size threshold cannot capture.
+     * @return Occluded fraction in [0, 1]; 0 if no samples were valid.
      */
-    [[nodiscard]] std::optional<RayHit> ray_fan_sweep_skipping_thin(const Vector3 &origin, const Vector3 &sweep,
-                                                                    float radius, int objtypes, unsigned int flags,
-                                                                    float thin_max_size);
+    [[nodiscard]] float character_occluded_fraction(const Vector3 &camera, const Vector3 &pivot, int objtypes,
+                                                    unsigned int flags);
+
+    /**
+     * @brief The visible render node (IRenderNode) a physics collider belongs to, via its foreign data.
+     * @details A static-world collision hit carries the brush it came from in m_pForeignData
+     *          (CPhysicalEntity + PHYS_ENTITY_FOREIGN_DATA_OFFSET) when m_iForeignData
+     *          (+ PHYS_ENTITY_FOREIGN_TYPE_OFFSET) is PHYS_FOREIGN_ID_STATIC. This is the EXACT brush the ray
+     *          hit, so the caller can measure that brush's visible coverage instead of guessing from a box.
+     *          SEH-guarded; returns 0 when the collider is null / not a static-brush owner / unreadable.
+     * @param collider The RayHit::m_collider of a hit (the IPhysicalEntity pointer).
+     * @return The IRenderNode pointer, or 0 when unavailable.
+     */
+    [[nodiscard]] uintptr_t static_brush_render_node(uintptr_t collider) noexcept;
+
+    /**
+     * @brief Larger horizontal (X / Y) extent of a physics collider's world AABB (m_BBox), in meters.
+     * @details The fallback classifier for a foreign-null collider whose render-mesh coverage cannot be measured
+     *          (an entity post / HLOD-baked prop). A post is small in BOTH horizontal axes (small footprint); a
+     *          wall is large in at least one (large footprint) even when thin in depth -- so this separates a thin
+     *          POST (the body is visible past it, skip) from a thin WALL (collide), which the minimum-extent metric
+     *          cannot. Any owned collider (static brush OR placed entity, foreignType != 0) carries a sane AABB
+     *          here; terrain / unowned geom (foreignType == 0, degenerate bbox) returns -1. SEH-guarded.
+     * @param collider The RayHit::m_collider of a hit (the IPhysicalEntity pointer).
+     * @return max(x-extent, y-extent), or -1 when the collider is null / unowned (terrain, foreignType == 0) /
+     *         the AABB is unreadable or degenerate (the caller treats < 0 as "unknown -- not a post").
+     */
+    [[nodiscard]] float collider_horizontal_footprint(uintptr_t collider) noexcept;
 
 } // namespace TPVCamera
 
