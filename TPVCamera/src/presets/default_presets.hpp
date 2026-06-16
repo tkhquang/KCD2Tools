@@ -48,7 +48,8 @@ namespace TPVCamera::Presets
         "follow_pitch": 0.0,
         "follow_yaw": 0.0,
         "fov": 60.0,
-        "gamepad_orbit_speed": 200.0,
+        "gamepad_orbit_speed_x": 200.0,
+        "gamepad_orbit_speed_y": 200.0,
         "offset_right": 0.5,
         "offset_up": 0.0,
         "orbit_body_turn": true,
@@ -57,7 +58,8 @@ namespace TPVCamera::Presets
         "orbit_pitch_max": 75.0,
         "orbit_pitch_min": -50.0,
         "orbit_return_speed": 8.0,
-        "orbit_sensitivity": 0.2,
+        "orbit_sensitivity_x": 0.2,
+        "orbit_sensitivity_y": 0.2,
         "orbit_smoothing": 0.5,
         "zoom_step": 4.0
       }
@@ -79,7 +81,8 @@ namespace TPVCamera::Presets
         "follow_pitch": 0.0,
         "follow_yaw": 0.0,
         "fov": 60.0,
-        "gamepad_orbit_speed": 200.0,
+        "gamepad_orbit_speed_x": 200.0,
+        "gamepad_orbit_speed_y": 200.0,
         "offset_right": 0.75,
         "offset_up": 0.0,
         "orbit_body_turn": true,
@@ -88,7 +91,8 @@ namespace TPVCamera::Presets
         "orbit_pitch_max": 75.0,
         "orbit_pitch_min": -50.0,
         "orbit_return_speed": 8.0,
-        "orbit_sensitivity": 0.2,
+        "orbit_sensitivity_x": 0.2,
+        "orbit_sensitivity_y": 0.2,
         "orbit_smoothing": 0.5,
         "zoom_step": 4.0
       }
@@ -110,7 +114,8 @@ namespace TPVCamera::Presets
         "follow_pitch": 0.0,
         "follow_yaw": 0.0,
         "fov": 0.0,
-        "gamepad_orbit_speed": 200.0,
+        "gamepad_orbit_speed_x": 200.0,
+        "gamepad_orbit_speed_y": 200.0,
         "offset_right": 0.9,
         "offset_up": 0.0,
         "orbit_body_turn": true,
@@ -119,7 +124,8 @@ namespace TPVCamera::Presets
         "orbit_pitch_max": 75.0,
         "orbit_pitch_min": -50.0,
         "orbit_return_speed": 8.0,
-        "orbit_sensitivity": 0.2,
+        "orbit_sensitivity_x": 0.2,
+        "orbit_sensitivity_y": 0.2,
         "orbit_smoothing": 0.5,
         "zoom_step": 4.0
       }
@@ -141,7 +147,8 @@ namespace TPVCamera::Presets
         "follow_pitch": 0.0,
         "follow_yaw": 0.0,
         "fov": 60.0,
-        "gamepad_orbit_speed": 200.0,
+        "gamepad_orbit_speed_x": 200.0,
+        "gamepad_orbit_speed_y": 200.0,
         "offset_right": 0.75,
         "offset_up": 0.0,
         "orbit_body_turn": true,
@@ -150,7 +157,8 @@ namespace TPVCamera::Presets
         "orbit_pitch_max": 75.0,
         "orbit_pitch_min": -50.0,
         "orbit_return_speed": 8.0,
-        "orbit_sensitivity": 0.2,
+        "orbit_sensitivity_x": 0.2,
+        "orbit_sensitivity_y": 0.2,
         "orbit_smoothing": 0.5,
         "zoom_step": 4.0
       }
@@ -172,7 +180,8 @@ namespace TPVCamera::Presets
         "follow_pitch": 0.0,
         "follow_yaw": 0.0,
         "fov": 60.0,
-        "gamepad_orbit_speed": 200.0,
+        "gamepad_orbit_speed_x": 200.0,
+        "gamepad_orbit_speed_y": 200.0,
         "offset_right": 0.5,
         "offset_up": 0.0,
         "orbit_body_turn": true,
@@ -181,7 +190,8 @@ namespace TPVCamera::Presets
         "orbit_pitch_max": 75.0,
         "orbit_pitch_min": -50.0,
         "orbit_return_speed": 8.0,
-        "orbit_sensitivity": 0.2,
+        "orbit_sensitivity_x": 0.2,
+        "orbit_sensitivity_y": 0.2,
         "orbit_smoothing": 0.5,
         "zoom_step": 4.0
       }
@@ -203,7 +213,8 @@ namespace TPVCamera::Presets
         "follow_pitch": 0.0,
         "follow_yaw": 0.0,
         "fov": 60.0,
-        "gamepad_orbit_speed": 200.0,
+        "gamepad_orbit_speed_x": 200.0,
+        "gamepad_orbit_speed_y": 200.0,
         "offset_right": 0.5,
         "offset_up": 0.0,
         "orbit_body_turn": true,
@@ -212,7 +223,8 @@ namespace TPVCamera::Presets
         "orbit_pitch_max": 75.0,
         "orbit_pitch_min": -50.0,
         "orbit_return_speed": 8.0,
-        "orbit_sensitivity": 0.2,
+        "orbit_sensitivity_x": 0.2,
+        "orbit_sensitivity_y": 0.2,
         "orbit_smoothing": 0.5,
         "zoom_step": 4.0
       }
@@ -234,7 +246,8 @@ namespace TPVCamera::Presets
         "follow_pitch": 0.0,
         "follow_yaw": 0.0,
         "fov": 60.0,
-        "gamepad_orbit_speed": 200.0,
+        "gamepad_orbit_speed_x": 200.0,
+        "gamepad_orbit_speed_y": 200.0,
         "offset_right": 0.3,
         "offset_up": 0.0,
         "orbit_body_turn": true,
@@ -243,7 +256,8 @@ namespace TPVCamera::Presets
         "orbit_pitch_max": 75.0,
         "orbit_pitch_min": -50.0,
         "orbit_return_speed": 8.0,
-        "orbit_sensitivity": 0.2,
+        "orbit_sensitivity_x": 0.2,
+        "orbit_sensitivity_y": 0.2,
         "orbit_smoothing": 0.5,
         "zoom_step": 4.0
       }
@@ -265,7 +279,8 @@ namespace TPVCamera::Presets
         "follow_pitch": 0.0,
         "follow_yaw": 0.0,
         "fov": 60.0,
-        "gamepad_orbit_speed": 200.0,
+        "gamepad_orbit_speed_x": 200.0,
+        "gamepad_orbit_speed_y": 200.0,
         "offset_right": 0.6,
         "offset_up": 0.0,
         "orbit_body_turn": true,
@@ -274,7 +289,8 @@ namespace TPVCamera::Presets
         "orbit_pitch_max": 75.0,
         "orbit_pitch_min": -50.0,
         "orbit_return_speed": 8.0,
-        "orbit_sensitivity": 0.2,
+        "orbit_sensitivity_x": 0.2,
+        "orbit_sensitivity_y": 0.2,
         "orbit_smoothing": 0.5,
         "zoom_step": 4.0
       }
@@ -296,7 +312,8 @@ namespace TPVCamera::Presets
         "follow_pitch": 0.0,
         "follow_yaw": 0.0,
         "fov": 60.0,
-        "gamepad_orbit_speed": 200.0,
+        "gamepad_orbit_speed_x": 200.0,
+        "gamepad_orbit_speed_y": 200.0,
         "offset_right": 0.75,
         "offset_up": 0.0,
         "orbit_body_turn": true,
@@ -305,7 +322,8 @@ namespace TPVCamera::Presets
         "orbit_pitch_max": 75.0,
         "orbit_pitch_min": -50.0,
         "orbit_return_speed": 8.0,
-        "orbit_sensitivity": 0.2,
+        "orbit_sensitivity_x": 0.2,
+        "orbit_sensitivity_y": 0.2,
         "orbit_smoothing": 0.5,
         "zoom_step": 4.0
       }

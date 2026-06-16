@@ -28,8 +28,10 @@ namespace TPVCamera::Presets
         s.follow_pitch.store(preset.follow_pitch, rel);
         s.fov.store(preset.fov, rel);
 
-        s.orbit_sensitivity.store(preset.orbit_sensitivity, rel);
-        s.gamepad_orbit_speed.store(preset.gamepad_orbit_speed, rel);
+        s.orbit_sensitivity_x.store(preset.orbit_sensitivity_x, rel);
+        s.orbit_sensitivity_y.store(preset.orbit_sensitivity_y, rel);
+        s.gamepad_orbit_speed_x.store(preset.gamepad_orbit_speed_x, rel);
+        s.gamepad_orbit_speed_y.store(preset.gamepad_orbit_speed_y, rel);
         s.orbit_pitch_min.store(preset.orbit_pitch_min, rel);
         s.orbit_pitch_max.store(preset.orbit_pitch_max, rel);
         s.orbit_return_speed.store(preset.orbit_return_speed, rel);
@@ -74,8 +76,10 @@ namespace TPVCamera::Presets
         // turning a preset's FOV on/off glides through the game FOV instead of snapping across the 0 boundary.
         a.fov = t.fov;
 
-        a.orbit_sensitivity = lerp(a.orbit_sensitivity, t.orbit_sensitivity);
-        a.gamepad_orbit_speed = lerp(a.gamepad_orbit_speed, t.gamepad_orbit_speed);
+        a.orbit_sensitivity_x = lerp(a.orbit_sensitivity_x, t.orbit_sensitivity_x);
+        a.orbit_sensitivity_y = lerp(a.orbit_sensitivity_y, t.orbit_sensitivity_y);
+        a.gamepad_orbit_speed_x = lerp(a.gamepad_orbit_speed_x, t.gamepad_orbit_speed_x);
+        a.gamepad_orbit_speed_y = lerp(a.gamepad_orbit_speed_y, t.gamepad_orbit_speed_y);
         a.orbit_pitch_min = lerp(a.orbit_pitch_min, t.orbit_pitch_min);
         a.orbit_pitch_max = lerp(a.orbit_pitch_max, t.orbit_pitch_max);
         a.orbit_return_speed = lerp(a.orbit_return_speed, t.orbit_return_speed);

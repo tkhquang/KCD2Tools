@@ -18,6 +18,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <system_error>
 
 namespace TPVCamera::Presets
@@ -49,6 +50,18 @@ namespace TPVCamera::Presets
                     return true;
             }
             return false;
+        }
+
+        /// The editable PresetField with this key, or nullptr if none. Guards the shared-field machinery and the
+        /// JSON loader against a key that is not a real field (e.g. a stale entry in a hand-edited file).
+        [[nodiscard]] const PresetField *find_field(std::string_view key) noexcept
+        {
+            for (const PresetField &field : fields())
+            {
+                if (key == field.key)
+                    return &field;
+            }
+            return nullptr;
         }
 
         json preset_to_json(const CameraPreset &preset)
@@ -96,6 +109,26 @@ namespace TPVCamera::Presets
                     else if (field.type == FieldType::Bool && v.is_boolean())
                         preset.*(field.b) = v.get<bool>();
                 }
+
+                // Backward compatibility: orbit_sensitivity / gamepad_orbit_speed were each split into per-axis
+                // X/Y fields. A preset written before the split carries only the old single key; seed BOTH new
+                // axes from it (when neither new key is present) so an existing tune is not silently lost.
+                const auto seed_axes_from_legacy = [&values, &preset](const char *legacy_key, const char *x_key,
+                                                                      const char *y_key, float CameraPreset::*x,
+                                                                      float CameraPreset::*y)
+                {
+                    if (values.contains(legacy_key) && values[legacy_key].is_number() && !values.contains(x_key) &&
+                        !values.contains(y_key))
+                    {
+                        const float v = values[legacy_key].get<float>();
+                        preset.*x = v;
+                        preset.*y = v;
+                    }
+                };
+                seed_axes_from_legacy("orbit_sensitivity", "orbit_sensitivity_x", "orbit_sensitivity_y",
+                                      &CameraPreset::orbit_sensitivity_x, &CameraPreset::orbit_sensitivity_y);
+                seed_axes_from_legacy("gamepad_orbit_speed", "gamepad_orbit_speed_x", "gamepad_orbit_speed_y",
+                                      &CameraPreset::gamepad_orbit_speed_x, &CameraPreset::gamepad_orbit_speed_y);
             }
             return preset;
         }
@@ -238,8 +271,12 @@ namespace TPVCamera::Presets
         m_file_path = file_path;
         m_presets.clear();
         m_dirty = false;
+        m_prefs_dirty = false;
         m_ui_scale = 1.0f;
         m_value_compact = true;
+        m_shared_fields.clear();
+        m_saved_presets.clear();
+        m_saved_shared_fields.clear();
 
         std::string editing_name = k_builtin_default;
 
@@ -263,6 +300,19 @@ namespace TPVCamera::Presets
                     m_ui_scale = std::clamp(root["ui_scale"].get<float>(), 0.5f, 3.0f);
                 if (root.contains("value_compact") && root["value_compact"].is_boolean())
                     m_value_compact = root["value_compact"].get<bool>();
+                if (root.contains("shared_fields") && root["shared_fields"].is_array())
+                {
+                    for (const json &shared_key : root["shared_fields"])
+                    {
+                        if (!shared_key.is_string())
+                            continue;
+                        // Keep only keys that are real editable fields and not already listed (defensive against a
+                        // hand-edited file).
+                        const std::string key = shared_key.get<std::string>();
+                        if (find_field(key) != nullptr && !is_field_shared(key))
+                            m_shared_fields.push_back(key);
+                    }
+                }
                 if (root.contains("presets") && root["presets"].is_array())
                 {
                     for (const json &entry : root["presets"])
@@ -282,6 +332,7 @@ namespace TPVCamera::Presets
                                "Delete the file to regenerate a clean copy.",
                                file_path, e.what());
                 m_presets.clear();
+                m_shared_fields.clear();
             }
         }
 
@@ -305,9 +356,13 @@ namespace TPVCamera::Presets
         // from having lost its presets) so the next launch is clean. A corrupt file (file_usable == false)
         // is deliberately left untouched on disk.
         if (!file_present || (file_usable && (builtins_added || seeded)))
-            save(); // clears m_dirty
+            save(); // clears m_dirty and snapshots the saved baseline
         else
             m_dirty = false;
+
+        // Baseline for the content-aware Save indicator = the data as just loaded/repaired. The save() path above
+        // already captured it; this covers the no-save path so a later edit-then-revert can clear the flag.
+        capture_saved_baseline();
 
         logger.info("Presets ready ({} entries) at {}", m_presets.size(), file_path);
 
@@ -327,6 +382,7 @@ namespace TPVCamera::Presets
         root["version"] = k_schema_version;
         root["ui_scale"] = m_ui_scale;
         root["value_compact"] = m_value_compact;
+        root["shared_fields"] = m_shared_fields;
         root["editing"] = (m_editing_index >= 0 && m_editing_index < static_cast<int>(m_presets.size()))
                               ? m_presets[static_cast<std::size_t>(m_editing_index)].name
                               : std::string{k_builtin_default};
@@ -378,12 +434,14 @@ namespace TPVCamera::Presets
         }
 
         m_dirty = false;
+        m_prefs_dirty = false;
+        capture_saved_baseline(); // the file now matches the live data: this is the new revert baseline
         logger.info("Presets saved to {}", m_file_path);
     }
 
     void PresetStore::flush()
     {
-        if (m_dirty)
+        if (m_dirty || m_prefs_dirty)
             save();
     }
 
@@ -391,10 +449,13 @@ namespace TPVCamera::Presets
     {
         if (index < 0 || index >= static_cast<int>(m_presets.size()))
             return;
+        if (index == m_editing_index)
+            return; // re-selecting the current preset is a no-op: nothing to persist or republish
         m_editing_index = index;
-        // The editing selection is persisted by save() ("editing" key), so mark dirty to flush it on
-        // shutdown even when no preset field value changed.
-        m_dirty = true;
+        // The editing selection is persisted ("editing" key), but it is UI bookkeeping, not a preset-value edit:
+        // flag it prefs-dirty so it flushes on shutdown WITHOUT lighting the Save indicator (changing which
+        // preset you are looking at is not an unsaved change to report).
+        m_prefs_dirty = true;
         publish();
     }
 
@@ -410,7 +471,7 @@ namespace TPVCamera::Presets
         if (clamped == m_ui_scale)
             return;
         m_ui_scale = clamped;
-        m_dirty = true; // persisted on the next save (no live binding-table impact)
+        m_prefs_dirty = true; // editor preference: persisted on shutdown / next save, not a Save-worthy change
     }
 
     void PresetStore::set_value_compact(bool compact)
@@ -418,7 +479,65 @@ namespace TPVCamera::Presets
         if (compact == m_value_compact)
             return;
         m_value_compact = compact;
-        m_dirty = true; // editor-only preference; persisted on the next save
+        m_prefs_dirty = true; // editor-only preference; persisted on shutdown / next save, not a Save-worthy change
+    }
+
+    bool PresetStore::is_field_shared(std::string_view key) const noexcept
+    {
+        for (const std::string &shared_key : m_shared_fields)
+        {
+            if (shared_key == key)
+                return true;
+        }
+        return false;
+    }
+
+    void PresetStore::set_field_shared(std::string_view key, bool shared)
+    {
+        if (find_field(key) == nullptr) // ignore anything that is not an editable preset field
+            return;
+        if (is_field_shared(key) == shared)
+            return;
+
+        if (shared)
+        {
+            m_shared_fields.emplace_back(key);
+            // Sync the value across every preset right away so enabling the link matches them immediately.
+            broadcast_field(key); // marks the store dirty and republishes
+        }
+        else
+        {
+            const std::string key_str(key);
+            m_shared_fields.erase(std::remove(m_shared_fields.begin(), m_shared_fields.end(), key_str),
+                                  m_shared_fields.end());
+            mark_dirty(); // persist the dropped link
+        }
+    }
+
+    void PresetStore::copy_field_from_editing(const PresetField &field) noexcept
+    {
+        if (m_editing_index < 0 || m_editing_index >= static_cast<int>(m_presets.size()))
+            return;
+
+        // Copy ONLY this field's value from the editing preset into every preset, leaving the rest of each
+        // preset untouched, so a shared value stays identical everywhere.
+        const CameraPreset &source = m_presets[static_cast<std::size_t>(m_editing_index)];
+        for (CameraPreset &preset : m_presets)
+        {
+            if (field.type == FieldType::Float)
+                preset.*(field.f) = source.*(field.f);
+            else
+                preset.*(field.b) = source.*(field.b);
+        }
+    }
+
+    void PresetStore::broadcast_field(std::string_view key)
+    {
+        const PresetField *field = find_field(key);
+        if (field == nullptr)
+            return;
+        copy_field_from_editing(*field);
+        mark_dirty();
     }
 
     int PresetStore::add_new()
@@ -509,14 +628,52 @@ namespace TPVCamera::Presets
         p.name = name;
         p.builtin = true;
         p.bind_state = bind;
+
+        // Restoring factory values would diverge any SHARED field on this built-in from the rest. Re-broadcast
+        // every shared field from the editing preset so the "identical across all presets" invariant holds and
+        // the divergence is never written to disk by the save() below.
+        for (const std::string &key : m_shared_fields)
+        {
+            if (const PresetField *field = find_field(key))
+                copy_field_from_editing(*field);
+        }
+
         save();
         publish();
     }
 
     void PresetStore::mark_dirty()
     {
-        m_dirty = true;
+        // Content-aware: an edit that lands back on the saved value (a manual revert, or a per-field reset to a
+        // value that was already saved) leaves nothing to write, so diff against the baseline instead of latching
+        // the flag true.
+        recompute_dirty();
         publish();
+    }
+
+    void PresetStore::recompute_dirty() noexcept
+    {
+        // The shared-field collection is an unordered SET: vector order is not meaningful (disabling then
+        // re-enabling a key relocates it to the end), so compare it set-wise rather than with the order-sensitive
+        // vector operator!=, or a no-op reorder would falsely light the Save indicator. Neither side holds
+        // duplicates, so equal size plus one-way containment proves the sets match.
+        bool shared_changed = m_shared_fields.size() != m_saved_shared_fields.size();
+        for (const std::string &key : m_shared_fields)
+        {
+            if (shared_changed)
+            {
+                break;
+            }
+            shared_changed = std::find(m_saved_shared_fields.begin(), m_saved_shared_fields.end(), key) ==
+                             m_saved_shared_fields.end();
+        }
+        m_dirty = (m_presets != m_saved_presets) || shared_changed;
+    }
+
+    void PresetStore::capture_saved_baseline()
+    {
+        m_saved_presets = m_presets;
+        m_saved_shared_fields = m_shared_fields;
     }
 
     void PresetStore::publish()

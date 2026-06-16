@@ -845,9 +845,10 @@ namespace TPVCamera
         // the mouse. Done here (not in the input hook) because the stick reports a HELD position, so it needs
         // delta_time to be a frame-rate-independent turn rate and to keep moving while held steady. Yaw matches
         // the mouse (stick-right orbits right); the right-stick Y reads OPPOSITE the mouse look delta, so it is
-        // negated below (stick-up raises the camera, like the mouse). GamepadOrbitSpeed (deg/sec at full stick)
-        // sets the rate -- a SEPARATE knob from the mouse's OrbitSensitivity, because a relative mouse (delta)
-        // and an absolute stick (rate) cannot share one linear scale; the pitch is clamped to the same limits.
+        // negated below (stick-up raises the camera, like the mouse). GamepadOrbitSpeed X/Y (deg/sec at full stick,
+        // one rate per axis so each can be inverted with a negative value) sets the rate -- a SEPARATE knob from the
+        // mouse's OrbitSensitivity X/Y, because a relative mouse (delta) and an absolute stick (rate) cannot share
+        // one linear scale; the pitch is clamped to the same limits.
         // Gated on the cursor-shown freeze (a UI up holds
         // still, mirroring the mouse path); when not orbiting or frozen the latch is cleared so re-engaging with
         // the stick centred does not jump.
@@ -857,10 +858,11 @@ namespace TPVCamera
             const float pad_pitch = cam.orbit_pad_pitch.load(std::memory_order_relaxed);
             if (pad_yaw != 0.0f || pad_pitch != 0.0f)
             {
-                const float step = cfg.gamepad_orbit_speed.load(std::memory_order_relaxed) * delta_time;
-                cam.orbit_yaw.store(cam.orbit_yaw.load(std::memory_order_relaxed) - pad_yaw * step,
+                const float step_x = cfg.gamepad_orbit_speed_x.load(std::memory_order_relaxed) * delta_time;
+                const float step_y = cfg.gamepad_orbit_speed_y.load(std::memory_order_relaxed) * delta_time;
+                cam.orbit_yaw.store(cam.orbit_yaw.load(std::memory_order_relaxed) - pad_yaw * step_x,
                                     std::memory_order_relaxed);
-                const float pitch = cam.orbit_pitch.load(std::memory_order_relaxed) - pad_pitch * step;
+                const float pitch = cam.orbit_pitch.load(std::memory_order_relaxed) - pad_pitch * step_y;
                 cam.orbit_pitch.store(std::clamp(pitch, cfg.orbit_pitch_min.load(std::memory_order_relaxed),
                                                  cfg.orbit_pitch_max.load(std::memory_order_relaxed)),
                                       std::memory_order_relaxed);
@@ -1585,16 +1587,15 @@ namespace TPVCamera
                         (void)render_hit_info(hp, node, obj_name, static_cast<int>(sizeof(obj_name)), obj_ext,
                                               &obj_kind);
                         static const char *const k_obj_kinds[] = {"none", "foreign", "prop", "solid", "hlod"};
-                        const char *kind_str =
-                            (obj_kind >= 0 && obj_kind <= 4) ? k_obj_kinds[obj_kind] : "?";
+                        const char *kind_str = (obj_kind >= 0 && obj_kind <= 4) ? k_obj_kinds[obj_kind] : "?";
                         DMK::Logger::get_instance().trace(
                             "PhysicsCollision HIT: src={} bTerrain={} dist={} of {} cov={} kind={} obj=\"{}\" "
                             "ext=({}, {}, {}) collider={:#x} node={:#x} point=({}, {}, {}) normal=({}, {}, {}) "
                             "cam=({}, {}, {}) pivot=({}, {}, {})",
-                            from_sphere ? "sphere" : "fan", hit_terrain, hit->m_distance, desired_distance,
-                            blocked_cov, kind_str, obj_name, obj_ext[0], obj_ext[1], obj_ext[2], collider,
-                            reinterpret_cast<uintptr_t>(node), hp.x, hp.y, hp.z, hn.x, hn.y, hn.z,
-                            camera_position.x, camera_position.y, camera_position.z, pivot.x, pivot.y, pivot.z);
+                            from_sphere ? "sphere" : "fan", hit_terrain, hit->m_distance, desired_distance, blocked_cov,
+                            kind_str, obj_name, obj_ext[0], obj_ext[1], obj_ext[2], collider,
+                            reinterpret_cast<uintptr_t>(node), hp.x, hp.y, hp.z, hn.x, hn.y, hn.z, camera_position.x,
+                            camera_position.y, camera_position.z, pivot.x, pivot.y, pivot.z);
                     }
                     s_phys_blocked = blocked;
                     if (blocked)
@@ -1676,9 +1677,9 @@ namespace TPVCamera
                             float capped = allowed_distance;
                             for (const Vector3 &side : lateral)
                             {
-                                const std::optional<RayHit> h = ray_world_intersection(
-                                    cam_test, side * probe, Constants::RWI_OBJTYPES_CAMERA,
-                                    Constants::RWI_FLAGS_STOP_AT_SOLID);
+                                const std::optional<RayHit> h =
+                                    ray_world_intersection(cam_test, side * probe, Constants::RWI_OBJTYPES_CAMERA,
+                                                           Constants::RWI_FLAGS_STOP_AT_SOLID);
                                 if (!h.has_value() || h->m_distance >= probe)
                                 {
                                     continue; // this side is clear within the probe
@@ -2247,17 +2248,19 @@ namespace TPVCamera
             // Mouse look: relative DELTA accumulated straight into the orbit angle (one event = one nudge).
             if (id == Constants::INPUT_LOOK_YAW_EVENT_ID || id == Constants::INPUT_LOOK_PITCH_EVENT_ID)
             {
-                const float sensitivity = settings().orbit_sensitivity.load(std::memory_order_relaxed);
                 if (id == Constants::INPUT_LOOK_YAW_EVENT_ID)
                 {
-                    // Negated so mouse-left orbits the camera left and mouse-right orbits right.
-                    cam.orbit_yaw.store(cam.orbit_yaw.load(std::memory_order_relaxed) - value * sensitivity,
+                    // Negated so mouse-left orbits the camera left and mouse-right orbits right; a negative X
+                    // sensitivity inverts that.
+                    const float sensitivity_x = settings().orbit_sensitivity_x.load(std::memory_order_relaxed);
+                    cam.orbit_yaw.store(cam.orbit_yaw.load(std::memory_order_relaxed) - value * sensitivity_x,
                                         std::memory_order_relaxed);
                 }
                 else
                 {
-                    // Mouse-up raises the camera, mouse-down lowers it.
-                    const float pitch = cam.orbit_pitch.load(std::memory_order_relaxed) + value * sensitivity;
+                    // Mouse-up raises the camera, mouse-down lowers it; a negative Y sensitivity inverts that.
+                    const float sensitivity_y = settings().orbit_sensitivity_y.load(std::memory_order_relaxed);
+                    const float pitch = cam.orbit_pitch.load(std::memory_order_relaxed) + value * sensitivity_y;
                     cam.orbit_pitch.store(std::clamp(pitch, settings().orbit_pitch_min.load(std::memory_order_relaxed),
                                                      settings().orbit_pitch_max.load(std::memory_order_relaxed)),
                                           std::memory_order_relaxed);

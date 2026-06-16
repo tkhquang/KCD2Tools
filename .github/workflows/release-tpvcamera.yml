@@ -225,24 +225,30 @@ jobs:
 
           ### Installation
 
-          1. Simply extract all files to your game directory:
+          This mod needs an **ASI loader** to run. It is **not bundled** - you download it yourself (Step 1).
+
+          1. **Install an ASI loader** (skip if you already have one). Download [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases) by ThirteenAG and place one of these DLLs in your game's binary folder (the `Bin/Win64MasterMaster...` folder that contains `WHGame.dll`):
+             - [dinput8.dll](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/dinput8-x64.zip) - recommended
+             - [version.dll](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/version-x64.zip) - alternative if dinput8.dll does not work
+             - [winmm.dll](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/winmm-x64.zip) - another alternative
+          2. **Install the mod**: extract all files from this archive into that same binary folder:
              `<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/`
-          2. Launch the game and press F3 (default), or hold LB + RB, to enter third-person
+          3. Launch the game and press F3 (default), or hold LB + RB, to enter third-person.
+
+          If no `KCD2_TPVCamera.log` appears in the binary folder after launching, the loader is not loading the mod - try one of the other loader DLLs above.
 
           ### Note
-          This package includes everything you need:
+          This package contains:
           - **KCD2_TPVCamera.asi** - The mod itself (built with [DetourModKit](https://github.com/tkhquang/DetourModKit))
           - **KCD2_TPVCamera.ini** - Configuration file
-          - **dinput8.dll** - Ultimate ASI Loader by [ThirteenAG](https://github.com/ThirteenAG/Ultimate-ASI-Loader)
           - **Documentation and license information**
 
-          The camera presets file (`KCD2_TPVCamera_presets.json`) is created automatically on first run and is
-          not bundled, so updating the mod never overwrites presets you have tuned in-game.
+          The **ASI loader is not included** - download it separately (see Installation above). The camera presets file (`KCD2_TPVCamera_presets.json`) is created automatically on first run and is not bundled, so updating the mod never overwrites presets you have tuned in-game.
 
           ### Configuration
 
           Edit `KCD2_TPVCamera.ini` for hotkeys and global options. Camera framing is preset-driven:
-          open the in-game overlay (Insert) to tune and save presets, stored in `KCD2_TPVCamera_presets.json`.
+          open the in-game overlay (Home) to tune and save presets, stored in `KCD2_TPVCamera_presets.json`.
 
           See the [README](https://github.com/{3}/blob/main/TPVCamera/README.md) for detailed instructions.
 

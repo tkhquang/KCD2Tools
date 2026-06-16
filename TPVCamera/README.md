@@ -19,6 +19,7 @@ start in first-person instead.
 - Basic free-look orbit to look around your character (early; see Known Limitations)
 - Automatic view switching by situation: switch to first or third person when you enter combat, aiming a bow, dialogue, minigames, riding, or menus (you can still toggle manually during it), with your previous view restored when the situation ends
 - In-game preset manager: edit, add, and save camera presets from an overlay; built-in presets for normal play, combat, aiming, horseback, sneaking, and special poses (lying down, sitting, kneeling, riding a cart) apply automatically by situation, and you can bind your own presets to combinations of states (such as aiming while crouched), with the most specific match winning
+- Free-look look sensitivity is set per axis for both mouse and gamepad, so horizontal and vertical can be tuned independently; set a negative value to invert that axis. Mark any preset setting as Shared to apply its value to every preset at once
 - Camera collision with an optional see-through mode (off by default) that ignores thin posts, rails and fences you can see past and keeps out of corners, plus a cloth-roof clamp (on by default) so a look-down is not buried in tent or awning fabric; all tunable in the INI
 - Crosshair convergence so the screen-center reticle lines up with what you point at
 - Full keyboard and XInput controller support
@@ -26,25 +27,43 @@ start in first-person instead.
 
 ## Installation
 
-1. If you previously installed the older **KCD2_TPVToggle** mod, remove it first: delete
-   `KCD2_TPVToggle.asi` and `KCD2_TPVToggle.ini` from the game's binary folder. TPVCamera replaces it,
-   and running both third-person camera mods at once will conflict.
-2. Extract all files into your game's binary folder (the `Bin/Win64MasterMaster...` subfolder that contains
-   `WHGame.dll`). On Steam this is
+This mod is an `.asi` plugin, so it needs an **ASI loader** to run. The loader is **not bundled** in the
+download; you install it once yourself (Step 2). If you already have an ASI loader for KC:D 2 from another
+mod, skip that step.
+
+1. **Remove the old mod (if present).** If you previously installed the older **KCD2_TPVToggle** mod,
+   delete `KCD2_TPVToggle.asi` and `KCD2_TPVToggle.ini` from the game's binary folder. TPVCamera replaces
+   it, and running both third-person camera mods at once will conflict.
+2. **Install an ASI loader.** Download [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases)
+   by **ThirteenAG** and place one of these DLLs in your game's binary folder (the `Bin/Win64MasterMaster...`
+   subfolder that contains `WHGame.dll`):
+   - [`dinput8.dll`](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/dinput8-x64.zip) - recommended (tested with KC:D 2)
+   - [`version.dll`](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/version-x64.zip) - alternative if `dinput8.dll` does not work
+   - [`winmm.dll`](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/winmm-x64.zip) - another alternative
+
+   Each link downloads a ZIP; extract just the DLL next to `WHGame.dll`.
+3. **Install the mod.** Extract all files from this mod's archive into that **same** binary folder (next to
+   `WHGame.dll` and the loader DLL). On Steam this is
    `<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/`; the GOG version uses its own
    `Bin/Win64MasterMaster...` folder.
-3. Launch the game; third-person turns on automatically once you reach gameplay.
-4. Press `F3` (default), or hold `LB + RB` on a controller, to toggle back to first-person.
+4. **Launch and play.** Third-person turns on automatically once you reach gameplay. Press `F3` (default),
+   or hold `LB + RB` on a controller, to toggle back to first-person.
+
+To check the loader is working, launch once and look for a `KCD2_TPVCamera.log` file in the binary folder.
+If it is missing, the loader is not loading the mod; try the other loader DLL above (rename it if needed)
+and relaunch.
 
 ### Linux / Steam Deck (Wine/Proton)
 
-Since this mod uses `dinput8.dll` as the ASI loader, you need to tell Wine/Proton to use the
-bundled DLL instead of its built-in version. Set the following DLL override:
+Your ASI loader DLL needs a Wine/Proton DLL override so the game loads it instead of the built-in
+version. If you installed `dinput8.dll` (the recommended loader), set the following override:
 
 - **Steam:** Go to the game's **Properties -> Launch Options** and add:
   `WINEDLLOVERRIDES="dinput8=n,b" %command%`
 - **Command line:** Prepend your launch command with:
   `WINEDLLOVERRIDES="dinput8=n,b"`
+
+If you chose a different loader DLL, use its name instead (for example `winmm=n,b` for `winmm.dll`).
 
 ## Controls
 
@@ -97,7 +116,16 @@ Most values apply the next frame after you save the file. Every option is docume
 ## Using with Controllers
 
 DetourModKit supports gamepad input natively via the **XInput** API. You can use gamepad button
-names directly in the INI file:
+names directly in the INI file.
+
+### Hotkey Format
+
+- Named keys: `V`, `F3`, `Numpad1`, `Mouse4`, `Gamepad_A`, etc.
+- Modifiers: `Ctrl`, `Shift`, `Alt` (or `LCtrl`, `RCtrl`, etc.)
+- Multiple combos: `F3,Gamepad_LB+Gamepad_RB` (`F3` alone OR hold `LB` + press `RB`)
+- An empty value disables the binding
+
+Examples:
 
 ```ini
 ; Single button
@@ -118,9 +146,10 @@ Supported gamepad inputs include `Gamepad_A`, `Gamepad_B`, `Gamepad_X`, `Gamepad
 
 See the full list at the [Supported Input Names](https://github.com/tkhquang/DetourModKit?tab=readme-ov-file#supported-input-names) reference.
 
-> **XInput only:** Xbox controllers work natively. For PS4/PS5/Switch controllers, use
-> [DS4Windows](https://github.com/Ryochan7/DS4Windows), [Steam Input](https://store.steampowered.com/controller),
-> or a similar tool to present your controller as XInput.
+> **XInput only:** Xbox controllers work natively. For PS4/PS5/Switch controllers, use an XInput
+> translation layer ([DS4Windows](https://github.com/Ryochan7/DS4Windows), DualSenseX, BetterJoy) or
+> [Steam Input](https://store.steampowered.com/controller) to present your controller as XInput. See
+> [Gamepad Compatibility](https://github.com/tkhquang/DetourModKit?tab=readme-ov-file#gamepad-compatibility) for details.
 
 ## Troubleshooting
 
@@ -184,10 +213,10 @@ See [CHANGELOG.md](CHANGELOG.md).
 
 This mod requires:
 
-- [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) by [**ThirteenAG**](https://github.com/ThirteenAG)
+- An **ASI loader**, such as [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) by [**ThirteenAG**](https://github.com/ThirteenAG). It is **not bundled** with the mod; download and install it yourself (see [Installation](#installation)).
 - [DetourModKit](https://github.com/tkhquang/DetourModKit) - a lightweight C++ toolkit for game modding (provides SafetyHook, AOB scanning, logging, and configuration management)
 
-> **Note:** `dinput8.dll` (ASI Loader) is bundled in the ZIP file. The mod will not work without it.
+> **Note:** the mod will not load without an ASI loader DLL present in the game's binary folder.
 
 ## Building from Source
 

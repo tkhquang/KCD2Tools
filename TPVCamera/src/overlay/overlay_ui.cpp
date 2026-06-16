@@ -729,6 +729,73 @@ namespace TPVCamera::Overlay
         }
 
         /**
+         * @brief Draws the per-field "shared" checkbox that links field @p field across every preset.
+         * @details A ticked box means the field is kept identical in all presets: ticking it copies the selected
+         *          preset's value into every preset and later edits to it propagate to all of them. Carries a visible
+         *          "Shared" label (so it is not mistaken for an enable toggle) and leads each field row, the boxes
+         *          lining up as a column. Because enabling OVERWRITES every preset's value of this field, the tick
+         *          is confirmed through a modal before it applies; un-ticking only drops the link (no values change)
+         *          and applies at once. The popup is scoped under this field's PushID so each row has its own
+         *          confirmation.
+         * @param store The process-wide preset store (owns the shared-field set).
+         * @param field The field this checkbox links.
+         */
+        void draw_shared_checkbox(PresetStore &store, const PresetField &field)
+        {
+            ImGui::PushID(field.key);
+            bool shared = store.is_field_shared(field.key);
+            if (ImGui::Checkbox("Shared##shared", &shared))
+            {
+                if (shared)
+                {
+                    // Enabling broadcasts the selected preset's value over every preset's value of this field;
+                    // confirm first so a stray tick cannot wipe the other presets' tuning. The checkbox reverts
+                    // to unticked on its own next frame (it reflects the not-yet-changed store) until confirmed.
+                    ImGui::OpenPopup("##shareconfirm");
+                }
+                else
+                {
+                    store.set_field_shared(field.key, false); // dropping the link changes no values; apply at once
+                }
+            }
+            hover_tooltip("Shared: keep this value the same across ALL presets. Ticking it copies the selected\n"
+                          "preset's value to every preset; editing it afterwards updates them all at once.");
+
+            // Confirmation modal for the destructive enable. Queue the centering position (see below) only while
+            // the popup is actually open, so the next-window position cannot leak onto another window.
+            if (ImGui::IsPopupOpen("##shareconfirm"))
+            {
+                // Center the modal over the preset window (we are still inside it here), not the whole screen, so
+                // it appears where the user is working instead of being flung to the display centre.
+                const ImVec2 win_pos = ImGui::GetWindowPos();
+                const ImVec2 win_size = ImGui::GetWindowSize();
+                ImGui::SetNextWindowPos(ImVec2(win_pos.x + win_size.x * 0.5f, win_pos.y + win_size.y * 0.5f),
+                                        ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+            }
+            if (ImGui::BeginPopupModal("##shareconfirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            {
+                ImGui::Text("Share \"%s\" across all presets?", field.label);
+                ImGui::Spacing();
+                ImGui::TextWrapped("This copies the selected preset's value into every preset, overwriting their "
+                                   "current values for this setting. Editing it afterwards keeps them all in sync.");
+                ImGui::Spacing();
+                if (ImGui::Button("Apply to all presets"))
+                {
+                    store.set_field_shared(field.key, true);
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel"))
+                {
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndPopup();
+            }
+
+            ImGui::PopID();
+        }
+
+        /**
          * @brief Renders the grouped field editors (Framing / Orbit / Collision) for @p edited.
          * @param store  The process-wide preset store (for mark_dirty on any edit and the precision pref).
          * @param edited The preset bound to the editor (presets()[editing_index()]).
@@ -766,6 +833,11 @@ namespace TPVCamera::Overlay
                     continue;
                 }
 
+                // Lead each row with the shared toggle: when ticked the field is kept identical across every
+                // preset, so the editor that follows edits every preset at once.
+                draw_shared_checkbox(store, field);
+                ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+
                 bool changed = false;
                 if (field.type == FieldType::Float && field.f != nullptr)
                 {
@@ -793,8 +865,16 @@ namespace TPVCamera::Overlay
 
                 if (changed)
                 {
-                    // Republish immediately so the edit previews on the live camera this frame.
-                    store.mark_dirty();
+                    // Republish immediately so the edit previews on the live camera this frame. A shared field
+                    // also pushes its new value into every other preset (broadcast_field marks dirty too).
+                    if (store.is_field_shared(field.key))
+                    {
+                        store.broadcast_field(field.key);
+                    }
+                    else
+                    {
+                        store.mark_dirty();
+                    }
                 }
 
                 // Under the Follow Distance row, surface the LIVE applied distance (base + zoom, clamped) and a
