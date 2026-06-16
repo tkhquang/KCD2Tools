@@ -19,6 +19,10 @@ on:
         description: "Version title (e.g., 'Feature Update')"
         required: false
         type: string
+      nexus_description:
+        description: "Nexus file note (appended after the install-steps line; truncated to fit 255 chars total). Leave blank for just the install-steps line."
+        required: false
+        type: string
       prerelease:
         description: "Is this a pre-release?"
         required: false
@@ -205,6 +209,9 @@ jobs:
 
       - name: Prepare release body
         id: prepare-release
+        env:
+          # Passed via env (not inlined into the script) so free-text input cannot inject PowerShell.
+          NEXUS_DESC_INPUT: ${{ inputs.nexus_description }}
         run: |
           # Write the changelog to a file first to avoid any issues with special characters
           "${{ steps.read-changelog.outputs.CHANGELOG }}" -replace '%0A', "`n" | Out-File -FilePath "changelog_content.txt" -Encoding utf8
@@ -275,6 +282,20 @@ jobs:
             $releaseBody = $preReleaseNotice + $releaseBody
           }
 
+          # Build the Nexus file description (hard cap 255 chars): fixed prefix + a blank line +
+          # the manual nexus_description input, with that note truncated to whatever space remains.
+          $nexusPrefix = "See the description for installation steps.`n`n"
+          $nexusBody = ("$env:NEXUS_DESC_INPUT" -replace "`r`n", "`n").Trim()
+          $remaining = 255 - $nexusPrefix.Length
+          if ($nexusBody.Length -gt $remaining) {
+            $nexusBody = $nexusBody.Substring(0, $remaining)
+          }
+          $nexusDescription = $nexusPrefix + $nexusBody
+          echo "Nexus description length: $($nexusDescription.Length)"
+          "NEXUS_DESCRIPTION<<__NEXUS_EOF__" >> $env:GITHUB_OUTPUT
+          $nexusDescription >> $env:GITHUB_OUTPUT
+          "__NEXUS_EOF__" >> $env:GITHUB_OUTPUT
+
           # Write to file for the release action
           Set-Content -Path "release_body.txt" -Value $releaseBody -Encoding UTF8
           echo "RELEASE_BODY_PATH=release_body.txt" >> $env:GITHUB_OUTPUT
@@ -291,6 +312,31 @@ jobs:
           body_path: ${{ steps.prepare-release.outputs.RELEASE_BODY_PATH }}
           draft: false
           prerelease: ${{ inputs.prerelease }}
+
+      # Publish the built ZIP to Nexus Mods as a new file version.
+      # Configure once in repo Settings -> Secrets and variables -> Actions:
+      #   - secret   NEXUSMODS_API_KEY                  : personal key from nexusmods.com/settings/api-keys
+      #                                                   (shared across all mods - one Nexus account).
+      #   - variable NEXUSMODS_TPVCAMERA_FILE_GROUP_ID  : file group id from THIS mod's Files tab "API Info"
+      #     (per-mod; the id only exists after the mod page is created and ONE file is uploaded manually).
+      # Skipped on pre-releases and whenever the group-id variable is unset, so it is safe to merge
+      # before Nexus is set up. The action and the Nexus v3 upload API are currently beta/evaluation;
+      # pinned to a commit SHA (handles the API key) with the tag noted alongside.
+      - name: Publish to Nexus Mods
+        if: ${{ !inputs.prerelease && vars.NEXUSMODS_TPVCAMERA_FILE_GROUP_ID != '' }}
+        uses: Nexus-Mods/upload-action@0bf670d75d46988c176c9bfacc94ca0144e0fe3f # v1.0.0-beta.7
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_group_id: ${{ vars.NEXUSMODS_TPVCAMERA_FILE_GROUP_ID }}
+          filename: ${{ env.ARTIFACT_NAME }}
+          version: ${{ env.NEW_VERSION }}
+          display_name: Proper Third Person View (TPV Camera)
+          description: ${{ steps.prepare-release.outputs.NEXUS_DESCRIPTION }}
+          file_category: main
+          archive_existing_file: false
+          primary_mod_manager_download: true
+          allow_mod_manager_download: false
+          show_requirements_pop_up: true
 
       # Only archive the changelog if this is NOT a pre-release
       - name: Archive NEXT_CHANGELOG.md
