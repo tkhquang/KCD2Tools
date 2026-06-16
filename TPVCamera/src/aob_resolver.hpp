@@ -194,6 +194,27 @@ namespace TPVCamera
              ResolveMode::Direct, -0x1F, 0},
         };
 
+        // --- I3DEngine::GetObjectsInBox (render-node octree query) entry ------
+        // Direct: the match IS the callable function (no detour). The function is identified by its
+        // standard frame save followed IMMEDIATELY by `mov rcx, [rcx+698h]` (the C3DEngine octree root),
+        // a load shared by no other function in the image, so the entry is unambiguous. P1 anchors the
+        // entry through that octree load; P2 drops the leading `mov rax,rsp` (walk back 3); P3 anchors on
+        // the octree-load body and walks back 0x10 to the entry. The `sub rsp` frame allocation and the
+        // frame-relative stack-slot displacements (mov/lea [rax-disp8]) are wildcarded for frame-size
+        // resilience; the +698h octree-root displacement is the semantic landmark and stays literal. All
+        // three verified to match exactly once over the full WHGame.dll image.
+        inline constexpr AddrCandidate k_getObjectsInBoxCandidates[] = {
+            {"GetObjInBox_P1_PrologueThroughOctree",
+             "48 8B C4 48 89 58 08 48 89 70 10 57 48 83 EC ?? 48 8B 89 98 06 00 00 49 8B F0 4C 8B C2",
+             ResolveMode::Direct, 0, 0},
+            {"GetObjInBox_P2_SavesThroughOctree",
+             "48 89 58 08 48 89 70 10 57 48 83 EC ?? 48 8B 89 98 06 00 00 49 8B F0 4C 8B C2 48 C7 40 ?? 00 00 00 00",
+             ResolveMode::Direct, -3, 0},
+            {"GetObjInBox_P3_OctreeLoadBody",
+             "48 8B 89 98 06 00 00 49 8B F0 4C 8B C2 48 C7 40 ?? 00 00 00 00 48 8B DA 0F 57 C0 48 8D 50 ??",
+             ResolveMode::Direct, -0x10, 0},
+        };
+
         // --- Interaction ray-query builder entry ----------------------------
         // Direct entry hook. The function is a leaf-style Vec3 copier with no
         // standard prologue, so all anchors are body-shaped. P2 extends the
@@ -356,6 +377,7 @@ namespace TPVCamera
         OverlayShow,          // ShowOverlays
         MenuOpen,             // UI menu-open entry
         MenuClose,            // UI menu-close entry
+        GetObjectsInBox,      // I3DEngine::GetObjectsInBox render-octree query (called, not hooked)
         Count,
     };
 

@@ -112,6 +112,7 @@ namespace TPVCamera
         hit.m_point = *reinterpret_cast<const Vector3 *>(hit_buffer + Constants::RAY_HIT_OFFSET_POINT);
         hit.m_normal = *reinterpret_cast<const Vector3 *>(hit_buffer + Constants::RAY_HIT_OFFSET_NORMAL);
         hit.m_collider = *reinterpret_cast<const uintptr_t *>(hit_buffer + Constants::RAY_HIT_OFFSET_COLLIDER);
+        hit.m_terrain = *reinterpret_cast<const int *>(hit_buffer + Constants::RAY_HIT_OFFSET_TERRAIN);
         return hit;
     }
 
@@ -324,91 +325,105 @@ namespace TPVCamera
         return best;
     }
 
-    // World-AABB smallest extent of a physics collider (m_BBox: min @ +0x08, max @ +0x14, each a Vec3) on a
-    // CPhysicalEntity. Returns -1 if the collider / bbox is unreadable or implausible, so the
-    // caller treats "unknown" as NOT thin (keep colliding -- never skip a real wall on a bad read).
-    static float collider_min_extent(uintptr_t collider)
+    float collider_horizontal_footprint(uintptr_t collider) noexcept
     {
         if (collider == 0 || !DMK::Memory::plausible_userspace_ptr(collider))
         {
             return -1.0f;
         }
+        // A collider with a foreign OWNER carries a sane world m_BBox at this offset, whether it is a static brush
+        // (fType == PHYS_FOREIGN_ID_STATIC == 1) OR a placed ENTITY (live: the gate post's fType is 0x200002 = an
+        // entity id with flags, NOT static -- but its bbox 0.30x0.30x3.69 is valid). Do NOT require STATIC, or
+        // entity posts are missed. Only fType == 0 (terrain heightmap / unowned geom) reads a 0x0 bbox (live), so
+        // exclude it; the degenerate-AABB check below catches it too.
+        const auto ftype = DMK::Memory::seh_read<int>(collider + Constants::PHYS_ENTITY_FOREIGN_TYPE_OFFSET);
+        if (!ftype || *ftype == 0)
+        {
+            return -1.0f;
+        }
         const auto min_x = DMK::Memory::seh_read<float>(collider + Constants::PHYS_ENTITY_BBOX_MIN_OFFSET + 0);
         const auto min_y = DMK::Memory::seh_read<float>(collider + Constants::PHYS_ENTITY_BBOX_MIN_OFFSET + 4);
-        const auto min_z = DMK::Memory::seh_read<float>(collider + Constants::PHYS_ENTITY_BBOX_MIN_OFFSET + 8);
         const auto max_x = DMK::Memory::seh_read<float>(collider + Constants::PHYS_ENTITY_BBOX_MAX_OFFSET + 0);
         const auto max_y = DMK::Memory::seh_read<float>(collider + Constants::PHYS_ENTITY_BBOX_MAX_OFFSET + 4);
-        const auto max_z = DMK::Memory::seh_read<float>(collider + Constants::PHYS_ENTITY_BBOX_MAX_OFFSET + 8);
-        if (!min_x || !min_y || !min_z || !max_x || !max_y || !max_z)
+        if (!min_x || !min_y || !max_x || !max_y)
         {
             return -1.0f;
         }
         const float sx = *max_x - *min_x;
         const float sy = *max_y - *min_y;
-        const float sz = *max_z - *min_z;
-        if (!std::isfinite(sx) || !std::isfinite(sy) || !std::isfinite(sz) || sx < 0.0f || sy < 0.0f || sz < 0.0f ||
-            sx > 1.0e5f || sy > 1.0e5f || sz > 1.0e5f)
+        if (!std::isfinite(sx) || !std::isfinite(sy) || sx < 1.0e-3f || sy < 1.0e-3f || sx > 1.0e5f || sy > 1.0e5f)
         {
-            return -1.0f;
+            return -1.0f; // degenerate / implausible AABB -> unknown
         }
-        float m = sx;
-        if (sy < m)
-        {
-            m = sy;
-        }
-        if (sz < m)
-        {
-            m = sz;
-        }
-        return m;
+        // The LARGER horizontal extent. A post is small in BOTH axes (footprint small); a wall is large in at
+        // least one (footprint large) even when thin in the other -- so this separates a thin POST from a thin
+        // WALL, which the minimum-extent metric (smallest of all three axes) cannot: a thin wall is also small on
+        // its depth axis.
+        return (sx > sy) ? sx : sy;
     }
 
-    std::optional<RayHit> ray_fan_sweep_skipping_thin(const Vector3 &origin, const Vector3 &sweep, float radius,
-                                                      int objtypes, unsigned int flags, float thin_max_size)
+    uintptr_t static_brush_render_node(uintptr_t collider) noexcept
     {
-        if (thin_max_size <= 0.0f)
+        if (collider == 0 || !DMK::Memory::plausible_userspace_ptr(collider))
         {
-            // Feature OFF (empty / unset config): plain fan, no bbox reads, zero overhead.
-            return ray_fan_sweep(origin, sweep, radius, objtypes, flags);
+            return 0;
         }
-
-        // Walk through standalone thin entities, re-casting past each, until a real surface or a miss. The skip
-        // buffer doubles as a dedup set; the cap bounds both cost and a pathological skip-not-applied loop.
-        constexpr int k_max_thin_layers = 8;
-        uintptr_t skip[k_max_thin_layers]{};
-        int n = 0;
-        for (int iter = 0; iter < k_max_thin_layers; ++iter)
+        const auto ftype = DMK::Memory::seh_read<int>(collider + Constants::PHYS_ENTITY_FOREIGN_TYPE_OFFSET);
+        if (!ftype || *ftype != Constants::PHYS_FOREIGN_ID_STATIC)
         {
-            const std::optional<RayHit> hit = ray_fan_sweep(origin, sweep, radius, objtypes, flags, skip, n);
-            if (!hit.has_value())
+            return 0; // not a static brush owner (entity-attached / pure-physics): no usable render node
+        }
+        const auto node = DMK::Memory::seh_read<uintptr_t>(collider + Constants::PHYS_ENTITY_FOREIGN_DATA_OFFSET);
+        if (!node || !DMK::Memory::plausible_userspace_ptr(*node))
+        {
+            return 0;
+        }
+        return *node;
+    }
+
+    float character_occluded_fraction(const Vector3 &camera, const Vector3 &pivot, int objtypes, unsigned int flags)
+    {
+        // Screen-horizontal axis at the character (perpendicular to the view, kept world-horizontal).
+        const Vector3 view = pivot - camera; // camera -> character
+        const Vector3 world_up{0.0f, 0.0f, 1.0f};
+        Vector3 right = view.cross(world_up);
+        const float rl = right.magnitude();
+        right = (rl > 1e-4f) ? (right / rl) : Vector3{1.0f, 0.0f, 0.0f};
+
+        // Sample the character silhouette relative to the pivot (~eye/head height): four vertical levels from
+        // just above the head down to the shins, three columns across the shoulders. A ray from the camera to
+        // each sample is "occluded" when WORLD geometry lies before it (the player body is ent_living, excluded
+        // by the world-only objtypes, so the character never occludes itself). Like a real TPV camera (which
+        // protects the head/look-at socket, not the feet) each level is WEIGHTED by importance head->feet, so an
+        // obstruction over the upper body counts far more than one over the legs: occluding the upper half
+        // exceeds 0.5, occluding only the legs stays well under it. (k_char_level_weight sums to 2.45.)
+        static const float v_levels[4] = {0.10f, -0.45f, -1.00f, -1.55f};
+        static const float k_char_level_weight[4] = {1.0f, 0.8f, 0.45f, 0.2f}; // head, chest, hips, shins
+        static const float h_cols[3] = {-0.25f, 0.0f, 0.25f};
+        float total = 0.0f;
+        float blocked = 0.0f;
+        for (int vi = 0; vi < 4; ++vi)
+        {
+            const float v = v_levels[vi];
+            const float w = k_char_level_weight[vi];
+            for (const float h : h_cols)
             {
-                return std::nullopt; // nothing (more) in the way
-            }
-            // A null collider makes collider_min_extent return -1 (extent < 0 -> is_thin false), so the
-            // !is_thin term already covers the no-collider case; no separate m_collider == 0 check is needed.
-            const float extent = collider_min_extent(hit->m_collider);
-            const bool is_thin = extent >= 0.0f && extent < thin_max_size;
-            if (!is_thin || n >= k_max_thin_layers)
-            {
-                return hit; // real surface (or unknown bbox -> keep colliding) -> this is the collision
-            }
-            bool already = false;
-            for (int i = 0; i < n; ++i)
-            {
-                if (skip[i] == hit->m_collider)
+                const Vector3 target{pivot.x + right.x * h, pivot.y + right.y * h, pivot.z + v};
+                const Vector3 to_target = target - camera;
+                const float dist = to_target.magnitude();
+                if (dist < 1e-3f)
                 {
-                    already = true;
-                    break;
+                    continue;
+                }
+                total += w;
+                const auto hit = ray_world_intersection(camera, to_target, objtypes, flags, nullptr, 0);
+                if (hit.has_value() && hit->m_distance < dist - 0.10f)
+                {
+                    blocked += w;
                 }
             }
-            if (already)
-            {
-                return hit; // re-cast still returns it (skip not honoured) -> stop, collide with it (safe)
-            }
-            skip[n++] = hit->m_collider; // thin scenery -> ignore it and look behind
         }
-        // Every layer within the cap was thin scenery -> see straight through (no collision).
-        return std::nullopt;
+        return (total > 0.0f) ? (blocked / total) : 0.0f;
     }
 
     int resolve_player_physics_skip(const Vector3 &origin, const Vector3 &sweep, float radius, int objtypes_all,

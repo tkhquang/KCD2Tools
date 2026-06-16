@@ -186,13 +186,44 @@ namespace Constants
     constexpr ptrdiff_t RAY_HIT_OFFSET_COLLIDER = 0x08; // IPhysicalEntity* pCollider (the entity hit)
     constexpr ptrdiff_t RAY_HIT_OFFSET_POINT = 0x24;    // Vec3 world hit position
     constexpr ptrdiff_t RAY_HIT_OFFSET_NORMAL = 0x30;   // Vec3 surface normal
+    constexpr ptrdiff_t RAY_HIT_OFFSET_TERRAIN = 0x3C;  // int bTerrain (non-zero == global terrain heightmap hit)
 
     // CPhysicalEntity / CPhysicalPlaceholder world AABB (m_BBox): min @ +0x08, max @ +0x14, each a Vec3.
     // Across many CPhysicalEntity colliders (buildings ~2-4m, a post ~0.72m, fence enclosures) each reads a
-    // sane world-space min/max. Used to size a hit collider so the
-    // camera can skip standalone THIN scenery (a ~0.02-0.1m stick/pole) while still blocking on real walls.
+    // sane world-space min/max. Read by collider_horizontal_footprint to separate a thin POST (small in both
+    // horizontal axes, the body visible past it) from a thin WALL (large in one axis) when the visible-mesh
+    // coverage of a foreign-null collider cannot be measured.
     constexpr ptrdiff_t PHYS_ENTITY_BBOX_MIN_OFFSET = 0x08;
     constexpr ptrdiff_t PHYS_ENTITY_BBOX_MAX_OFFSET = 0x14;
+
+    // Physics-collider footprint thresholds, used ONLY as a fallback after the visible-mesh coverage is tried (the
+    // triangle raster is primary -- it alone sees a thin DIAGONAL stick whose axis-aligned bbox is large). POST: a
+    // collider narrower than the character in BOTH horizontal axes that the coverage could not measure (an entity /
+    // HLOD-baked post, no readable CBrush) is a thin post the body is visible past -> skip. WALL: a building-scale
+    // collider footprint forces a collide even if an incidental prop on it (a laundry line on a house wall) measured
+    // low -- set well ABOVE any prop (a long tent guy-stick bbox is ~4-5m) so only true buildings trip it.
+    constexpr float COLLIDER_POST_FOOTPRINT_MAX = 0.6f;
+    constexpr float COLLIDER_WALL_FOOTPRINT_MIN = 10.0f;
+
+    // CPhysicalEntity foreign data: m_pForeignData @ +0x20 (the IRenderNode the physics entity belongs to),
+    // m_iForeignData @ +0x28 (the PHYS_FOREIGN_ID; 1 == PHYS_FOREIGN_ID_STATIC = a static brush/render node).
+    // Live-verified on the camera-collision colliders (e.g. a basket: +0x20 -> its CBrush, +0x28 == 1). This is
+    // the clean link from a physics hit to the EXACT visible brush it belongs to, so the camera can measure the
+    // coverage of the thing it actually hit (not whatever brush bbox happens to contain the point).
+    constexpr ptrdiff_t PHYS_ENTITY_FOREIGN_DATA_OFFSET = 0x20;
+    constexpr ptrdiff_t PHYS_ENTITY_FOREIGN_TYPE_OFFSET = 0x28;
+    constexpr int PHYS_FOREIGN_ID_STATIC = 1;
+    // Max thin props the camera-collision coverage walk steps through (skip + re-cast) before giving up.
+    constexpr int COVERAGE_SKIP_MAX = 8;
+    // When the physics hit carries no render-node link (a merged / proxy collider, e.g. a shed roof or a
+    // columbarium), the visible brush at the hit is found by GetObjectsInBox. A brush's BBOX containing the hit
+    // is NOT enough (a nearby laundry line / designer brush bbox can contain a point on a building's roof), so a
+    // candidate brush is only measured when its actual MESH is at the hit: a transformed vertex within this many
+    // meters (FULL vertex scan, no sampling -- a thin pole's nearest vertex can fall between sampled indices and
+    // be missed). Live-tuned: a columbarium the ray truly hit has its nearest vertex 0.37m from the hit, while at
+    // a shed-roof hit the incidental readable brushes' nearest verts were 0.67-4.4m away. 0.5m separates the two
+    // with margin on both sides; not so large that a neighbour 0.5m off is mistaken for the hit surface.
+    constexpr float COVERAGE_HIT_EPS = 0.5f;
 
     // entity_query_flags subset (physinterface.h; stock numbering in WHGame's 3DEngine
     // RWI helper sub_180484A10: ent_static=1, ent_sleeping_rigid=2, ent_rigid=4, ent_living=8,
@@ -275,6 +306,100 @@ namespace Constants
     constexpr ptrdiff_t SPWI_OFF_LOCK_IACTIVE = 0xD8; // int  WriteLockCond.iActive (CONFIRMED)
     constexpr ptrdiff_t SPWI_OFF_LOCK_PRW =
         0xE0; // int* WriteLockCond.prw     (CONFIRMED; self-ptr = thread-safe, no global lock)
+
+    // --- Render-node camera occlusion (collide with render-only roofs RWI/PWI cannot see) ---
+    // Some KCD2 roofs (tent / awning canopy cloth, e.g. canopy_tent_cover_a_nosticks.cgf) are CBrush
+    // render meshes with NO ray-collidable physics, so the physics camera collision glides straight
+    // through them and the cloth buries the camera when a look-down raises it overhead. The renderer
+    // DOES see them: I3DEngine::GetObjectsInBox is an octree query that returns the render nodes
+    // overlapping a box, independent of physics collision type. The camera clamps below an overhead
+    // brush so a steep look-down does not lift it into the canopy.
+    //
+    // p3DEngine (I3DEngine*) is a g_env member at g_env + GENV_3DENGINE_OFFSET; the query function is
+    // resolved patch-resiliently (AnchorId::GetObjectsInBox). Both are screened on each use.
+    constexpr ptrdiff_t GENV_3DENGINE_OFFSET = 0x08;
+    // I3DEngine::GetObjectsInBox(this /*rcx*/, const AABB* bbox /*rdx; 6 floats min.xyz,max.xyz*/,
+    //   IRenderNode** p_out /*r8*/) -> uint32 count. p_out == null returns the count only; otherwise it
+    // memcpys the FULL list with NO size cap, so the count is read first and the buffer sized to fit it.
+    // IRenderNode vtable: GetBBox = slot 4 (+0x20): AABB*(this /*rcx*/, AABB* out /*rdx*/) -> ptr to
+    //   {Vec3 min @0, Vec3 max @0xC}. GetRenderNodeType = slot 7 (+0x38): int(this /*rcx*/) -> EERType
+    //   (eERType_Brush == 1). Slots verified live on retail 1.5.5; the stock CryEngine header slot order
+    //   does NOT match this fork, so they are taken from the live vtable, not the header.
+    constexpr ptrdiff_t RENDERNODE_VTABLE_GETBBOX_OFFSET = 0x20;
+    constexpr ptrdiff_t RENDERNODE_VTABLE_GETTYPE_OFFSET = 0x38;
+    constexpr int EERTYPE_BRUSH = 1;
+    // IRenderNode::m_dwRndFlags (the 64-bit ERenderNodeFlags bitmask); the low dword carries ERF_HIDDEN.
+    // GetObjectsInBox returns octree nodes regardless of whether they are actually DRAWN, so a node flagged
+    // ERF_HIDDEN (placed but not rendered -- e.g. conditional laundry / rag decorations) must be skipped:
+    // it cannot occlude the view, and colliding with it pulls the camera onto invisible geometry. Offset and
+    // bit verified live (hidden laundry node had bit 8 set; every visible brush had it clear).
+    constexpr ptrdiff_t RENDERNODE_RNDFLAGS_OFFSET = 0x28;
+    constexpr unsigned int ERF_HIDDEN = 0x100; // ERenderNodeFlags BIT(8)
+    // A render node whose largest world-AABB dimension exceeds this (meters) is treated as world / terrain
+    // (merged static-collision cells, building shells) and never used as an overhead roof clamp, so only
+    // compact props (tents, awnings, lean-tos) qualify. The tent canopy bbox is ~5m.
+    constexpr float RENDER_OCCLUSION_MAX_BRUSH_SIZE = 50.0f;
+    // Safety cap on the per-query node count: if the box overlaps more nodes than this the render clamp is
+    // skipped for that frame. Also sizes the stack list buffer for the count-then-fill query (uncapped memcpy).
+    constexpr int RENDER_OCCLUSION_MAX_NODES = 1024;
+
+    // Precise roof height: sample the ACTUAL cloth surface at the camera column from the brush's render
+    // mesh vertices, instead of the coarse world-AABB bottom (which over-ducks under a sloped canopy: the
+    // bbox bottom is the lowest fringe of the whole cloth, not its height above the camera). The render
+    // node GetObjectsInBox returns is a CBrush; its geometry is reached node -> IStatObj -> IRenderMesh,
+    // and IRenderMesh::GetPosPtr returns the engine-DECODED, tightly packed float3 CPU position cache
+    // (built on first FSL_READ access; the raw vertex stream is a compressed half-float format). All
+    // offsets/slots are fork-specific, verified live on retail 1.5.5; any read failure falls back to the
+    // AABB bottom so the clamp never regresses below v1.
+    constexpr ptrdiff_t CBRUSH_MATRIX_OFFSET = 0x50;      // Matrix34 world transform (rotation + scale + translation)
+    constexpr ptrdiff_t CBRUSH_STATOBJ_OFFSET = 0x98;     // IStatObj*
+    constexpr ptrdiff_t STATOBJ_RENDERMESH_OFFSET = 0x58; // IRenderMesh* (CRenderMesh)
+    // Compound IStatObj sub-objects: a multi-part .cgf (open-rail fence, gate, drying rack) has a NULL root
+    // IRenderMesh and stores its geometry as a std::vector<SSubObject> of child IStatObjs. The character-coverage
+    // raster walks these so a see-through compound is measured by its TRUE visible silhouette (rails + the gaps
+    // between them) instead of falling back to the coarser physics-ray occlusion, which reads a near-solid
+    // collision proxy as ~fully covering and wrongly pulls the camera in. Live-verified on retail 1.5.5
+    // (fence_4rod_01: 2 sub-meshes, 428 + 2305 verts; sub-object transforms identity). The element count is
+    // (end - begin) / stride; child sub-objects share the parent CStatObj vtable (checked before use). Every
+    // read is SEH-guarded + in-image-screened, so a layout drift yields "no sub-meshes" (defer to physics),
+    // never a crash.
+    constexpr ptrdiff_t STATOBJ_SUBOBJ_BEGIN_OFFSET = 0x200; // std::vector<SSubObject> begin pointer
+    constexpr ptrdiff_t STATOBJ_SUBOBJ_END_OFFSET = 0x208;   // std::vector<SSubObject> end pointer
+    constexpr size_t SUBOBJ_STRIDE = 0xB0;                   // sizeof(IStatObj::SSubObject)
+    constexpr ptrdiff_t SUBOBJ_TM_OFFSET = 0x1C;             // SSubObject local->parent Matrix34 transform
+    constexpr ptrdiff_t SUBOBJ_PSTATOBJ_OFFSET = 0x80;       // SSubObject -> child IStatObj*
+    constexpr int SUBOBJ_MAX = 64;                           // cap on sub-meshes walked per compound statobj
+    // CryString holding the IStatObj's .cgf path (a POINTER to the path chars, dereferenced once), used ONLY
+    // for trace logging which brush the clamp latched onto (so false positives can be identified). Read
+    // SEH-guarded and sanitized to printable chars, so a wrong offset / null logs harmlessly rather than
+    // faulting; the logged bbox size/pos identifies the brush regardless.
+    constexpr ptrdiff_t STATOBJ_CGF_NAME_OFFSET = 0xA0;
+    constexpr ptrdiff_t RENDERMESH_NVERTS_OFFSET = 0x7C;  // int vertex count (== IRenderMesh::GetVerticesCount)
+    // IRenderMesh::GetPosPtr(int32& stride /*rdx*/, uint32 flags /*r8d*/, int32 offset /*r9d*/) -> uint8*:
+    // vtable slot 43 in this fork. With FSL_READ it returns decoded float3 positions, stride 12.
+    constexpr ptrdiff_t RENDERMESH_VTABLE_GETPOSPTR_OFFSET = 43 * 8;
+    constexpr unsigned int IRENDERMESH_FSL_READ = 0x01;
+    constexpr int RENDER_OCCLUSION_VERT_MAX = 200000; // sanity cap on a mesh's vertex count
+    // IRenderMesh::GetIndexPtr(uint32 flags /*rdx*/, int32 offset /*r8d*/) -> vtx_idx* (uint16): vtable slot 54
+    // in this fork (verified live). The triangle list (3 indices/tri) lets the coverage gate measure the actual
+    // SURFACE the brush covers, not just its vertices -- vertex-density-independent, so a sparse scattered prop
+    // (the char standing in a gap) reads low while a contiguous cloth canopy reads high.
+    constexpr ptrdiff_t RENDERMESH_NINDICES_OFFSET = 0x78;          // int index count (== GetIndicesCount)
+    constexpr ptrdiff_t RENDERMESH_VTABLE_GETINDEXPTR_OFFSET = 54 * 8;
+    constexpr int RENDER_OCCLUSION_INDEX_MAX = 3000000;                 // sanity cap on a mesh's index count
+    constexpr int RENDER_COVERAGE_COLUMNS = 8;                     // char-box columns per band for surface fill
+    // Radius of the tube around the pivot->camera sightline within which a cloth vertex counts as occluding the
+    // view. It must exceed the cloth mesh's vertex spacing (so a crossing is never missed through a gap between
+    // vertices) and doubles as the camera's standoff below the canopy. RENDER_OCCLUSION_MIN_COLUMN_VERTS is the
+    // minimum number of vertices that must lie on the sightline before a clamp is trusted (rejects lone-vertex
+    // noise). (Name kept for continuity; this is now a sightline tube radius, not a vertical column.)
+    constexpr float RENDER_OCCLUSION_COLUMN_RADIUS = 0.3f;
+    constexpr int RENDER_OCCLUSION_MIN_COLUMN_VERTS = 3;
+    // Throttle: the cloth is a STATIC brush, so the roof height at a fixed camera column is constant. The
+    // expensive octree query + vertex sample is re-run only when the camera moves more than this (meters)
+    // from the last query; in between, the clamp is recomputed cheaply from the cached roof world-Z. Cuts
+    // the per-frame cost to ~zero while standing still and avoids re-decoding the position cache each frame.
+    constexpr float RENDER_OCCLUSION_REQUERY_DIST = 0.40f;
 
     // --- Camera-space interaction (door/usable look-at ray redirect) ---
     // The player interactor (wh::entitymodule::C_PlayerInteractor) selects the "press to use" target by

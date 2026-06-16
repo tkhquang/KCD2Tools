@@ -33,6 +33,7 @@
 #include "offset_heal.hpp"
 #include "math_utils.hpp"
 #include "physics_raycast.hpp"
+#include "render_occlusion.hpp"
 #include "hooks/ui_menu_hooks.hpp"
 #include "hooks/player_onaction_hook.hpp"
 #include "presets/preset_runtime.hpp"
@@ -57,6 +58,113 @@ namespace TPVCamera
     // followed by the projection params; this builds the world cull planes. Offsetting the matrix
     // here, before the cull planes are computed, moves the rendered view AND its culling together.
     using FrustumBuildFunc = uintptr_t(__fastcall *)(uintptr_t camera);
+
+    // Eases the camera collision distance toward @p target: a fast pull-IN (so a wall is never clipped) and the
+    // slower configured return-OUT, which stops the camera pumping when an edge-grazing ray hit alternates
+    // near/far frame to frame. Snaps to the target on the first valid frame. Shared by the per-frame easing and
+    // the static-world throttle bypass so the two cannot drift.
+    static void ease_collision_toward(CameraState &cam, float target, float delta_time, float return_speed)
+    {
+        if (!cam.collision_valid)
+        {
+            cam.collision_distance = target;
+            cam.collision_valid = true;
+            return;
+        }
+        constexpr float k_pull_in_speed = 25.0f; // near-instant but still smooth
+        const float speed = (target < cam.collision_distance) ? k_pull_in_speed : return_speed;
+        const float blend = (speed > 0.0f) ? (1.0f - std::exp(-speed * delta_time)) : 1.0f;
+        cam.collision_distance += (target - cam.collision_distance) * blend;
+    }
+
+    // Fraction (0..1) of the character that the hit collider hides, with a per-collider cache so a solid the
+    // camera moves along is not re-measured every frame. Pipeline: a cheap footprint pre-check (a building-scale
+    // collider always occludes, so collide without rasterizing its often-compound mesh), else the visible-mesh
+    // raster (render_coverage_of_brush / render_coverage_at), else a physics-ray fallback for a compound the
+    // render mesh cannot see through. Returns < 0 (collide) for an unmeasurable solid, 0..1 otherwise. A COLLIDE
+    // verdict (< 0 or >= cov_thresh) is cached and reused FREELY on later frames: a wall / shed stays solid as the
+    // camera slides along it, colliding is the safe direction, and re-running the octree + raster every frame is
+    // the dominant moving cost in dense scenes. A SKIP verdict (a thin prop the body is visible past) is reused
+    // only within proximity of the cached hit, so a prop's low coverage never leaks across a big shared collider
+    // onto a bare wall (which would clip) and a moving camera re-measures it. Single render-thread caller, so the
+    // static cache is race-free.
+    static float measure_collider_coverage(uintptr_t collider, const Vector3 &hit_point, const Vector3 &pivot,
+                                           const Vector3 &desired_cam, const Vector3 &to_camera, float cov_thresh)
+    {
+        constexpr int k_cov_cache = 8;
+        constexpr float k_cov_reuse_dist2 = 0.5f * 0.5f;
+        static uintptr_t s_cov_col[k_cov_cache] = {};
+        static float s_cov_val[k_cov_cache] = {};
+        static float s_cov_hx[k_cov_cache] = {};
+        static float s_cov_hy[k_cov_cache] = {};
+        static float s_cov_hz[k_cov_cache] = {};
+
+        int slot = -1, free_slot = -1;
+        for (int k = 0; k < k_cov_cache; ++k)
+        {
+            if (collider != 0 && s_cov_col[k] == collider)
+            {
+                slot = k;
+                break;
+            }
+            if (s_cov_col[k] == 0)
+            {
+                free_slot = k;
+            }
+        }
+        if (slot >= 0)
+        {
+            const float cached = s_cov_val[slot];
+            if (cached < 0.0f || cached >= cov_thresh)
+            {
+                return cached; // cached COLLIDE verdict: reuse freely (solid stays solid as the camera moves)
+            }
+            const float dx = hit_point.x - s_cov_hx[slot], dy = hit_point.y - s_cov_hy[slot],
+                        dz = hit_point.z - s_cov_hz[slot];
+            if (dx * dx + dy * dy + dz * dz < k_cov_reuse_dist2)
+            {
+                return cached; // cached SKIP verdict: reuse only near the cached hit (no leak across a collider)
+            }
+        }
+
+        const float footprint = collider_horizontal_footprint(collider);
+        const bool building_scale = footprint > Constants::COLLIDER_WALL_FOOTPRINT_MIN;
+        void *node = reinterpret_cast<void *>(static_brush_render_node(collider));
+        float cov = building_scale ? -1.0f : render_coverage_of_brush(node, pivot, desired_cam);
+        if (cov < 0.0f && !building_scale)
+        {
+            // Foreign-null collider (merged / proxy: a columbarium, a tent guy-stick, an ENTITY / HLOD-baked
+            // post). Measure the visible brush at the hit -- a thin DIAGONAL stick has a huge axis-aligned bbox
+            // but a sliver mesh, so only the raster coverage can tell it is thin (the bbox footprint cannot).
+            cov = render_coverage_at(hit_point, pivot, to_camera);
+            if (cov < 0.0f && footprint >= 0.0f && footprint < Constants::COLLIDER_POST_FOOTPRINT_MAX)
+            {
+                cov = 0.0f; // unmeasurable thin post -> body visible past it -> skip
+            }
+            else if (cov < 0.0f)
+            {
+                // A COMPOUND structure the render mesh cannot raster (rmesh null), neither a tiny post nor a
+                // building: an OPEN wooden frame (body visible THROUGH the beams) vs a SOLID compound (a shed).
+                // The PHYSICS ray occlusion tells them apart: open -> low -> skip; solid -> high -> collide.
+                cov = character_occluded_fraction(desired_cam, pivot, Constants::RWI_OBJTYPES_CAMERA,
+                                                  Constants::RWI_FLAGS_STOP_AT_SOLID);
+            }
+        }
+
+        if (collider != 0)
+        {
+            if (slot < 0)
+            {
+                slot = (free_slot >= 0) ? free_slot : static_cast<int>(collider % k_cov_cache);
+            }
+            s_cov_col[slot] = collider;
+            s_cov_val[slot] = cov;
+            s_cov_hx[slot] = hit_point.x;
+            s_cov_hy[slot] = hit_point.y;
+            s_cov_hz[slot] = hit_point.z;
+        }
+        return cov;
+    }
 
     // Head-visibility setter: SetHeadHidden(this /*rcx*/, bool hide_head /*dl*/, char flags /*r8b*/).
     // hide_head == false keeps the head rendered.
@@ -1273,6 +1381,36 @@ namespace TPVCamera
             {
                 const Vector3 ray_dir = to_camera / desired_distance;
 
+                // Static-world throttle: camera collision only ever queries STATIC / terrain geometry (movable
+                // rigids, the player and NPCs are all excluded), which cannot move while the camera holds still and
+                // changes only SLOWLY as the camera moves. So the full result (walk, sphere, render occlusion,
+                // lateral probe) is recomputed only once the pivot or the desired camera position has moved more
+                // than k_collision_recompute_dist; in between it is reused and only the easing runs -- which
+                // collapses the cost to ~zero while standing AND skips most frames while walking (the dominant cost
+                // in dense scenes such as a doorway). The threshold is a MOVEMENT distance, so fast motion still
+                // recomputes every frame (responsive) while slow motion reuses for a few frames; the reused target
+                // is at most one threshold of camera travel stale, which the easing and the collision standoff
+                // (CollisionRadius) absorb, so the camera never visibly clips.
+                constexpr float k_collision_recompute_dist = 0.06f;
+                const float recompute_d2 = k_collision_recompute_dist * k_collision_recompute_dist;
+                const Vector3 throttle_cam = camera_position; // desired (pre-collision); the block overwrites it
+                static bool s_collision_throttle_valid = false;
+                static Vector3 s_throttle_pivot{};
+                static Vector3 s_throttle_cam{};
+                static float s_cached_allowed = 0.0f;
+                const bool recompute = !s_collision_throttle_valid ||
+                                       (pivot - s_throttle_pivot).magnitude_squared() > recompute_d2 ||
+                                       (throttle_cam - s_throttle_cam).magnitude_squared() > recompute_d2;
+                if (!recompute && cam.collision_valid)
+                {
+                    // Reuse last frame's allowed distance (the shared easing), then skip the whole walk / sphere /
+                    // render-occlusion / lateral-probe computation below.
+                    const float return_speed = cfg.collision_return_speed.load(std::memory_order_relaxed);
+                    ease_collision_toward(cam, s_cached_allowed, delta_time, return_speed);
+                    camera_position = pivot + ray_dir * cam.collision_distance;
+                    goto collision_done;
+                }
+
                 // Prefer the swept SPHERE (PrimitiveWorldIntersection): its contact distance is continuous
                 // as the sweep grazes edges, so the camera does not pump in dense geometry the way a single
                 // thin ray does (the root cause of the orbit position-jump). The sphere radius is the
@@ -1291,10 +1429,73 @@ namespace TPVCamera
                 // (allowing the sphere-radius inset); otherwise the fan distance is used. So the sphere can only
                 // make the result SMOOTHER, never closer than the world: no regression.
                 const float collision_radius = cfg.collision_radius.load(std::memory_order_relaxed);
-                const float thin_skip_max = cfg.collision_thin_skip_max.load(std::memory_order_relaxed);
-                const std::optional<RayHit> fan =
-                    ray_fan_sweep_skipping_thin(pivot, to_camera, collision_radius, Constants::RWI_OBJTYPES_CAMERA,
-                                                Constants::RWI_FLAGS_STOP_AT_SOLID, thin_skip_max);
+                // UseCoverageCollision is the master switch for the coverage-based heuristics (the coverage gate
+                // and the lateral probe). When OFF the camera collides plainly on the nearest solid: the coverage
+                // threshold is forced to 0 (no walk) and the lateral probe is skipped. Render occlusion is
+                // INDEPENDENT (its own UseRenderOcclusion toggle below).
+                const bool use_coverage = cfg.use_coverage_collision.load(std::memory_order_relaxed);
+                const float cov_thresh =
+                    use_coverage ? cfg.collision_coverage_threshold.load(std::memory_order_relaxed) : 0.0f;
+                // Find the nearest occluder that actually HIDES the body. With the coverage gate OFF (cov_thresh
+                // <= 0) this is just the nearest solid world surface. With it ON, WALK the arm: step through
+                // readable THIN props -- each measured by ITS OWN visible mesh (via the brush the ray actually
+                // hit, resolved through the collider's foreign data), so a foreground basket / pole the body is
+                // plainly visible past is skipped -- and stop at the first thing that genuinely covers the body: a
+                // solid we cannot rasterize (a building's compound mesh, a pure-physics proxy), terrain, or a
+                // readable mesh hiding >= CoverageThreshold of the body. If only thin props lie between the camera
+                // and the body with open space behind them, nothing covers and the camera stays out (no jolt).
+                // This judges each occluder on its own merit, where the prior single-shot gate saw only the
+                // nearest brush and let the body sit buried behind everything past it.
+                std::optional<RayHit> fan;
+                // Measured coverage (0..1) of the occluder the walk decides to block on; -9 = not measured (coverage
+                // gate off, terrain, or an unmeasurable solid). Logged so an oscillating thin prop whose coverage
+                // straddles CoverageThreshold frame to frame is visible without live debugging.
+                float blocked_cov = -9.0f;
+                if (cov_thresh <= 0.0f)
+                {
+                    fan = ray_fan_sweep(pivot, to_camera, collision_radius, Constants::RWI_OBJTYPES_CAMERA,
+                                        Constants::RWI_FLAGS_STOP_AT_SOLID);
+                }
+                else
+                {
+                    const Vector3 desired_cam = pivot + to_camera;
+                    uintptr_t cov_skip[Constants::COVERAGE_SKIP_MAX];
+                    int n_cov_skip = 0;
+                    for (int iter = 0; iter < Constants::COVERAGE_SKIP_MAX; ++iter)
+                    {
+                        const std::optional<RayHit> h =
+                            ray_fan_sweep(pivot, to_camera, collision_radius, Constants::RWI_OBJTYPES_CAMERA,
+                                          Constants::RWI_FLAGS_STOP_AT_SOLID, cov_skip, n_cov_skip);
+                        if (!h.has_value() || h->m_distance >= desired_distance)
+                        {
+                            break; // open past here -> nothing between camera and body hides it
+                        }
+                        if (h->m_terrain != 0)
+                        {
+                            fan = h; // terrain always covers (never see under the world)
+                            break;
+                        }
+                        // How much of the character does this collider hide? Cheap footprint pre-check, then
+                        // visible-mesh raster, then a physics-ray fallback -- cached per collider so a solid the
+                        // camera slides along is not re-rasterized every frame. See measure_collider_coverage.
+                        const float cov = measure_collider_coverage(h->m_collider, h->m_point, pivot, desired_cam,
+                                                                    to_camera, cov_thresh);
+                        if (cov < 0.0f || cov >= cov_thresh)
+                        {
+                            // Unmeasurable solid (building / pure-physics) OR a readable mesh that hides enough of
+                            // the body -> this is the collision.
+                            blocked_cov = cov;
+                            fan = h;
+                            break;
+                        }
+                        if (h->m_collider == 0)
+                        {
+                            fan = h; // cannot skip an unknown collider -> stop here (safe: collide)
+                            break;
+                        }
+                        cov_skip[n_cov_skip++] = h->m_collider; // a thin prop the body is visible past -> look behind
+                    }
+                }
                 std::optional<RayHit> hit = fan;
                 bool from_sphere = false;
                 // UseSphereCollision selects the probe: when set, the swept SPHERE smooths the fan's world hit
@@ -1334,14 +1535,100 @@ namespace TPVCamera
                 }
 
                 constexpr float k_collision_hold_seconds = 0.3f; // hold the pull-in across edge hit/miss gaps
-                float allowed_distance;
+
+                // Nearest SOLID-world block, skin-adjusted. Sphere path insets by the radius already, so it
+                // subtracts no extra skin; thin-ray path subtracts the configured skin.
+                float blocking_distance = desired_distance;
+                bool blocked = false;
                 if (hit.has_value() && hit->m_distance < desired_distance)
                 {
-                    // Sphere path: the radius already insets from the surface, so do NOT subtract the skin
-                    // again (that would double-inset and seat the camera too close). Thin-ray path: subtract
-                    // the configured skin as before.
+                    // The coverage walk above already decided this hit COVERS the body (or the gate is off and the
+                    // nearest solid blocks), so pull the camera to it. The sphere path already inset by the radius
+                    // (no extra skin); the thin-ray path subtracts the configured skin before the surface.
                     const float skin = from_sphere ? 0.0f : cfg.collision_skin.load(std::memory_order_relaxed);
-                    allowed_distance = std::max(0.0f, hit->m_distance - skin);
+                    blocking_distance = std::max(0.0f, hit->m_distance - skin);
+                    blocked = true;
+                }
+
+                // Trace the PHYSICS collision hit (the solid-world fan/sphere result) so it can be compared
+                // against RenderOcclusion HIT: physics fires on walls / terrain / solid props (objtypes
+                // ent_static|ent_terrain), render occlusion on non-physical cloth. Where physics is silent but
+                // render fires (or vice versa) is the proof they are complementary, not redundant. Rate-limited
+                // to a meaningful change (block-state toggle or distance move > 0.1m) so it never spams a frame.
+                {
+                    static bool s_phys_blocked = false;
+                    static float s_phys_dist = -1.0f;
+                    const float dd = blocked ? (hit->m_distance - s_phys_dist) : 0.0f;
+                    const bool moved = (dd > 0.1f) || (dd < -0.1f);
+                    // The trace below identifies the hit object via a render-octree query (render_hit_info); gate it
+                    // on trace logging being ENABLED so that diagnostic octree + per-node vertex scan never runs on
+                    // a normal-play frame -- it is purely for the PhysicsCollision HIT log. (A foreign-null hit, the
+                    // common case once the coverage walk skips thin scenery, takes render_hit_info's expensive
+                    // octree path, which was running every frame the camera moved while blocked.)
+                    const bool trace_on = DMK::Logger::get_instance().is_enabled(DMK::LogLevel::Trace);
+                    if (trace_on && blocked && (blocked != s_phys_blocked || moved))
+                    {
+                        // The FAN is the collision AUTHORITY: it carries the real collider + surface normal. The
+                        // sphere only SMOOTHS the distance and reports a synthetic normal / null collider, so identify
+                        // the object the camera blocked on from the fan (point + collider), not the sphere's `hit`.
+                        // node = the collider's foreign render-node link (0 for a merged / proxy collider, which
+                        // render_hit_info then resolves by querying the render octree at the hit point).
+                        const RayHit &id_hit = fan.has_value() ? *fan : *hit;
+                        const Vector3 &hp = id_hit.m_point;
+                        const Vector3 &hn = id_hit.m_normal;
+                        const int hit_terrain = id_hit.m_terrain;
+                        const uintptr_t collider = id_hit.m_collider;
+                        void *node = reinterpret_cast<void *>(static_brush_render_node(collider));
+                        char obj_name[160] = {};
+                        float obj_ext[3] = {};
+                        int obj_kind = 0;
+                        (void)render_hit_info(hp, node, obj_name, static_cast<int>(sizeof(obj_name)), obj_ext,
+                                              &obj_kind);
+                        static const char *const k_obj_kinds[] = {"none", "foreign", "prop", "solid", "hlod"};
+                        const char *kind_str =
+                            (obj_kind >= 0 && obj_kind <= 4) ? k_obj_kinds[obj_kind] : "?";
+                        DMK::Logger::get_instance().trace(
+                            "PhysicsCollision HIT: src={} bTerrain={} dist={} of {} cov={} kind={} obj=\"{}\" "
+                            "ext=({}, {}, {}) collider={:#x} node={:#x} point=({}, {}, {}) normal=({}, {}, {}) "
+                            "cam=({}, {}, {}) pivot=({}, {}, {})",
+                            from_sphere ? "sphere" : "fan", hit_terrain, hit->m_distance, desired_distance,
+                            blocked_cov, kind_str, obj_name, obj_ext[0], obj_ext[1], obj_ext[2], collider,
+                            reinterpret_cast<uintptr_t>(node), hp.x, hp.y, hp.z, hn.x, hn.y, hn.z,
+                            camera_position.x, camera_position.y, camera_position.z, pivot.x, pivot.y, pivot.z);
+                    }
+                    s_phys_blocked = blocked;
+                    if (blocked)
+                    {
+                        s_phys_dist = hit->m_distance;
+                    }
+                }
+
+                // Render-only overhead roofs (tent / awning canopy cloth) carry no ray-collidable physics, so the
+                // fan and sphere glide through them and the cloth buries the camera on a look-down. Query the
+                // render octree along the same arm and clamp below an overhead brush. The radius is the standoff
+                // (already applied by render_occlusion_limit), so no skin is subtracted. Gated by UseRenderOcclusion
+                // alone -- it is INDEPENDENT of UseCoverageCollision (it handles non-physical cloth, not a coverage
+                // heuristic). A thin overhead beam is rejected inside render_occlusion_limit by the sightline
+                // vertex-count test, not a body-coverage gate (an overhead canopy covers ~0 of the body silhouette).
+                if (cfg.use_render_occlusion.load(std::memory_order_relaxed))
+                {
+                    // Query the render octree only out to where the physics collision already stops the camera: a
+                    // roof beyond that point can never be reached, so indoors / near walls (where physics blocks
+                    // close) the query box shrinks to the short arm and skips the room's geometry, the bulk of the
+                    // render-occlusion cost in dense scenes.
+                    const Vector3 occ_arm = ray_dir * blocking_distance;
+                    const std::optional<float> roof = render_occlusion_limit(pivot, occ_arm, collision_radius);
+                    if (roof.has_value() && roof.value() < blocking_distance)
+                    {
+                        blocking_distance = std::max(0.0f, roof.value());
+                        blocked = true;
+                    }
+                }
+
+                float allowed_distance;
+                if (blocked && blocking_distance < desired_distance)
+                {
+                    allowed_distance = blocking_distance;
                     cam.collision_hold_timer = k_collision_hold_seconds; // latch on a blocking hit
                 }
                 else if (cam.collision_valid && cam.collision_hold_timer > 0.0f)
@@ -1356,27 +1643,89 @@ namespace TPVCamera
                     allowed_distance = desired_distance; // truly clear: ease back out
                 }
 
-                // Ease toward the allowed distance: fast when pulling IN (so a wall is never
-                // clipped) and slower when returning out. Easing the pull-in rather than snapping
-                // stops the camera pumping when the ray grazes an edge and the hit alternates
-                // near/far frame to frame.
-                if (!cam.collision_valid)
+                // Lateral / frustum clearance. The pivot->camera probe only sees obstacles ALONG the arm, so a
+                // wall BESIDE the camera (a corner, a doorway jamb, a narrow gap) is invisible to it and intrudes
+                // into the view. Probe the camera's lateral surroundings (the frustum cross-section: +-right /
+                // +-up around the look axis) and pull the camera further in along the arm until any CONVERGING
+                // side wall is at least CameraProbeSize away. This is geometric penetration safety, NOT occlusion,
+                // so it bypasses the coverage gate (a side wall does not hide the character) and queries static /
+                // terrain world only (RWI_OBJTYPES_CAMERA never returns the player or NPCs). A wall the arm runs
+                // PARALLEL to (a corridor) cannot be escaped by pulling in, so it is left alone rather than yanking
+                // the camera to first person. Bounded passes; only does work when something is within reach.
+                const float probe = use_coverage ? cfg.camera_probe_size.load(std::memory_order_relaxed) : 0.0f;
+                if (probe > 0.0f && allowed_distance > collision_radius)
                 {
-                    cam.collision_distance = allowed_distance;
-                    cam.collision_valid = true;
-                }
-                else
-                {
-                    constexpr float k_collision_pull_in_speed = 25.0f; // near-instant but still smooth
-                    const float return_speed = cfg.collision_return_speed.load(std::memory_order_relaxed);
-                    const float speed =
-                        (allowed_distance < cam.collision_distance) ? k_collision_pull_in_speed : return_speed;
-                    const float blend = (speed > 0.0f) ? (1.0f - std::exp(-speed * delta_time)) : 1.0f;
-                    cam.collision_distance += (allowed_distance - cam.collision_distance) * blend;
+                    const Vector3 view = ray_dir * -1.0f; // the camera looks back along the arm toward the pivot
+                    Vector3 probe_right = view.cross(Vector3{0.0f, 0.0f, 1.0f});
+                    const float rl = probe_right.magnitude();
+                    if (rl > 1e-4f)
+                    {
+                        probe_right = probe_right / rl;
+                        const Vector3 probe_up = probe_right.cross(view); // orthonormal (right & view perpendicular)
+                        const Vector3 lateral[4] = {probe_right, probe_right * -1.0f, probe_up, probe_up * -1.0f};
+                        // Floor the pull-in at the closest USEFUL third-person distance (follow_distance_min). A side
+                        // wall grazing the frustum is a SOFTER concern than a direct occluder, so never drag the
+                        // camera to near first person (losing the whole view + jamming into the character) just to
+                        // hold one off -- accept a little intrusion instead. Capped to the incoming allowed_distance
+                        // so a tight pull from a real along-arm occluder is never pushed back OUT into it.
+                        const float lateral_floor =
+                            std::min(allowed_distance, cfg.follow_distance_min.load(std::memory_order_relaxed));
+                        for (int pass = 0; pass < 3 && allowed_distance > lateral_floor; ++pass)
+                        {
+                            const Vector3 cam_test = pivot + ray_dir * allowed_distance;
+                            float capped = allowed_distance;
+                            for (const Vector3 &side : lateral)
+                            {
+                                const std::optional<RayHit> h = ray_world_intersection(
+                                    cam_test, side * probe, Constants::RWI_OBJTYPES_CAMERA,
+                                    Constants::RWI_FLAGS_STOP_AT_SOLID);
+                                if (!h.has_value() || h->m_distance >= probe)
+                                {
+                                    continue; // this side is clear within the probe
+                                }
+                                // Wall plane: point P, normal N (toward the camera). Lateral clearance along the
+                                // arm is clear(t) = dot(pivot - P, N) + t * dot(ray_dir, N). Pulling IN clears the
+                                // wall only when the arm runs INTO it (dot(ray_dir, N) < 0); a parallel / diverging
+                                // wall is left alone. Solve for the largest t that keeps the camera `probe` off it.
+                                const Vector3 &P = h->m_point;
+                                const Vector3 &N = h->m_normal;
+                                const float a = ray_dir.x * N.x + ray_dir.y * N.y + ray_dir.z * N.z;
+                                if (a >= -0.05f)
+                                {
+                                    continue; // parallel / diverging side wall: pulling in cannot clear it
+                                }
+                                const float b = (pivot.x - P.x) * N.x + (pivot.y - P.y) * N.y + (pivot.z - P.z) * N.z;
+                                const float t = (probe - b) / a;
+                                if (t < capped)
+                                {
+                                    capped = t;
+                                }
+                            }
+                            if (capped >= allowed_distance - 1e-3f)
+                            {
+                                break; // every side clear -> done
+                            }
+                            allowed_distance = std::max(lateral_floor, capped);
+                            blocked = true;
+                            cam.collision_hold_timer = k_collision_hold_seconds; // latch like a normal blocking hit
+                        }
+                    }
                 }
 
+                // Ease toward the allowed distance (fast pull-IN so a wall is never clipped, slower return-OUT),
+                // via the shared helper the throttle bypass also uses.
+                const float return_speed = cfg.collision_return_speed.load(std::memory_order_relaxed);
+                ease_collision_toward(cam, allowed_distance, delta_time, return_speed);
+
                 camera_position = pivot + ray_dir * cam.collision_distance;
+
+                // Cache the freshly computed target so a held-still camera reuses it next frame (throttle above).
+                s_collision_throttle_valid = true;
+                s_throttle_pivot = pivot;
+                s_throttle_cam = throttle_cam;
+                s_cached_allowed = allowed_distance;
             }
+        collision_done:;
         }
 
         // Write the offset position into the camera matrix translation column. The basis columns are
@@ -2013,6 +2362,11 @@ namespace TPVCamera
         // Resolve the engine ray helper for collision + aim convergence. Best-effort: on a miss
         // those features no-op (the camera still renders), so the result is intentionally discarded.
         (void)initialize_physics_raycast(module_base, module_size, s_genv_runtime);
+
+        // Resolve the 3DEngine render-octree query so the camera can also collide with render-only roofs
+        // (tent / awning canopy cloth) that carry no ray-collidable physics. Best-effort: a miss no-ops the
+        // roof render clamp, so the result is intentionally discarded.
+        (void)initialize_render_occlusion(module_base, module_size, s_genv_runtime);
 
         try
         {

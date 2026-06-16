@@ -88,22 +88,43 @@ namespace TPVCamera
                    // / dialogue) so cursor motion does not turn the camera
 
         // Camera collision. Enable/Skin/ReturnSpeed are preset-owned (seeded/overwritten like the framing
-        // above); UseSphereCollision, CollisionRadius and the thin-skip cap below are always-live INI
-        // settings, so they keep their registered defaults.
+        // above); UseCoverageCollision, UseSphereCollision, CollisionRadius and the gates below are always-live
+        // INI settings, so they keep their registered defaults.
         std::atomic<bool> enable_collision{};        // keep the view out of walls
         std::atomic<float> collision_skin{};         // gap kept before a hit surface, meters (thin-ray path only)
         std::atomic<float> collision_return_speed{}; // ease-out speed once an obstruction clears
+        // Master switch for the COVERAGE-based collision heuristics: the coverage gate (CoverageThreshold) that
+        // only collides when something hides the character, and the lateral frustum-clearance probe
+        // (CameraProbeSize). OFF by default (opt-in): the camera then collides plainly on the nearest solid world
+        // surface (no coverage measurement, no lateral probe); turn it ON for the see-through behaviour. Render
+        // occlusion is INDEPENDENT of this (its own use_render_occlusion toggle below).
+        std::atomic<bool> use_coverage_collision{false};
         // Swept-sphere collision via PrimitiveWorldIntersection: the sphere's contact distance is
         // continuous as the sweep grazes edges, so the camera does not pump in dense geometry the way a
         // single thin ray does. The radius IS the standoff (collision_skin is not applied on this path).
         // Falls back to the thin ray automatically when the engine sweep is unavailable or faults.
         std::atomic<bool> use_sphere_collision{true}; // swept sphere (PWI) vs single thin ray (RWI)
         std::atomic<float> collision_radius{0.15f};   // swept-sphere radius = standoff from surfaces, meters
-        // Skip standalone THIN scenery during camera collision: if a hit physics entity's smallest world-AABB
-        // dimension is below this many meters, the camera ignores it and re-casts to the surface behind, so a
-        // lone stick / pole / thin sign becomes transparent like grass. 0 (or empty in the INI) = feature OFF
-        // (no bbox reads). Cannot help multi-rail FENCES -- those are one large mesh. Live-editable.
-        std::atomic<float> collision_thin_skip_max{0.0f};
+        // Coverage gate: only collide when an obstruction actually HIDES the character. At a candidate hit the
+        // camera samples the character silhouette and casts to each sample; if the occluded fraction is below
+        // this threshold (0..1) the obstruction is ignored, so thin poles / rails that leave most of the
+        // character visible never jolt the camera (native-TPV feel), while a wall or a near post that hides most
+        // of it still collides. Distance-aware (a closer object hides more), unlike a fixed width/size cutoff.
+        // 0 = OFF (collide on any hit). Higher ignores more; ~0.8 hides most of the character before colliding.
+        // Only consulted while use_coverage_collision is ON. Live-editable.
+        std::atomic<float> collision_coverage_threshold{0.8f};
+        // Lateral / frustum clearance: the pivot->camera collision probes only ALONG the arm, so a wall BESIDE
+        // the camera (a corner, a doorway, a narrow gap) is never seen and intrudes into the view. After the
+        // along-arm pull-in, the camera probes its lateral surroundings and pulls further in until a converging
+        // side wall is at least this many meters away. It is a geometric clearance, not occlusion, so it ignores
+        // the coverage gate (a side wall does not hide the character) and only ever sees static / terrain world
+        // (never the player or NPCs). ~0.3 keeps the view out of corner walls; 0 = OFF. Live-editable.
+        std::atomic<float> camera_probe_size{0.3f};
+        // Render occlusion: also collide the camera with render-only geometry (tent / awning canopy cloth,
+        // overhead brushes) that carries no ray-collidable physics, by querying the 3DEngine render octree
+        // (GetObjectsInBox) along the pivot->camera arm and clamping below an overhead brush. Always-live INI
+        // setting (not preset-owned), INDEPENDENT of use_coverage_collision; no-ops if the octree is unresolved.
+        std::atomic<bool> use_render_occlusion{true};
 
         // State-driven camera policy (see game_state.hpp). Each mask is a GameState bit set parsed
         // from a comma-separated INI token list, read on the per-frame detour and the input thread.

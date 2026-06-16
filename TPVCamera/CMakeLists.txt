@@ -113,6 +113,7 @@ set(COMMON_SOURCES
   src/global_state.cpp
   src/offset_heal.cpp
   src/physics_raycast.cpp
+  src/render_occlusion.cpp
   src/tpv_camera.cpp
   src/version.cpp
   src/hooks/camera_hook.cpp
