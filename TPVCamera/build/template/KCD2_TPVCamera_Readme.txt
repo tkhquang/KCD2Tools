@@ -1,5 +1,5 @@
 KINGDOM COME: DELIVERANCE II - THIRD PERSON CAMERA
-Version 1.2.0
+Version 1.3.0
 
 This mod is an .asi plugin, so it needs an ASI loader to run. The loader is NOT
 included in this download - you install it once, yourself (see Step 1). If you
