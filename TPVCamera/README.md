@@ -105,7 +105,7 @@ so those contexts render from the untouched engine view.
 Edit `KCD2_TPVCamera.ini`. It is grouped into:
 
 - `[Settings]` - log level, the view hotkeys (`ToggleViewKey`, `ForceFPVKey`, `ForceTPVKey`), the preset-overlay key (`ToggleOverlayKey`), and the start-of-session auto-enable flags
-- `[Camera]` - zoom keys, the camera-space interaction toggle, and the view-transition ease (the framing itself is per-preset; see `[Presets]`)
+- `[Camera]` - zoom keys, the camera-space interaction toggle, the view-transition ease, and the camera-stability options (`StableAimBasis`, `AimBasisSmoothing`) that keep the view steady against head-bob, sway, and combat shake (the framing itself is per-preset; see `[Presets]`)
 - `[Orbit]` - the free-look orbit keys (press-to-toggle and momentary hold) and the cursor freeze (the orbit feel is per-preset)
 - `[Collision]` - the collision probe and radius, `UseCoverageCollision` (only pull in for things that hide your character) with its coverage / side-wall options, and the independent `UseRenderOcclusion` cloth-roof clamp (enable, skin, and return speed are per-preset)
 - `[StateBehavior]` - switch first/third person on entering a situation (combat, aiming, dialogue, minigame, mount, menu, overlay), restore the prior view on exit (manual toggles during it stick), and suspend/restore free-look in chosen situations

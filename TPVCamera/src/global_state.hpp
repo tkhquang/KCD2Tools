@@ -175,6 +175,18 @@ namespace TPVCamera
         float fov_ease_stage1{0.0f};
         float fov_ease_applied{0.0f};
         bool fov_ease_valid{false};
+
+        // Aim-basis low-pass (render thread only). The third-person rig basis quaternion (XYZW), low-passed
+        // toward the per-frame target (the look-controller aim quat under StableAimBasis, else the eye quat)
+        // when AimBasisSmoothing is on, so engine-driven view rotation -- which the follow distance amplifies
+        // into a camera-position swing -- is damped. basis_quat_valid is cleared on suppression (and is false
+        // on first engage) so the next engaged frame SNAPS to the current orientation instead of slerping
+        // across the first-person gap, matching the orbit / eye-sync / FOV / collision smoothers.
+        float basis_quat_x{0.0f};
+        float basis_quat_y{0.0f};
+        float basis_quat_z{0.0f};
+        float basis_quat_w{1.0f};
+        bool basis_quat_valid{false};
     };
 
     /**

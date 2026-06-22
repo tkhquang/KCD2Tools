@@ -48,6 +48,13 @@ namespace TPVCamera
             return std::min(static_cast<std::size_t>(configured), DMK::Rtti::MAX_HEAL_WINDOW);
         }
 
+        // Frame interval between self-heal retry scans for an offset that has not resolved yet (its target object
+        // is not constructed until a session loads, or the actor is not yet seated). The RTTI prelude is
+        // syscall-heavy, so a not-yet-live offset is retried on this cadence rather than every frame. There is NO
+        // attempt cap: however long the player lingers at the main menu or a load takes, the heal keeps retrying
+        // until the object appears, then latches and stops.
+        constexpr int k_heal_retry_interval_frames = 30; // about 0.5s at 60 FPS
+
         // Self-heal landmarks: "at this nominal offset within the struct there is a slot referring to an object of
         // this mangled type." Each is keyed on a type that is stable across patches (an engine/base type or an
         // already-trusted concrete type), per the rtti_dissect guidance. base is filled at call time. The
@@ -76,6 +83,9 @@ namespace TPVCamera
         constexpr DMK::Rtti::Landmark k_animchar_lm{.nominal_offset = Constants::ANIMATED_HUMAN_ANIMCHAR_OFFSET,
                                                     .expected_mangled = Constants::ANIMATED_CHARACTER_RTTI_NAME,
                                                     .indirection = DMK::Rtti::Indirection::PointerToObject};
+        constexpr DMK::Rtti::Landmark k_actiongame_lm{.nominal_offset = Constants::CCRYACTION_ACTIONGAME_OFFSET,
+                                                      .expected_mangled = Constants::CACTIONGAME_RTTI_NAME,
+                                                      .indirection = DMK::Rtti::Indirection::PointerToObject};
         constexpr DMK::Rtti::Landmark k_localactor_lm{.nominal_offset = Constants::CACTIONGAME_LOCAL_ACTOR_OFFSET,
                                                       .expected_mangled = Constants::C_PLAYER_RTTI_NAME,
                                                       .indirection = DMK::Rtti::Indirection::PointerToObject};
@@ -185,88 +195,156 @@ namespace TPVCamera
         return offsets;
     }
 
-    void heal_player_offsets(std::uintptr_t c_player) noexcept
+    void heal_framework_offset(std::uintptr_t cry_action) noexcept
     {
-        // One-shot: the first call on a validated C_Player heals; later calls return immediately. The heals run
-        // on the render thread inside the already-SEH-guarded resolve path, so a single guard is sufficient.
+        // Latch on SUCCESS, never on call count or an attempt cap: the CActionGame pointer at
+        // CCryAction+CCRYACTION_ACTIONGAME_OFFSET is null until the framework constructs it (cold boot, main
+        // menu, a slow load), so the heal must keep retrying for as long as that takes and stop only once it
+        // actually resolves.
         static std::atomic<bool> s_done{false};
-        bool expected = false;
-        if (!s_done.compare_exchange_strong(expected, true, std::memory_order_relaxed))
+        if (s_done.load(std::memory_order_relaxed))
         {
             return;
         }
+        RuntimeOffsets &offsets = runtime_offsets();
+        // Stay SILENT while CActionGame does not exist yet. If the slot reads a null/implausible pointer the
+        // object is simply not constructed (the normal pre-session state, e.g. the main menu); that is not a
+        // layout drift, so do not scan or log -- just return and try again on a later frame. This mirrors the
+        // populated-slot gate the resolver uses before walking the chain, and it keeps the per-frame menu path
+        // free of both the syscall-heavy RTTI prelude and any misleading "could not resolve" noise.
+        const auto action_game = DMK::Memory::seh_read<std::uintptr_t>(
+            cry_action + offsets.ccryaction_actiongame.load(std::memory_order_relaxed));
+        if (!action_game || !DMK::Memory::plausible_userspace_ptr(*action_game))
+        {
+            return;
+        }
+        // The slot is populated. Rate-limit the scan so a layout that genuinely cannot be recovered does not run
+        // the prelude every frame. heal_one logs a recovered drift loudly (warn_layout_drift_once) but treats a
+        // still-unresolvable populated slot as an expected miss (optional == true -> Debug, not a Warning), so a
+        // transition frame never emits the misleading "re-author" message.
+        static int s_frames_until_retry = 0;
+        if (s_frames_until_retry > 0)
+        {
+            --s_frames_until_retry;
+            return;
+        }
+        s_frames_until_retry = k_heal_retry_interval_frames;
+        if (heal_one("actionGame", k_actiongame_lm, cry_action, offsets.ccryaction_actiongame, true))
+        {
+            s_done.store(true, std::memory_order_relaxed);
+        }
+    }
+
+    void heal_player_offsets(std::uintptr_t c_player) noexcept
+    {
+        // Latch each group on its OWN success rather than one-shotting the whole batch on call count. The
+        // C_Player-direct landmarks resolve deterministically once the caller has validated the C_Player vtable,
+        // but animChar lives one hop out on C_AnimatedHuman, which can be briefly null on the first valid frame.
+        // A single entry latch would freeze animChar at nominal forever in that case; latching the two groups
+        // independently lets animChar heal on a later frame instead of being abandoned (no attempt cap).
+        static std::atomic<bool> s_direct_done{false};   // animatedHuman + actorModel + missileController + the bracket
+        static std::atomic<bool> s_animchar_done{false}; // one hop out via C_AnimatedHuman
+        if (s_direct_done.load(std::memory_order_relaxed) && s_animchar_done.load(std::memory_order_relaxed))
+        {
+            return;
+        }
+        // Rate-limit the retry: the RTTI prelude is syscall-heavy, so the unresolved group is re-attempted on a
+        // fixed cadence (never every frame) while C_AnimatedHuman comes up.
+        static int s_frames_until_retry = 0;
+        if (s_frames_until_retry > 0)
+        {
+            --s_frames_until_retry;
+            return;
+        }
+        s_frames_until_retry = k_heal_retry_interval_frames;
 
         RuntimeOffsets &offsets = runtime_offsets();
-        // These members key on types that are UNIQUE within C_Player, so an independent window scan cannot land
-        // on a wrong same-typed neighbour; they heal independently, which keeps each one resilient to a shift
-        // that is not uniform across the struct. (entity is handled by the corroborated bracket below instead:
-        // CEntity is a common type, so an independent scan would be decoy-prone.) The missile controller is
-        // embedded in C_Player (constructed in its ctor), so its RTTI is normally resolvable at all times and it
-        // heals like the rest; it is passed optional only defensively, so any weapon/inventory state that left
-        // its slot unresolvable degrades to a Debug note rather than a spurious drift Warning.
-        (void)heal_one("animatedHuman", k_animhuman_lm, c_player, offsets.c_player_animated_human, false);
-        (void)heal_one("actorModel", k_actormodel_lm, c_player, offsets.c_player_actor_model, false);
-        (void)heal_one("missileController", k_missile_lm, c_player, offsets.c_player_missile_controller, true);
-
-        // animChar lives one hop out, on C_AnimatedHuman, so resolve that pointer through the (now healed)
-        // animated-human offset before healing it. A missing C_AnimatedHuman just leaves the nominal in place.
         DMK::Logger &logger = DMK::Logger::get_instance();
-        const auto anim_human = DMK::Memory::seh_read<std::uintptr_t>(
-            c_player + offsets.c_player_animated_human.load(std::memory_order_relaxed));
-        if (anim_human && DMK::Memory::plausible_userspace_ptr(*anim_human))
-        {
-            (void)heal_one("animChar", k_animchar_lm, *anim_human, offsets.animated_human_animchar, false);
-        }
-        else
-        {
-            logger.debug("Self-heal: animChar skipped (C_AnimatedHuman not resolvable); keeping nominal {:#x}",
-                         Constants::ANIMATED_HUMAN_ANIMCHAR_OFFSET);
-        }
 
-        // Corroborated bracket: recover BOTH the entity pointer (common type, decoy-prone for a blind scan) and
-        // the look controller (no RTTI of its own) from the single top-of-struct delta that entity and
-        // HitDeathReactions both agree on (see k_player_top_bracket). Each rides the delta on success; a
-        // non-uniform shift fails the solve and both stay nominal (fail-closed).
-        const auto fit = DMK::Rtti::solve_fingerprint(c_player, k_player_top_bracket, heal_window());
-        if (fit)
+        if (!s_direct_done.load(std::memory_order_relaxed))
         {
-            const std::ptrdiff_t entity_healed = Constants::C_PLAYER_ENTITY_OFFSET + fit->delta;
-            const std::ptrdiff_t look_healed = Constants::C_PLAYER_LOOK_CONTROLLER_OFFSET + fit->delta;
-            offsets.c_player_entity.store(entity_healed, std::memory_order_relaxed);
-            offsets.c_player_look_controller.store(look_healed, std::memory_order_relaxed);
-            if (fit->delta != 0)
+            // These members key on types that are UNIQUE within C_Player, so an independent window scan cannot
+            // land on a wrong same-typed neighbour; they heal independently, which keeps each one resilient to a
+            // shift that is not uniform across the struct. (entity is handled by the corroborated bracket below
+            // instead: CEntity is a common type, so an independent scan would be decoy-prone.) The missile
+            // controller is embedded in C_Player (constructed in its ctor), so its RTTI is normally resolvable.
+            // The C_Player vtable is already validated by the caller, so this group is deterministic on a valid
+            // frame and latches after one pass; a miss is logged at Debug (optional) since a recovered drift
+            // still warns loudly via heal_one's success path.
+            (void)heal_one("animatedHuman", k_animhuman_lm, c_player, offsets.c_player_animated_human, true);
+            (void)heal_one("actorModel", k_actormodel_lm, c_player, offsets.c_player_actor_model, true);
+            (void)heal_one("missileController", k_missile_lm, c_player, offsets.c_player_missile_controller, true);
+
+            // Corroborated bracket: recover BOTH the entity pointer (common type, decoy-prone for a blind scan)
+            // and the look controller (no RTTI of its own) from the single top-of-struct delta that entity and
+            // HitDeathReactions both agree on (see k_player_top_bracket). Each rides the delta on success; a
+            // non-uniform shift fails the solve and both stay nominal (fail-closed).
+            const auto fit = DMK::Rtti::solve_fingerprint(c_player, k_player_top_bracket, heal_window());
+            if (fit)
             {
-                warn_layout_drift_once(); // header before the moved lines (see heal_one)
-                logger.info("Self-heal: entity moved {:+#x} ({:#x} -> {:#x})", fit->delta,
-                            Constants::C_PLAYER_ENTITY_OFFSET, entity_healed);
-                logger.info("Self-heal: lookController moved {:+#x} ({:#x} -> {:#x})", fit->delta,
-                            Constants::C_PLAYER_LOOK_CONTROLLER_OFFSET, look_healed);
+                const std::ptrdiff_t entity_healed = Constants::C_PLAYER_ENTITY_OFFSET + fit->delta;
+                const std::ptrdiff_t look_healed = Constants::C_PLAYER_LOOK_CONTROLLER_OFFSET + fit->delta;
+                offsets.c_player_entity.store(entity_healed, std::memory_order_relaxed);
+                offsets.c_player_look_controller.store(look_healed, std::memory_order_relaxed);
+                if (fit->delta != 0)
+                {
+                    warn_layout_drift_once(); // header before the moved lines (see heal_one)
+                    logger.info("Self-heal: entity moved {:+#x} ({:#x} -> {:#x})", fit->delta,
+                                Constants::C_PLAYER_ENTITY_OFFSET, entity_healed);
+                    logger.info("Self-heal: lookController moved {:+#x} ({:#x} -> {:#x})", fit->delta,
+                                Constants::C_PLAYER_LOOK_CONTROLLER_OFFSET, look_healed);
+                }
+                else
+                {
+                    logger.debug("Self-heal: entity + lookController confirmed at nominal (entity {:#x}, "
+                                 "lookController {:#x})",
+                                 Constants::C_PLAYER_ENTITY_OFFSET, Constants::C_PLAYER_LOOK_CONTROLLER_OFFSET);
+                }
             }
             else
             {
-                logger.debug("Self-heal: entity + lookController confirmed at nominal (entity {:#x}, "
-                             "lookController {:#x})",
-                             Constants::C_PLAYER_ENTITY_OFFSET, Constants::C_PLAYER_LOOK_CONTROLLER_OFFSET);
+                // Bracket disagreed (non-uniform shift across the span). lookController has no RTTI of its own,
+                // so it cannot be recovered independently and stays nominal. entity CAN still be scanned for by
+                // type as a LAST RESORT: this reintroduces the decoy risk the corroborated solve avoided (a wrong
+                // same-typed CEntity neighbour could be picked), but a best-effort offset beats a guaranteed-stale
+                // one when the bracket has already failed, so try it. The solve is deterministic on a validated
+                // C_Player, so an undrifted build never reaches here; the diagnostic is logged at Debug.
+                logger.debug("Self-heal: bracket unresolved ({}); lookController kept nominal; entity via "
+                             "uncorroborated scan",
+                             DMK::Rtti::heal_error_to_string(fit.error()));
+                (void)heal_one("entity (uncorroborated fallback)", k_entity_lm, c_player, offsets.c_player_entity,
+                               true);
             }
+            s_direct_done.store(true, std::memory_order_relaxed);
         }
-        else
+
+        if (!s_animchar_done.load(std::memory_order_relaxed))
         {
-            // Bracket disagreed (non-uniform shift across the span). lookController has no RTTI of its own, so
-            // it cannot be recovered independently and stays nominal. entity CAN still be scanned for by type as
-            // a LAST RESORT: this reintroduces the decoy risk the corroborated solve avoided (a wrong same-typed
-            // CEntity neighbour could be picked), but a best-effort offset beats a guaranteed-stale one when the
-            // bracket has already failed, so try it and warn that the result is unverified.
-            logger.warning("Self-heal: bracket unresolved ({}); lookController kept nominal; entity via "
-                           "uncorroborated scan (decoy risk)",
-                           DMK::Rtti::heal_error_to_string(fit.error()));
-            (void)heal_one("entity (uncorroborated fallback)", k_entity_lm, c_player, offsets.c_player_entity, false);
+            // animChar lives one hop out, on C_AnimatedHuman, so resolve that pointer through the (healed)
+            // animated-human offset before healing it. While C_AnimatedHuman is still null (not yet constructed
+            // on this frame) leave animChar at nominal and retry on a later interval -- do NOT latch, so a brief
+            // null does not abandon the heal, and stay silent so the wait does not spam the log. Once
+            // C_AnimatedHuman is live the animChar result is deterministic, so attempt it once and latch.
+            const auto anim_human = DMK::Memory::seh_read<std::uintptr_t>(
+                c_player + offsets.c_player_animated_human.load(std::memory_order_relaxed));
+            if (anim_human && DMK::Memory::plausible_userspace_ptr(*anim_human))
+            {
+                (void)heal_one("animChar", k_animchar_lm, *anim_human, offsets.animated_human_animchar, true);
+                s_animchar_done.store(true, std::memory_order_relaxed);
+            }
         }
     }
 
     std::ptrdiff_t heal_local_actor_offset(std::uintptr_t action_game) noexcept
     {
         RuntimeOffsets &offsets = runtime_offsets();
-        (void)heal_one("localActor", k_localactor_lm, action_game, offsets.cactiongame_local_actor, false);
+        // The caller enters here only when the cached slot holds a populated object that is NOT a C_Player. That
+        // is the signature of a CActionGame layout drift, but it is ALSO the transient seen while the real player
+        // is still seating in during a load, so a miss is not necessarily drift -- it is logged at Debug
+        // (optional) rather than crying "re-author". A recovered drift still warns loudly via heal_one's success
+        // path. The caller rate-limits and never caps the retries, so a player that takes a long time to seat is
+        // simply re-scanned until it appears.
+        (void)heal_one("localActor", k_localactor_lm, action_game, offsets.cactiongame_local_actor, true);
         return offsets.cactiongame_local_actor.load(std::memory_order_relaxed);
     }
 
@@ -277,17 +355,20 @@ namespace TPVCamera
         // latch keyed on the manager would freeze the minigame member if it missed the latching frame) and never
         // rescans a member that already healed. The context base is anchored, so unlike the local-actor offset a
         // context-member drift IS recoverable here (the scan does not navigate through the offset it is healing).
-        // The caller gates this on the world being ready, when both subsystems are live.
+        // The caller gates this on the world being ready; a member that is briefly not yet live on that edge is
+        // an expected miss (optional == true -> Debug, never the misleading "re-author" Warning), while a
+        // recovered drift still warns loudly via heal_one. There is no attempt cap: each member keeps retrying
+        // (per-member latch) until it resolves.
         static std::atomic<bool> s_manager_done{false};
         static std::atomic<bool> s_minigame_done{false};
         RuntimeOffsets &offsets = runtime_offsets();
         if (!s_manager_done.load(std::memory_order_relaxed) &&
-            heal_one("cameraManager", k_manager_lm, context, offsets.context_manager, false))
+            heal_one("cameraManager", k_manager_lm, context, offsets.context_manager, true))
         {
             s_manager_done.store(true, std::memory_order_relaxed);
         }
         if (!s_minigame_done.load(std::memory_order_relaxed) &&
-            heal_one("minigameSubsystem", k_minigame_subsystem_lm, context, offsets.context_minigame_subsystem, false))
+            heal_one("minigameSubsystem", k_minigame_subsystem_lm, context, offsets.context_minigame_subsystem, true))
         {
             s_minigame_done.store(true, std::memory_order_relaxed);
         }

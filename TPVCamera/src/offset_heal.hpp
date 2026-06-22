@@ -42,6 +42,7 @@ namespace TPVCamera
      */
     struct RuntimeOffsets
     {
+        std::atomic<std::ptrdiff_t> ccryaction_actiongame{Constants::CCRYACTION_ACTIONGAME_OFFSET};
         std::atomic<std::ptrdiff_t> cactiongame_local_actor{Constants::CACTIONGAME_LOCAL_ACTOR_OFFSET};
         std::atomic<std::ptrdiff_t> c_player_entity{Constants::C_PLAYER_ENTITY_OFFSET};
         std::atomic<std::ptrdiff_t> c_player_look_controller{Constants::C_PLAYER_LOOK_CONTROLLER_OFFSET};
@@ -61,14 +62,28 @@ namespace TPVCamera
     [[nodiscard]] RuntimeOffsets &runtime_offsets() noexcept;
 
     /**
-     * @brief Heals the C_Player-rooted offsets once from a live, RTTI-validated C_Player.
-     * @details Independently heals the RTTI-typed members (entity, animated-human, actor-model, missile
-     *          controller) and the animated-character pointer one hop further out, then recovers the
-     *          look-controller offset (which has no RTTI of its own) from the tight bracket of its two
-     *          straddling RTTI neighbours. Each heal that resolves writes its cache field; each that cannot
-     *          leaves the nominal in place. One-shot: the first call on a validated C_Player does the work,
-     *          every later call returns immediately. Caller must pass a C_Player whose vtable already matched
-     *          C_PLAYER_RTTI_NAME (the members are only meaningful for a real C_Player). Render-thread only.
+     * @brief Heals the CCryAction -> CActionGame pointer offset once from the resolved CCryAction framework.
+     * @details This is the root of the player chain: every actor walk reads CActionGame through this offset
+     *          before any of the C_Player-rooted heals can run, so a CCryAction layout shift here would defeat
+     *          the whole chain. CActionGame carries RTTI (CACTIONGAME_RTTI_NAME), so the slot is healable by a
+     *          window scan keyed on that type. Latches on the first SUCCESS, never on call count: the slot reads
+     *          null until the framework constructs CActionGame (cold boot, main menu, a slow load), so the heal
+     *          stays silent and keeps retrying for as long as that takes, then stops once it resolves. Caller
+     *          passes the cached CCryAction (resolved via GetIGameFramework). Render-thread only.
+     * @param cry_action Live CCryAction framework base address.
+     */
+    void heal_framework_offset(std::uintptr_t cry_action) noexcept;
+
+    /**
+     * @brief Heals the C_Player-rooted offsets from a live, RTTI-validated C_Player; retries until resolved.
+     * @details Independently heals the RTTI-typed members whose type is UNIQUE within C_Player (animated-human,
+     *          actor-model, missile controller) and recovers the entity + look-controller offsets (the latter
+     *          has no RTTI of its own) from a corroborated top-of-struct bracket; the animated-character pointer
+     *          one hop further out is healed through the (healed) animated-human offset. The C_Player-direct
+     *          group is deterministic once the caller has validated the vtable, so it latches after one pass;
+     *          animChar latches separately once C_AnimatedHuman is live, so a frame where that pointer is briefly
+     *          null retries on a later interval instead of being abandoned (no attempt cap). Caller must pass a
+     *          C_Player whose vtable already matched C_PLAYER_RTTI_NAME. Render-thread only.
      * @param c_player Live C_Player base address.
      */
     void heal_player_offsets(std::uintptr_t c_player) noexcept;

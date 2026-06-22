@@ -172,6 +172,19 @@ namespace TPVCamera
         // suppression slide instead of snapping; 0 = instant switch.
         std::atomic<float> view_transition_duration{0.0f};
 
+        // Camera stability (always-live, NOT preset-owned). The third-person rig (camera = pivot - forward *
+        // distance) amplifies any rotation of the basis into a position swing; the EyeHeight body anchor removes
+        // the POSITIONAL bob, these remove the ROTATIONAL component the engine bakes into the eye quat during
+        // animations (head-bob and weapon-sway rotation, combat / hit / landing view-shake). StableAimBasis
+        // builds the rig basis from the player's clean look-controller aim quat instead of that shaking eye quat
+        // (the look carries none of it and equals the eye at rest), falling back to the eye quat if the look
+        // chain cannot be resolved. AimBasisSmoothing then low-passes the result (0 = off; higher = smoother but
+        // slightly laggier aim). Both default ON. (The look briefly diverges from the rendered view during some
+        // scripted animations such as climbing, so a small residual shift can remain there; this is preferred
+        // over the much larger general view-shake that follow-the-eye would otherwise reintroduce.)
+        std::atomic<bool> stable_aim_basis{true};
+        std::atomic<float> aim_basis_smoothing{0.3f};
+
         // Start-of-session auto-enable flags, read ONCE during init(). Disabled by default.
         std::atomic<bool> auto_enable_tpv{false};   // enter third-person automatically on game start
         std::atomic<bool> auto_enable_orbit{false}; // engage free-look orbit automatically on game start
