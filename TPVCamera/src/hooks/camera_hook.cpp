@@ -231,6 +231,13 @@ namespace TPVCamera
     constexpr float k_orbit_smooth_min_speed = 6.0f;  // strength 1.0: heavy smoothing
     constexpr float k_orbit_smooth_max_speed = 40.0f; // strength near 0: barely-there smoothing
 
+    // Aim-basis low-pass (AimBasisSmoothing). Maps the 0..1 strength to a frame-rate-independent slerp
+    // catch-up speed: higher strength -> lower speed -> more damping (and slightly laggier aim). The window
+    // is faster than the orbit low-pass so even at full strength the camera still tracks genuine aim turns
+    // closely while shedding the high-frequency view-shake.
+    constexpr float k_basis_smooth_min_speed = 8.0f;  // strength 1.0: heaviest damping
+    constexpr float k_basis_smooth_max_speed = 60.0f; // strength near 0: barely-there damping
+
     // Maximum aim-convergence toe-in. The off-axis camera toes in toward the aim focus point by
     // atan(|OffsetRight| / (focus_distance + follow_distance)); that angle is ALSO the residual crosshair
     // error for any target past the focus. Bounding it stops a small follow distance combined with a
@@ -340,8 +347,13 @@ namespace TPVCamera
             }
         }
 
-        const auto p_action_game =
-            DMK::Memory::seh_read<uintptr_t>(s_cry_action + Constants::CCRYACTION_ACTIONGAME_OFFSET);
+        // Heal the CCryAction -> CActionGame offset once (keyed on CActionGame RTTI) before reading through it:
+        // it is the root of the actor chain, so a layout shift here would silently break every walk below.
+        // Latches on success, so it is nominal until CActionGame is constructed, then fixed.
+        heal_framework_offset(s_cry_action);
+
+        const auto p_action_game = DMK::Memory::seh_read<uintptr_t>(
+            s_cry_action + runtime_offsets().ccryaction_actiongame.load(std::memory_order_relaxed));
         if (!p_action_game || !DMK::Memory::plausible_userspace_ptr(*p_action_game))
         {
             return 0;
@@ -476,8 +488,11 @@ namespace TPVCamera
             }
         }
 
-        const auto p_action_game =
-            DMK::Memory::seh_read<uintptr_t>(s_cry_action + Constants::CCRYACTION_ACTIONGAME_OFFSET);
+        // Heal the chain-root CCryAction -> CActionGame offset once (one-shot internally), as the resolver does.
+        heal_framework_offset(s_cry_action);
+
+        const auto p_action_game = DMK::Memory::seh_read<uintptr_t>(
+            s_cry_action + runtime_offsets().ccryaction_actiongame.load(std::memory_order_relaxed));
         if (!p_action_game || !DMK::Memory::plausible_userspace_ptr(*p_action_game))
         {
             return;
@@ -595,10 +610,10 @@ namespace TPVCamera
         // Yaw-only world quat (XYZW): rotation about +Z by target_yaw == {0, 0, sin(y/2), cos(y/2)}.
         const float half = target_yaw * 0.5f;
         const uintptr_t quat_addr = *anim_char + Constants::ANIMCHAR_OVERRIDE_ROT_QUAT_OFFSET;
-        *reinterpret_cast<float *>(quat_addr + 0x0) = 0.0f;
-        *reinterpret_cast<float *>(quat_addr + 0x4) = 0.0f;
-        *reinterpret_cast<float *>(quat_addr + 0x8) = std::sin(half);
-        *reinterpret_cast<float *>(quat_addr + 0xC) = std::cos(half);
+        *reinterpret_cast<float *>(quat_addr + Constants::QUAT_X_OFFSET) = 0.0f;
+        *reinterpret_cast<float *>(quat_addr + Constants::QUAT_Y_OFFSET) = 0.0f;
+        *reinterpret_cast<float *>(quat_addr + Constants::QUAT_Z_OFFSET) = std::sin(half);
+        *reinterpret_cast<float *>(quat_addr + Constants::QUAT_W_OFFSET) = std::cos(half);
         // Set the active byte LAST so the animated-character update (a separate consumer) never reads
         // active==1 with a half-written quat. The release fence orders the quat stores before the active
         // store explicitly rather than relying on the target's store-store ordering; on x86 it lowers to a
@@ -682,9 +697,91 @@ namespace TPVCamera
         }
         const Vector3 eye_position = *eye_position_read;
         const Quaternion eye_rotation = *eye_rotation_read;
-        const Vector3 right = eye_rotation.rotate(Vector3{1.0f, 0.0f, 0.0f});
-        const Vector3 forward = eye_rotation.rotate(Vector3{0.0f, 1.0f, 0.0f});
-        const Vector3 up = eye_rotation.rotate(Vector3{0.0f, 0.0f, 1.0f});
+        // FPV-side basis (the engine eye orientation). Kept as the view-blend SOURCE so view_blend 0 leaves
+        // the untouched first-person view; the third-person rig basis below is built from a STABLE source.
+        const Vector3 eye_forward = eye_rotation.rotate(Vector3{0.0f, 1.0f, 0.0f});
+        const Vector3 eye_up = eye_rotation.rotate(Vector3{0.0f, 0.0f, 1.0f});
+
+        // Stable rig basis. The third-person rig (camera = pivot - forward * distance) amplifies any rotation of
+        // the basis into a position swing; the EyeHeight body anchor removed the POSITIONAL bob, this removes the
+        // ROTATIONAL component the engine bakes into the eye quat during animations (head-bob and weapon-sway
+        // rotation, combat / hit / landing shake). StableAimBasis follows the player's clean look-controller AIM
+        // quat instead -- it carries none of that engine view-shake and equals the eye quat at rest -- and
+        // AimBasisSmoothing low-passes it. basis_overridden records whether the basis was shaped at all: when
+        // neither feature is active it stays the raw eye quat and the orientation path below is byte-identical to
+        // the convergence/orbit-only behaviour (a fail-safe default).
+        Quaternion basis_rotation = eye_rotation;
+        bool basis_overridden = false;
+        Quaternion look_rotation = eye_rotation;
+        bool look_valid = false;
+        if (cfg.stable_aim_basis.load(std::memory_order_relaxed) && c_player != 0)
+        {
+            // Read the look controller through the self-healed offset (seeded from the constant, recovered if
+            // the C_Player layout drifts) so the basis tracks the same controller the orbit aim control writes.
+            const auto controller = DMK::Memory::seh_read<uintptr_t>(
+                c_player + runtime_offsets().c_player_look_controller.load(std::memory_order_relaxed));
+            if (controller && DMK::Memory::plausible_userspace_ptr(*controller))
+            {
+                const auto look_quat =
+                    DMK::Memory::seh_read<Quaternion>(*controller + Constants::LOOK_CONTROLLER_QUAT_OFFSET);
+                if (look_quat)
+                {
+                    const Quaternion q = *look_quat;
+                    const float n2 = q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w;
+                    // Accept only a finite, ~unit quaternion: a layout drift feeding garbage must fall back to
+                    // the eye quat, never rotate the rig by a denormal.
+                    if (std::isfinite(n2) && n2 > 0.9f && n2 < 1.1f)
+                    {
+                        look_rotation = q;
+                        look_valid = true;
+                    }
+                }
+            }
+        }
+        // Low-pass the basis quaternion toward the target -- the look quat when StableAimBasis resolved it, else
+        // the raw eye quat. Snaps on the first engaged frame (basis_quat_valid false) so the camera does not
+        // swing in from a stale orientation across a first-person gap. AimBasisSmoothing 0 disables the filter
+        // (the target is used directly).
+        const float basis_smoothing = std::clamp(cfg.aim_basis_smoothing.load(std::memory_order_relaxed), 0.0f, 1.0f);
+        if (look_valid || basis_smoothing > 1e-4f)
+        {
+            basis_overridden = true;
+            const DirectX::XMVECTOR target = (look_valid ? look_rotation : eye_rotation).to_xm_vector();
+            DirectX::XMVECTOR result;
+            if (!cam.basis_quat_valid)
+            {
+                result = target; // snap on the first engaged frame so the camera does not swing in from stale
+                cam.basis_quat_valid = true;
+            }
+            else if (basis_smoothing > 1e-4f)
+            {
+                const DirectX::XMVECTOR current =
+                    DirectX::XMVectorSet(cam.basis_quat_x, cam.basis_quat_y, cam.basis_quat_z, cam.basis_quat_w);
+                const float speed =
+                    k_basis_smooth_max_speed - basis_smoothing * (k_basis_smooth_max_speed - k_basis_smooth_min_speed);
+                const float t = 1.0f - std::exp(-speed * delta_time);
+                // XMQuaternionSlerp takes the shortest arc, so a quaternion double-cover sign flip never spins the
+                // basis the long way.
+                result = DirectX::XMQuaternionNormalize(DirectX::XMQuaternionSlerp(current, target, t));
+            }
+            else
+            {
+                result = target; // StableAimBasis on, smoothing off: use the look target directly
+            }
+            cam.basis_quat_x = DirectX::XMVectorGetX(result);
+            cam.basis_quat_y = DirectX::XMVectorGetY(result);
+            cam.basis_quat_z = DirectX::XMVectorGetZ(result);
+            cam.basis_quat_w = DirectX::XMVectorGetW(result);
+            basis_rotation = Quaternion{cam.basis_quat_x, cam.basis_quat_y, cam.basis_quat_z, cam.basis_quat_w};
+        }
+        else
+        {
+            cam.basis_quat_valid = false; // basis not shaped: the next engage snaps the low-pass
+        }
+
+        const Vector3 right = basis_rotation.rotate(Vector3{1.0f, 0.0f, 0.0f});
+        const Vector3 forward = basis_rotation.rotate(Vector3{0.0f, 1.0f, 0.0f});
+        const Vector3 up = basis_rotation.rotate(Vector3{0.0f, 0.0f, 1.0f});
         GameStructures::Matrix34f *matrix = reinterpret_cast<GameStructures::Matrix34f *>(camera);
         // Per-preset FOV, smoothly crossing the "off" boundary. SetFrustum (sub_1805392FC) writes the render
         // CCamera's FOV scalar at camera+0x30 right before this builder, plus the cull-frustum edge vectors at
@@ -890,8 +987,9 @@ namespace TPVCamera
         // the captured heading plus any orbit the player has added since capture. On the capture frame the body
         // has not turned yet, so this equals the pre-move orbit (no snap); as the eye+body rotate to the heading
         // the angle eases to the residual orbit, so the camera POSITION is identical across the turn (no pop).
-        // forward is the untouched eye look (read at frame start), so it tracks the body one frame behind --
-        // exactly in step with the body-turn's own one-frame apply latency. cam.orbit_yaw stays the raw input
+        // forward is this frame's rig basis forward (the stable-aim or smoothed basis when active, else the raw
+        // eye look); char_forward_yaw below derives from the SAME forward that positions the camera, so the two
+        // cancel and the held world yaw is independent of which source forward tracks. cam.orbit_yaw stays the raw input
         // accumulator throughout; the rendered angle is baked back only on release/stop so free-look resumes
         // from exactly where the moving camera was. orbit_moving implies the key was held, so this also runs on
         // the release frame (orbit_moving is cleared at end of frame), giving the bake-on-release below.
@@ -1748,14 +1846,28 @@ namespace TPVCamera
         // col2 = up) so the orientation transitions smoothly too.
         // Screen-centre forward (the crosshair direction): the converged/orbited look when we rebuilt the
         // basis, else the engine eye forward. Published below for the camera-space interaction hook.
+        // When the stable / smoothed basis is active, the rendered ORIENTATION must be rebuilt from it too:
+        // otherwise the engine eye orientation (which carries the view-shake) would still drive the view
+        // rotation even though the position is now stable, leaving the view tilting during an action. Forcing
+        // the rebuild here routes the orientation through the same eye->stable blend below. When the basis was
+        // NOT overridden, eye_forward == forward and eye_up == up, so this is a no-op and the path stays
+        // byte-identical to the convergence/orbit-only behaviour.
+        if (basis_overridden)
+        {
+            rebuild_basis = true;
+        }
         Vector3 screen_forward = forward;
         if (rebuild_basis)
         {
-            Vector3 blended_forward = forward + (look_forward - forward) * view_blend;
+            // Blend the orientation from the engine EYE basis (FPV side, so view_blend 0 leaves the untouched
+            // first-person view) to the stable look (TPV side). At view_blend 0 this reconstructs the engine
+            // eye basis exactly (eye_forward x eye_up == eye_right); at view_blend 1 it is the stable look.
+            Vector3 blended_forward = eye_forward + (look_forward - eye_forward) * view_blend;
             blended_forward =
                 (blended_forward.magnitude_squared() > 1e-6f) ? blended_forward.normalized() : look_forward;
             screen_forward = blended_forward;
-            const Vector3 right_axis = blended_forward.cross(up);
+            const Vector3 ref_up = eye_up + (up - eye_up) * view_blend;
+            const Vector3 right_axis = blended_forward.cross(ref_up);
             if (right_axis.magnitude_squared() > 1e-6f)
             {
                 const Vector3 new_right = right_axis.normalized();
@@ -2130,6 +2242,7 @@ namespace TPVCamera
             cam.orbit_steer_valid = false; // and the continuous-align steer low-pass
             cam.eye_sync_valid = false;    // and the dynamic eye-height low-pass
             cam.fov_ease_valid = false;    // and the per-preset FOV override ease
+            cam.basis_quat_valid = false;  // and the aim-basis low-pass
             cam.orbit_moving = false;
             cam.orbit_target_valid = false;
             // Back to first person: the next engaged frame should snap the preset, not ease across the gap.

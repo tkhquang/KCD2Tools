@@ -95,7 +95,7 @@ On a controller the zoom shares the D-pad with the game's inventory/map shortcut
 Edit KCD2_TPVCamera.ini, grouped into:
 [list]
 [*][b][Settings][/b] - log level, the view hotkeys, the preset-overlay key, and the start-of-session auto-enable flags[/*]
-[*][b][Camera][/b] - zoom keys, the camera-space interaction toggle, and the view-transition ease (the framing itself is per-preset)[/*]
+[*][b][Camera][/b] - zoom keys, the camera-space interaction toggle, the view-transition ease, and the camera-stability options (StableAimBasis, AimBasisSmoothing) that keep the view steady against head-bob, sway, and combat shake (the framing itself is per-preset)[/*]
 [*][b][Orbit][/b] - the free-look orbit keys (press-to-toggle and momentary hold) and the cursor freeze (the orbit feel is per-preset)[/*]
 [*][b][Collision][/b] - the collision probe and radius, UseCoverageCollision (only pull in for things that hide your character) with its coverage / side-wall options, and the independent UseRenderOcclusion cloth-roof clamp (enable, skin, and return speed are per-preset)[/*]
 [*][b][StateBehavior][/b] - switch first/third person on entering a situation (combat, aiming, dialogue, minigame, mount, menu, overlay), restore the prior view on exit (manual toggles during it stick), and suspend/restore free-look in chosen situations[/*]

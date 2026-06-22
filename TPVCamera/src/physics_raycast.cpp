@@ -223,7 +223,7 @@ namespace TPVCamera
         alignas(16) std::byte sphere[Constants::PRIMITIVE_SPHERE_SIZE];
         std::memset(sphere, 0, sizeof(sphere));
         *reinterpret_cast<Vector3 *>(sphere + 0x0) = origin;
-        *reinterpret_cast<float *>(sphere + 0xC) = radius;
+        *reinterpret_cast<float *>(sphere + Constants::PRIMITIVE_SPHERE_RADIUS_OFFSET) = radius;
 
         // geom_contact*; the engine writes through ppcontact, but we read only the float return (distance),
         // so we never dereference the contact (no shared-data lifetime concern).
@@ -239,7 +239,7 @@ namespace TPVCamera
         // contacts. This field is NOT standard rwi pierceability -- 0x40F
         // (rwi_stop_at_pierceable|colltype_any) hit only FAR geometry (missed close walls), and 0 registered NO
         // contacts at all.
-        *reinterpret_cast<int *>(params + Constants::SPWI_OFF_FLAGS) = 0x101;
+        *reinterpret_cast<int *>(params + Constants::SPWI_OFF_FLAGS) = Constants::SPWI_FLAGS_FULL_RANGE;
         // entTypes @+0x9C is DEAD in this fork: the impl (sub_1808182A0) has ZERO reads of +0x9C, so the sphere
         // ALWAYS queries ent_all and CANNOT be type-filtered here -- this write is a defensive no-op (harmless,
         // kept in case a future build wires the field up). Actors (player body/gear, NPCs) are NOT excluded here;
@@ -250,7 +250,7 @@ namespace TPVCamera
         *reinterpret_cast<int *>(params + Constants::SPWI_OFF_GEOMFLAGSALL) = 0;
         // Broad collision-type mask so the sphere stops on any solid surface (mirrors the RWI colltype_any
         // intent). A wrong value here only changes which parts block (functional, not a safety issue).
-        *reinterpret_cast<int *>(params + Constants::SPWI_OFF_GEOMFLAGSANY) = 0x0FFF;
+        *reinterpret_cast<int *>(params + Constants::SPWI_OFF_GEOMFLAGSANY) = Constants::SPWI_GEOMFLAGS_ANY_SOLID;
         // Skip the player's own physics entities (resolved by the caller via resolve_player_physics_skip), so
         // the sweep ignores the body/shield/gear and reports a clean WORLD distance. nSkipEnts is impl-clamped
         // to <=4; pSkipEnts is read as pSkipEnts[i] (an array of IPhysicalEntity*). Both offsets impl-confirmed.

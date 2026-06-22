@@ -95,6 +95,8 @@ namespace Constants
     constexpr ptrdiff_t GENV_PGAME_OFFSET = 0x90;
     constexpr ptrdiff_t IGAME_GET_FRAMEWORK_VTABLE_OFFSET = 0x80; // IGame vtable slot 16
     constexpr ptrdiff_t CCRYACTION_ACTIONGAME_OFFSET = 0x88;
+    // RTTI type-descriptor name of CActionGame, the self-heal anchor for CCRYACTION_ACTIONGAME_OFFSET.
+    constexpr const char *CACTIONGAME_RTTI_NAME = ".?AVCActionGame@@";
     constexpr ptrdiff_t CACTIONGAME_LOCAL_ACTOR_OFFSET = 0xA40;
     constexpr ptrdiff_t C_PLAYER_LOOK_CONTROLLER_OFFSET = 0x238;
     // The look-controller pointee is a non-polymorphic struct with no RTTI, so the self-heal layer cannot
@@ -112,6 +114,14 @@ namespace Constants
     // driven separately via the BODY-turn constants below.
     constexpr ptrdiff_t LOOK_CONTROLLER_YAW_OFFSET = 0x10;
     constexpr ptrdiff_t LOOK_CONTROLLER_YAW2_OFFSET = 0x44;
+    // The derived look quaternion (XYZW) the cameras read, at controller + 0x24. It is the player's clean AIM
+    // orientation: re-derived from the scalar pitch+yaw every frame, so it carries NO head-bob, weapon-sway, or
+    // engine view-shake (combat / hit / landing). At rest it equals the CView eye quat (SVIEWPARAMS_ROTATION_
+    // OFFSET) exactly; during an action the eye quat diverges by the view-shake while this stays on the aim.
+    // StableAimBasis builds the third-person rig basis from THIS instead of the bobbing/shaking eye quat, so a
+    // multi-meter follow distance no longer amplifies the eye-quat view-shake into a camera-position swing.
+    // Live-verified on retail 1.5.5.
+    constexpr ptrdiff_t LOOK_CONTROLLER_QUAT_OFFSET = 0x24;
 
     // --- Player BODY-turn: force the entity world yaw (camera-relative body facing) ----------------
     // The look controller above is aim-only, so a separate primitive turns the BODY. The engine's
@@ -137,6 +147,13 @@ namespace Constants
     constexpr const char *ANIMATED_CHARACTER_RTTI_NAME = ".?AVCAnimatedCharacter@@";
     constexpr ptrdiff_t ANIMCHAR_OVERRIDE_ROT_ACTIVE_OFFSET = 0x1D8; // BYTE, set to 1 each frame (consume-once)
     constexpr ptrdiff_t ANIMCHAR_OVERRIDE_ROT_QUAT_OFFSET = 0x1DC;   // world Quat XYZW (16 bytes)
+    // Component offsets within a 16-byte quaternion (4 contiguous floats, X Y Z W). Used to write the
+    // override-rotation quat above field by field; a quat is always this packed-float layout, so these are
+    // sizeof(float) strides, not an engine-version struct map.
+    constexpr ptrdiff_t QUAT_X_OFFSET = 0x0;
+    constexpr ptrdiff_t QUAT_Y_OFFSET = 0x4;
+    constexpr ptrdiff_t QUAT_Z_OFFSET = 0x8;
+    constexpr ptrdiff_t QUAT_W_OFFSET = 0xC;
 
     // The head-visibility setter (k_headVisibilityCandidates) has signature
     // void __fastcall(this /*rcx*/, bool hide_head /*dl*/, char flags /*r8b*/). The
@@ -281,6 +298,9 @@ namespace Constants
     // primitives::sphere { Vec3 center; float r; } -- 16 bytes, type id 4. center is WORLD space.
     constexpr int PRIMITIVE_TYPE_SPHERE = 4;
     constexpr size_t PRIMITIVE_SPHERE_SIZE = 0x10;
+    // primitives::sphere is { Vec3 center; float r; }: center at +0, radius float at +0xC (a fixed POD layout,
+    // not an engine-version struct map).
+    constexpr ptrdiff_t PRIMITIVE_SPHERE_RADIUS_OFFSET = 0xC;
 
     // Fork SPWIParams field offsets, reversed from the impl (sub_1808182A0) reading its 2nd arg and
     // the constructing caller (sub_180817E4C). The struct is heavily reorganized vs the generic
@@ -306,6 +326,14 @@ namespace Constants
     constexpr ptrdiff_t SPWI_OFF_LOCK_IACTIVE = 0xD8; // int  WriteLockCond.iActive (CONFIRMED)
     constexpr ptrdiff_t SPWI_OFF_LOCK_PRW =
         0xE0; // int* WriteLockCond.prw     (CONFIRMED; self-ptr = thread-safe, no global lock)
+
+    // SPWI field VALUES (written INTO the fields above; the offsets are the field positions, these are the
+    // contents). Kept named alongside the offsets so a tuning change is one edit, not a hunt through the impl.
+    // Flags value for SPWI_OFF_FLAGS: the impl tests &0x800 (rwi_queue); 0x101 is the full-range value that
+    // registers both close and far contacts. Must NOT include 0x800 (that would queue, not run synchronous).
+    constexpr int SPWI_FLAGS_FULL_RANGE = 0x101;
+    // Colltype mask for SPWI_OFF_GEOMFLAGSANY: stop the sphere on ANY solid surface (mirrors the RWI intent).
+    constexpr int SPWI_GEOMFLAGS_ANY_SOLID = 0x0FFF;
 
     // --- Render-node camera occlusion (collide with render-only roofs RWI/PWI cannot see) ---
     // Some KCD2 roofs (tent / awning canopy cloth, e.g. canopy_tent_cover_a_nosticks.cgf) are CBrush

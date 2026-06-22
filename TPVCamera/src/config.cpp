@@ -64,6 +64,12 @@ namespace TPVCamera
                                            s.interact_from_camera, true);
         DMK::Config::register_atomic<float>("Camera", "ViewTransitionDuration", "View Transition Duration",
                                             s.view_transition_duration, 0.0f);
+        // Camera stability against engine view-shake amplified by the follow distance (see LiveSettings).
+        // StableAimBasis builds the rig basis from the clean look-controller aim quat; AimBasisSmoothing
+        // low-passes the basis (0 = off). Both always-live.
+        DMK::Config::register_atomic<bool>("Camera", "StableAimBasis", "Stable Aim Basis", s.stable_aim_basis, true);
+        DMK::Config::register_atomic<float>("Camera", "AimBasisSmoothing", "Aim Basis Smoothing",
+                                            s.aim_basis_smoothing, 0.3f);
 
         // Free-look orbit (non-preset, always-live; the orbit feel values are per-preset).
         DMK::Config::register_atomic<bool>("Orbit", "FreezeOrbitOnCursor", "Freeze Orbit On Cursor",

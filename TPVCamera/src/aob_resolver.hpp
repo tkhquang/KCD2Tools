@@ -59,21 +59,23 @@ namespace TPVCamera
     namespace Aob
     {
         // --- Global-context storage slot (qword_18549B4B0) -------------------
-        // RipRelative: all three candidates resolve the SAME data slot the
-        // camera-manager walk reads (context + OFFSET_MANAGER_PTR_STORAGE). P1
-        // anchors in the TLS-guarded accessor (sub_18091C138) on the `jg` that
-        // skips the fast-path epilogue; the mov it precedes loads the slot. The
-        // accessor's body is a generic magic-static guard shared by dozens of
-        // sibling accessors, so P2/P3 instead anchor on two OTHER functions that
-        // load the slot, each isolated by a distinctive neighbouring field test
-        // (cmp qword [rax+0E0h] / mov [rax+0F8h]). Three independent code sites
-        // means a patch must move all three before the slot is lost.
+        // RipRelative: all three candidates resolve the SAME data slot the camera-manager walk reads (context +
+        // OFFSET_MANAGER_PTR_STORAGE), across three different functions that load it. None anchors on a short Jcc
+        // (rel8 opcodes 70-7F/EB/E3 flip to rel32 across builds and desync the pattern); each pins instead on a
+        // distinctive NON-Jcc neighbour of the slot-load `mov rax,[rip+slot]` (48 8B 05, disp32 -> the slot):
+        // P1 (sub_180682A08) leads with `mov eax,[rbx+r14]; cmp cs:dword,eax; jg-far` (the SIB 0x33 base/index
+        // pins this site over a near-twin that shares the field test) and ends on the `cmp qword [rax+0E0h]`
+        // field; P2 (sub_180B284B8) leads with `cmp cs:dword,ebx` and ends on `mov rbp,[rax+0F8h]`; P3
+        // (sub_180F1B788) is pinned by the `mov rcx,[rdi+278h]` neighbour and `mov rsi,[rax+0F8h]`. Three
+        // independent code sites mean a patch must move all three before the slot is lost. All resolve to
+        // 0x18549B4B0.
         inline constexpr AddrCandidate k_contextCandidates[] = {
-            {"Context_P1_GuardJgFastPathMov", "7F ?? 48 8B 05 ?? ?? ?? ?? 48 83 C4 ?? 5B C3", ResolveMode::RipRelative,
-             5, 9},
-            {"Context_P2_LoadCheckFieldE0", "48 8B 05 ?? ?? ?? ?? 48 83 B8 E0 00 00 00 00 74 ?? 42 8B 04 33 39 05",
-             ResolveMode::RipRelative, 3, 7},
-            {"Context_P3_LoadFieldF8Jnz", "48 8B 05 ?? ?? ?? ?? 48 8B A8 F8 00 00 00 75 ?? E8",
+            {"Context_P1_ReadSlotCmpFieldE0",
+             "42 8B 04 33 39 05 ?? ?? ?? ?? 0F 8F ?? ?? ?? ?? 48 8B 05 ?? ?? ?? ?? 48 83 B8 E0 00 00 00 00",
+             ResolveMode::RipRelative, 19, 23},
+            {"Context_P2_ReadSlotFieldF8", "39 1D ?? ?? ?? ?? 48 8B 05 ?? ?? ?? ?? 48 8B A8 F8 00 00 00",
+             ResolveMode::RipRelative, 9, 13},
+            {"Context_P3_ReadSlotField278", "48 8B 05 ?? ?? ?? ?? 48 8B 8F 78 02 00 00 48 8B B0 F8 00 00 00",
              ResolveMode::RipRelative, 3, 7},
         };
 
@@ -132,22 +134,22 @@ namespace TPVCamera
              ResolveMode::Direct, -0x0A, 0},
         };
 
-        // --- Generic input-event dispatcher entry ---------------------------
-        // Direct entry hook. The `cmp [rcx+0D8h], r8b` guard is the unique
-        // landmark; the jnz rel8 that skips it is wildcarded. P2 extends past the
-        // first jz rel32 into the `cmp [rdx+10h], -1` pitch check. P3 drops the
-        // two prologue stores and walks back 0x0A.
+        // --- Generic input-event dispatcher entry (0x180862BD8) -------------
+        // Direct entry hook, located by walking back from a mid-body landmark to the entry. The function is
+        // reached only virtually (no call site) and its prologue is a generic shape that is not unique on its
+        // own, so all three anchors are distinctive body runs PAST the prologue -- which also means a sibling
+        // 5-byte prologue hook does not break them. None anchors on a short Jcc: the volatile `jnz rel8` guard is
+        // never inside the pattern, and the far `jz rel32` branches that ARE included have their rel32 wildcarded.
+        // P1 = `cmp [rcx+0D8h],r8b; jz-far; cmp [rdx+10h],-1; jz-far` (entry+0x15); P2 = that pitch check into
+        // `mov rax,[rip]; mov ecx,[rax]; test ecx,ecx` (entry+0x22); P3 = the eIS_Changed block
+        // `movzx; movss; mov rcx,[rip]; mov r8,[rbx+8]; cvtps2pd` (entry+0x50). Each walks back to the entry.
         inline constexpr AddrCandidate k_inputDispatchCandidates[] = {
-            {"Input_P1_PrologueGuardCmp",
-             "48 89 5C 24 08 57 48 83 EC ?? 48 8B DA 48 8B F9 45 84 C0 75 ?? 44 38 81 D8 00 00 00 0F 84",
-             ResolveMode::Direct, 0, 0},
-            {"Input_P2_GuardThroughPitchCmp",
-             "48 89 5C 24 08 57 48 83 EC ?? 48 8B DA 48 8B F9 45 84 C0 75 ?? 44 38 81 D8 00 00 00 0F 84 "
-             "?? ?? ?? ?? 83 7A 10 FF 0F 84",
-             ResolveMode::Direct, 0, 0},
-            {"Input_P3_BodyGuardCmpPitch",
-             "48 8B DA 48 8B F9 45 84 C0 75 ?? 44 38 81 D8 00 00 00 0F 84 ?? ?? ?? ?? 83 7A 10 FF", ResolveMode::Direct,
-             -0x0A, 0},
+            {"Input_P1_BodyFlagCmpFarJz",
+             "44 38 81 D8 00 00 00 0F 84 ?? ?? ?? ?? 83 7A 10 FF 0F 84 ?? ?? ?? ??", ResolveMode::Direct, -0x15, 0},
+            {"Input_P2_PitchCmpRipMov", "83 7A 10 FF 0F 84 ?? ?? ?? ?? 48 8B 05 ?? ?? ?? ?? 8B 08 85 C9",
+             ResolveMode::Direct, -0x22, 0},
+            {"Input_P3_ChangedLogBlock", "0F B6 52 28 F3 0F 10 5B 18 48 8B 0D ?? ?? ?? ?? 4C 8B 43 08 0F 5A DB",
+             ResolveMode::Direct, -0x50, 0},
         };
 
         // --- Global action dispatcher entry (Lua Player:OnAction source) -----
