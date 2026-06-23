@@ -85,23 +85,6 @@ namespace TPVCamera
                                                            int n_skip_ents = 0);
 
     /**
-     * @brief Resolves the player's / actors' physics entities to skip during camera collision, via the physics
-     *        world (NOT the engine entity/character API -- the KCD2 fork shifted those vtable slots, and the
-     *        skeleton physics is not a reachable data offset on C_Player).
-     * @details The camera pivot sits INSIDE the player body, so a FORWARD (pivot->camera) ray exits through the
-     *          body's back-face and never registers it, so the probe casts its rays in REVERSE: from the camera
-     *          end (origin + sweep) back toward the pivot, so each ray strikes the body / any in-between actor
-     *          from OUTSIDE and reports it. A collider the
-     *          world-only cast (@p objtypes_world) does NOT see at the same range is a non-world entity (player
-     *          body, worn gear, NPC) and is collected to skip; world geometry appears in both casts at the same
-     *          range and is never collected. Output is capped at @p max_out (SPWIParams nSkipEnts clamps to 4).
-     * @return Count of distinct non-world physics entities written to @p out_skip.
-     */
-    [[nodiscard]] int resolve_player_physics_skip(const Vector3 &origin, const Vector3 &sweep, float radius,
-                                                  int objtypes_all, int objtypes_world, unsigned int flags,
-                                                  uintptr_t *out_skip, int max_out);
-
-    /**
      * @brief Multi-ray "fan" approximation of a swept sphere, built on RayWorldIntersection.
      * @details Casts the centre ray plus four rays offset perpendicular to the sweep by @p radius (a square
      *          tube of half-width radius) and returns the NEAREST hit across all five. This approximates a
@@ -132,10 +115,12 @@ namespace TPVCamera
      *          character returns a low fraction (ignore it, no camera jump); a wall or a near post that hides
      *          most of it returns a high fraction (collide). Distance-aware by construction (a closer obstacle
      *          of the same size hides more), which a fixed width / size threshold cannot capture.
+     * @param out_head_fill Optional; receives the fraction (0..1) of the HEAD level (top samples) occluded, for the
+     *        head-visible collision gate, or -1 if no valid head sample. nullptr to skip.
      * @return Occluded fraction in [0, 1]; 0 if no samples were valid.
      */
     [[nodiscard]] float character_occluded_fraction(const Vector3 &camera, const Vector3 &pivot, int objtypes,
-                                                    unsigned int flags);
+                                                    unsigned int flags, float *out_head_fill = nullptr);
 
     /**
      * @brief The visible render node (IRenderNode) a physics collider belongs to, via its foreign data.

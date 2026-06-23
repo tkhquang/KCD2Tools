@@ -6,11 +6,13 @@
 #include "physics_raycast.hpp"
 #include "aob_resolver.hpp"
 #include "constants.hpp"
+#include "global_state.hpp"
 
 #include <DetourModKit.hpp>
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <intrin.h>
@@ -251,9 +253,10 @@ namespace TPVCamera
         // Broad collision-type mask so the sphere stops on any solid surface (mirrors the RWI colltype_any
         // intent). A wrong value here only changes which parts block (functional, not a safety issue).
         *reinterpret_cast<int *>(params + Constants::SPWI_OFF_GEOMFLAGSANY) = Constants::SPWI_GEOMFLAGS_ANY_SOLID;
-        // Skip the player's own physics entities (resolved by the caller via resolve_player_physics_skip), so
-        // the sweep ignores the body/shield/gear and reports a clean WORLD distance. nSkipEnts is impl-clamped
-        // to <=4; pSkipEnts is read as pSkipEnts[i] (an array of IPhysicalEntity*). Both offsets impl-confirmed.
+        // Skip the entities the caller supplies (the coverage walk's see-past occluders); the player's own
+        // body/shield/gear is excluded by starting the sweep PAST it, so the sweep reports a clean WORLD
+        // distance. nSkipEnts is impl-clamped to <=4; pSkipEnts is read as pSkipEnts[i] (an array of
+        // IPhysicalEntity*). Both offsets impl-confirmed.
         const bool have_skip = p_skip_ents != nullptr && n_skip_ents > 0;
         *reinterpret_cast<int *>(params + Constants::SPWI_OFF_NSKIPENTS) = have_skip ? n_skip_ents : 0;
         *reinterpret_cast<const void **>(params + Constants::SPWI_OFF_PSKIPENTS) = have_skip ? p_skip_ents : nullptr;
@@ -381,7 +384,8 @@ namespace TPVCamera
         return *node;
     }
 
-    float character_occluded_fraction(const Vector3 &camera, const Vector3 &pivot, int objtypes, unsigned int flags)
+    float character_occluded_fraction(const Vector3 &camera, const Vector3 &pivot, int objtypes, unsigned int flags,
+                                      float *out_head_fill)
     {
         // Screen-horizontal axis at the character (perpendicular to the view, kept world-horizontal).
         const Vector3 view = pivot - camera; // camera -> character
@@ -390,25 +394,67 @@ namespace TPVCamera
         const float rl = right.magnitude();
         right = (rl > 1e-4f) ? (right / rl) : Vector3{1.0f, 0.0f, 0.0f};
 
-        // Sample the character silhouette relative to the pivot (~eye/head height): four vertical levels from
-        // just above the head down to the shins, three columns across the shoulders. A ray from the camera to
-        // each sample is "occluded" when WORLD geometry lies before it (the player body is ent_living, excluded
-        // by the world-only objtypes, so the character never occludes itself). Like a real TPV camera (which
-        // protects the head/look-at socket, not the feet) each level is WEIGHTED by importance head->feet, so an
-        // obstruction over the upper body counts far more than one over the legs: occluding the upper half
-        // exceeds 0.5, occluding only the legs stays well under it. (k_char_level_weight sums to 2.45.)
-        static const float v_levels[4] = {0.10f, -0.45f, -1.00f, -1.55f};
+        // Sample the character silhouette: four vertical levels from just below the head down to the shins,
+        // three columns across the shoulders. A ray from the camera to each sample is "occluded" when WORLD
+        // geometry lies before it (the player body is ent_living, excluded by the world-only objtypes, so the
+        // character never occludes itself). Like a real TPV camera (which protects the head/look-at socket, not
+        // the feet) each level is WEIGHTED by importance head->feet, so an obstruction over the upper body
+        // counts far more than one over the legs: occluding the upper half exceeds 0.5, occluding only the legs
+        // stays well under it. (k_char_level_weight sums to 2.45.)
+        //
+        // The sample anchor + extent come from the REAL posed player world AABB when it is available (so
+        // coverage tracks the actual on-screen position and shrinks/re-anchors with the pose: crouch / lying /
+        // mount), falling back to the historical fixed synthetic box around the pivot otherwise. The fallback
+        // reproduces the prior sampling EXACTLY (center = pivot, half-width 0.25, z = pivot + {0.10,-0.45,
+        // -1.00,-1.55}), so behaviour is unchanged when the AABB cannot be resolved.
         static const float k_char_level_weight[4] = {1.0f, 0.8f, 0.45f, 0.2f}; // head, chest, hips, shins
-        static const float h_cols[3] = {-0.25f, 0.0f, 0.25f};
+        static const float h_frac[3] = {-1.0f, 0.0f, 1.0f};                    // fraction of half-width per column
+        float v_world[4];                                                      // sample heights, world z (head -> feet)
+        float center_x, center_y;                                              // horizontal sample center
+        float half_width;                                                      // sampled half-width along screen-right
+        const PlayerScreenBounds &pb = player_screen_bounds();
+        if (pb.valid)
+        {
+            center_x = 0.5f * (pb.min_x + pb.max_x);
+            center_y = 0.5f * (pb.min_y + pb.max_y);
+            const float top = pb.max_z, bottom = pb.min_z, h = top - bottom;
+            static const float k_level_frac[4] = {0.08f, 0.38f, 0.68f, 0.92f}; // fraction DOWN from the top
+            for (int i = 0; i < 4; ++i)
+            {
+                v_world[i] = top - h * k_level_frac[i];
+            }
+            // Body half-width modeled as a vertical CYLINDER (radius = half the narrower horizontal AABB dim),
+            // so the sampled width is the body's true size and facing-INDEPENDENT -- projecting the box footprint
+            // onto the view-right axis instead ballooned toward the box diagonal as the player turned, making
+            // coverage flaky near the threshold. Inset (0.6) so columns sample the torso interior, not the edge
+            // (an edge ray grazes just past the body and reads false-clear). Clamped to a human radius.
+            float r = 0.5f * std::min(pb.max_x - pb.min_x, pb.max_y - pb.min_y);
+            r = std::clamp(r, 0.20f, 0.50f);
+            half_width = 0.6f * r;
+        }
+        else
+        {
+            center_x = pivot.x;
+            center_y = pivot.y;
+            static const float v_levels[4] = {0.10f, -0.45f, -1.00f, -1.55f}; // rel pivot z (synthetic fallback)
+            for (int i = 0; i < 4; ++i)
+            {
+                v_world[i] = pivot.z + v_levels[i];
+            }
+            half_width = 0.25f;
+        }
+
         float total = 0.0f;
         float blocked = 0.0f;
+        int head_n = 0, head_blocked = 0; // unweighted HEAD level (vi==0) tally for the head-visible gate
         for (int vi = 0; vi < 4; ++vi)
         {
-            const float v = v_levels[vi];
             const float w = k_char_level_weight[vi];
-            for (const float h : h_cols)
+            const float vz = v_world[vi];
+            for (const float hf : h_frac)
             {
-                const Vector3 target{pivot.x + right.x * h, pivot.y + right.y * h, pivot.z + v};
+                const float h = hf * half_width;
+                const Vector3 target{center_x + right.x * h, center_y + right.y * h, vz};
                 const Vector3 to_target = target - camera;
                 const float dist = to_target.magnitude();
                 if (dist < 1e-3f)
@@ -416,82 +462,27 @@ namespace TPVCamera
                     continue;
                 }
                 total += w;
+                if (vi == 0)
+                {
+                    ++head_n;
+                }
                 const auto hit = ray_world_intersection(camera, to_target, objtypes, flags, nullptr, 0);
                 if (hit.has_value() && hit->m_distance < dist - 0.10f)
                 {
                     blocked += w;
+                    if (vi == 0)
+                    {
+                        ++head_blocked;
+                    }
                 }
             }
+        }
+        if (out_head_fill != nullptr)
+        {
+            // Fraction of the HEAD silhouette occluded (top level only); -1 if no valid head sample (degenerate).
+            *out_head_fill = (head_n > 0) ? (static_cast<float>(head_blocked) / static_cast<float>(head_n)) : -1.0f;
         }
         return (total > 0.0f) ? (blocked / total) : 0.0f;
-    }
-
-    int resolve_player_physics_skip(const Vector3 &origin, const Vector3 &sweep, float radius, int objtypes_all,
-                                    int objtypes_world, unsigned int flags, uintptr_t *out_skip, int max_out)
-    {
-        if (out_skip == nullptr || max_out <= 0)
-        {
-            return 0;
-        }
-        const float len = sweep.magnitude();
-        if (len < 1e-4f)
-        {
-            return 0;
-        }
-        const Vector3 dir = sweep / len;
-        const Vector3 seed = (std::fabs(dir.z) < 0.9f) ? Vector3{0.0f, 0.0f, 1.0f} : Vector3{1.0f, 0.0f, 0.0f};
-        Vector3 right = dir.cross(seed);
-        const float rlen = right.magnitude();
-        Vector3 up{0.0f, 0.0f, 0.0f};
-        if (rlen >= 1e-4f)
-        {
-            right = right / rlen;
-            up = right.cross(dir);
-        }
-        else
-        {
-            right = Vector3{0.0f, 0.0f, 0.0f};
-        }
-        // REVERSE probe: cast from the camera end back toward the pivot. The pivot is inside the body, so a
-        // forward ray exits through a back-face and misses the body; a reverse ray hits it from outside. Same
-        // square-tube fan offsets as the sweep so coverage matches the sphere's footprint.
-        const Vector3 camera = origin + sweep;
-        const Vector3 back = sweep * -1.0f; // camera -> pivot, length = |sweep|
-        const Vector3 offsets[5] = {Vector3{0.0f, 0.0f, 0.0f}, right * radius, right * (-radius), up * radius,
-                                    up * (-radius)};
-        int n = 0;
-        for (const Vector3 &off : offsets)
-        {
-            const Vector3 o = camera + off;
-            const auto h_all = ray_world_intersection(o, back, objtypes_all, flags);
-            if (!h_all.has_value() || h_all->m_collider == 0)
-            {
-                continue;
-            }
-            // A non-world entity (player body, worn gear, NPC) is invisible to the world-only mask: collect it
-            // only when the all-types hit is nearer than the world hit (or the world ray misses). World geometry
-            // appears in BOTH casts at the same range, so it is never collected -- we must not skip the world.
-            const auto h_world = ray_world_intersection(o, back, objtypes_world, flags);
-            const bool is_non_world = !h_world.has_value() || h_all->m_distance < h_world->m_distance - 0.02f;
-            if (!is_non_world)
-            {
-                continue;
-            }
-            bool seen = false;
-            for (int i = 0; i < n; ++i)
-            {
-                if (out_skip[i] == h_all->m_collider)
-                {
-                    seen = true;
-                    break;
-                }
-            }
-            if (!seen && n < max_out)
-            {
-                out_skip[n++] = h_all->m_collider;
-            }
-        }
-        return n;
     }
 
 } // namespace TPVCamera

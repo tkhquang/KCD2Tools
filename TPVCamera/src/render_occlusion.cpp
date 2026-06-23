@@ -6,6 +6,7 @@
 #include "render_occlusion.hpp"
 #include "aob_resolver.hpp"
 #include "constants.hpp"
+#include "global_state.hpp"
 
 #include <DetourModKit.hpp>
 
@@ -287,28 +288,56 @@ namespace TPVCamera
         P.uy = -rx * vdz;
         P.uz = rx * vdy - ry * vdx;
 
-        // Character body box on screen: lateral +/-0.25 along right, world-z +0.10 (head) .. -1.55 (shins).
-        const float hl[2] = {-0.25f, 0.25f};
-        const float vl[2] = {0.10f, -1.55f};
+        // Character box on screen. Preferred source: the REAL posed player world AABB, modeled as a vertical
+        // CYLINDER (see the projection below), so the box tracks where the player actually is on screen and
+        // shrinks / re-anchors with the pose (crouch / lying / mount). Fallback when the live AABB is
+        // unavailable: the historical fixed synthetic box around the pivot (lateral +/-0.25 along right,
+        // world-z +0.10 head .. -1.55 shins), which this reproduces EXACTLY so behaviour is unchanged when the
+        // AABB cannot be resolved.
         float chmin = 1e9f, chmax = -1e9f, cvmin = 1e9f, cvmax = -1e9f;
-        for (int a = 0; a < 2; ++a)
+        const auto add_corner = [&](float wx, float wy, float wz) {
+            const float ex = wx - camera.x, ey = wy - camera.y, ez = wz - camera.z;
+            const float d = std::sqrt(ex * ex + ey * ey + ez * ez);
+            if (d < 1e-3f)
+            {
+                return;
+            }
+            const float h = (ex * rx + ey * ry) / d; // rz == 0
+            const float vv = (ex * P.ux + ey * P.uy + ez * P.uz) / d;
+            chmin = std::min(chmin, h);
+            chmax = std::max(chmax, h);
+            cvmin = std::min(cvmin, vv);
+            cvmax = std::max(cvmax, vv);
+        };
+        const PlayerScreenBounds &pb = player_screen_bounds();
+        if (pb.valid)
         {
+            // Model the body as a vertical CYLINDER: lateral half-width = half the NARROWER horizontal AABB
+            // dim, centered on the AABB centre, spanning the real z-range. Projecting all 8 AABB corners
+            // instead captured the box DIAGONAL, so the on-screen width ballooned ~0.77 -> ~1.12 m as the
+            // player turned (a box looks widest corner-on) -- which a roughly-cylindrical body never does. That
+            // made coverage facing-dependent: a genuine occluder read ~0.84 and stepped across the threshold as
+            // the camera rotated (flaky clamp/release). The cylinder width is facing-stable, so coverage is too.
+            const float cx = 0.5f * (pb.min_x + pb.max_x), cy = 0.5f * (pb.min_y + pb.max_y);
+            float r = 0.5f * std::min(pb.max_x - pb.min_x, pb.max_y - pb.min_y);
+            r = std::clamp(r, 0.20f, 0.50f); // keep to a human on-screen radius
+            const float zs[2] = {pb.min_z, pb.max_z};
             for (int c = 0; c < 2; ++c)
             {
-                const float ex = (pivot.x + rx * hl[a]) - camera.x;
-                const float ey = (pivot.y + ry * hl[a]) - camera.y;
-                const float ez = (pivot.z + vl[c]) - camera.z;
-                const float d = std::sqrt(ex * ex + ey * ey + ez * ez);
-                if (d < 1e-3f)
+                add_corner(cx + rx * r, cy + ry * r, zs[c]);
+                add_corner(cx - rx * r, cy - ry * r, zs[c]);
+            }
+        }
+        else
+        {
+            const float hl[2] = {-0.25f, 0.25f};
+            const float vl[2] = {0.10f, -1.55f};
+            for (int a = 0; a < 2; ++a)
+            {
+                for (int c = 0; c < 2; ++c)
                 {
-                    continue;
+                    add_corner(pivot.x + rx * hl[a], pivot.y + ry * hl[a], pivot.z + vl[c]);
                 }
-                const float h = (ex * rx + ey * ry) / d; // rz == 0
-                const float vv = (ex * P.ux + ey * P.uy + ez * P.uz) / d;
-                chmin = std::min(chmin, h);
-                chmax = std::max(chmax, h);
-                cvmin = std::min(cvmin, vv);
-                cvmax = std::max(cvmax, vv);
             }
         }
         const float chw = chmax - chmin, cvh = cvmax - cvmin;
@@ -587,8 +616,13 @@ namespace TPVCamera
         return measured;
     }
 
-    static float brush_char_coverage(void *node, Vector3 pivot, Vector3 camera, uintptr_t mod_lo, uintptr_t mod_hi)
+    static float brush_char_coverage(void *node, Vector3 pivot, Vector3 camera, uintptr_t mod_lo, uintptr_t mod_hi,
+                                     float *out_head_fill = nullptr)
     {
+        if (out_head_fill != nullptr)
+        {
+            *out_head_fill = -1.0f; // unmeasurable until a readable mesh is rasterized
+        }
         auto *bytes = reinterpret_cast<std::byte *>(node);
         void *statobj = *reinterpret_cast<void **>(bytes + Constants::CBRUSH_STATOBJ_OFFSET);
         if (statobj == nullptr)
@@ -637,8 +671,12 @@ namespace TPVCamera
                     ++filled;
                 }
             }
-            wov += k_char_level_weight[b] *
-                   (static_cast<float>(filled) / static_cast<float>(Constants::RENDER_COVERAGE_COLUMNS));
+            const float band_fill = static_cast<float>(filled) / static_cast<float>(Constants::RENDER_COVERAGE_COLUMNS);
+            if (b == 0 && out_head_fill != nullptr)
+            {
+                *out_head_fill = band_fill; // top band = head silhouette fill, for the head-visible gate
+            }
+            wov += k_char_level_weight[b] * band_fill;
             wsum += k_char_level_weight[b];
         }
         return (wsum > 0.0f) ? std::min(1.0f, wov / wsum) : 0.0f;
@@ -654,6 +692,7 @@ namespace TPVCamera
         float roof_z = 0.0f;
         float min_x = 0.0f, min_y = 0.0f, min_z = 0.0f;
         float max_x = 0.0f, max_y = 0.0f, max_z = 0.0f;
+        float coverage = -1.0f; // measured player-silhouette coverage of the binding brush (-1 = not measured)
     };
 
     /**
@@ -663,7 +702,7 @@ namespace TPVCamera
      *        sightline (k_cloth_unavailable when none do). Fills @p out_hit with the binding brush's identity.
      */
     static float nearest_sightline_block_guarded(void *p3d, GetObjectsInBoxFn query, const float *bbox, Vector3 pivot,
-                                                 Vector3 camera, uintptr_t mod_lo, uintptr_t mod_hi,
+                                                 Vector3 camera, uintptr_t mod_lo, uintptr_t mod_hi, float cov_thresh,
                                                  RoofHitInfo *out_hit) noexcept
     {
         float best_dist = k_cloth_unavailable;
@@ -762,6 +801,23 @@ namespace TPVCamera
                 }
                 if (d < best_dist)
                 {
+                    // Coverage gate (render-side use of CoverageCollision): when enabled (cov_thresh > 0) AND the
+                    // live player AABB is available, DROP a brush that hides less than cov_thresh of the player's
+                    // REAL on-screen silhouette -- a thin prop the body is plainly visible past (a pole, a bird
+                    // feeder), not a view-burying canopy. Keyed on the real projected player extent (not the old
+                    // synthetic box, which sat below an overhead canopy and read ~0, the reason the gate used to
+                    // be omitted here): a canopy on a look-down covers the player on screen and survives, while a
+                    // thin prop does not. Only a MEASURED low coverage skips -- an unreadable mesh (cloth often
+                    // is) returns < 0 and keeps the clamp, so canopies are never dropped by a failed measurement.
+                    float cov = -1.0f;
+                    if (cov_thresh > 0.0f && player_screen_bounds().valid)
+                    {
+                        cov = brush_char_coverage(node, pivot, camera, mod_lo, mod_hi);
+                        if (cov >= 0.0f && cov < cov_thresh)
+                        {
+                            continue; // thin prop -> body visible past it -> no render-occlusion clamp
+                        }
+                    }
                     best_dist = d;
                     out_hit->node = node;
                     out_hit->statobj = *reinterpret_cast<void **>(reinterpret_cast<std::byte *>(node) +
@@ -773,13 +829,15 @@ namespace TPVCamera
                     out_hit->max_x = max_x;
                     out_hit->max_y = max_y;
                     out_hit->max_z = max_z;
+                    out_hit->coverage = cov;
                 }
             }
 
-            // Intentionally NO body-silhouette coverage gate: an overhead canopy sits ABOVE the character body
-            // box, so its projected silhouette coverage is ~0 and a coverage gate would reject exactly the cloth
-            // it is meant to clamp. Thin beams / ropes are rejected instead by cloth_sightline_block_distance,
-            // which requires RENDER_OCCLUSION_MIN_COLUMN_VERTS cloth vertices on the pivot->camera tube to count.
+            // The body-silhouette coverage gate above is keyed on the REAL projected player extent
+            // (PlayerScreenBounds), so unlike the historical synthetic box -- which sat below an overhead canopy
+            // and read ~0 -- it keeps canopies (high coverage on a look-down) and drops only thin props the body
+            // is visible past. It runs only when cov_thresh > 0 and the live AABB is valid; otherwise the
+            // sightline vertex-count test (RENDER_OCCLUSION_MIN_COLUMN_VERTS) is the sole filter, as before.
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -991,8 +1049,12 @@ namespace TPVCamera
     // bird_feeder rasterized to 0.45 but a later node at the same hit faulted, so the query returned -1 and the
     // walk treated the feeder as a solid. POD-only body (no lambdas), so the __try carries no object unwinding.
     static float measure_node_at_hit(void *node, Vector3 hit, Vector3 pivot, Vector3 camera, uintptr_t mod_lo,
-                                     uintptr_t mod_hi) noexcept
+                                     uintptr_t mod_hi, float *out_head) noexcept
     {
+        if (out_head != nullptr)
+        {
+            *out_head = -1.0f; // unmeasurable unless this node rasters
+        }
         __try
         {
             const unsigned int rnd_flags = *reinterpret_cast<unsigned int *>(reinterpret_cast<std::byte *>(node) +
@@ -1047,7 +1109,7 @@ namespace TPVCamera
             {
                 return k_coverage_unavailable;
             }
-            return brush_char_coverage(node, pivot, camera, mod_lo, mod_hi);
+            return brush_char_coverage(node, pivot, camera, mod_lo, mod_hi, out_head);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -1064,8 +1126,19 @@ namespace TPVCamera
     // proxy, or the hit brush is a compound building whose ROOT mesh is null. The caller then falls back to the
     // physics-ray coverage, so large solids still block. POD-only body.
     static float coverage_at_point_guarded(void *p3d, GetObjectsInBoxFn query, const float *bbox, Vector3 hit,
-                                           Vector3 pivot, Vector3 camera, uintptr_t mod_lo, uintptr_t mod_hi) noexcept
+                                           Vector3 pivot, Vector3 camera, uintptr_t mod_lo, uintptr_t mod_hi,
+                                           void **out_node, float *out_head) noexcept
     {
+        // Define both out-params up front so every no-measurement return path (count 0 / overflow, octree
+        // fault, or no candidate beating best) leaves them well-defined without relying on the caller.
+        if (out_node != nullptr)
+        {
+            *out_node = nullptr;
+        }
+        if (out_head != nullptr)
+        {
+            *out_head = -1.0f;
+        }
         // The OCTREE query is guarded on its own; each candidate node is then measured under measure_node_at_hit's
         // own SEH frame, so a single unreadable neighbour can no longer discard the whole result. `nodes` lives
         // outside the query __try so the post-query loop (which has no SEH of its own) can read it.
@@ -1085,22 +1158,35 @@ namespace TPVCamera
             return -1.0f;
         }
         float best = -1.0f;
+        float best_head = -1.0f;
         for (std::uint32_t i = 0; i < count; ++i)
         {
             if (nodes[i] == nullptr)
             {
                 continue;
             }
-            const float cov = measure_node_at_hit(nodes[i], hit, pivot, camera, mod_lo, mod_hi);
+            float node_head = -1.0f;
+            const float cov = measure_node_at_hit(nodes[i], hit, pivot, camera, mod_lo, mod_hi, &node_head);
             if (cov > best)
             {
                 best = cov;
+                best_head = node_head;
+                if (out_node != nullptr)
+                {
+                    // the dominant occluder; the caller caches it to re-raster without re-querying the octree
+                    *out_node = nodes[i];
+                }
             }
+        }
+        if (out_head != nullptr)
+        {
+            *out_head = best_head;
         }
         return best;
     }
 
-    std::optional<float> render_occlusion_limit(const Vector3 &pivot, const Vector3 &to_camera, float radius)
+    std::optional<float> render_occlusion_limit(const Vector3 &pivot, const Vector3 &to_camera, float radius,
+                                                float cov_thresh)
     {
         if (s_get_objects_in_box == nullptr || s_p3d_engine_slot_addr == 0)
         {
@@ -1130,9 +1216,10 @@ namespace TPVCamera
         static bool s_cache_valid = false;
         static Vector3 s_cache_cam{};
         static float s_cache_block = k_cloth_unavailable;
+        static float s_cache_cov = -1.0f; // cov_thresh the cache was computed with (toggling it forces a requery)
 
         const float requery_d2 = Constants::RENDER_OCCLUSION_REQUERY_DIST * Constants::RENDER_OCCLUSION_REQUERY_DIST;
-        if (!s_cache_valid || (camera - s_cache_cam).magnitude_squared() > requery_d2)
+        if (!s_cache_valid || s_cache_cov != cov_thresh || (camera - s_cache_cam).magnitude_squared() > requery_d2)
         {
             float block = k_cloth_unavailable;
             RoofHitInfo hit{};
@@ -1155,12 +1242,13 @@ namespace TPVCamera
                     bbox[4] = std::max(pivot.y, camera.y) + margin;
                     bbox[5] = std::max(pivot.z, camera.z) + margin;
                     block = nearest_sightline_block_guarded(reinterpret_cast<void *>(*p3d), s_get_objects_in_box,
-                                                            bbox, pivot, camera, s_mod_lo, s_mod_hi, &hit);
+                                                            bbox, pivot, camera, s_mod_lo, s_mod_hi, cov_thresh, &hit);
                 }
             }
 
             s_cache_block = block;
             s_cache_cam = camera;
+            s_cache_cov = cov_thresh;
             s_cache_valid = true;
 
             // Trace WHAT the clamp latched onto, so a false positive (a prop / wall chunk on the sightline
@@ -1171,12 +1259,13 @@ namespace TPVCamera
                 char name[256];
                 copy_brush_name(hit.statobj, name, static_cast<int>(sizeof(name)));
                 DMK::Logger::get_instance().trace(
-                    "RenderOcclusion HIT: node={} statobj={} name=\"{}\" blockDist={} of {} blockZ={} "
-                    "sizeXYZ=({}, {}, {}) bboxMin=({}, {}, {}) cam=({}, {}, {}) pivot=({}, {}, {})",
+                    "RenderOcclusion HIT: node={} statobj={} name=\"{}\" blockDist={} of {} cov={} covThresh={} "
+                    "blockZ={} sizeXYZ=({}, {}, {}) bboxMin=({}, {}, {}) cam=({}, {}, {}) pivot=({}, {}, {})",
                     DMK::Format::format_address(reinterpret_cast<uintptr_t>(hit.node)),
                     DMK::Format::format_address(reinterpret_cast<uintptr_t>(hit.statobj)), name, block, desired,
-                    hit.roof_z, hit.max_x - hit.min_x, hit.max_y - hit.min_y, hit.max_z - hit.min_z, hit.min_x,
-                    hit.min_y, hit.min_z, camera.x, camera.y, camera.z, pivot.x, pivot.y, pivot.z);
+                    hit.coverage, cov_thresh, hit.roof_z, hit.max_x - hit.min_x, hit.max_y - hit.min_y,
+                    hit.max_z - hit.min_z, hit.min_x, hit.min_y, hit.min_z, camera.x, camera.y, camera.z, pivot.x,
+                    pivot.y, pivot.z);
             }
         }
 
@@ -1188,8 +1277,17 @@ namespace TPVCamera
         return s_cache_block;
     }
 
-    float render_coverage_at(const Vector3 &hit_point, const Vector3 &pivot, const Vector3 &to_camera)
+    float render_coverage_at(const Vector3 &hit_point, const Vector3 &pivot, const Vector3 &to_camera, void **out_node,
+                             float *out_head)
     {
+        if (out_node != nullptr)
+        {
+            *out_node = nullptr;
+        }
+        if (out_head != nullptr)
+        {
+            *out_head = -1.0f;
+        }
         if (s_get_objects_in_box == nullptr || s_p3d_engine_slot_addr == 0)
         {
             return -1.0f;
@@ -1216,11 +1314,15 @@ namespace TPVCamera
         bbox[4] = hit_point.y + m;
         bbox[5] = hit_point.z + m;
         return coverage_at_point_guarded(reinterpret_cast<void *>(*p3d), s_get_objects_in_box, bbox, hit_point, pivot,
-                                         camera, s_mod_lo, s_mod_hi);
+                                         camera, s_mod_lo, s_mod_hi, out_node, out_head);
     }
 
-    float render_coverage_of_brush(void *node, const Vector3 &pivot, const Vector3 &camera) noexcept
+    float render_coverage_of_brush(void *node, const Vector3 &pivot, const Vector3 &camera, float *out_head) noexcept
     {
+        if (out_head != nullptr)
+        {
+            *out_head = -1.0f;
+        }
         if (node == nullptr)
         {
             return -1.0f;
@@ -1247,7 +1349,7 @@ namespace TPVCamera
             {
                 return -1.0f; // building-scale HLOD proxy -> not a thin prop, leave it to the caller's solid path
             }
-            return brush_char_coverage(node, pivot, camera, s_mod_lo, s_mod_hi);
+            return brush_char_coverage(node, pivot, camera, s_mod_lo, s_mod_hi, out_head);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {

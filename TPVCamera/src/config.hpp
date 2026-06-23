@@ -99,12 +99,14 @@ namespace TPVCamera
         std::atomic<bool> enable_collision{};        // keep the view out of walls
         std::atomic<float> collision_skin{};         // gap kept before a hit surface, meters (thin-ray path only)
         std::atomic<float> collision_return_speed{}; // ease-out speed once an obstruction clears
-        // Master switch for the COVERAGE-based collision heuristics: the coverage gate (CoverageThreshold) that
-        // only collides when something hides the character, and the lateral frustum-clearance probe
-        // (CameraProbeSize). OFF by default (opt-in): the camera then collides plainly on the nearest solid world
-        // surface (no coverage measurement, no lateral probe); turn it ON for the see-through behaviour. Render
-        // occlusion is INDEPENDENT of this (its own use_render_occlusion toggle below).
-        std::atomic<bool> use_coverage_collision{false};
+        // Master switch for the COVERAGE-based collision heuristics: the coverage gate (CoverageThreshold + the
+        // HeadVisibleSkip head-priority gate) that only collides when something actually hides the character, and
+        // the lateral frustum-clearance probe (CameraProbeSize). ON by default: the camera sees through thin
+        // props / rails the body shows past and stays out of corners; set false for plain collision (the camera
+        // stops at the nearest solid surface, no coverage measurement, no lateral probe). Render occlusion is
+        // INDEPENDENT of this (its own use_render_occlusion toggle below). Costs extra per-frame geometry
+        // inspection in dense scenes, so it is the first thing to disable if camera collision causes FPS drops.
+        std::atomic<bool> use_coverage_collision{true};
         // Swept-sphere collision via PrimitiveWorldIntersection: the sphere's contact distance is
         // continuous as the sweep grazes edges, so the camera does not pump in dense geometry the way a
         // single thin ray does. The radius IS the standoff (collision_skin is not applied on this path).
@@ -116,9 +118,20 @@ namespace TPVCamera
         // this threshold (0..1) the obstruction is ignored, so thin poles / rails that leave most of the
         // character visible never jolt the camera (native-TPV feel), while a wall or a near post that hides most
         // of it still collides. Distance-aware (a closer object hides more), unlike a fixed width/size cutoff.
-        // 0 = OFF (collide on any hit). Higher ignores more; ~0.8 hides most of the character before colliding.
-        // Only consulted while use_coverage_collision is ON. Live-editable.
-        std::atomic<float> collision_coverage_threshold{0.8f};
+        // 0 = OFF (collide on any hit). Higher ignores more; default 0.5 = clamp once about HALF the character is
+        // hidden (0.8 was too permissive -- the body could be ~80% buried before the camera reacted; note the
+        // head-weighting means a fully-covered UPPER HALF reads ~0.73, so a 0.8 threshold also needs lower-body
+        // occlusion on top). Only consulted while use_coverage_collision is ON. Live-editable.
+        std::atomic<float> collision_coverage_threshold{0.5f};
+        // Head-priority skip: if at least this FRACTION of the character's HEAD silhouette (the top coverage
+        // band) is still VISIBLE, the camera does NOT collide on that occluder regardless of total coverage --
+        // "if I can see his head, leave the camera alone". Only when the head is more covered than this does the
+        // normal CoverageThreshold gate decide. It can only SUPPRESS a clamp, never force one, so it makes the
+        // camera strictly more permissive (tolerates body occlusion while the head shows). 0 = OFF (the
+        // total-coverage gate alone decides). Higher tolerates LESS head occlusion before deferring to the gate
+        // (e.g. 0.35 = "clamp once the head is >~65% covered"). Default 0.10 = very permissive: pull in only once
+        // the head is ~90% hidden. Only consulted while use_coverage_collision is ON. Live-editable.
+        std::atomic<float> head_visible_skip{0.10f};
         // Lateral / frustum clearance: the pivot->camera collision probes only ALONG the arm, so a wall BESIDE
         // the camera (a corner, a doorway, a narrow gap) is never seen and intrudes into the view. After the
         // along-arm pull-in, the camera probes its lateral surroundings and pulls further in until a converging
@@ -129,7 +142,11 @@ namespace TPVCamera
         // Render occlusion: also collide the camera with render-only geometry (tent / awning canopy cloth,
         // overhead brushes) that carries no ray-collidable physics, by querying the 3DEngine render octree
         // (GetObjectsInBox) along the pivot->camera arm and clamping below an overhead brush. Always-live INI
-        // setting (not preset-owned), INDEPENDENT of use_coverage_collision; no-ops if the octree is unresolved.
+        // setting (not preset-owned). Enabling it is INDEPENDENT of use_coverage_collision, BUT when coverage
+        // collision is ON it also applies the coverage gate (CoverageThreshold) to render brushes, keyed on the
+        // real projected player silhouette: a thin prop the body is visible past (a pole / bird feeder) is then
+        // dropped instead of clamping the camera, while a view-burying canopy still clamps. No-ops if the octree
+        // is unresolved. Queries the render octree per frame, so disable it too if camera collision costs FPS.
         std::atomic<bool> use_render_occlusion{true};
 
         // State-driven camera policy (see game_state.hpp). Each mask is a GameState bit set parsed

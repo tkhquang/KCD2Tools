@@ -39,16 +39,23 @@ namespace TPVCamera
      *          pivot->camera sightline to find the nearest distance at which its cloth lies on the view ray. A
      *          brush counts only when at least RENDER_OCCLUSION_MIN_COLUMN_VERTS of its vertices fall inside the
      *          sightline tube, so a thin beam / rope / rail does not jolt the camera while a canopy clamps. No
-     *          body-silhouette coverage test is applied: an overhead canopy projects ABOVE the character body, so
-     *          such a test reads ~0 and would reject exactly the cloth meant to clamp. Returns the nearest
-     *          qualifying limit, or std::nullopt when the renderer is unavailable or nothing on the sightline
-     *          occludes the view. SEH-guarded; a fault returns std::nullopt.
+     *          sightline tube, so a thin beam / rope / rail does not jolt the camera while a canopy clamps.
+     *          When @p cov_thresh > 0 AND the live player AABB is available (PlayerScreenBounds), a brush is
+     *          additionally dropped when its measured coverage of the player's REAL on-screen silhouette is
+     *          below @p cov_thresh -- so a thin prop the body is plainly visible past (a pole, a bird feeder)
+     *          no longer clamps the camera, while a view-burying canopy (which covers the player on a look-down)
+     *          still does. This is the render-side use of the coverage gate (UseRenderOcclusion respecting
+     *          CoverageCollision). It is keyed on the REAL projected player extent, not the historical synthetic
+     *          box (which sat below an overhead canopy and read ~0); an unreadable mesh keeps the clamp.
+     *          Returns the nearest qualifying limit, or std::nullopt when the renderer is unavailable or nothing
+     *          on the sightline occludes the view. SEH-guarded; a fault returns std::nullopt.
      * @param pivot Camera arm start (inside the player), world space.
      * @param to_camera Pivot->camera vector; its length is the desired follow distance (not normalized).
      * @param radius Standoff kept below the roof underside (the collision radius), meters.
+     * @param cov_thresh Coverage gate threshold (0..1); 0 disables the gate (sightline test only, prior behavior).
      */
     [[nodiscard]] std::optional<float> render_occlusion_limit(const Vector3 &pivot, const Vector3 &to_camera,
-                                                              float radius);
+                                                              float radius, float cov_thresh);
 
     /**
      * @brief Fraction (0..1) of the character occluded by the VISIBLE render brush at a physics hit point.
@@ -64,8 +71,15 @@ namespace TPVCamera
      * @param hit_point World-space physics hit position (use the fan/RWI hit, not the synthetic sphere point).
      * @param pivot Camera arm start (inside the player), world space.
      * @param to_camera Pivot->camera vector; the coverage is measured from the desired camera = pivot + to_camera.
+     * @param out_node Optional; receives the resolved dominant occluder render node (or nullptr). The caller can
+     *        cache it and re-measure later via @ref render_coverage_of_brush WITHOUT re-running the octree query
+     *        (GetObjectsInBox, ~110 us) -- the node is stable for a given collider, so this removes the octree
+     *        from the per-frame re-measure path. nullptr on no measurement or a fault.
+     * @param out_head Optional; receives the HEAD band's silhouette fill (0..1) of the dominant occluder, or -1
+     *        if unmeasurable, for the head-visible collision gate.
      */
-    [[nodiscard]] float render_coverage_at(const Vector3 &hit_point, const Vector3 &pivot, const Vector3 &to_camera);
+    [[nodiscard]] float render_coverage_at(const Vector3 &hit_point, const Vector3 &pivot, const Vector3 &to_camera,
+                                           void **out_node = nullptr, float *out_head = nullptr);
 
     /**
      * @brief Fraction (0..1) of the character the SPECIFIC render brush @p node occludes from @p camera.
@@ -78,8 +92,11 @@ namespace TPVCamera
      * @param node The IRenderNode (CBrush) the hit belongs to.
      * @param pivot Camera arm start (inside the player), world space.
      * @param camera The DESIRED camera position the coverage is measured from (pivot + to_camera).
+     * @param out_head Optional; receives the HEAD band's silhouette fill (0..1), or -1 if unmeasurable, for the
+     *        head-visible collision gate.
      */
-    [[nodiscard]] float render_coverage_of_brush(void *node, const Vector3 &pivot, const Vector3 &camera) noexcept;
+    [[nodiscard]] float render_coverage_of_brush(void *node, const Vector3 &pivot, const Vector3 &camera,
+                                                 float *out_head = nullptr) noexcept;
 
     /**
      * @brief Best-effort identity (.cgf name + world AABB extents) of the brush at a physics camera-collision hit.
