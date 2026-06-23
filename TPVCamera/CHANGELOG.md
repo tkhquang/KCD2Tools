@@ -2,7 +2,7 @@
 
 All notable changes to the TPVCamera mod will be documented in this file.
 
-## [1.3.0] - [Title for next release]
+## [1.3.0] - Smart Collision and Look Tuning
 
 - The ASI loader is no longer bundled: install Ultimate ASI Loader yourself once (direct download links are in the readme and on the mod page), which keeps the download lean and always up to date
 - Free-look look sensitivity can now be set separately for horizontal and vertical, for both mouse and gamepad, and either axis can be inverted

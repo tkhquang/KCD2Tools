@@ -581,6 +581,15 @@ namespace Constants
     // CEntity world transform member (relative to the CEntity* base): Matrix34, translation in column 3.
     constexpr ptrdiff_t OFFSET_ENTITY_WORLD_MATRIX_MEMBER = 0x58;
 
+    // CEntity::GetWorldBounds -- fork vtable SLOT 34. void(this /*rcx*/, AABB* out /*rdx; 6 floats
+    // min.xyz,max.xyz*/). It reads the render-proxy aggregate LOCAL aabb (unioned over the posed render
+    // slots, dirty-bit recomputed) and transforms it by the entity world matrix, so the returned WORLD
+    // AABB tracks the live pose (crouch / lying / mount / cart shrink and re-anchor it). Used by the
+    // camera-collision coverage samplers to measure the REAL player extent instead of a fixed synthetic
+    // box. NOTE the off-by-one vs the header: the engine header lists GetWorldBounds as slot 33, but in
+    // this fork slot 33 is GetWorldTM (quat->matrix) and slot 34 is GetWorldBounds. Verified live (1.5.5).
+    constexpr ptrdiff_t CENTITY_VTABLE_GETWORLDBOUNDS_OFFSET = 34 * 8;
+
     // Fields inside the CView object that the third-person camera reads.
     // SVIEWPARAMS_POSITION_OFFSET is the eye-frame world position (untouched, used as the
     // offset anchor so a second same-frame frustum rebuild cannot double-offset).

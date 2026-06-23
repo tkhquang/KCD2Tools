@@ -43,6 +43,25 @@ namespace TPVCamera
     };
 
     /**
+     * @brief Live player world AABB, published once per engaged frame for the camera-collision coverage
+     *        samplers so coverage measures the REAL posed player extent (crouch / lying / mount and the
+     *        actual on-screen position) instead of a fixed synthetic body box around the pivot.
+     * @details Sourced from CEntity::GetWorldBounds (constants.hpp CENTITY_VTABLE_GETWORLDBOUNDS_OFFSET).
+     *          RENDER-THREAD ONLY: the producer (the frustum-builder detour) and every consumer (the
+     *          coverage functions it calls synchronously -- physics_raycast character_occluded_fraction and
+     *          render_occlusion make_coverage_projection) run on the render thread within one detour
+     *          invocation, so no synchronization is needed and the members are plain. @ref valid is false
+     *          when the player / AABB could not be resolved or failed the sanity screen, and the samplers
+     *          then fall back to the synthetic box (so a layout drift never breaks collision).
+     */
+    struct PlayerScreenBounds
+    {
+        float min_x{0.0f}, min_y{0.0f}, min_z{0.0f};
+        float max_x{0.0f}, max_y{0.0f}, max_z{0.0f};
+        bool valid{false};
+    };
+
+    /**
      * @brief State for the third-person camera built on the frustum-builder offset.
      * @details The camera renders a third-person view by rewriting the game view camera's matrix
      *          at the frustum builder, before the cull planes are computed, instead of activating
@@ -255,6 +274,9 @@ namespace TPVCamera
     [[nodiscard]] ModuleInfo &module_info() noexcept;
     /** @brief Returns the overlay-presence state set by the UI overlay hooks. */
     [[nodiscard]] OverlayState &overlay_state() noexcept;
+
+    /** @brief Returns the live player world AABB published for the camera-collision coverage samplers. */
+    [[nodiscard]] PlayerScreenBounds &player_screen_bounds() noexcept;
     /** @brief Returns the third-person camera state. */
     [[nodiscard]] CameraState &camera_state() noexcept;
 

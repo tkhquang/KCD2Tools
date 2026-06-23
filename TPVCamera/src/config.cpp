@@ -93,13 +93,15 @@ namespace TPVCamera
         // is the master switch for the coverage gate and the lateral probe (render occlusion is independent); OFF
         // reverts to plain nearest-solid collision.
         DMK::Config::register_atomic<bool>("Collision", "UseCoverageCollision", "Use Coverage Collision",
-                                           s.use_coverage_collision, false);
+                                           s.use_coverage_collision, true);
         DMK::Config::register_atomic<bool>("Collision", "UseSphereCollision", "Use Sphere Collision",
                                            s.use_sphere_collision, true);
         DMK::Config::register_atomic<float>("Collision", "CollisionRadius", "Collision Radius", s.collision_radius,
                                             0.15f);
         DMK::Config::register_atomic<float>("Collision", "CoverageThreshold", "Coverage Threshold",
-                                            s.collision_coverage_threshold, 0.8f);
+                                            s.collision_coverage_threshold, 0.5f);
+        DMK::Config::register_atomic<float>("Collision", "HeadVisibleSkip", "Head Visible Skip", s.head_visible_skip,
+                                            0.10f);
         DMK::Config::register_atomic<float>("Collision", "CameraProbeSize", "Camera Probe Size", s.camera_probe_size,
                                             0.3f);
         DMK::Config::register_atomic<bool>("Collision", "UseRenderOcclusion", "Use Render Occlusion",

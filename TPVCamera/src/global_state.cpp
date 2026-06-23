@@ -25,6 +25,12 @@ namespace TPVCamera
         return state;
     }
 
+    PlayerScreenBounds &player_screen_bounds() noexcept
+    {
+        static PlayerScreenBounds state;
+        return state;
+    }
+
     CameraState &camera_state() noexcept
     {
         static CameraState state;

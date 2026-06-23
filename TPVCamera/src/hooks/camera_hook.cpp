@@ -77,28 +77,52 @@ namespace TPVCamera
         cam.collision_distance += (target - cam.collision_distance) * blend;
     }
 
-    // Fraction (0..1) of the character that the hit collider hides, with a per-collider cache so a solid the
-    // camera moves along is not re-measured every frame. Pipeline: a cheap footprint pre-check (a building-scale
-    // collider always occludes, so collide without rasterizing its often-compound mesh), else the visible-mesh
-    // raster (render_coverage_of_brush / render_coverage_at), else a physics-ray fallback for a compound the
-    // render mesh cannot see through. Returns < 0 (collide) for an unmeasurable solid, 0..1 otherwise. A COLLIDE
-    // verdict (< 0 or >= cov_thresh) is cached and reused FREELY on later frames: a wall / shed stays solid as the
-    // camera slides along it, colliding is the safe direction, and re-running the octree + raster every frame is
-    // the dominant moving cost in dense scenes. A SKIP verdict (a thin prop the body is visible past) is reused
-    // only within proximity of the cached hit, so a prop's low coverage never leaks across a big shared collider
-    // onto a bare wall (which would clip) and a moving camera re-measures it. Single render-thread caller, so the
-    // static cache is race-free.
+    // Fraction (0..1) of the character that the hit collider hides, with a per-collider cache. Pipeline: a cheap
+    // footprint pre-check (a building-scale collider always occludes, so collide without rasterizing its often-
+    // compound mesh), else the visible-mesh raster (render_coverage_of_brush / render_coverage_at), else a
+    // physics-ray fallback for a compound the render mesh cannot see through. Returns < 0 (collide) for an
+    // unmeasurable solid, 0..1 otherwise.
+    //
+    // Caching rule: an UNMEASURABLE solid (cov < 0: a building / HLOD / pure-physics proxy) is solid from every
+    // angle, so its COLLIDE verdict is reused FREELY -- this also keeps the expensive octree path off the hot
+    // path as the camera slides along a wall. A MEASURED coverage (cov >= 0, whether it covers or not) is
+    // CAMERA-ANGLE dependent: a collider with a localized feature -- a POLE WITH A WIDE HEAD -- covers the body
+    // only from angles where the head aligns with the player on screen, so it is reused only while BOTH the hit
+    // point AND the camera are near where it was measured, and re-measured once the camera moves enough to change
+    // the projection. (A free per-collider reuse of a measured COLLIDE was the bug behind a clamp STICKING after
+    // the head swept off the body: looking at the head latched cov=1 for the whole pole, so moving back below it
+    // kept colliding on the thin pole.) Single render-thread caller, so the static cache is race-free.
     static float measure_collider_coverage(uintptr_t collider, const Vector3 &hit_point, const Vector3 &pivot,
-                                           const Vector3 &desired_cam, const Vector3 &to_camera, float cov_thresh)
+                                           const Vector3 &desired_cam, const Vector3 &to_camera, float *out_head_cov)
     {
         constexpr int k_cov_cache = 8;
-        constexpr float k_cov_reuse_dist2 = 0.5f * 0.5f;
+        constexpr float k_cov_reuse_dist2 = 0.5f * 0.5f;     // re-measure once the hit point moves this far
+        constexpr float k_cov_cam_reuse_dist2 = 0.3f * 0.3f; // ... or the camera moves this far (angle changed)
+        // Low-pass strength for the per-collider HEAD fill (head-visible gate). The raw head coverage flickers
+        // 0..1 as the camera orbits past a near occluder's edge (a window), which flipped the gate and bounced
+        // the clamp between the near occluder and the wall behind it (janky). Smoothing across re-measures
+        // debounces that flicker while still tracking a genuine, sustained head-visibility change.
+        constexpr float k_head_smooth = 0.34f;
         static uintptr_t s_cov_col[k_cov_cache] = {};
         static float s_cov_val[k_cov_cache] = {};
         static float s_cov_hx[k_cov_cache] = {};
         static float s_cov_hy[k_cov_cache] = {};
         static float s_cov_hz[k_cov_cache] = {};
+        static float s_cov_cx[k_cov_cache] = {}; // camera position at measurement (coverage is angle-dependent)
+        static float s_cov_cy[k_cov_cache] = {};
+        static float s_cov_cz[k_cov_cache] = {};
+        // Octree-resolved render node for this collider (the dominant occluder brush). Cached so an angle
+        // re-measure re-rasters it directly via render_coverage_of_brush (cheap) instead of re-querying the
+        // octree (GetObjectsInBox ~110 us, ~75x a single ray and the dominant per-frame collision cost). The
+        // node is stable for a collider, so this is exact, not an approximation; nullptr = none resolved.
+        static void *s_cov_node[k_cov_cache] = {};
+        // HEAD-band fill of this collider (for the head-visible gate); -1 = n/a.
+        static float s_cov_head[k_cov_cache] = {};
 
+        if (out_head_cov != nullptr)
+        {
+            *out_head_cov = -1.0f;
+        }
         int slot = -1, free_slot = -1;
         for (int k = 0; k < k_cov_cache; ++k)
         {
@@ -115,42 +139,90 @@ namespace TPVCamera
         if (slot >= 0)
         {
             const float cached = s_cov_val[slot];
-            if (cached < 0.0f || cached >= cov_thresh)
+            if (cached < 0.0f)
             {
-                return cached; // cached COLLIDE verdict: reuse freely (solid stays solid as the camera moves)
+                // unmeasurable solid (building / HLOD / pure-physics): solid from every angle, reuse freely
+                if (out_head_cov != nullptr)
+                {
+                    *out_head_cov = s_cov_head[slot]; // -1 -> head-visible gate does not apply (block)
+                }
+                return cached;
             }
+            // Measured coverage (covers OR skip) is camera-angle dependent: reuse only while the hit point AND
+            // the camera are near where it was measured, else re-measure (so a clamp does not stick after a
+            // pole's head sweeps off the body, nor a skip after it sweeps on).
             const float dx = hit_point.x - s_cov_hx[slot], dy = hit_point.y - s_cov_hy[slot],
                         dz = hit_point.z - s_cov_hz[slot];
-            if (dx * dx + dy * dy + dz * dz < k_cov_reuse_dist2)
+            const float cdx = desired_cam.x - s_cov_cx[slot], cdy = desired_cam.y - s_cov_cy[slot],
+                        cdz = desired_cam.z - s_cov_cz[slot];
+            if (dx * dx + dy * dy + dz * dz < k_cov_reuse_dist2 &&
+                cdx * cdx + cdy * cdy + cdz * cdz < k_cov_cam_reuse_dist2)
             {
-                return cached; // cached SKIP verdict: reuse only near the cached hit (no leak across a collider)
+                if (out_head_cov != nullptr)
+                {
+                    *out_head_cov = s_cov_head[slot];
+                }
+                return cached;
             }
         }
 
-        const float footprint = collider_horizontal_footprint(collider);
-        const bool building_scale = footprint > Constants::COLLIDER_WALL_FOOTPRINT_MIN;
-        void *node = reinterpret_cast<void *>(static_brush_render_node(collider));
-        float cov = building_scale ? -1.0f : render_coverage_of_brush(node, pivot, desired_cam);
-        if (cov < 0.0f && !building_scale)
+        float cov = -1.0f;
+        float head = -1.0f; // HEAD-band fill from whichever path measures cov; -1 = unmeasurable (gate won't apply)
+        void *resolved_node = nullptr;
+        // Fast re-measure: if the hit is still near the cached hit (only the camera ANGLE changed -- the
+        // pole-head-sweep case) and this collider already resolved a render node, RE-RASTER that node directly.
+        // No octree query. The octree (render_coverage_at) only runs below when the hit moved to new geometry,
+        // the node was never resolved, or the cached node is now invalid (render_coverage_of_brush returns < 0).
+        if (slot >= 0 && s_cov_node[slot] != nullptr)
         {
-            // Foreign-null collider (merged / proxy: a columbarium, a tent guy-stick, an ENTITY / HLOD-baked
-            // post). Measure the visible brush at the hit -- a thin DIAGONAL stick has a huge axis-aligned bbox
-            // but a sliver mesh, so only the raster coverage can tell it is thin (the bbox footprint cannot).
-            cov = render_coverage_at(hit_point, pivot, to_camera);
-            if (cov < 0.0f && footprint >= 0.0f && footprint < Constants::COLLIDER_POST_FOOTPRINT_MAX)
+            const float ndx = hit_point.x - s_cov_hx[slot], ndy = hit_point.y - s_cov_hy[slot],
+                        ndz = hit_point.z - s_cov_hz[slot];
+            if (ndx * ndx + ndy * ndy + ndz * ndz < k_cov_reuse_dist2)
             {
-                cov = 0.0f; // unmeasurable thin post -> body visible past it -> skip
+                cov = render_coverage_of_brush(s_cov_node[slot], pivot, desired_cam, &head);
+                if (cov >= 0.0f)
+                {
+                    resolved_node = s_cov_node[slot];
+                }
             }
-            else if (cov < 0.0f)
+        }
+        if (cov < 0.0f)
+        {
+            const float footprint = collider_horizontal_footprint(collider);
+            const bool building_scale = footprint > Constants::COLLIDER_WALL_FOOTPRINT_MIN;
+            void *node = reinterpret_cast<void *>(static_brush_render_node(collider));
+            cov = building_scale ? -1.0f : render_coverage_of_brush(node, pivot, desired_cam, &head);
+            if (cov >= 0.0f)
             {
-                // A COMPOUND structure the render mesh cannot raster (rmesh null), neither a tiny post nor a
-                // building: an OPEN wooden frame (body visible THROUGH the beams) vs a SOLID compound (a shed).
-                // The PHYSICS ray occlusion tells them apart: open -> low -> skip; solid -> high -> collide.
-                cov = character_occluded_fraction(desired_cam, pivot, Constants::RWI_OBJTYPES_CAMERA,
-                                                  Constants::RWI_FLAGS_STOP_AT_SOLID);
+                resolved_node = node;
+            }
+            else if (!building_scale)
+            {
+                // Foreign-null collider (merged / proxy: a columbarium, a tent guy-stick, an ENTITY / HLOD-baked
+                // post). Measure the visible brush at the hit -- a thin DIAGONAL stick has a huge axis-aligned
+                // bbox but a sliver mesh, so only the raster coverage can tell it is thin (the bbox footprint
+                // cannot). render_coverage_at runs the octree query and hands back the dominant brush node, which
+                // is cached so subsequent angle re-measures take the fast path above.
+                cov = render_coverage_at(hit_point, pivot, to_camera, &resolved_node, &head);
+                if (cov < 0.0f && footprint >= 0.0f && footprint < Constants::COLLIDER_POST_FOOTPRINT_MAX)
+                {
+                    cov = 0.0f;  // unmeasurable thin post -> body visible past it -> skip
+                    head = 0.0f; // a thin post leaves the head fully visible
+                }
+                else if (cov < 0.0f)
+                {
+                    // A COMPOUND structure the render mesh cannot raster (rmesh null), neither a tiny post nor a
+                    // building: an OPEN wooden frame (body visible THROUGH the beams) vs a SOLID compound (a shed).
+                    // The PHYSICS ray occlusion tells them apart: open -> low -> skip; solid -> high -> collide.
+                    cov = character_occluded_fraction(desired_cam, pivot, Constants::RWI_OBJTYPES_CAMERA,
+                                                      Constants::RWI_FLAGS_STOP_AT_SOLID, &head);
+                }
             }
         }
 
+        // Same-collider re-measure? (slot still matches before any free/evict reassignment below.) Only then is
+        // the previous head fill for the SAME collider, so only then may we low-pass into it.
+        const bool same_collider_remeasure = (slot >= 0);
         if (collider != 0)
         {
             if (slot < 0)
@@ -162,6 +234,26 @@ namespace TPVCamera
             s_cov_hx[slot] = hit_point.x;
             s_cov_hy[slot] = hit_point.y;
             s_cov_hz[slot] = hit_point.z;
+            s_cov_cx[slot] = desired_cam.x;
+            s_cov_cy[slot] = desired_cam.y;
+            s_cov_cz[slot] = desired_cam.z;
+            s_cov_node[slot] = resolved_node;
+            // Debounce the head fill: low-pass into the cached value on a same-collider re-measure; set it
+            // directly on a first measure / slot reuse, or when unmeasurable (-1, no smoothing). The gate then
+            // reads the smoothed value, so a flickering head edge no longer bounces the clamp.
+            if (head < 0.0f || !same_collider_remeasure || s_cov_head[slot] < 0.0f)
+            {
+                s_cov_head[slot] = head;
+            }
+            else
+            {
+                s_cov_head[slot] += (head - s_cov_head[slot]) * k_head_smooth;
+            }
+            head = s_cov_head[slot];
+        }
+        if (out_head_cov != nullptr)
+        {
+            *out_head_cov = head;
         }
         return cov;
     }
@@ -432,6 +524,78 @@ namespace TPVCamera
         game_world_ready().store(true, std::memory_order_relaxed);
 
         return *player;
+    }
+
+    /**
+     * @brief Publishes the live player world AABB into the shared per-frame cache the camera-collision
+     *        coverage samplers read, so coverage measures the REAL posed player instead of a fixed
+     *        synthetic box (see PlayerScreenBounds, global_state.hpp).
+     * @details Resolves the player CEntity from @p c_player and calls CEntity::GetWorldBounds (fork vtable
+     *          slot 34). Render-thread only (called from the frustum detour just before the coverage walk).
+     *          The engine call is SEH-guarded and the result sanity-screened (finite, human-scale extents);
+     *          on any failure the cache is marked invalid so the samplers fall back to the synthetic box.
+     */
+    static void publish_player_world_bounds(uintptr_t c_player)
+    {
+        PlayerScreenBounds &pb = player_screen_bounds();
+        pb.valid = false;
+        if (c_player == 0)
+        {
+            return;
+        }
+        const auto ent = DMK::Memory::seh_read<uintptr_t>(
+            c_player + static_cast<uintptr_t>(runtime_offsets().c_player_entity.load(std::memory_order_relaxed)));
+        if (!ent || !DMK::Memory::plausible_userspace_ptr(*ent))
+        {
+            return;
+        }
+        const uintptr_t entity = *ent;
+        const ModuleInfo &mod = module_info();
+        float aabb[6] = {};
+        bool ok = false;
+        __try
+        {
+            void **vt = *reinterpret_cast<void ***>(entity);
+            const auto vtaddr = reinterpret_cast<uintptr_t>(vt);
+            if (mod.base != 0 && vtaddr >= mod.base && vtaddr < mod.base + mod.size)
+            {
+                // void(this /*rcx*/, AABB* out /*rdx; 6 floats min.xyz,max.xyz*/)
+                using GetWorldBoundsFn = void(__fastcall *)(uintptr_t, float *);
+                const auto get_world_bounds =
+                    reinterpret_cast<GetWorldBoundsFn>(vt[Constants::CENTITY_VTABLE_GETWORLDBOUNDS_OFFSET / 8]);
+                get_world_bounds(entity, aabb);
+                ok = true;
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            ok = false;
+        }
+        if (!ok)
+        {
+            return;
+        }
+        // Sanity-screen before trusting it: a wrong slot / layout drift returns garbage, and a degenerate
+        // or oversized box would mis-measure coverage. Require finite, positive, human-scale extents.
+        for (const float f : aabb)
+        {
+            if (!std::isfinite(f))
+            {
+                return;
+            }
+        }
+        const float dx = aabb[3] - aabb[0], dy = aabb[4] - aabb[1], dz = aabb[5] - aabb[2];
+        if (dx <= 1e-3f || dy <= 1e-3f || dz <= 1e-3f || dx > 6.0f || dy > 6.0f || dz > 6.0f)
+        {
+            return; // degenerate or not a character-sized box
+        }
+        pb.min_x = aabb[0];
+        pb.min_y = aabb[1];
+        pb.min_z = aabb[2];
+        pb.max_x = aabb[3];
+        pb.max_y = aabb[4];
+        pb.max_z = aabb[5];
+        pb.valid = true;
     }
 
     /**
@@ -989,7 +1153,7 @@ namespace TPVCamera
         // the angle eases to the residual orbit, so the camera POSITION is identical across the turn (no pop).
         // forward is this frame's rig basis forward (the stable-aim or smoothed basis when active, else the raw
         // eye look); char_forward_yaw below derives from the SAME forward that positions the camera, so the two
-        // cancel and the held world yaw is independent of which source forward tracks. cam.orbit_yaw stays the raw input
+        // cancel and the held world yaw is independent of the active forward source. cam.orbit_yaw stays the raw input
         // accumulator throughout; the rendered angle is baked back only on release/stop so free-look resumes
         // from exactly where the moving camera was. orbit_moving implies the key was held, so this also runs on
         // the release frame (orbit_moving is cleared at end of frame), giving the bake-on-release below.
@@ -1551,6 +1715,12 @@ namespace TPVCamera
                 // gate off, terrain, or an unmeasurable solid). Logged so an oscillating thin prop whose coverage
                 // straddles CoverageThreshold frame to frame is visible without live debugging.
                 float blocked_cov = -9.0f;
+                // Occluders the coverage walk decided to see past (thin props / head-visible). Declared in the
+                // outer scope so the swept-sphere sweep below can skip the SAME near geometry and reach the wall
+                // the fan blocks on -- otherwise the sphere stops at a skipped window, disagrees with the fan's
+                // farther block, is rejected, and the camera falls back to the jumpy discrete fan distance.
+                uintptr_t cov_skip[Constants::COVERAGE_SKIP_MAX];
+                int n_cov_skip = 0;
                 if (cov_thresh <= 0.0f)
                 {
                     fan = ray_fan_sweep(pivot, to_camera, collision_radius, Constants::RWI_OBJTYPES_CAMERA,
@@ -1559,8 +1729,13 @@ namespace TPVCamera
                 else
                 {
                     const Vector3 desired_cam = pivot + to_camera;
-                    uintptr_t cov_skip[Constants::COVERAGE_SKIP_MAX];
-                    int n_cov_skip = 0;
+                    // Refresh the live player world AABB the coverage samplers read so coverage is measured
+                    // against the REAL posed player (crouch / lying / mount / actual screen position), not a
+                    // fixed synthetic box. Invalid -> the samplers fall back to the synthetic box.
+                    publish_player_world_bounds(c_player);
+                    // Head-priority gate: if >= this fraction of the HEAD is still visible, skip the occluder
+                    // (no clamp) regardless of total coverage. 0 = off. Only suppresses a clamp, never forces one.
+                    const float head_visible_skip = cfg.head_visible_skip.load(std::memory_order_relaxed);
                     for (int iter = 0; iter < Constants::COVERAGE_SKIP_MAX; ++iter)
                     {
                         const std::optional<RayHit> h =
@@ -1578,12 +1753,19 @@ namespace TPVCamera
                         // How much of the character does this collider hide? Cheap footprint pre-check, then
                         // visible-mesh raster, then a physics-ray fallback -- cached per collider so a solid the
                         // camera slides along is not re-rasterized every frame. See measure_collider_coverage.
+                        float head_cov = -1.0f;
                         const float cov = measure_collider_coverage(h->m_collider, h->m_point, pivot, desired_cam,
-                                                                    to_camera, cov_thresh);
-                        if (cov < 0.0f || cov >= cov_thresh)
+                                                                    to_camera, &head_cov);
+                        // Head-priority gate: when enough of the head is VISIBLE, suppress the block on this
+                        // occluder (look behind it) even if total coverage would clamp. Only a MEASURED head
+                        // (head_cov >= 0) gates -- an unmeasurable solid (head_cov < 0) still blocks below.
+                        const bool head_visible_enough = head_visible_skip > 0.0f && head_cov >= 0.0f &&
+                                                         (1.0f - head_cov) >= head_visible_skip;
+                        const bool cov_blocks = (cov < 0.0f || cov >= cov_thresh) && !head_visible_enough;
+                        if (cov_blocks)
                         {
                             // Unmeasurable solid (building / pure-physics) OR a readable mesh that hides enough of
-                            // the body -> this is the collision.
+                            // the body (and the head is not visible enough to override) -> this is the collision.
                             blocked_cov = cov;
                             fan = h;
                             break;
@@ -1593,7 +1775,7 @@ namespace TPVCamera
                             fan = h; // cannot skip an unknown collider -> stop here (safe: collide)
                             break;
                         }
-                        cov_skip[n_cov_skip++] = h->m_collider; // a thin prop the body is visible past -> look behind
+                        cov_skip[n_cov_skip++] = h->m_collider; // visible past it (thin / head shows) -> look behind
                     }
                 }
                 std::optional<RayHit> hit = fan;
@@ -1605,18 +1787,41 @@ namespace TPVCamera
                 // result smoother, never closer.
                 if (cfg.use_sphere_collision.load(std::memory_order_relaxed))
                 {
-                    // Resolve the player's / actors' physics entities (body / skeleton / worn shield / NPCs in the
-                    // way) to SKIP on the sphere sweep, so it reports a clean WORLD distance instead of slamming
-                    // into the player at point-blank. The PWI struct entTypes field is DEAD in this fork (0 reads
-                    // in the impl sub_1808182A0), so pSkipEnts is the ONLY way to exclude the player; the
-                    // probe casts in REVERSE (camera -> pivot) because the pivot is inside the body and a forward
-                    // ray exits through a back-face and misses it. Buffer capped at 4 (SPWIParams nSkipEnts clamps).
+                    // The swept sphere can't type-filter in this fork (the SPWIParams entTypes field is dead -- the
+                    // sweep effectively queries ent_all), so it slams into the player's BODY and back-worn GEAR
+                    // (sword / crossbow / shield) at the pivot end. Spending the 4-entry skip cap on the player
+                    // leaves none for the occluders the walk saw past, so in clutter the sphere stops at a prop,
+                    // disagrees with the fan's farther wall block, and is rejected -> the jumpy fan. Instead, START
+                    // the sweep PAST the body + gear (offset along the arm), so the player is behind the origin and
+                    // never hit, freeing the whole skip list for the walk's occluders. The sphere then reaches the
+                    // wall the fan blocks on and smooths it even indoors. A collision inside the offset is still
+                    // caught by the FAN (the authority), so this never clips -- it only adds smooth frames. (Also
+                    // drops the per-frame 10-ray player-skip probe.)
+                    const Vector3 sph_dir = to_camera / desired_distance; // desired_distance > 1e-3 (checked above)
+                    const float sph_clear = std::min(0.55f, desired_distance * 0.5f); // start past the body + worn gear
+                    const Vector3 sph_origin = pivot + sph_dir * sph_clear;
                     uintptr_t skip_ents[4];
-                    const int n_skip = resolve_player_physics_skip(pivot, to_camera, collision_radius,
-                                                                   0x11F /*ent_all*/, Constants::RWI_OBJTYPES_CAMERA,
-                                                                   Constants::RWI_FLAGS_STOP_AT_SOLID, skip_ents, 4);
-                    const std::optional<RayHit> sphere = sphere_world_sweep(
-                        pivot, collision_radius, to_camera, Constants::RWI_OBJTYPES_CAMERA, skip_ents, n_skip);
+                    int n_skip = 0;
+                    for (int i = 0; i < n_cov_skip && n_skip < 4; ++i) // the occluders the walk saw past
+                    {
+                        const uintptr_t c = cov_skip[i];
+                        bool dup = (c == 0);
+                        for (int k = 0; k < n_skip && !dup; ++k)
+                        {
+                            dup = (skip_ents[k] == c);
+                        }
+                        if (!dup)
+                        {
+                            skip_ents[n_skip++] = c;
+                        }
+                    }
+                    std::optional<RayHit> sphere =
+                        sphere_world_sweep(sph_origin, collision_radius, to_camera - sph_dir * sph_clear,
+                                           Constants::RWI_OBJTYPES_CAMERA, skip_ents, n_skip);
+                    if (sphere.has_value())
+                    {
+                        sphere->m_distance += sph_clear; // re-base from the offset origin back to the pivot
+                    }
                     // The FAN (0x101 = static|terrain) is the AUTHORITY for collision: a plain objtypes arg that
                     // provably excludes ALL actors (player body/gear, NPCs = ent_living/independent/rigid). The PWI
                     // sphere only SMOOTHS the fan's world hit -- it queries ent_all (the struct entTypes is dead in
@@ -1705,10 +1910,12 @@ namespace TPVCamera
                 // Render-only overhead roofs (tent / awning canopy cloth) carry no ray-collidable physics, so the
                 // fan and sphere glide through them and the cloth buries the camera on a look-down. Query the
                 // render octree along the same arm and clamp below an overhead brush. The radius is the standoff
-                // (already applied by render_occlusion_limit), so no skin is subtracted. Gated by UseRenderOcclusion
-                // alone -- it is INDEPENDENT of UseCoverageCollision (it handles non-physical cloth, not a coverage
-                // heuristic). A thin overhead beam is rejected inside render_occlusion_limit by the sightline
-                // vertex-count test, not a body-coverage gate (an overhead canopy covers ~0 of the body silhouette).
+                // (already applied by render_occlusion_limit), so no skin is subtracted. Enabling/disabling render
+                // occlusion is still UseRenderOcclusion alone; but when UseCoverageCollision is ON it also passes
+                // the coverage threshold, so render occlusion drops thin props the body is plainly visible past (a
+                // pole / bird feeder) instead of clamping on them -- keyed on the REAL projected player extent, so
+                // a view-burying canopy (high coverage on a look-down) still clamps. With cov_thresh = 0 (coverage
+                // collision off) the prior behavior holds: only the sightline vertex-count test filters brushes.
                 if (cfg.use_render_occlusion.load(std::memory_order_relaxed))
                 {
                     // Query the render octree only out to where the physics collision already stops the camera: a
@@ -1716,7 +1923,11 @@ namespace TPVCamera
                     // close) the query box shrinks to the short arm and skips the room's geometry, the bulk of the
                     // render-occlusion cost in dense scenes.
                     const Vector3 occ_arm = ray_dir * blocking_distance;
-                    const std::optional<float> roof = render_occlusion_limit(pivot, occ_arm, collision_radius);
+                    // Pass the coverage threshold so render occlusion can drop thin props the body is visible
+                    // past (UseRenderOcclusion respecting CoverageCollision). cov_thresh is 0 when coverage
+                    // collision is off, which leaves render occlusion on its sightline-only test (prior behavior).
+                    const std::optional<float> roof =
+                        render_occlusion_limit(pivot, occ_arm, collision_radius, cov_thresh);
                     if (roof.has_value() && roof.value() < blocking_distance)
                     {
                         blocking_distance = std::max(0.0f, roof.value());
