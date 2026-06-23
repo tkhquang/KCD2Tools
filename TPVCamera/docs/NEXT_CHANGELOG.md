@@ -8,3 +8,4 @@
 - Collision now follows your real size and pose, so crouching, lying down, or riding no longer over-tightens the view
 - Made the camera smoother when moving through tight or cluttered areas
 - The cloth-roof clamp now also ignores thin props you can clearly see past
+- Updated the bundled modding toolkit (DetourModKit) to v3.9.0 for extra stability and future compatibility

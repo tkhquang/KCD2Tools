@@ -2,22 +2,18 @@
  * @file config.cpp
  * @brief Configuration registration for the TPV Camera mod using DMK::Config.
  *
- * Registration order is: log level, LiveSettings atomics, then the zoom
- * hold-binding key lists. Press bindings (view toggle, force FPV/TPV, orbit) are
- * registered separately (see tpv_camera.cpp). DMK::Config::load() / log_all() are
- * driven by the mod lifecycle once every item is registered.
+ * Registration order is: log level, then the LiveSettings atomics and the state-policy
+ * strings. The input bindings (press and hold) are registered separately by the mod
+ * lifecycle in tpv_camera.cpp, since their callbacks act on the camera state.
+ * DMK::Config::load() / log_all() are driven by the lifecycle once every item is registered.
  */
 
 #include "config.hpp"
 #include "constants.hpp"
 #include "game_state.hpp"
-#include "hooks/camera_hook.hpp"
 #include "presets/camera_preset.hpp"
 
 #include <DetourModKit.hpp>
-
-// Process-wide init-only configuration, shared with the hooks.
-Config g_config;
 
 namespace TPVCamera
 {
@@ -74,20 +70,6 @@ namespace TPVCamera
         // Free-look orbit (non-preset, always-live; the orbit feel values are per-preset).
         DMK::Config::register_atomic<bool>("Orbit", "FreezeOrbitOnCursor", "Freeze Orbit On Cursor",
                                            s.freeze_orbit_on_cursor, true);
-        // OrbitHoldKey is the MOMENTARY free-look key (freelook): hold it to engage the orbit and release
-        // it to return to the precise camera-aim view, separate from the press-to-toggle OrbitToggleKey.
-        // It is a hold binding, so (like the zoom keys) the list is stashed in g_config for
-        // register_hold_bindings to consume once, and the setter re-binds the live hold in place on a
-        // hot-reload via update_binding_combos (see ZoomInKey for why that second call is needed). Empty
-        // by default so it is opt-in and never collides with a game key or the toggle binding.
-        DMK::Config::register_key_combo(
-            "Orbit", "OrbitHoldKey", "Orbit Hold Key",
-            [](const DMK::Config::KeyComboList &c)
-            {
-                g_config.orbit_hold_keys = c;
-                DMK::InputManager::get_instance().update_binding_combos(k_orbit_hold_binding, c);
-            },
-            "");
 
         // Camera collision (non-preset, always-live; Enable/Skin/ReturnSpeed are per-preset). UseCoverageCollision
         // is the master switch for the coverage gate and the lateral probe (render occlusion is independent); OFF
@@ -140,30 +122,6 @@ namespace TPVCamera
         // switching presets on a state edge.
         DMK::Config::register_atomic<float>("Presets", "PresetBlendSpeed", "Preset Blend Speed", s.preset_blend_speed,
                                             8.0f);
-
-        // Zoom hold keys (the detour polls them by name each frame to drive the follow distance).
-        // Defaults: LShift+PageUp / LShift+PageDown on keyboard, or hold LB + D-pad up/down on a controller.
-        // The setters keep g_config in sync (read once by register_hold_bindings to create the InputManager
-        // hold binding) AND call update_binding_combos so a hot-reload of the keys re-binds the live hold in
-        // place. Without that second call the reload would update g_config but leave the hold binding on its
-        // startup keys, so editing ZoomIn/OutKey would not apply until restart (unlike the press combos, whose
-        // register_press_combo already re-binds on reload).
-        DMK::Config::register_key_combo(
-            "Camera", "ZoomInKey", "Zoom In Key",
-            [](const DMK::Config::KeyComboList &c)
-            {
-                g_config.zoom_in_keys = c;
-                DMK::InputManager::get_instance().update_binding_combos(k_zoom_in_binding, c);
-            },
-            "LShift+PageUp,Gamepad_LB+Gamepad_DpadUp");
-        DMK::Config::register_key_combo(
-            "Camera", "ZoomOutKey", "Zoom Out Key",
-            [](const DMK::Config::KeyComboList &c)
-            {
-                g_config.zoom_out_keys = c;
-                DMK::InputManager::get_instance().update_binding_combos(k_zoom_out_binding, c);
-            },
-            "LShift+PageDown,Gamepad_LB+Gamepad_DpadDown");
     }
 
 } // namespace TPVCamera

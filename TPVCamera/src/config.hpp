@@ -2,42 +2,18 @@
  * @file config.hpp
  * @brief Configuration model and registration for the TPV Camera mod.
  *
- * @details Settings split by access pattern:
- *          - LiveSettings holds every value read on a hot path (the per-frame
- *            detour) or across threads. They are std::atomic so INI hot-reload
- *            (which runs the setters on the ConfigWatcher thread) never races the
- *            game thread. They are bound with DMK::Config::register_atomic.
- *          - Config holds the key-combo lists for the hold bindings (zoom and the
- *            momentary free-look orbit), parsed by DMK::Config and consumed once when
- *            the InputManager hold bindings are registered. The press bindings (view
- *            toggle, force FPV/TPV, orbit toggle) are registered separately via
- *            DMK::Config::register_press_combo.
+ * @details LiveSettings holds every value read on a hot path (the per-frame detour) or across
+ *          threads. They are std::atomic so INI hot-reload (which runs the setters on the
+ *          ConfigWatcher thread) never races the game thread, and are bound with
+ *          DMK::Config::register_atomic. The input bindings (press and hold, including their key
+ *          combos) are registered separately in tpv_camera.cpp via DMK::Config::register_press_combo /
+ *          register_hold_combo.
  */
 #ifndef TPVCAMERA_CONFIG_HPP
 #define TPVCAMERA_CONFIG_HPP
 
-#include <DetourModKit.hpp>
-
 #include <atomic>
 #include <cstdint>
-
-/**
- * @struct Config
- * @brief Key lists for the hold bindings (zoom and momentary free-look orbit).
- */
-struct Config
-{
-    // Hold-binding key lists (parsed by DMK::Config; consumed once when the InputManager hold
-    // bindings are registered). The detour queries the zoom lists by name per frame to drive the
-    // follow distance; the orbit-hold list instead drives a momentary free-look engage on the press
-    // edge and a release on the release edge (register_hold is edge-triggered), so it is never polled.
-    DMK::Config::KeyComboList zoom_in_keys;
-    DMK::Config::KeyComboList zoom_out_keys;
-    DMK::Config::KeyComboList orbit_hold_keys;
-};
-
-/** @brief Process-wide init-only configuration (defined in config.cpp). */
-extern Config g_config;
 
 namespace TPVCamera
 {
@@ -217,10 +193,9 @@ namespace TPVCamera
     [[nodiscard]] LiveSettings &settings() noexcept;
 
     /**
-     * @brief Registers every non-press configuration item with DMK::Config.
-     * @details Registers the log level, the LiveSettings atomics, and the zoom
-     *          hold-binding key lists. Must be called before DMK::Config::load().
-     *          Press bindings are registered separately.
+     * @brief Registers the log level, the LiveSettings atomics, and the state-policy strings with DMK::Config.
+     * @details Must be called before DMK::Config::load(). The input bindings (press and hold) are
+     *          registered separately in tpv_camera.cpp.
      */
     void register_config_items();
 
