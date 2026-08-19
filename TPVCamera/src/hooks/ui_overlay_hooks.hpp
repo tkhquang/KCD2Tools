@@ -10,15 +10,20 @@
 #ifndef TPVCAMERA_UI_OVERLAY_HOOKS_HPP
 #define TPVCAMERA_UI_OVERLAY_HOOKS_HPP
 
+#include <DetourModKit/error.hpp>
+#include <DetourModKit/hook.hpp>
+
 namespace TPVCamera
 {
 
     /**
      * @brief Installs the UI overlay show/hide hooks from the pre-resolved anchors.
-     * @return true if both hooks installed, false otherwise.
+     * @param hooks The mod's hook stack; each installed handle is pushed in install order.
+     * @return An empty value when both hooks installed, or the library Error that refused the install
+     *         (ErrorCode::NoMatch when an anchor cascade did not resolve).
      * @note Call after resolve_all_anchors(); the hook targets are read via anchor_address().
      */
-    [[nodiscard]] bool initialize_ui_overlay_hooks();
+    [[nodiscard]] DMK::Result<void> initialize_ui_overlay_hooks(DMK::hook::HookStack &hooks);
 
 } // namespace TPVCamera
 

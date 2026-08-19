@@ -55,7 +55,7 @@ namespace TPVCamera
      * @details The physics camera-collision proxy can be far broader than the thin visible mesh (e.g. a
      *          clothes-line / tripod frame whose collision hull is a big box), so the physics ray-based coverage
      *          (@ref character_occluded_fraction) over-reports. This looks up the COMPACT, visible CBrush whose
-     *          world AABB contains @p hit_point and returns its triangle-rasterized character coverage -- the
+     *          world AABB contains @p hit_point and returns its triangle-rasterized character coverage - the
      *          true visible occlusion. Returns < 0 ("no opinion, use physics") when no compact, non-HLOD,
      *          readable-mesh brush yields a measurement: nothing compact contains the point (terrain / pure-
      *          physics body), the only candidates are HLOD proxies, or the hit brush is a compound building whose
@@ -95,8 +95,8 @@ namespace TPVCamera
      * @param out_sz Size of @p out_name in bytes.
      * @param ext Receives the brush world AABB extents (x, y, z) in meters, or zeros.
      * @param out_kind Receives which path identified the brush (nullptr to ignore): 0 none, 1 foreign-linked node,
-     *        2 prop (a brush whose MESH is at the hit -- the coverage gate would measure it), 3 solid (a brush that
-     *        only CONTAINS the hit, mesh not within COVERAGE_HIT_EPS -- the gate skips it), 4 hlod proxy. With the
+     *        2 prop (a brush whose MESH is at the hit - the coverage gate would measure it), 3 solid (a brush that
+     *        only CONTAINS the hit, mesh not within COVERAGE_HIT_EPS - the gate skips it), 4 hlod proxy. With the
      *        logged cov this pinpoints why a thin prop reads as an unmeasurable solid (kind=prop + cov<0 => the mesh
      *        read failed; kind=solid + cov<0 => the prop's mesh was not found near the physics hit point).
      */

@@ -7,6 +7,8 @@
 #include "aob_resolver.hpp"
 #include "constants.hpp"
 
+#include "dmk_aliases.hpp"
+
 #include <DetourModKit.hpp>
 
 #include <windows.h>
@@ -40,11 +42,11 @@ namespace TPVCamera
     static uintptr_t s_p3d_engine_slot_addr = 0;
     // Mapped range of the scanned game module, captured once. A freshly read p3DEngine must carry a vtable
     // inside this image or it is rejected before the indirect call (branch-only contains() test, no syscall).
-    static DMK::Memory::ModuleRange s_game_module{};
+    static DMK::Region s_game_module{};
 
     bool initialize_render_occlusion(uintptr_t module_base, size_t module_size, uintptr_t g_env)
     {
-        DMK::Logger &logger = DMK::Logger::get_instance();
+        DMK::Logger &logger = DMK::log();
 
         const uintptr_t fn = anchor_address(AnchorId::GetObjectsInBox);
         if (fn == 0)
@@ -56,12 +58,12 @@ namespace TPVCamera
 
         s_get_objects_in_box = reinterpret_cast<GetObjectsInBoxFn>(fn);
         s_p3d_engine_slot_addr = g_env + Constants::GENV_3DENGINE_OFFSET;
-        s_game_module = {module_base, module_base + module_size};
+        s_game_module = Region{Address{module_base}, module_size};
         s_mod_lo = module_base;
         s_mod_hi = module_base + module_size;
 
-        logger.info("RenderOcclusion: GetObjectsInBox at {}, p3DEngine slot at {}", DMK::Format::format_address(fn),
-                    DMK::Format::format_address(s_p3d_engine_slot_addr));
+        logger.info("RenderOcclusion: GetObjectsInBox at {}, p3DEngine slot at {}", DMK::format::format_address(fn),
+                    DMK::format::format_address(s_p3d_engine_slot_addr));
         return true;
     }
 
@@ -74,7 +76,7 @@ namespace TPVCamera
      * @details node is the CBrush. Walks node -> IStatObj -> IRenderMesh, reads the engine-decoded float3 CPU
      *          position cache (GetPosPtr / FSL_READ), transforms each vertex to world by the brush Matrix34, and
      *          returns the SMALLEST distance d along the pivot->camera arm at which a cloth vertex comes within
-     *          RENDER_OCCLUSION_COLUMN_RADIUS of the sightline -- i.e. the camera at distance d would just begin to
+     *          RENDER_OCCLUSION_COLUMN_RADIUS of the sightline - i.e. the camera at distance d would just begin to
      *          see cloth between itself and the character. This is an analytic ray-march of the view ray against
      *          the cloth point cloud (each vertex stands in for the surface; the tube radius covers the gaps
      *          between vertices and doubles as the standoff). It naturally ignores the tent's vertical walls /
@@ -160,7 +162,7 @@ namespace TPVCamera
             {
                 // The cloth is within colr of the pivot itself: the CHARACTER is in / touching it (e.g. standing
                 // amid hanging laundry), not occluded by it from a distance. No camera pull-in helps, so it is
-                // NOT an occluder -- otherwise the camera would collapse onto the character (the blockDist=0 bug).
+                // NOT an occluder - otherwise the camera would collapse onto the character (the blockDist=0 bug).
                 continue;
             }
             ++hits;
@@ -180,7 +182,7 @@ namespace TPVCamera
      *          actual SURFACE (triangles, via the index buffer) makes this independent of vertex density and,
      *          crucially, gap-aware: a contiguous cloth canopy fills every column it spans (high -> clamp), while
      *          a scattered prop the character stands amid (a clothes line, hanging laundry) leaves the
-     *          character's own columns EMPTY where the gap is (low -> ignore) -- which a min/max-extent test
+     *          character's own columns EMPTY where the gap is (low -> ignore) - which a min/max-extent test
      *          reads as fully covered. Distance-aware (a near object spans more columns). The brush is
      *          non-physical so physics rays cannot measure it; this uses its own render mesh. POD body.
      */
@@ -193,7 +195,7 @@ namespace TPVCamera
 
     // Probe that the whole uint16 index buffer is actually mapped. Some static meshes return a NON-null but FREED
     // index pointer (the mesh streams its index stream out while keeping positions, so GetIndexPtr != null yet
-    // reading it faults) -- live: bird_feeder.cgf flickers this frame to frame, faulting the triangle raster on
+    // reading it faults) - live: bird_feeder.cgf flickers this frame to frame, faulting the triangle raster on
     // some frames and rasterizing fine on others (the in/out camera jump). Page mapping is 4 KB-granular, so one
     // touch per 4 KB page (2048 uint16) plus the last index proves every page the buffer spans is readable; if all
     // succeed the raster below cannot fault. POD-only body so its __try carries no object unwinding. False on a
@@ -550,7 +552,7 @@ namespace TPVCamera
         const uintptr_t self_vt = *reinterpret_cast<uintptr_t *>(sb);
         const uintptr_t begin = *reinterpret_cast<uintptr_t *>(sb + Constants::STATOBJ_SUBOBJ_BEGIN_OFFSET);
         const uintptr_t end = *reinterpret_cast<uintptr_t *>(sb + Constants::STATOBJ_SUBOBJ_END_OFFSET);
-        if (begin == 0 || end <= begin || !DMK::Memory::plausible_userspace_ptr(begin) ||
+        if (begin == 0 || end <= begin || !mem::is_plausible_ptr(Address{begin}) ||
             (end - begin) % Constants::SUBOBJ_STRIDE != 0)
         {
             return false; // not a populated sub-object vector (drift / simple statobj streamed out)
@@ -569,7 +571,7 @@ namespace TPVCamera
             }
             auto *so = reinterpret_cast<std::byte *>(begin + static_cast<uintptr_t>(i) * Constants::SUBOBJ_STRIDE);
             void *child = *reinterpret_cast<void **>(so + Constants::SUBOBJ_PSTATOBJ_OFFSET);
-            if (child == nullptr || !DMK::Memory::plausible_userspace_ptr(reinterpret_cast<uintptr_t>(child)) ||
+            if (child == nullptr || !mem::is_plausible_ptr(Address{reinterpret_cast<uintptr_t>(child)}) ||
                 *reinterpret_cast<uintptr_t *>(child) != self_vt)
             {
                 continue; // not a sibling CStatObj -> skip (also rejects garbage at a non-compound vector offset)
@@ -697,7 +699,7 @@ namespace TPVCamera
                 }
                 // Skip nodes that are in the octree but NOT drawn: GetObjectsInBox is a spatial query, not a
                 // visibility query, so it returns ERF_HIDDEN placements (e.g. conditional laundry / rag
-                // decorations). Invisible geometry cannot occlude the view -- colliding with it would pull the
+                // decorations). Invisible geometry cannot occlude the view - colliding with it would pull the
                 // camera onto something the player never sees.
                 const unsigned int rnd_flags =
                     *reinterpret_cast<unsigned int *>(reinterpret_cast<std::byte *>(node) +
@@ -735,7 +737,7 @@ namespace TPVCamera
                 }
                 // NOTE: no brush-level "overhead" (min_z > pivot.z) gate here. Tent / awning brushes whose
                 // posts and skirts reach the ground have a bbox bottom BELOW the pivot, yet their canopy cloth
-                // hangs above it -- a coarse bbox test wrongly rejected exactly the brushes that cover the view.
+                // hangs above it - a coarse bbox test wrongly rejected exactly the brushes that cover the view.
                 // Occlusion is decided per VERTEX in cloth_sightline_block_distance (only cloth on the
                 // pivot->camera sightline counts), so the ground under the character is naturally excluded.
 
@@ -848,12 +850,12 @@ namespace TPVCamera
         return false;
     }
 
-    // True if the .cgf path is a WALL-OPENING element -- a window or hole frame embedded in a building wall
+    // True if the .cgf path is a WALL-OPENING element - a window or hole frame embedded in a building wall
     // (e.g. objects/intermediates/elements/window_timber_a.cgf, hole_timber_*). These are thin decorations ON a
     // solid wall, NOT standalone props: from inside, the body stays visible THROUGH the opening so the frame
     // reads as low coverage, which would let the camera pass through the wall into the building. Excluding them
     // leaves the solid (compound) wall behind as the occluder, so the camera collides and stays out. DOORWAYS are
-    // deliberately NOT matched -- a door is passable, the camera must follow the body through it.
+    // deliberately NOT matched - a door is passable, the camera must follow the body through it.
     static bool name_is_wall_opening(const char *s) noexcept
     {
         if (s == nullptr)
@@ -952,7 +954,7 @@ namespace TPVCamera
         const uintptr_t self_vt = *reinterpret_cast<uintptr_t *>(sb);
         const uintptr_t begin = *reinterpret_cast<uintptr_t *>(sb + Constants::STATOBJ_SUBOBJ_BEGIN_OFFSET);
         const uintptr_t end = *reinterpret_cast<uintptr_t *>(sb + Constants::STATOBJ_SUBOBJ_END_OFFSET);
-        if (begin == 0 || end <= begin || !DMK::Memory::plausible_userspace_ptr(begin) ||
+        if (begin == 0 || end <= begin || !mem::is_plausible_ptr(Address{begin}) ||
             (end - begin) % Constants::SUBOBJ_STRIDE != 0)
         {
             return false;
@@ -966,7 +968,7 @@ namespace TPVCamera
         {
             auto *so = reinterpret_cast<std::byte *>(begin + static_cast<uintptr_t>(i) * Constants::SUBOBJ_STRIDE);
             void *child = *reinterpret_cast<void **>(so + Constants::SUBOBJ_PSTATOBJ_OFFSET);
-            if (child == nullptr || !DMK::Memory::plausible_userspace_ptr(reinterpret_cast<uintptr_t>(child)) ||
+            if (child == nullptr || !mem::is_plausible_ptr(Address{reinterpret_cast<uintptr_t>(child)}) ||
                 *reinterpret_cast<uintptr_t *>(child) != self_vt)
             {
                 continue;
@@ -987,7 +989,7 @@ namespace TPVCamera
     // the brush's triangle coverage, or k_coverage_unavailable (< 0) when it is not a measurable thin prop (hidden /
     // non-brush / large / does-not-contain-the-hit / HLOD / wall-opening / mesh-not-at-the-hit) OR when reading it
     // FAULTS. The per-node guard is the point: an unreadable NEIGHBOUR brush (a freed mesh that faults mid-raster)
-    // must not abort the whole query and discard a VALID measurement of another brush -- the bug where the
+    // must not abort the whole query and discard a VALID measurement of another brush - the bug where the
     // bird_feeder rasterized to 0.45 but a later node at the same hit faulted, so the query returned -1 and the
     // walk treated the feeder as a solid. POD-only body (no lambdas), so the __try carries no object unwinding.
     static float measure_node_at_hit(void *node, Vector3 hit, Vector3 pivot, Vector3 camera, uintptr_t mod_lo,
@@ -1102,6 +1104,7 @@ namespace TPVCamera
 
     std::optional<float> render_occlusion_limit(const Vector3 &pivot, const Vector3 &to_camera, float radius)
     {
+        DMK_PROFILE_SCOPE("render.occlusion_limit");
         if (s_get_objects_in_box == nullptr || s_p3d_engine_slot_addr == 0)
         {
             return std::nullopt;
@@ -1116,7 +1119,7 @@ namespace TPVCamera
 
         // Overhead-only fast reject: a render-only roof can occlude the sightline only when the camera sits ABOVE
         // the pivot (a look-down raises it over the character). When the camera is at or below the pivot the
-        // pivot->camera sightline only descends, so no overhead brush can lie on it -- skip the whole octree query.
+        // pivot->camera sightline only descends, so no overhead brush can lie on it - skip the whole octree query.
         // This removes the render-octree cost from level and upward looks, which is most of normal play.
         if (camera.z <= pivot.z)
         {
@@ -1138,12 +1141,12 @@ namespace TPVCamera
             RoofHitInfo hit{};
 
             // Resolve p3DEngine fresh and screen it (set once the 3DEngine exists; must carry an in-image vtable).
-            const auto p3d = DMK::Memory::seh_read<uintptr_t>(s_p3d_engine_slot_addr);
-            if (p3d && *p3d != 0 && DMK::Memory::plausible_userspace_ptr(*p3d))
+            const auto p3d = mem::read<uintptr_t>(Address{s_p3d_engine_slot_addr});
+            if (p3d && *p3d != 0 && mem::is_plausible_ptr(Address{*p3d}))
             {
-                const auto vtable = DMK::Memory::seh_read<uintptr_t>(*p3d);
-                if (vtable && DMK::Memory::plausible_userspace_ptr(*vtable) &&
-                    DMK::Memory::contains(s_game_module, *vtable))
+                const auto vtable = mem::read<uintptr_t>(Address{*p3d});
+                if (vtable && mem::is_plausible_ptr(Address{*vtable}) &&
+                    s_game_module.contains(Address{*vtable}))
                 {
                     // Query box bounding the pivot->camera arm, expanded by the standoff.
                     const float margin = radius + 0.05f;
@@ -1170,11 +1173,12 @@ namespace TPVCamera
             {
                 char name[256];
                 copy_brush_name(hit.statobj, name, static_cast<int>(sizeof(name)));
-                DMK::Logger::get_instance().trace(
+                (void)DMK::log().try_log(
+                    DMK::LogLevel::Trace,
                     "RenderOcclusion HIT: node={} statobj={} name=\"{}\" blockDist={} of {} blockZ={} "
                     "sizeXYZ=({}, {}, {}) bboxMin=({}, {}, {}) cam=({}, {}, {}) pivot=({}, {}, {})",
-                    DMK::Format::format_address(reinterpret_cast<uintptr_t>(hit.node)),
-                    DMK::Format::format_address(reinterpret_cast<uintptr_t>(hit.statobj)), name, block, desired,
+                    DMK::format::format_address(reinterpret_cast<uintptr_t>(hit.node)),
+                    DMK::format::format_address(reinterpret_cast<uintptr_t>(hit.statobj)), name, block, desired,
                     hit.roof_z, hit.max_x - hit.min_x, hit.max_y - hit.min_y, hit.max_z - hit.min_z, hit.min_x,
                     hit.min_y, hit.min_z, camera.x, camera.y, camera.z, pivot.x, pivot.y, pivot.z);
             }
@@ -1190,18 +1194,19 @@ namespace TPVCamera
 
     float render_coverage_at(const Vector3 &hit_point, const Vector3 &pivot, const Vector3 &to_camera)
     {
+        DMK_PROFILE_SCOPE("render.coverage_at");
         if (s_get_objects_in_box == nullptr || s_p3d_engine_slot_addr == 0)
         {
             return -1.0f;
         }
-        const auto p3d = DMK::Memory::seh_read<uintptr_t>(s_p3d_engine_slot_addr);
-        if (!p3d || *p3d == 0 || !DMK::Memory::plausible_userspace_ptr(*p3d))
+        const auto p3d = mem::read<uintptr_t>(Address{s_p3d_engine_slot_addr});
+        if (!p3d || *p3d == 0 || !mem::is_plausible_ptr(Address{*p3d}))
         {
             return -1.0f;
         }
-        const auto vtable = DMK::Memory::seh_read<uintptr_t>(*p3d);
-        if (!vtable || !DMK::Memory::plausible_userspace_ptr(*vtable) ||
-            !DMK::Memory::contains(s_game_module, *vtable))
+        const auto vtable = mem::read<uintptr_t>(Address{*p3d});
+        if (!vtable || !mem::is_plausible_ptr(Address{*vtable}) ||
+            !s_game_module.contains(Address{*vtable}))
         {
             return -1.0f;
         }
@@ -1283,13 +1288,13 @@ namespace TPVCamera
         {
             *out_kind = 0; // 0 none, 1 foreign-linked, 2 prop (mesh at hit), 3 solid (bbox only), 4 hlod
         }
-        // Resolve the render-engine pointer up front (seh_read is itself guarded); keeping its std::optional local
+        // Resolve the render-engine pointer up front (mem::read is itself guarded); keeping its Result local
         // out of the structured-exception frame below avoids object-unwinding (MSVC C2712) in the __try.
         void *p3d_ptr = nullptr;
         if (s_get_objects_in_box != nullptr && s_p3d_engine_slot_addr != 0)
         {
-            const auto p3d = DMK::Memory::seh_read<uintptr_t>(s_p3d_engine_slot_addr);
-            if (p3d && *p3d != 0 && DMK::Memory::plausible_userspace_ptr(*p3d))
+            const auto p3d = mem::read<uintptr_t>(Address{s_p3d_engine_slot_addr});
+            if (p3d && *p3d != 0 && mem::is_plausible_ptr(Address{*p3d}))
             {
                 p3d_ptr = reinterpret_cast<void *>(*p3d);
             }
@@ -1329,7 +1334,7 @@ namespace TPVCamera
                 }
             }
             // Case 2: foreign-null collider (merged / proxy, e.g. the bird_feeder / a monument). Identify the compact
-            // brush at the hit point -- the same selection the coverage gate measures: prefer the brush whose mesh is
+            // brush at the hit point - the same selection the coverage gate measures: prefer the brush whose mesh is
             // AT the hit, else the first brush that contains it (a compound building, reported so it is identifiable).
             if (p3d_ptr == nullptr)
             {

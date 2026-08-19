@@ -6,6 +6,8 @@
 #include "hooks/player_onaction_hook.hpp"
 #include "aob_resolver.hpp"
 
+#include "../dmk_aliases.hpp"
+
 #include <DetourModKit.hpp>
 
 #include <windows.h>
@@ -13,7 +15,6 @@
 #include <array>
 #include <atomic>
 #include <cmath>
-#include <exception>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -36,7 +37,7 @@ namespace TPVCamera
     // directions. The orbit move-detection keys on the LARGEST of these: it engages for forward, strafe and
     // reverse alike, but only "is the player moving" matters here, not the direction. (While moving, the body is
     // pinned to the camera heading; KCD2 moves the player relative to the body rotation, so that pin is what
-    // makes WASD camera-relative -- the direction the player pushes is the engine's to apply, not ours.) KEYBOARD
+    // makes WASD camera-relative - the direction the player pushes is the engine's to apply, not ours.) KEYBOARD
     // uses the digital actions (value ~1 held, 0 released); GAMEPAD uses the signed analog left-stick axes (value
     // -1..1, magnitude taken). The input is nonzero the instant a key is pressed and stays nonzero while a key is
     // held against a wall, which body-position speed cannot do. The probe below logs each distinct action name
@@ -99,7 +100,7 @@ namespace TPVCamera
      */
     static void maybe_log_action_name(const char *name)
     {
-        DMK::Logger &logger = DMK::Logger::get_instance();
+        DMK::Logger &logger = DMK::log();
         if (!logger.is_enabled(DMK::LogLevel::Trace))
         {
             return;
@@ -115,7 +116,7 @@ namespace TPVCamera
             }
         }
         seen.emplace_back(name);
-        logger.trace("PlayerOnAction: action '{}' seen", name);
+        (void)logger.try_log(DMK::LogLevel::Trace, "PlayerOnAction: action '{}' seen", name);
     }
 
     /**
@@ -124,12 +125,12 @@ namespace TPVCamera
      */
     static void capture_movement_input(const char **action_name, float value)
     {
-        if (action_name == nullptr || !DMK::Memory::plausible_userspace_ptr(reinterpret_cast<uintptr_t>(action_name)))
+        if (action_name == nullptr || !mem::is_plausible_ptr(Address{reinterpret_cast<uintptr_t>(action_name)}))
         {
             return;
         }
         const char *name = *action_name;
-        if (name == nullptr || !DMK::Memory::plausible_userspace_ptr(reinterpret_cast<uintptr_t>(name)))
+        if (name == nullptr || !mem::is_plausible_ptr(Address{reinterpret_cast<uintptr_t>(name)}))
         {
             return;
         }
@@ -159,7 +160,7 @@ namespace TPVCamera
      *        is swallowed and the original still runs.
      */
     static uintptr_t __fastcall detour_action_dispatch(uintptr_t self, const char **action_name,
-                                                       unsigned int activation, float value)
+                                                       unsigned int activation, float value) noexcept
     {
         __try
         {
@@ -171,43 +172,37 @@ namespace TPVCamera
         return s_action_dispatch_original ? s_action_dispatch_original(self, action_name, activation, value) : 0;
     }
 
-    bool initialize_player_onaction_hook()
+    DMK::Result<void> initialize_player_onaction_hook(DMK::hook::HookStack &hooks)
     {
-        DMK::Logger &logger = DMK::Logger::get_instance();
-        try
+        const uintptr_t dispatch_addr = anchor_address(AnchorId::ActionDispatch);
+        if (dispatch_addr == 0)
         {
-            const uintptr_t dispatch_addr = anchor_address(AnchorId::ActionDispatch);
-            if (dispatch_addr == 0)
-            {
-                logger.warning(
-                    "PlayerOnAction: action dispatcher cascade unresolved; orbit move-detection uses body speed");
-                return false;
-            }
-
-            DMK::HookManager &hook_manager = DMK::HookManager::get_instance();
-            // Fail closed if the resolved entry leads with a call/breakpoint byte (a sibling mod's E9 jump
-            // hook does not trip this, so layering still works).
-            const DMK::HookConfig hook_config{.prologue_policy = DMK::InlineProloguePolicy::Fail};
-            auto result = hook_manager.create_inline_hook(
-                "PlayerOnActionDispatch", dispatch_addr, reinterpret_cast<void *>(detour_action_dispatch),
-                reinterpret_cast<void **>(&s_action_dispatch_original), hook_config);
-
-            if (!result.has_value())
-            {
-                logger.warning(
-                    "PlayerOnAction: action dispatcher hook failed ({}); orbit move-detection uses body speed",
-                    DMK::Hook::error_to_string(result.error()));
-                return false;
-            }
-
-            s_available.store(true, std::memory_order_relaxed);
-            return true;
+            return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "player_onaction_hook/anchor"});
         }
-        catch (const std::exception &e)
+
+        // The default hook::Options prologue policy is Fail: refuse the install when the resolved entry
+        // leads with a call or breakpoint byte. A sibling mod's E9 jump hook decodes as a relocatable
+        // branch rather than a refusal, so layering still works. The caller decides what a refusal means
+        // (this hook is best-effort: a miss falls back to body speed), so the typed Error is returned rather
+        // than logged and flattened to false here.
+        auto result = DMK::hook::inline_at(
+            DMK::hook::InlineRequest{.name = "PlayerOnActionDispatch", .target = DMK::Address{dispatch_addr}},
+            detour_action_dispatch);
+        if (!result.has_value())
         {
-            logger.error("PlayerOnAction: initialization failed: {}", e.what());
-            return false;
+            return std::unexpected(result.error());
         }
+
+        // Publish the trampoline BEFORE enable() arms the patch.
+        s_action_dispatch_original = result->original<ActionDispatchFunc>();
+        if (auto armed = result->enable(); !armed.has_value())
+        {
+            return std::unexpected(armed.error());
+        }
+        hooks.push(std::move(*result));
+
+        s_available.store(true, std::memory_order_relaxed);
+        return {};
     }
 
 } // namespace TPVCamera

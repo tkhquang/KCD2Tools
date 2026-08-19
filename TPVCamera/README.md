@@ -157,6 +157,8 @@ See the full list at the [Supported Input Names](https://github.com/tkhquang/Det
 - Check `KCD2_TPVCamera.log` (next to the game executable) for details.
 - If the camera looks wrong in a specific scene (cutscene, photo mode), toggle it off with
   `F3` and back on when normal play resumes.
+- If a game update breaks a feature, the log names which signature stopped resolving
+  (`Anchor <name> unresolved`).
 
 ## Known Limitations
 
@@ -265,10 +267,14 @@ are configured at the repository-root `.vscode/`, not under `TPVCamera/`.
   free-look orbit, collision, and aim convergence
 - `src/hooks/ui_menu_hooks.cpp`, `src/hooks/ui_overlay_hooks.cpp` - menu/overlay detection used
   to suppress the offset under UI
+- `src/hooks/hook_registry.cpp` - owns every installed hook handle, so teardown restores the patched
+  game code from one place
 - `src/game_interface.cpp` - resolves the engine's global-context pointer (the camera-manager
   root) that the game-state detection walks
 - `src/game_state.cpp` - derives the game state (combat, dialogue, minigame, mount, menu, overlay)
   that drives the `[StateBehavior]` auto-switching, reading the active engine camera class by RTTI
+- `src/rtti_types.cpp` - resolves each engine class vtable once at startup so those per-frame class
+  tests are a pointer compare
 - `src/physics_raycast.cpp` - the engine ray helper used by collision and aim convergence
 - `src/presets/`, `src/overlay/` - the per-state camera preset model and JSON store, plus the
   self-hosted ImGui overlay (preset editor) that previews edits on the live camera
@@ -285,9 +291,12 @@ which logs a per-anchor status and an overall quality summary. The cascade is sc
 overlay can never be mistaken for the game's. At least one candidate per cascade anchors past the
 function prologue, so resolution still succeeds when another mod has inline-hooked the entry; the
 hooks themselves install with a fail-closed prologue check so a mis-resolved entry is refused rather
-than patched blindly. The `gEnv` global resolves through the same cascade (with a static RVA
-fallback), and engine object types are matched by their MSVC RTTI names rather than hardcoded vtable
-addresses. The cascade signatures follow DetourModKit's
+than patched blindly. The sweep is confined to the image's executable pages, so a signature that must
+land on an instruction cannot match an identical run of bytes in read-only data. The `gEnv` global
+resolves through the same cascade (with a static RVA fallback), and engine object types are matched by
+their MSVC RTTI names rather than hardcoded vtable addresses. Each class vtable is resolved once at
+startup and cached with its image generation, so the per-frame "which camera class is active" tests
+cost a pointer compare instead of an RTTI walk. The cascade signatures follow DetourModKit's
 [AOB signature guide](https://github.com/tkhquang/DetourModKit/blob/main/docs/misc/aob-signatures.md).
 
 The AOB cascades resolve struct base addresses; a self-healing offset layer (`src/offset_heal.hpp`)

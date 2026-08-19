@@ -4,10 +4,10 @@
  *
  * @details LiveSettings holds every value read on a hot path (the per-frame detour) or across
  *          threads. They are std::atomic so INI hot-reload (which runs the setters on the
- *          ConfigWatcher thread) never races the game thread, and are bound with
- *          DMK::Config::register_atomic. The input bindings (press and hold, including their key
- *          combos) are registered separately in tpv_camera.cpp via DMK::Config::register_press_combo /
- *          register_hold_combo.
+ *          library's auto-reload watcher thread) never races the game thread, and are bound with
+ *          DMK::config::bind / bind_parsed through a section binder. The input bindings (press and
+ *          hold, including their key combos) are registered separately in tpv_camera.cpp via
+ *          DMK::config::press_combo / hold_combo.
  */
 #ifndef TPVCAMERA_CONFIG_HPP
 #define TPVCAMERA_CONFIG_HPP
@@ -25,7 +25,7 @@ namespace TPVCamera
     struct LiveSettings
     {
         // Preset-owned framing: the render-thread preset resolver OVERWRITES these every active frame
-        // (apply_to_live) and the frustum-builder detour reads them. They are NOT INI settings -- they
+        // (apply_to_live) and the frustum-builder detour reads them. They are NOT INI settings - they
         // live in the presets JSON and are tuned in the overlay. The factory default VALUES live in
         // CameraPreset (camera_preset.hpp, equal to the built-in DEFAULT preset); settings() seeds these
         // atomics from a default-constructed CameraPreset at startup, so they are only value-initialized
@@ -130,8 +130,8 @@ namespace TPVCamera
         std::atomic<uint32_t> suppress_tpv_mask{0};
 
         // Preset manager (see presets/). Presets are always active: the render-thread resolver selects a
-        // camera preset by the debounced game state (DEFAULT/COMBAT/AIMING/MOUNT/STEALTH) -- or by the
-        // overlay's editing pin -- and eases the preset-owned framing fields above toward it each active
+        // camera preset by the debounced game state (DEFAULT/COMBAT/AIMING/MOUNT/STEALTH) - or by the
+        // overlay's editing pin - and eases the preset-owned framing fields above toward it each active
         // frame, OVERWRITING them. Those framing fields are NOT INI settings; they live in the presets
         // JSON (created automatically from embedded defaults, see presets/default_presets.hpp) and are
         // tuned in the overlay. preset_blend_speed is the exponential ease rate (higher = snappier;
@@ -176,8 +176,8 @@ namespace TPVCamera
     [[nodiscard]] LiveSettings &settings() noexcept;
 
     /**
-     * @brief Registers the log level, the LiveSettings atomics, and the state-policy strings with DMK::Config.
-     * @details Must be called before DMK::Config::load(). The input bindings (press and hold) are
+     * @brief Registers the log level, the LiveSettings atomics, and the state-policy masks with DMK::config.
+     * @details Must be called before DMK::config::load(). The input bindings (press and hold) are
      *          registered separately in tpv_camera.cpp.
      */
     void register_config_items();

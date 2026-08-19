@@ -72,7 +72,7 @@ namespace TPVCamera::Presets
         a.follow_yaw = lerp(a.follow_yaw, t.follow_yaw);
         a.follow_pitch = lerp(a.follow_pitch, t.follow_pitch);
         // FOV is SNAPPED to the active target here; the actual smooth ease lives in the camera hook, which blends
-        // the rendered FOV toward the target -- or toward the live GAME FOV when the target is 0 (off) -- so
+        // the rendered FOV toward the target - or toward the live GAME FOV when the target is 0 (off) - so
         // turning a preset's FOV on/off glides through the game FOV instead of snapping across the 0 boundary.
         a.fov = t.fov;
 

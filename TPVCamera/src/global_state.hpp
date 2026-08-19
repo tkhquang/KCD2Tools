@@ -63,7 +63,7 @@ namespace TPVCamera
 
         // First-person <-> third-person view-switch blend (render thread only): 0 = first person,
         // 1 = third person. Eased toward the target view each frame (smoothstepped at use) so toggling
-        // and UI suppression slide instead of snapping. NOT reset on suppression -- it eases back to 0.
+        // and UI suppression slide instead of snapping. NOT reset on suppression - it eases back to 0.
         float view_blend{0.0f};
 
         // Camera-collision carry-over, touched only by the frustum-builder detour (the game's
@@ -88,12 +88,12 @@ namespace TPVCamera
         // Camera-relative movement (render thread only). orbit_moving latches whether the character was
         // moving last frame so the heading is aligned to the camera ONCE on the idle -> moving edge, not
         // re-aligned every frame. The move signal is the device-agnostic action-input magnitude (the
-        // action dispatcher, via player_onaction_hook), captured the instant a key is pressed -- not
+        // action dispatcher, via player_onaction_hook), captured the instant a key is pressed - not
         // body-position speed, which lags and reads zero against a wall. Reset with the others on suppression.
         bool orbit_moving{false};
         // Camera-relative heading HOLD. A single write to the look-yaw is reverted by the engine, so
         // on the idle -> moving edge the camera-forward heading is captured into orbit_target_yaw and then
-        // HELD -- written to the look every frame while moving (like the pitch leveling, whose per-frame
+        // HELD - written to the look every frame while moving (like the pitch leveling, whose per-frame
         // write sticks). This turns the body to face the camera and keeps it there while you orbit
         // freely; released when movement stops so the player resumes control.
         float orbit_target_yaw{0.0f};
@@ -102,7 +102,7 @@ namespace TPVCamera
         // and the body turns UNDER it: the rig's orbit angle is derived as
         // (orbit_target_yaw + (orbit_yaw - this) - char_forward_yaw), so on the capture frame it equals the
         // pre-move orbit (no snap) and eases to the user's residual orbit as the body rotates to the
-        // heading -- the camera never pops. Render-thread only.
+        // heading - the camera never pops. Render-thread only.
         float orbit_yaw_at_capture_deg{0.0f};
 
         // Free-look orbit. While orbit_active (the orbit key is toggled on), the input
@@ -118,7 +118,7 @@ namespace TPVCamera
         // Gamepad right-stick look DEFLECTION (-1..1), latched by the input hook while orbiting. The mouse
         // posts relative deltas straight into orbit_yaw/orbit_pitch per event; the analog stick instead
         // reports a HELD position, so it is latched here and integrated by rate (with delta_time) in the
-        // render hook -- holding the stick keeps orbiting, frame-rate independent. Cleared to 0 when not
+        // render hook - holding the stick keeps orbiting, frame-rate independent. Cleared to 0 when not
         // orbiting so re-engaging with the stick centred does not jump. Written on the input thread, read
         // (and cleared) on the render thread; relaxed atomics (a one-frame-stale deflection is harmless).
         std::atomic<float> orbit_pad_yaw{0.0f};
@@ -178,8 +178,8 @@ namespace TPVCamera
 
         // Aim-basis low-pass (render thread only). The third-person rig basis quaternion (XYZW), low-passed
         // toward the per-frame target (the look-controller aim quat under StableAimBasis, else the eye quat)
-        // when AimBasisSmoothing is on, so engine-driven view rotation -- which the follow distance amplifies
-        // into a camera-position swing -- is damped. basis_quat_valid is cleared on suppression (and is false
+        // when AimBasisSmoothing is on, so engine-driven view rotation - which the follow distance amplifies
+        // into a camera-position swing - is damped. basis_quat_valid is cleared on suppression (and is false
         // on first engage) so the next engaged frame SNAPS to the current orientation instead of slerping
         // across the first-person gap, matching the orbit / eye-sync / FOV / collision smoothers.
         float basis_quat_x{0.0f};
@@ -193,7 +193,7 @@ namespace TPVCamera
      * @brief Rendered camera pose shared with the camera-space interaction hook.
      * @details The player use-cone (sub_180483740) is anchored on the EYE and never reads the render
      *          camera, so in third person the screen-centre crosshair and the use-target diverge by the
-     *          shoulder offset (worst at close range -- you cannot interact with what the crosshair is
+     *          shoulder offset (worst at close range - you cannot interact with what the crosshair is
      *          on). The frustum-builder detour publishes the final rendered camera position + crosshair
      *          direction here each engaged frame; the interactor eye-copy detour reads it to re-origin the
      *          cone onto the screen centre. A published pose is valid ONLY while the offset is engaged (in
@@ -201,7 +201,7 @@ namespace TPVCamera
      *
      *          The pose is published as a tear-free seqlock snapshot. The producer and consumer run at
      *          different points of the frame (and possibly on different threads), so reading the seven
-     *          fields independently could mix a position from frame N with a direction from frame N+1 --
+     *          fields independently could mix a position from frame N with a direction from frame N+1 -
      *          an incoherent pose, not merely a stale one, which would aim the interaction ray at nothing.
      *          The seqlock makes every read observe one coherent frame or fail closed (no pose). A
      *          one-frame-stale but coherent pose is harmless for use-target selection.
@@ -271,7 +271,7 @@ namespace TPVCamera
     /**
      * @brief One-shot flag, set true once the player (C_Player) first resolves in-world.
      * @details Lets the overlay defer its size-sensitive setup (offscreen surface + DPI font scale)
-     *          until the game is actually in gameplay -- when the window is at its final resolution --
+     *          until the game is actually in gameplay - when the window is at its final resolution -
      *          instead of snapshotting the transient loading-window size. Set by the camera detour
      *          (render thread), read by the overlay thread.
      */

@@ -34,8 +34,11 @@ namespace TPVCamera
         Vector3 m_normal{};
         /// IPhysicalEntity* of the entity hit (ray path only; 0 on the sphere path).
         uintptr_t m_collider{0};
-        /// Non-zero when the hit is the global TERRAIN heightmap (ray_hit.bTerrain); 0 for brushes / 0 on the
-        /// sphere path. The engine's own ground flag -- used to always block the terrain (no under-world clip).
+        /**
+         * @brief Non-zero when the hit is the global TERRAIN heightmap (ray_hit.bTerrain).
+         * @details Zero for a brush, and zero on the sphere path. This is the engine's own ground flag, used
+         *          to always block the terrain so the camera cannot clip under the world.
+         */
         int m_terrain{0};
     };
 
@@ -86,7 +89,7 @@ namespace TPVCamera
 
     /**
      * @brief Resolves the player's / actors' physics entities to skip during camera collision, via the physics
-     *        world (NOT the engine entity/character API -- the KCD2 fork shifted those vtable slots, and the
+     *        world (NOT the engine entity/character API - the KCD2 fork shifted those vtable slots, and the
      *        skeleton physics is not a reachable data offset on C_Player).
      * @details The camera pivot sits INSIDE the player body, so a FORWARD (pivot->camera) ray exits through the
      *          body's back-face and never registers it, so the probe casts its rays in REVERSE: from the camera
@@ -105,8 +108,8 @@ namespace TPVCamera
      * @brief Multi-ray "fan" approximation of a swept sphere, built on RayWorldIntersection.
      * @details Casts the centre ray plus four rays offset perpendicular to the sweep by @p radius (a square
      *          tube of half-width radius) and returns the NEAREST hit across all five. This approximates a
-     *          swept sphere's edge-catching -- so the camera distance does not pump as a single thin ray grazes
-     *          edges -- while keeping the CORRECT object-type filtering: RWI takes @p objtypes as a plain
+     *          swept sphere's edge-catching - so the camera distance does not pump as a single thin ray grazes
+     *          edges - while keeping the CORRECT object-type filtering: RWI takes @p objtypes as a plain
      *          function argument (honoured), unlike PrimitiveWorldIntersection whose fork SPWIParams entTypes
      *          offset is mis-mapped (it queried ent_all and collided with the player's own articulated gear).
      * @param origin Sweep start (the camera pivot), world space.
@@ -153,13 +156,13 @@ namespace TPVCamera
      * @brief Larger horizontal (X / Y) extent of a physics collider's world AABB (m_BBox), in meters.
      * @details The fallback classifier for a foreign-null collider whose render-mesh coverage cannot be measured
      *          (an entity post / HLOD-baked prop). A post is small in BOTH horizontal axes (small footprint); a
-     *          wall is large in at least one (large footprint) even when thin in depth -- so this separates a thin
+     *          wall is large in at least one (large footprint) even when thin in depth - so this separates a thin
      *          POST (the body is visible past it, skip) from a thin WALL (collide), which the minimum-extent metric
      *          cannot. Any owned collider (static brush OR placed entity, foreignType != 0) carries a sane AABB
      *          here; terrain / unowned geom (foreignType == 0, degenerate bbox) returns -1. SEH-guarded.
      * @param collider The RayHit::m_collider of a hit (the IPhysicalEntity pointer).
      * @return max(x-extent, y-extent), or -1 when the collider is null / unowned (terrain, foreignType == 0) /
-     *         the AABB is unreadable or degenerate (the caller treats < 0 as "unknown -- not a post").
+     *         the AABB is unreadable or degenerate (the caller treats < 0 as "unknown - not a post").
      */
     [[nodiscard]] float collider_horizontal_footprint(uintptr_t collider) noexcept;
 

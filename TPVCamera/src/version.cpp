@@ -11,12 +11,12 @@ namespace TPVCamera
     {
         /**
          * @brief Logs detailed version and build info to the logger.
-         * @details Must be called after DMK::Logger::get_instance() is functional.
+         * @details Must be called after DMK::log() is functional.
          *          Formats output lines clearly for better readability in logs.
          */
         void log_version_info()
         {
-            DMK::Logger &logger = DMK::Logger::get_instance();
+            DMK::Logger &logger = DMK::log();
 
             logger.info("{} {}", MOD_NAME, VERSION_TAG);
             logger.info("Author: {}", AUTHOR);

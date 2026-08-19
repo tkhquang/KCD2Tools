@@ -114,6 +114,7 @@ set(COMMON_SOURCES
   src/offset_heal.cpp
   src/physics_raycast.cpp
   src/render_occlusion.cpp
+  src/rtti_types.cpp
   src/tpv_camera.cpp
   src/version.cpp
   src/hooks/camera_hook.cpp
@@ -143,7 +144,7 @@ function(configure_logic_target target)
   # composite; winmm backs timeBeginPeriod (also pinned via #pragma comment).
   target_link_libraries(${target} PRIVATE
     DetourModKit imgui_lib nlohmann_json::nlohmann_json
-    psapi user32 kernel32 d3d11 dxgi gdi32 winmm)
+    user32 kernel32 d3d11 dxgi gdi32 winmm)
   target_compile_options(${target} PRIVATE $<$<CONFIG:Release>:/O2 /Gy /Gw>)
   target_link_options(${target} PRIVATE $<$<CONFIG:Release>:/OPT:REF /OPT:ICF>)
 endfunction()

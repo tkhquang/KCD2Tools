@@ -1,5 +1,4 @@
-## [Title for next release]
+## Update Resilience and Safer Teardown
 
-- New feature
-- Bug fix
-- Improvement
+- Signature scanning is now stricter, so a signature can no longer match the wrong kind of data.
+- Updated the modding toolkit the mod is built on. No settings, presets or hotkeys changed.

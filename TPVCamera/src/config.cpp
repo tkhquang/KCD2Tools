@@ -1,11 +1,13 @@
 /**
  * @file config.cpp
- * @brief Configuration registration for the TPV Camera mod using DMK::Config.
+ * @brief Configuration registration for the TPV Camera mod using DMK::config.
  *
  * Registration order is: log level, then the LiveSettings atomics and the state-policy
- * strings. The input bindings (press and hold) are registered separately by the mod
- * lifecycle in tpv_camera.cpp, since their callbacks act on the camera state.
- * DMK::Config::load() / log_all() are driven by the lifecycle once every item is registered.
+ * masks. Every item is bound through a DMK::config::SectionBinder, so each INI section name is
+ * written once and the keys under it read as a group. The input bindings (press and hold) are
+ * registered separately by the mod lifecycle in tpv_camera.cpp, since their callbacks act on the
+ * camera state. DMK::config::load() / log_all() are driven by the lifecycle once every item is
+ * registered.
  */
 
 #include "config.hpp"
@@ -38,88 +40,80 @@ namespace TPVCamera
 
     void register_config_items()
     {
-        // Log level drives Logger verbosity directly on load() and reload().
-        DMK::Config::register_log_level("Settings", "LogLevel", Constants::DEFAULT_LOG_LEVEL);
-
         LiveSettings &s = settings();
+
+        // One SectionBinder per INI section: the section name is written once and every key under it binds
+        // through the same handle, so a section rename is a one-line change and a key cannot be filed under
+        // the wrong section by a typo in a repeated literal.
+        const DMK::config::SectionBinder settings_section = DMK::config::section("Settings");
+        const DMK::config::SectionBinder advanced = DMK::config::section("Advanced");
+        const DMK::config::SectionBinder camera = DMK::config::section("Camera");
+        const DMK::config::SectionBinder orbit = DMK::config::section("Orbit");
+        const DMK::config::SectionBinder collision = DMK::config::section("Collision");
+        const DMK::config::SectionBinder state_behavior = DMK::config::section("StateBehavior");
+        const DMK::config::SectionBinder presets = DMK::config::section("Presets");
+
+        // Log level drives Logger verbosity directly on load() and reload().
+        settings_section.bind_log_level("LogLevel", Constants::DEFAULT_LOG_LEVEL);
 
         // Start-of-session auto-enable flags, read once during init(). TPV is ON by default (this is a
         // third-person camera, so it engages once gameplay is reached, not in menus/loading); orbit stays off.
-        DMK::Config::register_atomic<bool>("Settings", "AutoEnableTPV", "Auto Enable TPV", s.auto_enable_tpv, true);
-        DMK::Config::register_atomic<bool>("Settings", "AutoEnableOrbit", "Auto Enable Orbit", s.auto_enable_orbit,
-                                           false);
+        settings_section.bind<bool>("AutoEnableTPV", "Auto Enable TPV", s.auto_enable_tpv, true);
+        settings_section.bind<bool>("AutoEnableOrbit", "Auto Enable Orbit", s.auto_enable_orbit, false);
 
         // Advanced: RTTI self-heal search radius (see offset_heal.cpp). Not for normal users.
-        DMK::Config::register_atomic<int>("Advanced", "SelfHealWindow", "Self Heal Window", s.self_heal_window, 0x100);
+        advanced.bind<int>("SelfHealWindow", "Self Heal Window", s.self_heal_window, 0x100);
 
         // Camera framing. The follow distance, offsets, eye height, aim focus, follow yaw/pitch, the orbit
         // tuning, and the per-preset collision values are all OWNED BY PRESETS (in the shipped presets JSON,
-        // applied to the live atomics each frame), so they are NOT INI settings -- tune them in the overlay.
+        // applied to the live atomics each frame), so they are NOT INI settings - tune them in the overlay.
         // Only the non-preset, always-live camera options remain here:
-        DMK::Config::register_atomic<bool>("Camera", "InteractFromCamera", "Interact From Camera",
-                                           s.interact_from_camera, true);
-        DMK::Config::register_atomic<float>("Camera", "ViewTransitionDuration", "View Transition Duration",
-                                            s.view_transition_duration, 0.0f);
+        camera.bind<bool>("InteractFromCamera", "Interact From Camera", s.interact_from_camera, true);
+        camera.bind<float>("ViewTransitionDuration", "View Transition Duration", s.view_transition_duration, 0.0f);
         // Camera stability against engine view-shake amplified by the follow distance (see LiveSettings).
         // StableAimBasis builds the rig basis from the clean look-controller aim quat; AimBasisSmoothing
         // low-passes the basis (0 = off). Both always-live.
-        DMK::Config::register_atomic<bool>("Camera", "StableAimBasis", "Stable Aim Basis", s.stable_aim_basis, true);
-        DMK::Config::register_atomic<float>("Camera", "AimBasisSmoothing", "Aim Basis Smoothing",
-                                            s.aim_basis_smoothing, 0.3f);
+        camera.bind<bool>("StableAimBasis", "Stable Aim Basis", s.stable_aim_basis, true);
+        camera.bind<float>("AimBasisSmoothing", "Aim Basis Smoothing", s.aim_basis_smoothing, 0.3f);
 
         // Free-look orbit (non-preset, always-live; the orbit feel values are per-preset).
-        DMK::Config::register_atomic<bool>("Orbit", "FreezeOrbitOnCursor", "Freeze Orbit On Cursor",
-                                           s.freeze_orbit_on_cursor, true);
+        orbit.bind<bool>("FreezeOrbitOnCursor", "Freeze Orbit On Cursor", s.freeze_orbit_on_cursor, true);
 
         // Camera collision (non-preset, always-live; Enable/Skin/ReturnSpeed are per-preset). UseCoverageCollision
         // is the master switch for the coverage gate and the lateral probe (render occlusion is independent); OFF
         // reverts to plain nearest-solid collision.
-        DMK::Config::register_atomic<bool>("Collision", "UseCoverageCollision", "Use Coverage Collision",
-                                           s.use_coverage_collision, false);
-        DMK::Config::register_atomic<bool>("Collision", "UseSphereCollision", "Use Sphere Collision",
-                                           s.use_sphere_collision, true);
-        DMK::Config::register_atomic<float>("Collision", "CollisionRadius", "Collision Radius", s.collision_radius,
-                                            0.15f);
-        DMK::Config::register_atomic<float>("Collision", "CoverageThreshold", "Coverage Threshold",
-                                            s.collision_coverage_threshold, 0.8f);
-        DMK::Config::register_atomic<float>("Collision", "CameraProbeSize", "Camera Probe Size", s.camera_probe_size,
-                                            0.3f);
-        DMK::Config::register_atomic<bool>("Collision", "UseRenderOcclusion", "Use Render Occlusion",
-                                           s.use_render_occlusion, true);
+        collision.bind<bool>("UseCoverageCollision", "Use Coverage Collision", s.use_coverage_collision, false);
+        collision.bind<bool>("UseSphereCollision", "Use Sphere Collision", s.use_sphere_collision, true);
+        collision.bind<float>("CollisionRadius", "Collision Radius", s.collision_radius, 0.15f);
+        collision.bind<float>("CoverageThreshold", "Coverage Threshold", s.collision_coverage_threshold, 0.8f);
+        collision.bind<float>("CameraProbeSize", "Camera Probe Size", s.camera_probe_size, 0.3f);
+        collision.bind<bool>("UseRenderOcclusion", "Use Render Occlusion", s.use_render_occlusion, true);
 
-        // State-driven camera policy. The three *State values are comma-separated GameState token lists
+        // State-driven camera policy. The four *State values are comma-separated GameState token lists
         // (Menu, Overlay, Combat, Mount, Dialogue, Minigame; Dice is an alias for Minigame), parsed into
-        // bit masks by parse_state_mask. The setters run on load and on every hot-reload, so editing a
-        // list in the INI re-applies live; each setter overwrites its mask, so the parse is idempotent.
-        DMK::Config::register_atomic<bool>("StateBehavior", "EnableStateBehavior", "Enable State Behavior",
-                                           s.enable_state_behavior, true);
-        DMK::Config::register_string(
-            "StateBehavior", "ForcedFPVState", "Forced FPV State", [&mask = s.forced_fpv_mask](const std::string &value)
-            { mask.store(parse_state_mask(value), std::memory_order_relaxed); },
+        // bit masks by parse_state_mask. bind_parsed is the library's INI-string-to-atomic-uint32 binding:
+        // it applies the parse at registration with the default below and again on every load() / reload(),
+        // storing the result relaxed, so editing a list in the INI re-applies live and the parse stays
+        // idempotent. parse_state_mask is already the pure string_view -> uint32 function it wants.
+        state_behavior.bind<bool>("EnableStateBehavior", "Enable State Behavior", s.enable_state_behavior, true);
+        state_behavior.bind_parsed(
+            "ForcedFPVState", "Forced FPV State", s.forced_fpv_mask, parse_state_mask,
             "Aiming,Cart,Dice,Reading,Alchemy,Blacksmithing,ForgeBuilder,Sharpening,StoneThrowing,BattleArchery");
-        DMK::Config::register_string(
-            "StateBehavior", "ForcedTPVState", "Forced TPV State", [&mask = s.forced_tpv_mask](const std::string &value)
-            { mask.store(parse_state_mask(value), std::memory_order_relaxed); }, "");
-        DMK::Config::register_string(
-            "StateBehavior", "OrbitExcludeState", "Orbit Exclude State",
-            [&mask = s.orbit_exclude_mask](const std::string &value)
-            { mask.store(parse_state_mask(value), std::memory_order_relaxed); },
-            "Menu,Overlay,Cart,Combat,Mount,Minigame");
-        DMK::Config::register_atomic<float>("StateBehavior", "StateSwitchHoldSeconds", "State Switch Hold Seconds",
-                                            s.state_switch_hold_seconds, 0.2f);
+        state_behavior.bind_parsed("ForcedTPVState", "Forced TPV State", s.forced_tpv_mask, parse_state_mask, "");
+        state_behavior.bind_parsed("OrbitExcludeState", "Orbit Exclude State", s.orbit_exclude_mask, parse_state_mask,
+                                   "Menu,Overlay,Cart,Combat,Mount,Minigame");
+        state_behavior.bind<float>("StateSwitchHoldSeconds", "State Switch Hold Seconds", s.state_switch_hold_seconds,
+                                   0.2f);
         // SuppressTPVState is the always-on HARD gate (read in should_apply_view): in any listed state the
         // TPV offset is suppressed and cannot be toggled back on. Separate from the edge-triggered Forced*
         // masks above and NOT gated by EnableStateBehavior. All states are honored (Menu/Overlay instant,
         // every other state debounced).
-        DMK::Config::register_string(
-            "StateBehavior", "SuppressTPVState", "Suppress TPV State",
-            [&mask = s.suppress_tpv_mask](const std::string &value)
-            { mask.store(parse_state_mask(value), std::memory_order_relaxed); }, "Overlay");
+        state_behavior.bind_parsed("SuppressTPVState", "Suppress TPV State", s.suppress_tpv_mask, parse_state_mask,
+                                   "Overlay");
 
         // Preset manager (always active). PresetBlendSpeed is the exponential ease rate used when
         // switching presets on a state edge.
-        DMK::Config::register_atomic<float>("Presets", "PresetBlendSpeed", "Preset Blend Speed", s.preset_blend_speed,
-                                            8.0f);
+        presets.bind<float>("PresetBlendSpeed", "Preset Blend Speed", s.preset_blend_speed, 8.0f);
     }
 
 } // namespace TPVCamera

@@ -405,7 +405,7 @@ namespace TPVCamera::Overlay::Detail
                     // and only later resizes to the real resolution, so sizing the overlay surface + DPI font
                     // to that early size leaves it tiny. The overlay is an in-world tool, so wait until the
                     // game is IN-WORLD: game_world_ready is set once C_Player first resolves, by which point
-                    // the window is at its final resolution. (Deliberately NO size-based fallback -- a menu /
+                    // the window is at its final resolution. (Deliberately NO size-based fallback - a menu /
                     // loading window is "stable" too, which is exactly the size we must not lock onto.)
                     while (!TPVCamera::game_world_ready().load(std::memory_order_relaxed))
                     {
@@ -431,7 +431,7 @@ namespace TPVCamera::Overlay::Detail
          */
         DWORD WINAPI render_thread(LPVOID)
         {
-            DMK::Logger &logger = DMK::Logger::get_instance();
+            DMK::Logger &logger = DMK::log();
 
             // Make THIS overlay thread per-monitor (v2) DPI aware before any window creation or size query, so
             // the layered overlay window, its GetClientRect/GetWindowRect reads, and the UpdateLayeredWindow
@@ -566,7 +566,7 @@ namespace TPVCamera::Overlay::Detail
                     // Reposition only when the game window actually moved/resized. Only the POSITION/extent of
                     // the overlay window tracks the game here; the render targets, ImGui DisplaySize and font
                     // scale are sized once at startup (create_targets above). A mid-session RESOLUTION change is
-                    // therefore not re-detected -- the panel keeps the startup size until it is closed and
+                    // therefore not re-detected - the panel keeps the startup size until it is closed and
                     // reopened. This is intentional: rebuilding the device targets and font atlas on every resize
                     // is not worth the complexity for a tuning panel that is normally opened briefly, and a stale
                     // size only misaligns the blit (GDI clips it; there is no out-of-bounds access).
@@ -703,7 +703,7 @@ namespace TPVCamera::Overlay::Detail
                 // Adaptive sleep. This thread renders with WARP (software) on the CPU, so an uncapped rate
                 // here steals a core from the game. Cap it to ~60Hz while actively interacting (an item is
                 // active/hovered, text input is wanted, or the mouse is moving) and ~30Hz when idle. NOTE:
-                // over_overlay is deliberately NOT a trigger -- the overlay window spans the entire game window,
+                // over_overlay is deliberately NOT a trigger - the overlay window spans the entire game window,
                 // so the cursor is "over" it almost the whole time the panel is open; including it pinned the
                 // thread at the interactive rate for the whole session, which hit game fps.
                 const bool mouse_moved = io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f;

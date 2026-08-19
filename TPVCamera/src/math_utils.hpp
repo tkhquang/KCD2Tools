@@ -1,7 +1,10 @@
 #ifndef TPVCAMERA_MATH_UTILS_HPP
 #define TPVCAMERA_MATH_UTILS_HPP
 
+#include <DetourModKit/memory.hpp>
+
 #include <cmath>
+#include <type_traits>
 #include <DirectXMath.h>
 
 namespace TPVCamera
@@ -91,5 +94,25 @@ namespace TPVCamera
     };
 
 } // namespace TPVCamera
+
+// memory::read<T> accepts a class only when EVERY bit pattern is a valid object representation, so a
+// class must opt in. Both types below are padding-free aggregates of plain floats: no bool, no unscoped
+// enum, no member pointer, and sizeof equal to the sum of the members. Every foreign byte pattern they
+// can hold decodes to a valid value, which makes the opt-in sound. The static_asserts pin the
+// padding-free property so a later member cannot silently invalidate it.
+namespace DetourModKit::detail
+{
+    template <> struct enable_representation_safe_aggregate<TPVCamera::Vector3> : std::true_type
+    {
+    };
+    template <> struct enable_representation_safe_aggregate<TPVCamera::Quaternion> : std::true_type
+    {
+    };
+} // namespace DetourModKit::detail
+
+static_assert(sizeof(TPVCamera::Vector3) == 3 * sizeof(float),
+              "Vector3 must stay padding-free for memory::read<Vector3> to be a defined reinterpret.");
+static_assert(sizeof(TPVCamera::Quaternion) == 4 * sizeof(float),
+              "Quaternion must stay padding-free for memory::read<Quaternion> to be a defined reinterpret.");
 
 #endif // TPVCAMERA_MATH_UTILS_HPP

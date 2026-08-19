@@ -44,12 +44,12 @@ namespace Constants
         return std::string(MOD_NAME) + PRESETS_FILE_SUFFIX;
     }
 
-    /** @brief Log file name passed to DMK::Bootstrap (string-view-safe literal). */
+    /** @brief Log file name passed to the DMK Session (string-view-safe literal). */
     constexpr const char *LOG_FILE_NAME = "KCD2_TPVCamera.log";
     /** @brief Per-PID instance-mutex prefix so duplicate ASI loads bail cleanly. */
     constexpr const char *INSTANCE_MUTEX_PREFIX = "KCD2_TPVCamera_";
 
-    // --- Default Configuration Values ---
+    // Default Configuration Values
     /** @brief Default logging level ("INFO"). */
     constexpr const char *DEFAULT_LOG_LEVEL = "INFO";
 
@@ -67,7 +67,7 @@ namespace Constants
 
     // RTTI type-descriptor name of the CView class. The frustum-builder detour confirms a
     // camera belongs to a game view by matching the embedding object's vtable against this
-    // name (via DMK::Rtti), then caches that vtable address for a fast per-camera qword
+    // name (via DMK::rtti), then caches that vtable address for a fast per-camera qword
     // compare. Anchoring on the ASLR-invariant RTTI name rather than a hardcoded vtable
     // address keeps the game-view gate working across game patches.
     constexpr const char *CVIEW_RTTI_NAME = ".?AVCView@@";
@@ -82,7 +82,7 @@ namespace Constants
     //   -> scalar look PITCH (controller + LOOK_CONTROLLER_PITCH_OFFSET, radians, 0 = level), with a
     //      synchronized copy at LOOK_CONTROLLER_PITCH2_OFFSET; yaw lives alongside and is left alone.
     // The look quaternion the cameras read (controller + 0x24) is DERIVED from this scalar pitch+yaw
-    // EVERY frame, so writing that quat is overwritten -- the SCALAR pitch is what must be written to
+    // EVERY frame, so writing that quat is overwritten - the SCALAR pitch is what must be written to
     // level the aim. Both copies are written so any internal current/target smoothing also settles at level.
     // g_env (SSystemGlobalEnvironment) base. Resolved patch-resiliently at startup from
     // `lea/mov [rip+g_env]` reference sites via the k_genvCandidates cascade
@@ -110,7 +110,7 @@ namespace Constants
     constexpr ptrdiff_t LOOK_CONTROLLER_PITCH2_OFFSET = 0x48; // synchronized pitch copy
     // Scalar look yaw (radians; horizontal forward = (-sin yaw, cos yaw)), with a synchronized copy.
     // AIM-ONLY: writing this steers camera-relative MOVEMENT (the move frame reads the derived look
-    // quat) but does NOT turn the body -- the body heading is owned by the animated-character layer,
+    // quat) but does NOT turn the body - the body heading is owned by the animated-character layer,
     // driven separately via the BODY-turn constants below.
     constexpr ptrdiff_t LOOK_CONTROLLER_YAW_OFFSET = 0x10;
     constexpr ptrdiff_t LOOK_CONTROLLER_YAW2_OFFSET = 0x44;
@@ -123,7 +123,7 @@ namespace Constants
     // Live-verified on retail 1.5.5.
     constexpr ptrdiff_t LOOK_CONTROLLER_QUAT_OFFSET = 0x24;
 
-    // --- Player BODY-turn: force the entity world yaw (camera-relative body facing) ----------------
+    // Player BODY-turn: force the entity world yaw (camera-relative body facing)
     // The look controller above is aim-only, so a separate primitive turns the BODY. The engine's
     // CAnimatedCharacter::ForceOverrideRotation (main vtable slot 95) is exactly two writes: an active
     // byte and a world quat. The animated-character update copies that quat into the entity rotation
@@ -165,19 +165,19 @@ namespace Constants
     // once per action-map action with its name and post-action-map value:
     //   _QWORD*(this /*rcx*/, const char** action_name /*rdx*/, uint activation /*r8d*/, float value /*xmm3*/)
     // The value is device-agnostic (keyboard, gamepad and rebinds all funnel through the same action
-    // name), so reading the xi_movey / xi_movex axis here gives movement INTENT -- nonzero while a key is
+    // name), so reading the xi_movey / xi_movex axis here gives movement INTENT - nonzero while a key is
     // held even when a wall arrests the body, which the body-position speed cannot distinguish.
     // The movement action names are matched in player_onaction_hook.cpp (a small candidate list across the
     // xi_* / movement_* / move* action maps); a trace-level probe there logs each distinct action name once so
     // the on-foot movement axis vocabulary can be confirmed at runtime.
 
-    // --- Physics world raycast (camera collision + aim convergence) ---
+    // Physics world raycast (camera collision + aim convergence)
     // IPhysicalWorld::RayWorldIntersection inline helper (k_rayWorldIntersectionCandidates). Casts a
     // world ray and fills a ray_hit; returns the hit count. Signature (Microsoft x64):
     //   int(this /*rcx = p_physical_world*/, const Vec3* org /*rdx*/, const Vec3* dir /*r8*/,
     //       int objtypes /*r9d*/, uint flags, ray_hit* hits, int n_max_hits, void* p_skip_ents,
     //       int n_skip_ents, void* p_foreign_data, int i_foreign_data, const char* p_name_tag)
-    // dir is NOT normalized -- its length is the maximum ray length, and ray_hit.dist is the
+    // dir is NOT normalized - its length is the maximum ray length, and ray_hit.dist is the
     // world-space distance to the hit.
 
     // p_physical_world (IPhysicalWorld*) is a member of the g_env struct: its slot address is
@@ -214,11 +214,11 @@ namespace Constants
     constexpr ptrdiff_t PHYS_ENTITY_BBOX_MAX_OFFSET = 0x14;
 
     // Physics-collider footprint thresholds, used ONLY as a fallback after the visible-mesh coverage is tried (the
-    // triangle raster is primary -- it alone sees a thin DIAGONAL stick whose axis-aligned bbox is large). POST: a
+    // triangle raster is primary - it alone sees a thin DIAGONAL stick whose axis-aligned bbox is large). POST: a
     // collider narrower than the character in BOTH horizontal axes that the coverage could not measure (an entity /
     // HLOD-baked post, no readable CBrush) is a thin post the body is visible past -> skip. WALL: a building-scale
     // collider footprint forces a collide even if an incidental prop on it (a laundry line on a house wall) measured
-    // low -- set well ABOVE any prop (a long tent guy-stick bbox is ~4-5m) so only true buildings trip it.
+    // low - set well ABOVE any prop (a long tent guy-stick bbox is ~4-5m) so only true buildings trip it.
     constexpr float COLLIDER_POST_FOOTPRINT_MAX = 0.6f;
     constexpr float COLLIDER_WALL_FOOTPRINT_MIN = 10.0f;
 
@@ -236,7 +236,7 @@ namespace Constants
     // columbarium), the visible brush at the hit is found by GetObjectsInBox. A brush's BBOX containing the hit
     // is NOT enough (a nearby laundry line / designer brush bbox can contain a point on a building's roof), so a
     // candidate brush is only measured when its actual MESH is at the hit: a transformed vertex within this many
-    // meters (FULL vertex scan, no sampling -- a thin pole's nearest vertex can fall between sampled indices and
+    // meters (FULL vertex scan, no sampling - a thin pole's nearest vertex can fall between sampled indices and
     // be missed). Live-tuned: a columbarium the ray truly hit has its nearest vertex 0.37m from the hit, while at
     // a shed-roof hit the incidental readable brushes' nearest verts were 0.67-4.4m away. 0.5m separates the two
     // with margin on both sides; not so large that a neighbour 0.5m off is mistaken for the hit surface.
@@ -244,10 +244,10 @@ namespace Constants
 
     // entity_query_flags subset (physinterface.h; stock numbering in WHGame's 3DEngine
     // RWI helper sub_180484A10: ent_static=1, ent_sleeping_rigid=2, ent_rigid=4, ent_living=8,
-    // ent_independent=0x10, ent_terrain=0x100). Camera collision blocks on the SOLID WORLD ONLY --
-    // ent_static | ent_terrain -- which is buildings/walls/level geometry/static props/vegetation plus
+    // ent_independent=0x10, ent_terrain=0x100). Camera collision blocks on the SOLID WORLD ONLY -
+    // ent_static | ent_terrain - which is buildings/walls/level geometry/static props/vegetation plus
     // the ground. It deliberately EXCLUDES ent_rigid|ent_sleeping_rigid (movable props AND the player's
-    // own physicalized worn gear, e.g. a shield on the back -- the gear is a rigid that owning-actor
+    // own physicalized worn gear, e.g. a shield on the back - the gear is a rigid that owning-actor
     // exclusion alone cannot drop), ent_living (player + NPC capsules) and ent_independent (ropes /
     // ragdolls / dangling attachments). This mirrors CryEngine's "robust obstruction" intent of hitting
     // only the world, without needing a per-frame skip-entities list. Trade-off: the camera also glides
@@ -276,7 +276,7 @@ namespace Constants
     constexpr unsigned int RWI_FLAGS_STOP_AT_SOLID =
         RWI_STOP_AT_PIERCEABLE | RWI_COLLTYPE_ANY | GEOM_COLLTYPE_RAY | GEOM_COLLTYPE_PLAYER; // 0x8002040F
 
-    // --- Swept-sphere camera collision (IPhysicalWorld::PrimitiveWorldIntersection) ---
+    // Swept-sphere camera collision (IPhysicalWorld::PrimitiveWorldIntersection)
     // A single thin RayWorldIntersection ray to a sweeping endpoint (the camera rotates+moves
     // every frame) catches different objects on consecutive frames as it grazes edges, so the
     // nearest-hit distance is a step function -> the camera position pumps in dense geometry.
@@ -295,7 +295,7 @@ namespace Constants
     //         const char* pNameTag /*r9*/)  -> xmm0 = distance to first hit (> 0 == hit).
     constexpr ptrdiff_t PHYS_WORLD_VTABLE_PWI_OFFSET = 0x1C8; // world vtable slot
 
-    // primitives::sphere { Vec3 center; float r; } -- 16 bytes, type id 4. center is WORLD space.
+    // primitives::sphere { Vec3 center; float r; } - 16 bytes, type id 4. center is WORLD space.
     constexpr int PRIMITIVE_TYPE_SPHERE = 4;
     constexpr size_t PRIMITIVE_SPHERE_SIZE = 0x10;
     // primitives::sphere is { Vec3 center; float r; }: center at +0, radius float at +0xC (a fixed POD layout,
@@ -311,7 +311,7 @@ namespace Constants
     constexpr ptrdiff_t SPWI_OFF_PPRIM = 0x20;    // const primitive*     (CONFIRMED, matches header)
     constexpr ptrdiff_t SPWI_OFF_SWEEPDIR = 0x8C; // Vec3 sweep vector    (CONFIRMED: impl |dir|^2>0 -> sweep)
     constexpr ptrdiff_t SPWI_OFF_FLAGS =
-        0x98; // int rwi-style flags  (CONFIRMED: impl tests &0x800 rwi_queue) -- NOT entTypes
+        0x98; // int rwi-style flags  (CONFIRMED: impl tests &0x800 rwi_queue) - NOT entTypes
     constexpr ptrdiff_t SPWI_OFF_ENTTYPES = 0x9C; // entity_query_flags slot per header decl order, but DEAD
                                                   //                       in this fork: the impl (sub_1808182A0) has
                                                   //                       ZERO reads of +0x9C, so the sphere CANNOT be
@@ -335,7 +335,7 @@ namespace Constants
     // Colltype mask for SPWI_OFF_GEOMFLAGSANY: stop the sphere on ANY solid surface (mirrors the RWI intent).
     constexpr int SPWI_GEOMFLAGS_ANY_SOLID = 0x0FFF;
 
-    // --- Render-node camera occlusion (collide with render-only roofs RWI/PWI cannot see) ---
+    // Render-node camera occlusion (collide with render-only roofs RWI/PWI cannot see)
     // Some KCD2 roofs (tent / awning canopy cloth, e.g. canopy_tent_cover_a_nosticks.cgf) are CBrush
     // render meshes with NO ray-collidable physics, so the physics camera collision glides straight
     // through them and the cloth buries the camera when a look-down raises it overhead. The renderer
@@ -358,7 +358,7 @@ namespace Constants
     constexpr int EERTYPE_BRUSH = 1;
     // IRenderNode::m_dwRndFlags (the 64-bit ERenderNodeFlags bitmask); the low dword carries ERF_HIDDEN.
     // GetObjectsInBox returns octree nodes regardless of whether they are actually DRAWN, so a node flagged
-    // ERF_HIDDEN (placed but not rendered -- e.g. conditional laundry / rag decorations) must be skipped:
+    // ERF_HIDDEN (placed but not rendered - e.g. conditional laundry / rag decorations) must be skipped:
     // it cannot occlude the view, and colliding with it pulls the camera onto invisible geometry. Offset and
     // bit verified live (hidden laundry node had bit 8 set; every visible brush had it clear).
     constexpr ptrdiff_t RENDERNODE_RNDFLAGS_OFFSET = 0x28;
@@ -410,7 +410,7 @@ namespace Constants
     constexpr int RENDER_OCCLUSION_VERT_MAX = 200000; // sanity cap on a mesh's vertex count
     // IRenderMesh::GetIndexPtr(uint32 flags /*rdx*/, int32 offset /*r8d*/) -> vtx_idx* (uint16): vtable slot 54
     // in this fork (verified live). The triangle list (3 indices/tri) lets the coverage gate measure the actual
-    // SURFACE the brush covers, not just its vertices -- vertex-density-independent, so a sparse scattered prop
+    // SURFACE the brush covers, not just its vertices - vertex-density-independent, so a sparse scattered prop
     // (the char standing in a gap) reads low while a contiguous cloth canopy reads high.
     constexpr ptrdiff_t RENDERMESH_NINDICES_OFFSET = 0x78; // int index count (== GetIndicesCount)
     constexpr ptrdiff_t RENDERMESH_VTABLE_GETINDEXPTR_OFFSET = 54 * 8;
@@ -429,10 +429,10 @@ namespace Constants
     // the per-frame cost to ~zero while standing still and avoids re-decoding the position cache each frame.
     constexpr float RENDER_OCCLUSION_REQUERY_DIST = 0.40f;
 
-    // --- Camera-space interaction (door/usable look-at ray redirect) ---
+    // Camera-space interaction (door/usable look-at ray redirect)
     // The player interactor (wh::entitymodule::C_PlayerInteractor) selects the "press to use" target by
     // casting a look ray built from the GAMEPLAY view camera (sub_18091C138 -> qword_18549B4B0), which the
-    // mod does NOT offset -- so in third person the screen-centre crosshair and the use-target diverge
+    // mod does NOT offset - so in third person the screen-centre crosshair and the use-target diverge
     // (you must rotate to face a door). The ray is assembled by the query builder sub_180530584(out,
     // origin /*rdx*/, dir /*r8*/, objtypes, flags, skip_ents, ...) and dispatched downstream. The
     // interaction call comes from C_PlayerInteractor look-ray builder sub_1808333C8 (which reads the
@@ -473,23 +473,23 @@ namespace Constants
 
     // Look-axis event ids (SInputEvent.keyId / EKeyId, KCD-renumbered) matched on the analog look channel
     // together with MOUSE_INPUT_TYPE_ID below (which is actually EInputState::eIS_Changed, NOT a device
-    // type -- so the same gate catches mouse AND gamepad analog axes; see INPUT_EVENT_TYPE_OFFSET).
+    // type - so the same gate catches mouse AND gamepad analog axes; see INPUT_EVENT_TYPE_OFFSET).
     constexpr int INPUT_LOOK_YAW_EVENT_ID = 0x10A;   // mouse horizontal look (eKI_MouseX); value = delta
     constexpr int INPUT_LOOK_PITCH_EVENT_ID = 0x10B; // mouse vertical look (eKI_MouseY); value = delta
     // Gamepad RIGHT-STICK axes (xi_thumbrx / xi_thumbry, verified via the XInput symbol table in WHGame).
     // Same eIS_Changed channel, but value at +0x18 is the analog DEFLECTION (-1..1, post-deadzone), not a
-    // delta -- the orbit hook latches it and the render hook integrates it by rate (GamepadOrbitSpeed X/Y deg/s).
+    // delta - the orbit hook latches it and the render hook integrates it by rate (GamepadOrbitSpeed X/Y deg/s).
     constexpr int INPUT_PAD_LOOK_YAW_EVENT_ID = 0x21A;   // right-stick X (horizontal)
     constexpr int INPUT_PAD_LOOK_PITCH_EVENT_ID = 0x21B; // right-stick Y (vertical)
 
-    // --- Memory Offsets ---
+    // Memory Offsets
     // Global-context -> camera-manager pointer. The manager is the root the game-state detection
     // walks to read the active camera (see OFFSET_ACTIVE_CAMERA below and game_state.cpp).
     constexpr ptrdiff_t OFFSET_MANAGER_PTR_STORAGE = 0x38; // Global context to camera manager
     // RTTI type-descriptor name of the camera manager, the self-heal anchor for OFFSET_MANAGER_PTR_STORAGE.
     constexpr const char *C_CAMERA_MANAGER_RTTI_NAME = ".?AVC_CameraManager@game@wh@@";
 
-    // --- Game-state detection (see game_state.cpp) ---
+    // Game-state detection (see game_state.cpp)
     // Active-camera pointer on the wh::game::C_CameraManager (the same manager reached via
     // OFFSET_MANAGER_PTR_STORAGE). The manager stores a pointer to the currently active
     // wh::game::C_Camera* subclass here; its RTTI type name identifies the camera mode. The game
@@ -498,7 +498,7 @@ namespace Constants
     // Mount is detected from the STANCE enum (C_ACTOR_MODEL_STANCE_MOUNT == 5, see below), NOT a per-player
     // flag. The old C_PLAYER_MOUNT_FLAG_OFFSET (C_Player + 0x174) was a CONTROL-OVERRIDE REFCOUNT: it is
     // incremented/decremented for ANY control state (mounting OR an item pickup OR a scripted interaction),
-    // so == 1 was true during pickups too -- that flashed the MOUNT camera preset on item pickups. The
+    // so == 1 was true during pickups too - that flashed the MOUNT camera preset on item pickups. The
     // stance is immune (a pickup keeps stance == 1).
     // RTTI type-descriptor names of the active-camera classes that map to a tracked game state.
     // Matched by name against the active camera's vtable (ASLR/patch-safe, like CVIEW_RTTI_NAME).
@@ -509,7 +509,7 @@ namespace Constants
     constexpr const char *C_CAMERA_COMBAT_RTTI_NAME = ".?AVC_CameraCombatDelegate@game@wh@@";
     constexpr const char *C_CAMERA_DIALOG_RTTI_NAME = ".?AVC_CameraDialog@game@wh@@";
 
-    // --- Minigame detection (see game_state.cpp poll_active_minigame) ---
+    // Minigame detection (see game_state.cpp poll_active_minigame)
     // Every minigame (lockpicking, dice, reading, alchemy, ...) derives from wh::playermodule::C_Minigame
     // and is owned by a single C_MinigameManager. The manager keeps the active minigames in a map keyed
     // by the owning actor's entity id; an entry owned by the player means a minigame is on screen. The
@@ -560,7 +560,7 @@ namespace Constants
     constexpr const char *C_MISSILE_CONTROLLER_RTTI_NAME = ".?AVC_MissileWeaponPlayerController@entitymodule@wh@@";
 
     // Crouch/sneak AND mount BOTH come from the player's STANCE enum. C_ActorModel is a POINTER on
-    // C_Player, dereferenced then validated by its RTTI. The 4-byte CURRENT STANCE enum lives at +0x80 --
+    // C_Player, dereferenced then validated by its RTTI. The 4-byte CURRENT STANCE enum lives at +0x80 -
     // NOT +0x8, which is a 64-bit pointer whose low dword is never 1 (reading the stance there would make
     // crouch read false). Written by the virtual SetStance (C_ActorModel vtable +0x220): STAND = 1,
     // MOUNTED = 5, CROUCH/sneak = 6. (A transient 5 also appears one
@@ -612,13 +612,13 @@ namespace Constants
     // head-visibility setter); read to re-assert the head while the offset is active.
     constexpr ptrdiff_t OFFSET_ENTITY_HIDE_HEAD_FLAG = 0xA38;
 
-    // --- Input Event Offsets ---
+    // Input Event Offsets
     // SInputEvent layout (CryEngine IInput.h: deviceType@+0x00, state@+0x04, keyName@+0x08, keyId@+0x10,
     // modifiers@+0x14, value@+0x18, pSymbol@+0x20). TYPE_OFFSET is the STATE field, not the device type.
     constexpr ptrdiff_t INPUT_EVENT_TYPE_OFFSET = 0x04;  // SInputEvent.state (EInputState)
     constexpr ptrdiff_t INPUT_EVENT_ID_OFFSET = 0x10;    // SInputEvent.keyId (EKeyId)
     constexpr ptrdiff_t INPUT_EVENT_VALUE_OFFSET = 0x18; // SInputEvent.value (mouse: delta; pad: deflection)
-    // EInputState::eIS_Changed (1 << 3). Every analog axis move -- mouse OR gamepad stick -- posts with this
+    // EInputState::eIS_Changed (1 << 3). Every analog axis move - mouse OR gamepad stick - posts with this
     // state, so it is the device-AGNOSTIC gate for the look channel. Name kept for compatibility; it is the
     // input STATE, not a mouse/device type (the keyId distinguishes the axis and the device).
     constexpr int MOUSE_INPUT_TYPE_ID = 8;

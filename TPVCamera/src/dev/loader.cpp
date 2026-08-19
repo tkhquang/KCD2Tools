@@ -41,7 +41,9 @@ namespace
     HMODULE s_logic_dll = nullptr;
 
     using InitFn = bool(__cdecl *)();
-    using ShutdownFn = void(__cdecl *)();
+    // Returns whether the logic module may be unmapped. Shutdown() restores every hooked prologue and runs
+    // DMK's safe-unload drain; FreeLibrary is authorized only when both came back clean.
+    using ShutdownFn = bool(__cdecl *)();
 
     InitFn s_fn_init = nullptr;
     ShutdownFn s_fn_shutdown = nullptr;
@@ -148,15 +150,16 @@ namespace
         return true;
     }
 
-    // Runs the logic DLL's Shutdown() (removing every hook and tearing down
-    // DetourModKit) without freeing the module. Safe to call from the loader
-    // thread's terminal exit path, where FreeLibrary must not run: that path is
-    // joined by DllMain(DLL_PROCESS_DETACH) while the OS loader lock is held, and
-    // FreeLibrary would need that same lock, deadlocking until the join times out.
-    void request_logic_shutdown() noexcept
+    // Runs the logic DLL's Shutdown(), which removes every hook and tears the library down, without
+    // freeing the module. Safe on the loader thread's terminal exit path, where FreeLibrary must not run:
+    // DllMain(DLL_PROCESS_DETACH) joins that path while the OS loader lock is held, and FreeLibrary needs
+    // that same lock, so it deadlocks until the join times out.
+    //
+    // Returns true when the logic DLL reports that unmapping is safe. A missing export counts as a refusal,
+    // because without it there is no evidence that the prologues were restored.
+    bool request_logic_shutdown() noexcept
     {
-        if (s_fn_shutdown)
-            s_fn_shutdown();
+        return s_fn_shutdown ? s_fn_shutdown() : false;
     }
 
     // Full unload for the interactive reload path only (runs on the loader thread,
@@ -167,13 +170,22 @@ namespace
         if (!s_logic_dll)
             return;
 
-        request_logic_shutdown();
+        if (!request_logic_shutdown())
+        {
+            // Refused. Either a hooked prologue was not restored (the hook pinned its backend and that pin
+            // holds a counted reference on the logic module) or DMK's safe-unload drain did not reach
+            // SafeToUnload. Keep the module mapped and leave the handle in place. Unloading past the refusal
+            // keeps the hook installed AND makes the next LoadLibrary hand back the stale image instead of
+            // the rebuilt one, which reads as a rebuild that did nothing.
+            log_msg("Logic DLL refused unload; module left mapped (reload skipped)");
+            return;
+        }
 
-        // Shutdown() removed every hook, so no new detour entry can occur. A game
-        // thread already inside a per-frame detour body (which lives in this DLL's
-        // .text) still has to finish before the pages are unmapped. Per-frame
-        // detours return in microseconds, so this short quiescence keeps the
-        // FreeLibrary off any in-flight body.
+        // Shutdown() removed every hook (no new detour entry) and DMK's drain retired every callback body it
+        // owns. What neither covers is a GAME thread already inside a per-frame detour body, which lives in
+        // this DLL's .text and was entered before the prologue was restored: DMK does not own that call, so it
+        // cannot drain it. Per-frame detours return in microseconds, so this short quiescence keeps the
+        // FreeLibrary off any in-flight body. It is a bound on that one hazard, not an unload authorization.
         Sleep(k_post_shutdown_ms);
 
         FreeLibrary(s_logic_dll);
@@ -229,7 +241,8 @@ namespace
         // under the OS loader lock, and FreeLibrary would need that same lock,
         // deadlocking until the join times out. Leaking the logic module is the
         // accepted trade-off (the process is tearing the loader down anyway).
-        request_logic_shutdown();
+        // The module is deliberately leaked here, so the drain's verdict changes nothing; discard it.
+        (void)request_logic_shutdown();
         log_msg("Loader thread exiting");
         return 0;
     }

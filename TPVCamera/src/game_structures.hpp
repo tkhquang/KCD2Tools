@@ -9,6 +9,10 @@
 #ifndef TPVCAMERA_GAME_STRUCTURES_HPP
 #define TPVCAMERA_GAME_STRUCTURES_HPP
 
+#include <DetourModKit/memory.hpp>
+
+#include <type_traits>
+
 namespace TPVCamera::GameStructures
 {
 
@@ -26,5 +30,18 @@ namespace TPVCamera::GameStructures
     };
 
 } // namespace TPVCamera::GameStructures
+
+// memory::read<T> accepts a class only when every bit pattern is a valid object representation, so a
+// class must opt in. Matrix34f is a padding-free 12-float array: every foreign byte pattern it can hold
+// decodes to a valid value, which makes the reinterpret defined.
+namespace DetourModKit::detail
+{
+    template <> struct enable_representation_safe_aggregate<TPVCamera::GameStructures::Matrix34f> : std::true_type
+    {
+    };
+} // namespace DetourModKit::detail
+
+static_assert(sizeof(TPVCamera::GameStructures::Matrix34f) == 12 * sizeof(float),
+              "Matrix34f must stay padding-free for memory::read<Matrix34f> to be a defined reinterpret.");
 
 #endif // TPVCAMERA_GAME_STRUCTURES_HPP
