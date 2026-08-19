@@ -30,14 +30,17 @@
 
 #include <chrono>
 #include <functional>
+#include <optional>
 #include <string_view>
 #include <vector>
 
 namespace TPVCamera
 {
 
-    // RAII guards for the press bindings registered via DMK::Config::register_press_combo
-    // (cleared during shutdown so the callbacks cannot run during teardown).
+    // RAII guards for the input bindings registered via DMK::Config::register_press_combo /
+    // register_hold_combo. Cleared during shutdown so the callbacks cannot run during teardown; a
+    // still-held hold-combo guard additionally delivers one balancing on_state_change(false) on clear,
+    // so a torn-down orbit hold cannot strand free-look on.
     static std::vector<DMK::Config::InputBindingGuard> s_binding_guards;
 
     /**
@@ -263,60 +266,74 @@ namespace TPVCamera
     }
 
     /**
-     * @brief Registers the hold bindings (and the zoom triggers' optional INI consume flags) before load().
-     * @details DMK has no hold-combo helper, so the holds are created here from g_config (seeded with the
-     *          default combos by register_config_items); DMK::Config::load() then applies the INI combos
-     *          via update_binding_combos, the same way the press combos rebind on load. The zoom callbacks
-     *          are empty -- the frustum-builder detour queries their hold state by name each frame to drive
-     *          the follow distance. The orbit-hold callback instead engages/releases free-look directly on
-     *          its key edges (momentary freelook), so nothing polls it per frame.
+     * @brief Registers the hold bindings, fusing each INI key with its InputManager
+     *        hold binding via DMK::Config::register_hold_combo.
+     * @details Mirrors register_press_bindings: each returned guard is stashed in s_binding_guards so
+     *          the callback stays live until shutdown clears it. register_hold_combo carries the default
+     *          combo, rebinds the live hold on every INI reload (update_binding_combos), and -- on the
+     *          zoom triggers -- registers the optional "<key>.Consume" passthrough-suppression flag. The
+     *          zoom callbacks are empty: the frustum-builder detour queries their hold state by name each
+     *          frame to drive the follow distance. The orbit-hold callback instead engages/releases
+     *          free-look on its key edges (momentary freelook), so nothing polls it per frame.
      */
     static void register_hold_bindings()
     {
-        DMK::InputManager &input_mgr = DMK::InputManager::get_instance();
-        input_mgr.register_hold(k_zoom_in_binding, g_config.zoom_in_keys, [](bool) {});
-        input_mgr.register_hold(k_zoom_out_binding, g_config.zoom_out_keys, [](bool) {});
+        auto add_hold = [](std::string_view section, std::string_view ini_key, std::string_view log_name,
+                           std::string_view binding, std::function<void(bool)> on_state_change,
+                           std::string_view default_combo, std::optional<bool> consume)
+        {
+            s_binding_guards.push_back(DMK::Config::register_hold_combo(
+                section, ini_key, log_name, binding, std::move(on_state_change), default_combo, consume));
+        };
 
-        // Passthrough suppression for the gamepad zoom triggers, on by default and toggled per binding from
-        // the INI (ZoomInKey.Consume / ZoomOutKey.Consume). While enabled, DMK masks just the bound D-pad
-        // button out of the XInput state the game reads, so the LB + D-pad up/down zoom combo does not also
-        // fire the game's inventory/map shortcut as the gesture ends. Only the trigger button is masked
-        // (never the LB modifier, and keyboard zoom is never affected), and the mask is latched to the
-        // physical D-pad release plus a short grace window, so releasing LB a frame early cannot leak a
-        // bare D-pad press. Registered after the holds they target and before DMK::Config::load(), so the
-        // INI value lands on an existing binding at load and on every reload.
-        DMK::Config::register_consume_flag("Camera", "ZoomInKey.Consume", "Zoom In Consume", k_zoom_in_binding, true);
-        DMK::Config::register_consume_flag("Camera", "ZoomOutKey.Consume", "Zoom Out Consume", k_zoom_out_binding,
-                                           true);
+        // Zoom hold keys. Defaults: LShift+PageUp / LShift+PageDown on keyboard, or hold LB + D-pad
+        // up/down on a controller. The callbacks are empty because the frustum-builder detour polls the
+        // hold state by name each frame (is_binding_active) to drive the follow distance. Consume is on by
+        // default and toggled per binding from the INI (ZoomInKey.Consume / ZoomOutKey.Consume): while
+        // enabled, DMK masks just the bound D-pad button out of the XInput state the game reads, so the LB
+        // + D-pad up/down zoom combo does not also fire the game's inventory/map shortcut as the gesture
+        // ends. Only the trigger button is masked (never the LB modifier, and keyboard zoom is never
+        // affected), and the mask is latched to the physical D-pad release plus a short grace window, so
+        // releasing LB a frame early cannot leak a bare D-pad press.
+        add_hold(
+            "Camera", "ZoomInKey", "Zoom In Key", k_zoom_in_binding, [](bool) {},
+            "LShift+PageUp,Gamepad_LB+Gamepad_DpadUp", true);
+        add_hold(
+            "Camera", "ZoomOutKey", "Zoom Out Key", k_zoom_out_binding, [](bool) {},
+            "LShift+PageDown,Gamepad_LB+Gamepad_DpadDown", true);
 
-        // Momentary free-look (freelook, as in ArmA / DayZ / PUBG): hold OrbitHoldKey to engage the
-        // orbit and release to return to the precise camera-aim view. register_hold fires the callback
-        // with true on the press edge and false on release (and false at shutdown for an active hold),
-        // so the press engages and the release disengages. s_engaged_by_hold records whether THIS hold
-        // turned orbit on, so the release only undoes what the hold engaged: if orbit was already
-        // toggled on via OrbitToggleKey, the press is a no-op and the release leaves it on. The engage
-        // is gated on the UI like the toggle; the release is always honoured (even under UI) so a
-        // momentary orbit can never get stuck on. The callback runs only on the input poll thread (and,
-        // for the shutdown release, after that thread has joined), so the static needs no lock.
-        input_mgr.register_hold(k_orbit_hold_binding, g_config.orbit_hold_keys,
-                                [](bool pressed)
-                                {
-                                    static bool s_engaged_by_hold = false;
-                                    if (pressed)
-                                    {
-                                        if (is_ui_blocking_input() || camera_state().orbit_active.load())
-                                            return;
-                                        orbit_engage();
-                                        s_engaged_by_hold = true;
-                                        DMK::Logger::get_instance().info("Orbit camera ENABLED (hold)");
-                                    }
-                                    else if (s_engaged_by_hold)
-                                    {
-                                        orbit_disengage();
-                                        s_engaged_by_hold = false;
-                                        DMK::Logger::get_instance().info("Orbit camera DISABLED (hold released)");
-                                    }
-                                });
+        // Momentary free-look (freelook, as in ArmA / DayZ / PUBG): hold OrbitHoldKey to engage the orbit
+        // and release to return to the precise camera-aim view, separate from the press-to-toggle
+        // OrbitToggleKey. Empty default so it is opt-in and never collides with a game key. The combo fires
+        // the callback with true on the press edge and false on release; the returned guard also synthesizes
+        // one balancing false if the hold is still held when shutdown clears the guard, so a torn-down hold
+        // cannot strand orbit on. s_engaged_by_hold records whether THIS hold turned orbit on, so the
+        // release only undoes what the hold engaged: if orbit was already toggled on via OrbitToggleKey, the
+        // press is a no-op and the release leaves it on. The engage is gated on the UI like the toggle; the
+        // release is always honoured (even under UI) so a momentary orbit can never get stuck on. The guard
+        // serializes its synthesized release against any in-flight poll-thread delivery, so the static needs
+        // no lock.
+        add_hold(
+            "Orbit", "OrbitHoldKey", "Orbit Hold Key", k_orbit_hold_binding,
+            [](bool pressed)
+            {
+                static bool s_engaged_by_hold = false;
+                if (pressed)
+                {
+                    if (is_ui_blocking_input() || camera_state().orbit_active.load())
+                        return;
+                    orbit_engage();
+                    s_engaged_by_hold = true;
+                    DMK::Logger::get_instance().info("Orbit camera ENABLED (hold)");
+                }
+                else if (s_engaged_by_hold)
+                {
+                    orbit_disengage();
+                    s_engaged_by_hold = false;
+                    DMK::Logger::get_instance().info("Orbit camera DISABLED (hold released)");
+                }
+            },
+            "", std::nullopt);
     }
 
     /**
