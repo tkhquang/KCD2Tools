@@ -2,10 +2,10 @@
  * @file overlay/overlay_ui.cpp
  * @brief Preset-manager panel: the body of TPVCamera::Overlay::draw_ui().
  *
- * @details Renders the "TPV Camera -- Presets" window using Dear ImGui called
+ * @details Renders the "TPV Camera - Presets" window using Dear ImGui called
  *          DIRECTLY (no ReShade function-table indirection). It is invoked by the
  *          overlay render loop inside an already-active ImGui frame, so it only
- *          issues widget calls -- it never begins/ends the ImGui frame, creates the
+ *          issues widget calls - it never begins/ends the ImGui frame, creates the
  *          context, or touches the device.
  *
  *          The panel drives PresetStore CRUD (list selection, rename, new/duplicate/
@@ -239,7 +239,7 @@ namespace TPVCamera::Overlay
                     {
                         if (!store.rename(i, std::string(s_rename_buffer)))
                         {
-                            DMK::Logger::get_instance().warning(
+                            DMK::log().warning(
                                 "Overlay: rename of preset index {} rejected (empty/duplicate/built-in).", i);
                         }
                         cancel_rename();
@@ -660,7 +660,7 @@ namespace TPVCamera::Overlay
          *          zoom keys are held. The button clears the zoom offset (camera_state().zoom_offset), which is
          *          exactly what the detour reads each frame, so the camera snaps back to the configured Follow
          *          Distance; it is disabled when there is no zoom to clear. Reading/clearing the relaxed atomic
-         *          from the overlay thread races only the render thread's own relaxed writes -- a stale-by-a-frame
+         *          from the overlay thread races only the render thread's own relaxed writes - a stale-by-a-frame
          *          readout or a one-frame-late reset is harmless.
          */
         void draw_applied_follow_distance(int decimals)
@@ -693,7 +693,7 @@ namespace TPVCamera::Overlay
 
         /**
          * @brief Read-out: the player's live REAL first-person eye height above the feet (drops on kneel/pray/sit).
-         * @details Shows the same value Dynamic Eye Sync uses -- camera_state().real_eye_height, published by the
+         * @details Shows the same value Dynamic Eye Sync uses - camera_state().real_eye_height, published by the
          *          frustum-builder detour each engaged frame. Reading the relaxed atomic from the overlay thread
          *          races only the render thread's own relaxed write, so a stale-by-a-frame readout is harmless.
          */
@@ -884,7 +884,7 @@ namespace TPVCamera::Overlay
                     draw_applied_follow_distance(decimals);
                 }
                 // Under Eye Height, surface the live REAL eye height so you can see when a pose (kneel/pray) drops
-                // it below Eye Height -- the exact case Dynamic Eye Sync corrects.
+                // it below Eye Height - the exact case Dynamic Eye Sync corrects.
                 if (field.type == FieldType::Float && std::string_view(field.key) == "eye_height")
                 {
                     draw_applied_eye_height(decimals);
@@ -937,7 +937,7 @@ namespace TPVCamera::Overlay
 
     /**
      * @brief Renders the preset-manager window contents inside the active ImGui frame.
-     * @details Begins the "TPV Camera -- Presets" window, draws the preset list, pin toggle,
+     * @details Begins the "TPV Camera - Presets" window, draws the preset list, pin toggle,
      *          CRUD/save button row and the grouped field editors, then ends the window.
      *          Guards against an empty list / an out-of-range editing index so a transient
      *          store state cannot dereference an invalid preset.

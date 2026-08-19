@@ -9,6 +9,8 @@
 #ifndef TPVCAMERA_GAME_INTERFACE_HPP
 #define TPVCAMERA_GAME_INTERFACE_HPP
 
+#include <DetourModKit/error.hpp>
+
 namespace TPVCamera
 {
 
@@ -16,10 +18,10 @@ namespace TPVCamera
      * @brief Stores the resolved global-context pointer for the game-state camera reads.
      * @details Reads the Context anchor (resolved by resolve_all_anchors()) and stores the slot for the
      *          game-state camera reads (game_state.cpp); without this call those reads find no state.
-     * @return true if the context anchor resolved, false otherwise.
+     * @return An empty value when the context anchor resolved, or ErrorCode::NoMatch when its cascade missed.
      * @note Call after resolve_all_anchors().
      */
-    [[nodiscard]] bool initialize_game_interface();
+    [[nodiscard]] DMK::Result<void> initialize_game_interface();
 
     /**
      * @brief Clean up game interface resources.

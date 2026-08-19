@@ -21,7 +21,7 @@ namespace TPVCamera::Overlay
 
     bool start()
     {
-        DMK::Logger &logger = DMK::Logger::get_instance();
+        DMK::Logger &logger = DMK::log();
         if (!Detail::dx_start())
         {
             logger.error("[overlay] Failed to start render thread");

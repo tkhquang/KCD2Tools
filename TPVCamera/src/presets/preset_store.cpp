@@ -52,8 +52,11 @@ namespace TPVCamera::Presets
             return false;
         }
 
-        /// The editable PresetField with this key, or nullptr if none. Guards the shared-field machinery and the
-        /// JSON loader against a key that is not a real field (e.g. a stale entry in a hand-edited file).
+        /**
+         * @brief Returns the editable PresetField with this key, or nullptr when none matches.
+         * @details Guards the shared-field machinery and the JSON loader against a key that names no real
+         *          field, such as a stale entry left in a hand-edited file.
+         */
         [[nodiscard]] const PresetField *find_field(std::string_view key) noexcept
         {
             for (const PresetField &field : fields())
@@ -213,7 +216,7 @@ namespace TPVCamera::Presets
 
     bool PresetStore::arrange_builtins()
     {
-        DMK::Logger &logger = DMK::Logger::get_instance();
+        DMK::Logger &logger = DMK::log();
 
         // Built-ins are NOT shipped in a file; they are embedded factory data. Any canonical built-in the
         // loaded set lacks (a fresh install, a user who deleted one, or a file that predates a new built-in
@@ -267,7 +270,7 @@ namespace TPVCamera::Presets
 
     void PresetStore::load(const std::string &file_path)
     {
-        DMK::Logger &logger = DMK::Logger::get_instance();
+        DMK::Logger &logger = DMK::log();
         m_file_path = file_path;
         m_presets.clear();
         m_dirty = false;
@@ -371,7 +374,7 @@ namespace TPVCamera::Presets
 
     void PresetStore::save()
     {
-        DMK::Logger &logger = DMK::Logger::get_instance();
+        DMK::Logger &logger = DMK::log();
         if (m_file_path.empty())
         {
             logger.warning("Preset save skipped: no file path set");

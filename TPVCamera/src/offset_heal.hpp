@@ -11,20 +11,33 @@
  * type. Only the offset is cached (a ptrdiff_t), never an absolute address, so the recovered value stays
  * valid across instances and sessions.
  *
+ * The cadence, the per-group success latch, and the one-shot "the layout drifted" warning are NOT
+ * hand-rolled here: they are rtti::HealScheduler, the library's render-loop driver. This unit contributes
+ * only what is mod-specific - the landmark tables, the corroborated top-of-struct bracket, and the live
+ * bases each group heals from. The render path publishes a base with note_*_base() as it resolves one and
+ * calls offset_heal_tick() once per frame; a group whose base is not up yet is skipped by its gate without
+ * spending the retry budget or logging.
+ *
  * The cache holds the current nominal offsets until a heal runs, so behaviour is identical to a hardcoded
  * build until a layout actually drifts. Healing is strictly fail-closed: an unrecoverable layout leaves the
  * nominal offset in place (degrades to current behaviour, never a guessed offset, never a crash), exactly
- * as DetourModKit's heal primitives guarantee. The heals are init-time / first-resolve only (the RTTI
- * prelude is syscall-heavy), never per-frame; the per-frame chains just read one relaxed atomic each.
+ * as DetourModKit's heal primitives guarantee. Each slot is an rtti::HealedSlot rather than a bare atomic,
+ * so it publishes {value, generation, validity} and a consumer that AUTHORIZES A WRITE through the offset
+ * can demand Confirmed (write_authorized_offset) instead of silently writing through a retained nominal.
+ * Read-only navigation keeps using the retained value (offset_value), which is what preserves the
+ * degrade-to-hardcoded behaviour.
  */
 #ifndef TPVCAMERA_OFFSET_HEAL_HPP
 #define TPVCAMERA_OFFSET_HEAL_HPP
 
 #include "constants.hpp"
 
-#include <atomic>
+#include <DetourModKit/error.hpp>
+#include <DetourModKit/rtti_dissect.hpp>
+
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace TPVCamera
 {
@@ -32,85 +45,122 @@ namespace TPVCamera
     /**
      * @struct RuntimeOffsets
      * @brief Live (possibly healed) copies of the in-scope pointer-chain field offsets.
-     * @details Each field is a lock-free atomic so the render thread can read it per frame while a one-shot
-     *          heal writes it once, with no torn read (a single aligned word) and no lock. Every field is
-     *          seeded with its constants.hpp nominal, so before any heal the cache reproduces the hardcoded
-     *          build exactly. Writes happen only inside the heal functions below (under a one-shot guard);
-     *          the chains read with relaxed ordering because the value is a standalone scalar with no
-     *          dependent data published through it, and a one-frame-stale nominal-vs-healed read is harmless
-     *          (both are valid offsets until the heal completes).
+     * @details Each field is an rtti::HealedSlot: a single-producer seqlock channel publishing the offset,
+     *          the resolving image generation, and a validity, so the render thread can read it per frame
+     *          while a heal writes it once. Every field is seeded with its constants.hpp nominal at
+     *          construction (Unverified, generation 0), so before any heal the cache reproduces the
+     *          hardcoded build exactly while still reporting that the value carries no evidence. Writes
+     *          happen only inside the heal groups registered by start_offset_heal().
      */
     struct RuntimeOffsets
     {
-        std::atomic<std::ptrdiff_t> ccryaction_actiongame{Constants::CCRYACTION_ACTIONGAME_OFFSET};
-        std::atomic<std::ptrdiff_t> cactiongame_local_actor{Constants::CACTIONGAME_LOCAL_ACTOR_OFFSET};
-        std::atomic<std::ptrdiff_t> c_player_entity{Constants::C_PLAYER_ENTITY_OFFSET};
-        std::atomic<std::ptrdiff_t> c_player_look_controller{Constants::C_PLAYER_LOOK_CONTROLLER_OFFSET};
-        std::atomic<std::ptrdiff_t> c_player_animated_human{Constants::C_PLAYER_ANIMATED_HUMAN_OFFSET};
-        std::atomic<std::ptrdiff_t> c_player_actor_model{Constants::C_PLAYER_ACTOR_MODEL_OFFSET};
-        std::atomic<std::ptrdiff_t> c_player_missile_controller{Constants::C_PLAYER_MISSILE_CONTROLLER_OFFSET};
-        std::atomic<std::ptrdiff_t> animated_human_animchar{Constants::ANIMATED_HUMAN_ANIMCHAR_OFFSET};
-        std::atomic<std::ptrdiff_t> context_manager{Constants::OFFSET_MANAGER_PTR_STORAGE};
-        std::atomic<std::ptrdiff_t> context_minigame_subsystem{Constants::OFFSET_MINIGAME_SUBSYSTEM};
+        RuntimeOffsets() noexcept;
+
+        DMK::rtti::HealedSlot ccryaction_actiongame;
+        DMK::rtti::HealedSlot cactiongame_local_actor;
+        DMK::rtti::HealedSlot c_player_entity;
+        DMK::rtti::HealedSlot c_player_look_controller;
+        DMK::rtti::HealedSlot c_player_animated_human;
+        DMK::rtti::HealedSlot c_player_actor_model;
+        DMK::rtti::HealedSlot c_player_missile_controller;
+        DMK::rtti::HealedSlot animated_human_animchar;
+        DMK::rtti::HealedSlot context_manager;
+        DMK::rtti::HealedSlot context_minigame_subsystem;
     };
 
     /**
      * @brief Returns the process-wide runtime offset cache.
      * @details Backed by a single function-local static (no static-init-order dependency, like the other
-     *          shared state in global_state.hpp). Constructed on first use with every field at its nominal.
+     *          shared state in global_state.hpp). Constructed on first use with every field seeded at its
+     *          nominal.
      */
     [[nodiscard]] RuntimeOffsets &runtime_offsets() noexcept;
 
     /**
-     * @brief Heals the CCryAction -> CActionGame pointer offset once from the resolved CCryAction framework.
-     * @details This is the root of the player chain: every actor walk reads CActionGame through this offset
-     *          before any of the C_Player-rooted heals can run, so a CCryAction layout shift here would defeat
-     *          the whole chain. CActionGame carries RTTI (CACTIONGAME_RTTI_NAME), so the slot is healable by a
-     *          window scan keyed on that type. Latches on the first SUCCESS, never on call count: the slot reads
-     *          null until the framework constructs CActionGame (cold boot, main menu, a slow load), so the heal
-     *          stays silent and keeps retrying for as long as that takes, then stops once it resolves. Caller
-     *          passes the cached CCryAction (resolved via GetIGameFramework). Render-thread only.
-     * @param cry_action Live CCryAction framework base address.
+     * @brief Reads a healed offset for READ-ONLY chain navigation.
+     * @param slot The cache slot.
+     * @return The healed offset once a heal confirms one, otherwise the seeded nominal.
+     * @details This is the degrade-to-hardcoded path: a walk that only reads through the offset is no worse
+     *          off with the nominal than a build that never healed at all, so it takes the retained value
+     *          without demanding evidence. Use write_authorized_offset() instead whenever the offset decides
+     *          where a WRITE lands.
+     * @note Callback-safe: a bounded seqlock read, no allocation, locking, or I/O.
      */
-    void heal_framework_offset(std::uintptr_t cry_action) noexcept;
+    [[nodiscard]] std::ptrdiff_t offset_value(const DMK::rtti::HealedSlot &slot) noexcept;
 
     /**
-     * @brief Heals the C_Player-rooted offsets from a live, RTTI-validated C_Player; retries until resolved.
-     * @details Independently heals the RTTI-typed members whose type is UNIQUE within C_Player (animated-human,
-     *          actor-model, missile controller) and recovers the entity + look-controller offsets (the latter
-     *          has no RTTI of its own) from a corroborated top-of-struct bracket; the animated-character pointer
-     *          one hop further out is healed through the (healed) animated-human offset. The C_Player-direct
-     *          group is deterministic once the caller has validated the vtable, so it latches after one pass;
-     *          animChar latches separately once C_AnimatedHuman is live, so a frame where that pointer is briefly
-     *          null retries on a later interval instead of being abandoned (no attempt cap). Caller must pass a
-     *          C_Player whose vtable already matched C_PLAYER_RTTI_NAME. Render-thread only.
-     * @param c_player Live C_Player base address.
+     * @brief Reads a healed offset that is about to authorize a WRITE into a game struct.
+     * @param slot The cache slot.
+     * @return The offset when the slot is Confirmed, or ErrorCode::OffsetNotConfirmed when no heal has
+     *         established it.
+     * @details A retained nominal is safe to READ through (worst case it reads a neighbouring field) but not
+     *          to WRITE through: on a genuinely drifted layout the store lands in whatever member now
+     *          occupies that slot. Fail closed instead, and skip the write for the frame.
+     * @note Callback-safe: a bounded seqlock read, no allocation, locking, or I/O.
      */
-    void heal_player_offsets(std::uintptr_t c_player) noexcept;
+    [[nodiscard]] DMK::Result<std::ptrdiff_t> write_authorized_offset(const DMK::rtti::HealedSlot &slot) noexcept;
 
     /**
-     * @brief Recovers the CActionGame local-actor offset when the cached slot no longer holds a C_Player.
-     * @details The look-up of C_Player itself navigates through this offset, so it cannot be healed from a
-     *          resolved C_Player (there is none until this offset is right). Instead the resolver calls this
-     *          when the cached slot holds a populated object that is NOT a C_Player (the signature of a
-     *          CActionGame layout drift): it scans a window around the nominal for the slot that resolves to
-     *          C_Player and caches it. The nominal slot is checked first, so an undrifted build resolves with
-     *          a single probe and no scan. Render-thread only.
-     * @param action_game Live CActionGame base address.
-     * @return The resulting local-actor offset (healed if recovered, else the unchanged cache value).
+     * @brief Starts the self-heal scheduler and registers every heal group.
+     * @details Call once from init(), on the init thread, before any detour is armed. Each group is gated on
+     *          the live base the render path publishes through the note_*_base() calls below, so registering
+     *          them all up front costs nothing until the corresponding object exists.
+     * @note Setup and control plane only: allocates the scheduler and its groups.
      */
-    [[nodiscard]] std::ptrdiff_t heal_local_actor_offset(std::uintptr_t action_game) noexcept;
+    void start_offset_heal();
 
     /**
-     * @brief Heals the global-context member offsets once (camera manager, minigame subsystem).
-     * @details Independently heals OFFSET_MANAGER_PTR_STORAGE and OFFSET_MINIGAME_SUBSYSTEM from the resolved
-     *          context object, keyed on the manager / minigame-subsystem RTTI names. Because the context base
-     *          is anchored (not navigated through a possibly-drifted offset), a top-of-context member
-     *          insertion is recoverable here. One-shot: the first call after the world is live does the work.
-     *          Render-thread only.
-     * @param context Resolved global-context object base address.
+     * @brief Advances the self-heal scheduler by one frame.
+     * @details Render-thread only, once per frame. Every un-latched group whose gate passes and whose retry
+     *          interval is due runs its scan; a group that resolves latches and stops being scanned. A no-op
+     *          before start_offset_heal() and after every group has latched.
      */
-    void heal_context_offsets(std::uintptr_t context) noexcept;
+    void offset_heal_tick() noexcept;
+
+    /**
+     * @brief Publishes the live CCryAction framework base for the chain-root heal group.
+     * @param cry_action Live CCryAction framework base address, or 0 when it is not resolved.
+     */
+    void note_framework_base(std::uintptr_t cry_action) noexcept;
+
+    /**
+     * @brief Publishes the live CActionGame base for the local-actor recovery group.
+     * @param action_game Live CActionGame base address, or 0 when it is not resolved.
+     */
+    void note_action_game_base(std::uintptr_t action_game) noexcept;
+
+    /**
+     * @brief Publishes a live, RTTI-VALIDATED C_Player base for the player-rooted heal groups.
+     * @param c_player Live C_Player base address whose vtable already matched C_PLAYER_RTTI_NAME, or 0.
+     */
+    void note_player_base(std::uintptr_t c_player) noexcept;
+
+    /**
+     * @brief Publishes the resolved global-context base for the context-member heal groups.
+     * @param context Resolved global-context object base address, or 0.
+     */
+    void note_context_base(std::uintptr_t context) noexcept;
+
+    /**
+     * @brief Asks the local-actor group to recover the CActionGame local-actor offset.
+     * @details C_Player is found THROUGH that offset, so it cannot be healed from a resolved C_Player. The
+     *          resolver calls this when the cached slot holds a populated object that is NOT a C_Player (the
+     *          signature of a CActionGame layout drift); the group then scans CActionGame for the C_Player
+     *          slot on its next due frame and latches once it resolves. The recovered offset is picked up by
+     *          the resolver's normal read on a later frame, so no caller has to wait on the scan.
+     */
+    void request_local_actor_recovery() noexcept;
+
+    /**
+     * @brief Copies the accumulated per-landmark drift report.
+     * @param out Destination; at most out.size() entries are written.
+     * @return The number of entries written.
+     * @details One rtti::DriftEntry per heal this session recorded, built from the heal results the groups
+     *          already produced (rtti::heal_report is the one-base batch form; these landmarks span four
+     *          bases that come up at different times, so re-running it would mean a second scan). Feeds
+     *          diagnostics::collect() so the shutdown health line reports the layout state.
+     */
+    [[nodiscard]] std::size_t offset_heal_drift_report(std::span<DMK::rtti::DriftEntry> out) noexcept;
 
 } // namespace TPVCamera
 

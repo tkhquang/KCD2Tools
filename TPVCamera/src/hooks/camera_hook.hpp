@@ -14,13 +14,16 @@
 #ifndef TPVCAMERA_CAMERA_HOOK_HPP
 #define TPVCAMERA_CAMERA_HOOK_HPP
 
+#include <DetourModKit/error.hpp>
+#include <DetourModKit/hook.hpp>
+
 #include <cstddef>
 #include <cstdint>
 
 namespace TPVCamera
 {
 
-    // InputManager binding names shared across the registration site (tpv_camera.cpp) and the INI
+    // Input binding names shared across the registration site (tpv_camera.cpp) and the INI
     // hot-reload re-bind (config.cpp), so every site agrees on the exact spelling. The zoom holds are
     // queried per frame in the frustum-builder detour to drive the follow distance; the orbit hold is
     // edge-driven (its callback engages/releases free-look directly on the key edges), not polled.
@@ -38,10 +41,13 @@ namespace TPVCamera
      *          the offset is toggled off, so they are harmless when the view is first-person.
      * @param module_base Base address of the target game module.
      * @param module_size Size of the target game module in bytes.
-     * @return true if the camera hook was installed (best-effort head/input hooks may warn);
-     *         false on a hard failure that should be surfaced to the caller.
+     * @param hooks The mod's hook stack; each installed handle is pushed in install order.
+     * @return An empty value when the mandatory frustum-builder hook was installed (best-effort head/input
+     *         hooks may still warn), or the library Error that refused it (ErrorCode::NoMatch when the anchor
+     *         cascade did not resolve).
      */
-    [[nodiscard]] bool initialize_camera(uintptr_t module_base, size_t module_size);
+    [[nodiscard]] DMK::Result<void> initialize_camera(uintptr_t module_base, size_t module_size,
+                                                      DMK::hook::HookStack &hooks);
 
 } // namespace TPVCamera
 

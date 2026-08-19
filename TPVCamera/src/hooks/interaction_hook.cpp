@@ -4,12 +4,12 @@
  *
  * @details The interactor casts a look ray each tick to find the "press to use" target. The look-ray builder
  *          (sub_1808333C8) computes the ray origin (interactor+0x3E8) and direction (interactor+0x3F4) from
- *          the gameplay VIEW SUBSYSTEM -- reached via sub_18091C138()+56, the entity subsystem registry, NOT
- *          the render camera -- eye-anchored, which the mod never offsets. So in third person the screen-centre
+ *          the gameplay VIEW SUBSYSTEM - reached via sub_18091C138()+56, the entity subsystem registry, NOT
+ *          the render camera - eye-anchored, which the mod never offsets. So in third person the screen-centre
  *          crosshair and the look-ray target diverge by the shoulder offset (worst at close range).
  *          sub_1808333C8 hands that origin+direction to the generic ray-query builder (sub_180530584, called
- *          at fn+0x259). This hook intercepts that builder and -- ONLY when the caller's return address is
- *          inside sub_1808333C8 -- rewrites the origin to the render camera and the direction to the crosshair
+ *          at fn+0x259). This hook intercepts that builder and - ONLY when the caller's return address is
+ *          inside sub_1808333C8 - rewrites the origin to the render camera and the direction to the crosshair
  *          forward (preserving the engine's ray reach), so the look-ray follows the screen centre at all
  *          ranges. After the rewrite interactor+0x3E8/+0x3F4 equal the render-cam pose. The
  *          player is in the cast's skip list, so originating from the (behind-the-player) camera does not
@@ -25,7 +25,7 @@
  *          first person.
  *
  *          DIAGNOSTICS: while InteractFromCamera is on, a rate-limited trace line reports rayBuilds (all
- *          intercepted builds), interactionCalls (builds whose caller is the look-ray -- if this stays 0, the
+ *          intercepted builds), interactionCalls (builds whose caller is the look-ray - if this stays 0, the
  *          look-ray does NOT use this builder / the filter missed), redirects (builds actually rewritten),
  *          onscreenForced (reticle gates force-passed for a crosshair-ray candidate), and the before/after
  *          eye->camera + dir values so the rewrite is visible in the log.
@@ -37,6 +37,8 @@
 #include "constants.hpp"
 #include "global_state.hpp"
 
+#include "../dmk_aliases.hpp"
+
 #include <DetourModKit.hpp>
 
 #include <windows.h>
@@ -45,7 +47,6 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
-#include <stdexcept>
 #include <string>
 
 namespace TPVCamera
@@ -65,7 +66,7 @@ namespace TPVCamera
         uintptr_t s_lookray_lo = 0;
         uintptr_t s_lookray_hi = 0;
 
-        // --- diagnostics (touched on the game thread; atomic for race-free reads in the trace line) ---
+        // diagnostics (touched on the game thread; atomic for race-free reads in the trace line)
         std::atomic<unsigned long long> s_calls_total{0};   // every ray-query build intercepted
         std::atomic<unsigned long long> s_calls_lookray{0}; // builds whose caller is the interactor look-ray
         std::atomic<unsigned long long> s_redirects{0};     // builds actually rewritten
@@ -181,7 +182,7 @@ namespace TPVCamera
             }
             s_last_log = now;
 
-            DMK::Logger &log = DMK::Logger::get_instance();
+            DMK::Logger &log = DMK::log();
             const unsigned long long total = s_calls_total.load(std::memory_order_relaxed);
             const unsigned long long look = s_calls_lookray.load(std::memory_order_relaxed);
             const unsigned long long red = s_redirects.load(std::memory_order_relaxed);
@@ -210,7 +211,8 @@ namespace TPVCamera
          * @brief Detour for the ray-query builder; redirects ONLY the interactor look-ray.
          */
         uintptr_t __fastcall ray_query_build_detour(uintptr_t out, uintptr_t origin, uintptr_t dir, int objtypes,
-                                                    int flags, uintptr_t skip_ents, unsigned __int8 n, char mode)
+                                                    int flags, uintptr_t skip_ents, unsigned __int8 n,
+                                                    char mode) noexcept
         {
             s_calls_total.fetch_add(1, std::memory_order_relaxed);
 
@@ -256,7 +258,7 @@ namespace TPVCamera
          *        the top selection; all other candidates fall through to the original projection test. This is what
          *        lets the crosshair-pointed shrine/bed/door survive the proximity build with the offset camera.
          */
-        char __fastcall on_screen_check_detour(uintptr_t a1, uintptr_t a2, float *a3, uintptr_t a4)
+        char __fastcall on_screen_check_detour(uintptr_t a1, uintptr_t a2, float *a3, uintptr_t a4) noexcept
         {
             s_onscreen_calls.fetch_add(1, std::memory_order_relaxed);
 
@@ -299,71 +301,83 @@ namespace TPVCamera
 
     } // namespace
 
-    bool initialize_interaction_hook()
+    DMK::Result<void> initialize_interaction_hook(DMK::hook::HookStack &hooks)
     {
-        DMK::Logger &logger = DMK::Logger::get_instance();
+        DMK::Logger &logger = DMK::log();
 
-        // Fail closed if a resolved entry leads with a call/breakpoint byte; a sibling mod's E9 jump-hook
-        // does not trip this, so the cascade's entry-anchored layering still works.
-        const DMK::HookConfig hook_config{.prologue_policy = DMK::InlineProloguePolicy::Fail};
+        // The default hook::Options prologue policy is Fail: refuse the install when a resolved entry leads
+        // with a call or breakpoint byte. A sibling mod's E9 jump hook decodes as a relocatable branch
+        // rather than a refusal, so the cascade's entry-anchored layering still works. Each refusal is
+        // returned as the library's own typed Error so the caller keeps the ErrorCode.
 
-        try
+        // The interactor look-ray builder entry -> the caller-range filter bound. The module-scoped
+        // cascade kept the resolved entry inside the game image or returns 0, so a cross-module collision
+        // can no longer yield a bogus return-address range.
+        const uintptr_t lookray = anchor_address(AnchorId::InteractorLookRay);
+        if (lookray == 0)
         {
-            // The interactor look-ray builder entry -> the caller-range filter bound. The module-scoped
-            // cascade kept the resolved entry inside the game image or returns 0, so a cross-module collision
-            // can no longer yield a bogus return-address range.
-            const uintptr_t lookray = anchor_address(AnchorId::InteractorLookRay);
-            if (lookray == 0)
-            {
-                throw std::runtime_error("Interactor look-ray builder cascade did not resolve");
-            }
-            s_lookray_lo = lookray;
-            s_lookray_hi = s_lookray_lo + Constants::INTERACTOR_LOOKRAY_SPAN;
+            return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "interaction_hook/lookray_anchor"});
+        }
+        s_lookray_lo = lookray;
+        s_lookray_hi = s_lookray_lo + Constants::INTERACTOR_LOOKRAY_SPAN;
 
-            // Hook the ray-query builder.
-            const uintptr_t hook_addr = anchor_address(AnchorId::InteractionRayBuild);
-            if (hook_addr == 0)
-            {
-                throw std::runtime_error("Interaction ray-build cascade did not resolve");
-            }
+        // Hook the ray-query builder.
+        const uintptr_t hook_addr = anchor_address(AnchorId::InteractionRayBuild);
+        if (hook_addr == 0)
+        {
+            return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "interaction_hook/raybuild_anchor"});
+        }
 
-            auto result = DMK::HookManager::get_instance().create_inline_hook(
-                "InteractionRayBuild", hook_addr, reinterpret_cast<void *>(ray_query_build_detour),
-                reinterpret_cast<void **>(&s_original), hook_config);
-            if (!result.has_value())
-            {
-                throw std::runtime_error("Failed to create interaction ray hook: " +
-                                         std::string(DMK::Hook::error_to_string(result.error())));
-            }
+        auto result = DMK::hook::inline_at(
+            DMK::hook::InlineRequest{.name = "InteractionRayBuild", .target = DMK::Address{hook_addr}},
+            ray_query_build_detour);
+        if (!result.has_value())
+        {
+            return std::unexpected(result.error());
+        }
+        // Publish the trampoline BEFORE enable() arms the patch.
+        s_original = result->original<RayQueryBuildFunc>();
+        if (auto armed = result->enable(); !armed.has_value())
+        {
+            return std::unexpected(armed.error());
+        }
+        hooks.push(std::move(*result));
 
-            // Hook the on-screen reticle projection gate -- the gate that drops shrines/beds/doors when the
-            // body is not turned. Non-fatal: failure leaves shrine interaction body-driven.
-            const uintptr_t onscreen = anchor_address(AnchorId::InteractionOnScreen);
-            if (onscreen != 0)
+        // Hook the on-screen reticle projection gate - the gate that drops shrines/beds/doors when the
+        // body is not turned. Best-effort WITHIN this unit (it is a second, independent feature): a failure
+        // warns and leaves shrine interaction body-driven rather than failing the look-ray redirect that
+        // already installed, so it is reported here instead of returned.
+        const uintptr_t onscreen = anchor_address(AnchorId::InteractionOnScreen);
+        if (onscreen != 0)
+        {
+            auto onscreen_result = DMK::hook::inline_at(
+                DMK::hook::InlineRequest{.name = "InteractionOnScreenCheck", .target = DMK::Address{onscreen}},
+                on_screen_check_detour);
+            if (!onscreen_result.has_value())
             {
-                auto onscreen_result = DMK::HookManager::get_instance().create_inline_hook(
-                    "InteractionOnScreenCheck", onscreen, reinterpret_cast<void *>(on_screen_check_detour),
-                    reinterpret_cast<void **>(&s_onscreen_original), hook_config);
-                if (!onscreen_result.has_value())
-                {
-                    logger.warning("InteractionHook[init]: on-screen reticle hook failed ({}); shrine "
-                                   "interaction stays body-driven (look-ray/loot unaffected).",
-                                   std::string(DMK::Hook::error_to_string(onscreen_result.error())));
-                }
+                logger.warning("InteractionHook[init]: on-screen reticle hook failed ({}); shrine "
+                               "interaction stays body-driven (look-ray/loot unaffected).",
+                               onscreen_result.error().message());
             }
             else
             {
-                logger.warning("InteractionHook[init]: on-screen reticle cascade unresolved; shrine "
-                               "interaction stays body-driven (look-ray/loot unaffected).");
+                s_onscreen_original = onscreen_result->original<OnScreenCheckFunc>();
+                if (auto armed = onscreen_result->enable(); !armed.has_value())
+                {
+                    logger.warning("InteractionHook[init]: on-screen reticle hook could not be armed ({}); "
+                                   "shrine interaction stays body-driven (look-ray/loot unaffected).",
+                                   armed.error().message());
+                }
+                hooks.push(std::move(*onscreen_result));
             }
-
-            return true;
         }
-        catch (const std::exception &e)
+        else
         {
-            logger.error("InteractionHook: Initialization failed: {}", e.what());
-            return false;
+            logger.warning("InteractionHook[init]: on-screen reticle cascade unresolved; shrine "
+                           "interaction stays body-driven (look-ray/loot unaffected).");
         }
+
+        return {};
     }
 
 } // namespace TPVCamera

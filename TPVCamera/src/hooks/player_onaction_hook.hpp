@@ -16,15 +16,21 @@
 #ifndef TPVCAMERA_PLAYER_ONACTION_HOOK_HPP
 #define TPVCAMERA_PLAYER_ONACTION_HOOK_HPP
 
+#include <DetourModKit/error.hpp>
+#include <DetourModKit/hook.hpp>
+
 namespace TPVCamera
 {
 
     /**
      * @brief Installs the player OnAction / action-dispatcher hook from the pre-resolved anchor.
-     * @return true if the dispatcher was located and hooked.
+     * @param hooks The mod's hook stack; the installed handle is pushed on success.
+     * @return An empty value when the dispatcher was located and hooked, or the library Error that refused it
+     *         (ErrorCode::NoMatch when the anchor cascade did not resolve). Best-effort at the call site: a
+     *         refusal only costs the input-driven orbit move-detection, which falls back to body speed.
      * @note Call after resolve_all_anchors(); the hook target is read via anchor_address().
      */
-    [[nodiscard]] bool initialize_player_onaction_hook();
+    [[nodiscard]] DMK::Result<void> initialize_player_onaction_hook(DMK::hook::HookStack &hooks);
 
     /** @brief Whether the OnAction hook resolved (callers use the input signal only when true). */
     [[nodiscard]] bool player_onaction_available();
@@ -41,7 +47,7 @@ namespace TPVCamera
      * @brief Force-clears every latched movement magnitude to 0 and returns the largest value that was set.
      * @details The latch is normally cleared only by a matching value==0 release event. On a combat action-map
      *          swap (drawing a weapon, entering a minigame) that release can be SWALLOWED, stranding a slot > 0 so
-     *          the orbit move-detection re-trips with the keys released -- the camera then keeps turning the body
+     *          the orbit move-detection re-trips with the keys released - the camera then keeps turning the body
      *          to a heading no input is driving (the post-combat self-rotation). Callers invoke this on the edges
      *          where a strand can occur (orbit toggle-off, orbit-exclude entry, TPV disengage) to drop the stale
      *          latch. The returned magnitude lets the caller log whether the latch WAS stranded (compare against
