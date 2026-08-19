@@ -1,5 +1,6 @@
 .roo/*
 .idea/*
+build/*
 
 TPVToggle/build/*
 !TPVToggle/build/template
@@ -14,3 +15,8 @@ PizzleYanked/build/*
 PizzleYanked/src/**/*.pak
 
 !/**/.gitkeep
+tools/*
+.claude/*
+**/docs/analysis/*
+CLAUDE.md
+TPVCamera/.claude/analysis
