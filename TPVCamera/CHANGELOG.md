@@ -2,6 +2,12 @@
 
 All notable changes to the TPVCamera mod will be documented in this file.
 
+## [1.4.0] - Steadier View and Patch Resilience
+
+- Added two options to keep the view steady (Stable Aim Basis and Aim Basis Smoothing), both on by default and adjustable in the INI. These are a best-effort improvement and may still have quirks in some situations
+- Strengthened the camera's ability to keep working after game updates
+- Updated the bundled modding toolkit (DetourModKit) to v3.9.0 for extra stability and future compatibility
+
 ## [1.3.0] - [Title for next release]
 
 - The ASI loader is no longer bundled: install Ultimate ASI Loader yourself once (direct download links are in the readme and on the mod page), which keeps the download lean and always up to date
@@ -58,6 +64,7 @@ All notable changes to the TPVCamera mod will be documented in this file.
 - Third person stays out of every minigame (lockpicking, reading, alchemy, pickpocketing, and more), and you can give any minigame its own framing
 - Configurable hotkeys, with most changes applying while you play
 
+[1.4.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.4.0
 [1.3.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.3.0
 [1.2.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.2.0
 [1.1.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.1.0
