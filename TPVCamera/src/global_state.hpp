@@ -54,6 +54,14 @@ namespace TPVCamera
         // so the game looks normal on load until the player toggles the third-person view.
         std::atomic<bool> applying{false};
 
+        // Player look controller (C_Player + C_PLAYER_LOOK_CONTROLLER_OFFSET), republished every frame by
+        // the frustum detour on the RENDER thread and read by the input detour's body-turn pitch bridge on
+        // the INPUT thread. Published only when the self-heal AUTHORIZES writes through that offset, so a
+        // reader may write through it without repeating the authorization. 0 whenever it cannot be
+        // resolved, which the reader treats as "do nothing". Relaxed: a standalone pointer with no
+        // dependent data, re-validated by the guarded write itself.
+        std::atomic<std::uintptr_t> look_controller{0};
+
         // Zoom offset from the configured base distance, driven by the zoom hold keys
         // (polled per frame in the detour). Keeping zoom as a delta from the INI
         // FollowDistance (rather than an absolute value) is what lets an INI edit apply
@@ -142,6 +150,7 @@ namespace TPVCamera
         // cleared when not move-orbiting (and on suppression) so engaging snaps instead of easing across a
         // stale value. Only eased when OrbitContinuousAlign and OrbitSmoothing are both on.
         float orbit_steer_smooth{0.0f};
+
         bool orbit_steer_valid{false};
 
         // Orbit move-detection re-arm latch (render thread only). A genuine sub-stop movement-input reading must

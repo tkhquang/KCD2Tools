@@ -42,6 +42,8 @@ namespace TPVCamera
         CameraCombat,
         /// wh::game::C_CameraDialog, the active camera during dialogue.
         CameraDialog,
+        /// wh::game::C_CameraManager.
+        CameraManager,
         /// wh::game::C_MissileWeaponPlayerController, embedded in C_Player, carries the aim flag.
         MissileController,
         /// wh::game::C_ActorModel, which carries the stance the MOUNT and STEALTH presets key on.

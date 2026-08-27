@@ -161,6 +161,7 @@ namespace TPVCamera
         std::atomic<bool> stable_aim_basis{true};
         std::atomic<float> aim_basis_smoothing{0.3f};
 
+
         // Start-of-session auto-enable flags, read ONCE during init(). Disabled by default.
         std::atomic<bool> auto_enable_tpv{false};   // enter third-person automatically on game start
         std::atomic<bool> auto_enable_orbit{false}; // engage free-look orbit automatically on game start

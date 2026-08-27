@@ -698,6 +698,27 @@ namespace TPVCamera
         const Vector3 eye_forward = eye_rotation.rotate(Vector3{0.0f, 1.0f, 0.0f});
         const Vector3 eye_up = eye_rotation.rotate(Vector3{0.0f, 0.0f, 1.0f});
 
+        // Publish the look controller for the input thread. The body-turn pitch bridge runs in the input
+        // detour, where re-walking g_env -> ... -> C_Player per event would be wasteful and racy. It is
+        // published through write_authorized_offset (not the retained nominal the read-only basis below
+        // accepts) because the bridge WRITES the pitch through it: on a drifted C_Player layout the offset
+        // is not authorized, nothing is published, and the bridge simply does nothing.
+        {
+            uintptr_t publish_controller = 0;
+            if (c_player != 0)
+            {
+                if (const auto authorized = write_authorized_offset(runtime_offsets().c_player_look_controller))
+                {
+                    const auto resolved = mem::read<uintptr_t>(Address{c_player + *authorized});
+                    if (resolved && mem::is_plausible_ptr(Address{*resolved}))
+                    {
+                        publish_controller = *resolved;
+                    }
+                }
+            }
+            cam.look_controller.store(publish_controller, std::memory_order_relaxed);
+        }
+
         // Stable rig basis. The third-person rig (camera = pivot - forward * distance) amplifies any rotation of
         // the basis into a position swing; the EyeHeight body anchor removed the POSITIONAL bob, this removes the
         // ROTATIONAL component the engine bakes into the eye quat during animations (head-bob and weapon-sway
@@ -857,12 +878,12 @@ namespace TPVCamera
         // device-agnostic movement speed used by the camera-relative move alignment; body_valid gates both.
         Vector3 body_origin{0.0f, 0.0f, 0.0f};
         bool body_valid = false;
+        uintptr_t entity_addr = 0;
         {
             // Resolve the entity FRESH from the live C_Player every frame (rather than trusting a mirrored
             // pointer that goes null/stale across view transitions and reloads), which is what keeps the
             // move-detection (hence the camera-relative body-turn and the body anchor) locked onto the
             // CURRENT player. On a failed walk body_valid stays false and the camera degrades to the eye anchor.
-            uintptr_t entity_addr = 0;
             if (c_player != 0)
             {
                 const std::ptrdiff_t c_player_entity_offset = offset_value(runtime_offsets().c_player_entity);
@@ -2086,6 +2107,7 @@ namespace TPVCamera
      */
     static void detour_frustum_build_impl(uintptr_t camera)
     {
+
         // Named timing scope for the whole per-frame camera body. Compiles to nothing unless the build sets
         // DMK_ENABLE_PROFILING, and the collision/occlusion queries below carry their own nested scopes, so a
         // profiling build attributes a frame spike to a specific query instead of "the camera hook".
@@ -2428,6 +2450,7 @@ namespace TPVCamera
         return false; // pass movement, interaction and everything else through
     }
 
+
     /**
      * @brief Input-dispatcher detour. Swallows events while free-looking, else passes through.
      */
@@ -2437,6 +2460,11 @@ namespace TPVCamera
         __try
         {
             block = orbit_capture_and_decide(input_event);
+            // Only when free-look did NOT take the event: while orbiting, the look pitch belongs to the
+            // orbit ring and orbit_capture_and_decide has already blocked it.
+            if (!block)
+            {
+            }
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {

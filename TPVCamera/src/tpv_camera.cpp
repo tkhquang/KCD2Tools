@@ -400,8 +400,26 @@ namespace TPVCamera
             logger.warning("INI hot-reload watcher not started (status {})", static_cast<int>(status));
     }
 
-    DMK::Result<void> init(DMK::Session &session)
+    // Teardown latch for shutdown(). At namespace scope rather than function-local so init() can RESET it.
+    // The host's detach path can enter shutdown() more than once when an explicit FreeLibrary races the dev
+    // loader's reload, and every step of the teardown is destructive, so it has to be latched. But a
+    // function-local static assumes the module is genuinely unmapped between loads. It is not always: a
+    // subsystem that cannot prove it restored its target retains its hooks AND their keepalives (counted
+    // module references), so FreeLibrary leaves the image mapped and the next LoadLibrary hands back the
+    // STALE image with its statics intact. A latch that survives that reload makes the next shutdown() a
+    // silent no-op, leaving every hook installed for the following init() to layer on - which crashes.
+    // Resetting it in init() means a stale-image reload still tears down correctly.
+    static std::atomic<bool> s_teardown_done{false};
+    static std::atomic<bool> s_prologues_restored{true};
+
+    DMK::Result<void> init(DMK::Session &session, const WheelHostTable *wheel_host)
     {
+        // Re-arm the teardown latch. On a fresh image these are already default-constructed; on a stale
+        // image (see above) they still carry the previous cycle's values and must not suppress the next
+        // teardown. Written before anything is installed, so no shutdown can observe a half-armed latch.
+        s_prologues_restored.store(true, std::memory_order_relaxed);
+        s_teardown_done.store(false, std::memory_order_release);
+
         DMK::Logger &logger = session.log();
         logger.info("----------------------------------------");
         Version::log_version_info();
@@ -447,12 +465,23 @@ namespace TPVCamera
 
         // The input engine drives every hotkey, so a failed start disables the mod's controls even though
         // the camera itself still renders. Surface the reason rather than discarding it.
-        if (auto started = DMK::input::Input::instance().start(); !started.has_value())
+        // A resident host means the wheel keepalive is booked against the LOADER, not this module, so this
+        // image can still unmap on a reload. Without one, the local MessageHook backend is correct: the
+        // release build is a single DLL that is never unloaded, and its keepalive is harmless there.
+        DMK::input::Input::Settings input_settings{};
+        if (wheel_host != nullptr)
+        {
+            input_settings.wheel_backend = DMK::input::Input::WheelBackend::ExternalHost;
+            input_settings.wheel_host = wheel_host;
+            input_settings.wheel_host_required = true;
+        }
+        if (auto started = DMK::input::Input::instance().start(input_settings); !started.has_value())
         {
             logger.error("Input engine failed to start ({}); hotkeys unavailable", started.error().message());
             return std::unexpected(started.error());
         }
-        logger.info("Input engine started");
+        logger.info("Input engine started ({} wheel backend)",
+                    wheel_host != nullptr ? "resident-host" : "local MessageHook");
 
         enable_hot_reload();
 
@@ -488,13 +517,11 @@ namespace TPVCamera
 
     bool shutdown()
     {
-        // The host's detach path drives this, and that path can be entered more than once when an explicit
-        // FreeLibrary races the dev loader's reload. Every step below is destructive, so latch it.
-        static std::atomic<bool> already_done{false};
-        static std::atomic<bool> prologues_restored{true};
-        if (already_done.exchange(true, std::memory_order_acq_rel))
+        // Latched against re-entry; see s_teardown_done above for why the latch lives at namespace scope
+        // and is re-armed by init() rather than being a function-local static.
+        if (s_teardown_done.exchange(true, std::memory_order_acq_rel))
         {
-            return prologues_restored.load(std::memory_order_acquire);
+            return s_prologues_restored.load(std::memory_order_acquire);
         }
 
         DMK::Logger &logger = DMK::log();
@@ -514,6 +541,11 @@ namespace TPVCamera
         logger.info("Diagnostics: self-heal {}/{} landmarks healed; anchors {}/{} resolved ({} failed, {} at risk)",
                     diag.drift_healed, diag.drift_total, diag.anchor_quality.resolved, diag.anchor_quality.total,
                     diag.anchor_quality.failed, diag.anchor_quality.manual_at_risk);
+
+        // Release the game's third-person body-turn mode BEFORE the hooks go, while the detours that own
+        // the pitch bridge are still installed. Leaving the manager flag set would strand the game in
+        // third-person locomotion with the mod unloaded: the body would keep lagging the look and nothing
+        // would be feeding the look pitch any more. Idempotent, and a no-op if the mode was never engaged.
 
         // Stop the INI watcher first so no reload setter runs during teardown.
         DMK::config::disable_auto_reload();
@@ -537,7 +569,7 @@ namespace TPVCamera
         s_hooks.clear();
         const bool restored =
             DMK::diagnostics::intentional_leak_count(DMK::diagnostics::LeakSubsystem::HookManager) == pins_before;
-        prologues_restored.store(restored, std::memory_order_release);
+        s_prologues_restored.store(restored, std::memory_order_release);
         if (!restored)
         {
             logger.error("Shutdown: a hook could not restore its prologue and pinned its backend; the module "

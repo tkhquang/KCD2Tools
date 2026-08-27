@@ -195,8 +195,22 @@ else()
 
   # Thin loader ASI: loads the logic DLL and reloads it from the staging/ subdir
   # on a Numpad 0 press. Links only the Win32 libraries (no DetourModKit).
-  add_library(${PROJECT_NAME}-loader SHARED src/dev/loader.cpp)
-  target_link_libraries(${PROJECT_NAME}-loader PRIVATE kernel32 user32)
+  add_library(${PROJECT_NAME}-loader SHARED src/dev/mod_loader.cpp)
+  # The loader links the resident wheel host ONLY, never the full archive. Hosting wheel capture here -
+  # in a module that is never unloaded - is what lets the logic DLL keep mouse-wheel bindings and still
+  # unmap: the permanent MessageHookKeepalive is booked against this module instead of that one.
+  target_link_libraries(${PROJECT_NAME}-loader PRIVATE DetourModKit::WheelHost kernel32 user32)
+  target_include_directories(${PROJECT_NAME}-loader PRIVATE src)
+
+  # Guard the property above. Linking the full archive here would give the loader its own DetourModKit
+  # instance, which is exactly the arrangement the library's unload proofs exclude.
+  get_target_property(_tpv_loader_links ${PROJECT_NAME}-loader LINK_LIBRARIES)
+  if(NOT _tpv_loader_links MATCHES "DetourModKit::WheelHost")
+    message(FATAL_ERROR "${PROJECT_NAME}-loader must link DetourModKit::WheelHost.")
+  endif()
+  if(_tpv_loader_links MATCHES "DetourModKit::DetourModKit" OR _tpv_loader_links MATCHES "(^|;)DetourModKit(;|$)")
+    message(FATAL_ERROR "${PROJECT_NAME}-loader must not link the full DetourModKit archive.")
+  endif()
   set_target_properties(${PROJECT_NAME}-loader PROPERTIES
     OUTPUT_NAME "KCD2_TPVCamera"
     SUFFIX ".asi"
@@ -204,11 +218,11 @@ else()
   )
 
   # Logic DLL: all mod logic plus the exported Init/Shutdown entry points.
-  add_library(${PROJECT_NAME}-logic SHARED ${COMMON_SOURCES} src/dev/logic_exports.cpp)
+  add_library(${PROJECT_NAME}-logic SHARED ${COMMON_SOURCES} src/dev/mod_logic.cpp)
   configure_logic_target(${PROJECT_NAME}-logic)
   target_compile_definitions(${PROJECT_NAME}-logic PRIVATE TPVCAMERA_DEV_BUILD)
   set_target_properties(${PROJECT_NAME}-logic PROPERTIES
-    OUTPUT_NAME "KCD2_TPVCamera_Logic"
+    OUTPUT_NAME "KCD2_TPVCamera.logic"
     PREFIX ""
   )
   # /Zi emits a PDB; /DEBUG /INCREMENTAL:NO keep each rebuild a clean, reloadable DLL.
@@ -233,10 +247,10 @@ else()
       COMMAND ${CMAKE_COMMAND} -E make_directory "${TPVCAMERA_GAME_DIR}/staging"
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_FILE:${PROJECT_NAME}-logic>
-        "${TPVCAMERA_GAME_DIR}/staging/KCD2_TPVCamera_Logic.dll"
+        "${TPVCAMERA_GAME_DIR}/staging/KCD2_TPVCamera.logic.dll"
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_PDB_FILE:${PROJECT_NAME}-logic>
-        "${TPVCAMERA_GAME_DIR}/staging/KCD2_TPVCamera_Logic.pdb"
+        "${TPVCAMERA_GAME_DIR}/staging/KCD2_TPVCamera.logic.pdb"
       COMMENT "Deploying logic DLL+PDB to staging (loader promotes on startup / Numpad 0)"
     )
   else()
@@ -246,5 +260,5 @@ else()
 
   message(STATUS "KCD2_TPVCamera (${PROJECT_VERSION}) -- DEV (two-DLL hot-reload) build")
   message(STATUS "    - ${PROJECT_NAME}-loader -> KCD2_TPVCamera.asi (thin loader)")
-  message(STATUS "    - ${PROJECT_NAME}-logic  -> KCD2_TPVCamera_Logic.dll (mod logic)")
+  message(STATUS "    - ${PROJECT_NAME}-logic  -> KCD2_TPVCamera.logic.dll (mod logic)")
 endif()
