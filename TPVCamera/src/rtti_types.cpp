@@ -32,6 +32,7 @@ namespace TPVCamera
             Constants::ANIMATED_CHARACTER_RTTI_NAME,
             Constants::C_CAMERA_COMBAT_RTTI_NAME,
             Constants::C_CAMERA_DIALOG_RTTI_NAME,
+            Constants::C_CAMERA_MANAGER_RTTI_NAME,
             Constants::C_MISSILE_CONTROLLER_RTTI_NAME,
             Constants::C_ACTOR_MODEL_RTTI_NAME,
         }};

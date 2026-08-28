@@ -51,6 +51,11 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD ul_reason_for_call, LPVOID lp_rese
             .game_process_name = "",
             .instance_mutex_prefix = Constants::INSTANCE_MUTEX_PREFIX,
             .log = async_cfg,
+            // Matches the dev build: the [file:line] stamp is kept only on Trace, where it is read while
+            // debugging, and every higher level renders clean. log_open_mode is deliberately NOT matched -
+            // this build is a single DLL with one Session per run, so the default Truncate is correct here
+            // while the dev loader needs Append to keep each generation's teardown records.
+            .log_source_stamp_mode = DMK::LogSourceStampMode::at_or_below(DMK::LogLevel::Trace),
         };
 
         // A gate refusal (wrong process, a duplicate load already holding the mutex) is a reason for

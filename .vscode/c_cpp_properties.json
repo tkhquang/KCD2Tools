@@ -1,29 +1,9 @@
 {
-  // One configuration per C++ module. Both modules build with the Visual Studio
-  // 2022 generator, which does not emit a compile_commands.json, so each include
-  // root and define is listed explicitly (matching the module's CMakeLists and the
-  // headers its DetourModKit submodule / FetchContent dependencies provide). Pick
-  // the matching configuration from the C/C++ config selector in the status bar
-  // for the module you are editing. The generated dependency headers live under
-  // build/dev-msvc/_deps, so configure that preset once (cmake --preset msvc-dev)
-  // before IntelliSense can resolve them.
   "configurations": [
     {
-      "name": "TPVCamera (MSVC)",
+      "name": "windows-gcc-x64",
       "includePath": [
-        "${workspaceFolder}/TPVCamera/src",
-        "${workspaceFolder}/TPVCamera/external/DetourModKit/include",
-        "${workspaceFolder}/TPVCamera/external/DetourModKit/external/DirectXMath/Inc",
-        "${workspaceFolder}/TPVCamera/external/DetourModKit/external/simpleini",
-        "${workspaceFolder}/TPVCamera/external/DetourModKit/external/safetyhook/include",
-        "${workspaceFolder}/TPVCamera/build/dev-msvc/external/DetourModKit/generated",
-        "${workspaceFolder}/TPVCamera/build/dev-msvc/_deps/imgui-src",
-        "${workspaceFolder}/TPVCamera/build/dev-msvc/_deps/imgui-src/backends",
-        "${workspaceFolder}/TPVCamera/build/dev-msvc/_deps/nlohmann_json-src/include",
-        "${workspaceFolder}/TPVCamera/build/dev-msvc/_deps/zydis-src/include",
-        "${workspaceFolder}/TPVCamera/build/dev-msvc/_deps/zydis-build",
-        "${workspaceFolder}/TPVCamera/build/dev-msvc/_deps/zydis-src/dependencies/zycore/include",
-        "${workspaceFolder}/TPVCamera/build/dev-msvc/_deps/zydis-build/zycore"
+        "${workspaceFolder}/**"
       ],
       "defines": [
         "_DEBUG",
@@ -39,10 +19,10 @@
         "ZYDIS_STATIC_BUILD",
         "TPVCAMERA_DEV_BUILD"
       ],
-      "compilerPath": "cl.exe",
-      "cStandard": "c23",
-      "cppStandard": "c++23",
-      "intelliSenseMode": "windows-msvc-x64"
+      "compilerPath": "C:/msys64/mingw64/bin/gcc.exe",
+      "cStandard": "${default}",
+      "cppStandard": "${default}",
+      "intelliSenseMode": "windows-gcc-x64"
     },
     {
       "name": "TPVToggle (MSVC)",

@@ -1,29 +1,3 @@
 {
-  // 120-column baseline (codified in the C++ modules' .clang-format, ColumnLimit: 120).
-  "[cpp][ini]": {
-    "editor.rulers": [120],
-    "editor.wordWrapColumn": 120
-  },
-  // Per-module build trees are large and the external/ submodules are never
-  // edited here; keep both out of search results and the file watcher.
-  "search.exclude": {
-    "**/build/**": true,
-    "**/external/**": true
-  },
-  "files.watcherExclude": {
-    "**/build/**": true,
-    "**/external/**": true
-  },
-  // Lua globals provided by the game's scripting host, for the Lua-based mods
-  // (LootBeacon, PizzleYanked).
-  "Lua.diagnostics.globals": [
-    "System",
-    "Script",
-    "ItemManager",
-    "player",
-    "Game",
-    "UIAction",
-    "Entity",
-    "Player"
-  ]
+  "C_Cpp_Runner.msvcBatchPath": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Auxiliary/Build/vcvarsall.bat"
 }
