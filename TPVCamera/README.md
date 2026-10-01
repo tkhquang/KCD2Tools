@@ -17,10 +17,11 @@ start in first-person instead.
 - Over-the-shoulder framing with adjustable distance, height, and side offset
 - Zoom in and out on the fly
 - Basic free-look orbit to look around your character (early; see Known Limitations)
+- Henry turns on the spot with the game's own turn-in-place animations when you look around while standing still, and the camera stays put; switched off automatically in combat, aiming, riding, conversations and minigames
 - Automatic view switching by situation: switch to first or third person when you enter combat, aiming a bow, dialogue, minigames, riding, or menus (you can still toggle manually during it), with your previous view restored when the situation ends
 - In-game preset manager: edit, add, and save camera presets from an overlay; built-in presets for normal play, combat, aiming, horseback, sneaking, and special poses (lying down, sitting, kneeling, riding a cart) apply automatically by situation, and you can bind your own presets to combinations of states (such as aiming while crouched), with the most specific match winning
 - Free-look look sensitivity is set per axis for both mouse and gamepad, so horizontal and vertical can be tuned independently; set a negative value to invert that axis. Mark any preset setting as Shared to apply its value to every preset at once
-- Camera collision with an optional see-through mode (off by default) that ignores thin posts, rails and fences you can see past and keeps out of corners, plus a cloth-roof clamp (on by default) so a look-down is not buried in tent or awning fabric; all tunable in the INI
+- Camera collision with an optional see-through mode (off by default) that ignores thin posts, rails and fences you can see past and keeps out of corners, plus a cloth-roof clamp (on by default) so a look-down is not buried in tent or awning fabric, and a switch to first person when there is no room behind your character (a low doorway, a wall right behind); all tunable in the INI
 - Crosshair convergence so the screen-center reticle lines up with what you point at
 - Full keyboard and XInput controller support
 - Almost every setting is editable live while the game runs
@@ -94,7 +95,11 @@ would rather the D-pad keep reaching the game. The keyboard zoom keys are unaffe
 The camera hooks the engine's frustum builder and offsets the game view camera's matrix there,
 before the cull planes are computed, so the rendered view and its culling move together (this is
 what keeps nearby geometry from being wrongly hidden). A companion hook keeps the player head
-rendered, and an input hook powers the free-look orbit.
+rendered, and an input hook powers the free-look orbit. The game's AI picks which nearby characters
+to keep updated from the view camera, so a hook keeps that check at your character's eyes; people
+close by then do not vanish in third person. The native turn animation answers "third person" only
+to the game's on-foot locomotion, so Henry plays his turn-in-place animations while everything else
+stays in first person.
 
 The offset is automatically suppressed while a menu or overlay (inventory, map, dialog, codex) is
 open, and while the engine is already in its own built-in third-person view (such as horseback),
@@ -105,10 +110,10 @@ so those contexts render from the untouched engine view.
 Edit `KCD2_TPVCamera.ini`. It is grouped into:
 
 - `[Settings]` - log level, the view hotkeys (`ToggleViewKey`, `ForceFPVKey`, `ForceTPVKey`), the preset-overlay key (`ToggleOverlayKey`), and the start-of-session auto-enable flags
-- `[Camera]` - zoom keys, the camera-space interaction toggle, the view-transition ease, and the camera-stability options (`StableAimBasis`, `AimBasisSmoothing`) that keep the view steady against head-bob, sway, and combat shake (the framing itself is per-preset; see `[Presets]`)
+- `[Camera]` - zoom keys, the camera-space interaction toggle, the view-transition ease, the camera-stability options (`StableAimBasis`, `AimBasisSmoothing`) that keep the view steady against head-bob, sway, and combat shake, and the native turn animation (`NativeTurnAnimation`, with `NativeTurnAngle` and `NativeTurnSettleDelay` tuning when Henry turns on the spot to face where you look). The framing itself is per-preset; see `[Presets]`
 - `[Orbit]` - the free-look orbit keys (press-to-toggle and momentary hold) and the cursor freeze (the orbit feel is per-preset)
-- `[Collision]` - the collision probe and radius, `UseCoverageCollision` (only pull in for things that hide your character) with its coverage / side-wall options, and the independent `UseRenderOcclusion` cloth-roof clamp (enable, skin, and return speed are per-preset)
-- `[StateBehavior]` - switch first/third person on entering a situation (combat, aiming, dialogue, minigame, mount, menu, overlay), restore the prior view on exit (manual toggles during it stick), and suspend/restore free-look in chosen situations
+- `[Collision]` - the collision probe and radius, `UseCoverageCollision` (only pull in for things that hide your character) with its coverage / side-wall options, the independent `UseRenderOcclusion` cloth-roof clamp (enable, skin, and return speed are per-preset), and `HeadClearance`, the room the camera needs behind your character before it switches to first person
+- `[StateBehavior]` - switch first/third person on entering a situation (combat, aiming, dialogue, minigame, mount, menu, overlay), restore the prior view on exit (manual toggles during it stick), suspend/restore free-look in chosen situations, and choose where the native turn animation is switched off (`NativeTurnExcludeState`)
 - `[Presets]` - the preset blend speed; the camera framing lives in the in-game preset manager (open with `ToggleOverlayKey`) and is stored in `KCD2_TPVCamera_presets.json` next to the INI. That file is created automatically from the built-in defaults on first run; it is not shipped, so updating the mod never overwrites presets you have tuned
 
 Most values apply the next frame after you save the file. Every option is documented in the INI.
@@ -264,7 +269,7 @@ are configured at the repository-root `.vscode/`, not under `TPVCamera/`.
 ## Architecture
 
 - `src/hooks/camera_hook.cpp` - the camera: frustum-builder matrix offset, head visibility,
-  free-look orbit, collision, and aim convergence
+  free-look orbit, collision, aim convergence, the AI camera observer, and the native turn animation
 - `src/hooks/ui_menu_hooks.cpp`, `src/hooks/ui_overlay_hooks.cpp` - menu/overlay detection used
   to suppress the offset under UI
 - `src/hooks/hook_registry.cpp` - owns every installed hook handle, so teardown restores the patched

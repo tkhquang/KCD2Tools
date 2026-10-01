@@ -75,6 +75,10 @@ namespace TPVCamera
         // low-passes the basis (0 = off). Both always-live.
         camera.bind<bool>("StableAimBasis", "Stable Aim Basis", s.stable_aim_basis, true);
         camera.bind<float>("AimBasisSmoothing", "Aim Basis Smoothing", s.aim_basis_smoothing, 0.3f);
+        // The game's own turn-in-place animations while the third-person view is engaged (see LiveSettings).
+        camera.bind<bool>("NativeTurnAnimation", "Native Turn Animation", s.native_turn_animation, true);
+        camera.bind<float>("NativeTurnAngle", "Native Turn Angle", s.native_turn_angle, 35.0f);
+        camera.bind<float>("NativeTurnSettleDelay", "Native Turn Settle Delay", s.native_turn_settle_delay, 0.8f);
 
         // Free-look orbit (non-preset, always-live; the orbit feel values are per-preset).
         orbit.bind<bool>("FreezeOrbitOnCursor", "Freeze Orbit On Cursor", s.freeze_orbit_on_cursor, true);
@@ -88,6 +92,7 @@ namespace TPVCamera
         collision.bind<float>("CoverageThreshold", "Coverage Threshold", s.collision_coverage_threshold, 0.8f);
         collision.bind<float>("CameraProbeSize", "Camera Probe Size", s.camera_probe_size, 0.3f);
         collision.bind<bool>("UseRenderOcclusion", "Use Render Occlusion", s.use_render_occlusion, true);
+        collision.bind<float>("HeadClearance", "Head Clearance", s.head_clearance, 0.35f);
 
         // State-driven camera policy. The four *State values are comma-separated GameState token lists
         // (Menu, Overlay, Combat, Mount, Dialogue, Minigame; Dice is an alias for Minigame), parsed into
@@ -110,6 +115,10 @@ namespace TPVCamera
         // every other state debounced).
         state_behavior.bind_parsed("SuppressTPVState", "Suppress TPV State", s.suppress_tpv_mask, parse_state_mask,
                                    "Overlay");
+        // States that switch the native turn animation off: the body re-locks to the look there. A continuous gate
+        // like SuppressTPVState, NOT gated by EnableStateBehavior.
+        state_behavior.bind_parsed("NativeTurnExcludeState", "Native Turn Exclude State", s.native_turn_exclude_mask,
+                                   parse_state_mask, "Combat,Aiming,Mount,Cart,Dialogue,Minigame,Lying,Sitting,Kneel");
 
         // Preset manager (always active). PresetBlendSpeed is the exponential ease rate used when
         // switching presets on a state edge.

@@ -542,10 +542,11 @@ namespace TPVCamera
                     diag.drift_healed, diag.drift_total, diag.anchor_quality.resolved, diag.anchor_quality.total,
                     diag.anchor_quality.failed, diag.anchor_quality.manual_at_risk);
 
-        // Release the game's third-person body-turn mode BEFORE the hooks go, while the detours that own
-        // the pitch bridge are still installed. Leaving the manager flag set would strand the game in
-        // third-person locomotion with the mod unloaded: the body would keep lagging the look and nothing
-        // would be feeding the look pitch any more. Idempotent, and a no-op if the mode was never engaged.
+        // Switch the native turn animation off BEFORE the hooks go, while the frustum detour that does it on the game
+        // thread is still installed. Otherwise the locomotion action keeps the LockBodyTurn reference it took while the
+        // mod reported third person, and the body stays free of the look until the player's next step. Idempotent, and
+        // a no-op if the native turn animation was never engaged.
+        release_native_turn_animation();
 
         // Stop the INI watcher first so no reload setter runs during teardown.
         DMK::config::disable_auto_reload();

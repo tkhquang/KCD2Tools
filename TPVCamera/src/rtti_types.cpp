@@ -11,6 +11,7 @@
 
 #include <DetourModKit.hpp>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -18,6 +19,9 @@
 #include <deque>
 #include <optional>
 #include <string_view>
+#include <system_error>
+#include <thread>
+#include <vector>
 
 namespace TPVCamera
 {
@@ -35,6 +39,9 @@ namespace TPVCamera
             Constants::C_CAMERA_MANAGER_RTTI_NAME,
             Constants::C_MISSILE_CONTROLLER_RTTI_NAME,
             Constants::C_ACTOR_MODEL_RTTI_NAME,
+            Constants::C_CAMERA_OBSERVER_RTTI_NAME,
+            Constants::CTIMER_RTTI_NAME,
+            Constants::SGAME_OBJECT_EVENT_RTTI_NAME,
         }};
 
         // A TypeIdentity is pinned, so a std::vector cannot hold one: a reallocation has to move its
@@ -83,6 +90,68 @@ namespace TPVCamera
             s_minigame_types.emplace_back(def.rtti_name, image);
         }
 
+        // Resolve every identity now, during init. A TypeIdentity resolves on its first vtable() call with a sweep over
+        // the whole image, tens of milliseconds per class. Left to first use, every sweep lands on the first game-view
+        // frame on the render thread, a hitch of about half a second when the world first appears. Each identity
+        // keeps its own cache and the sweeps only read the image, so a few threads share them (one after another they
+        // add about two seconds to init). The calling thread takes part too, so the warm-up still completes if no
+        // worker can be started. A class that does not resolve here is retried on demand under the library's retry
+        // cooldown, and its callers answer through the direct RTTI walk meanwhile.
+        std::vector<const DMK::rtti::TypeIdentity *> identities;
+        std::vector<std::string_view> names;
+        for (std::size_t i = 0; i < s_class_types.size(); ++i)
+        {
+            identities.push_back(&s_class_types[i]);
+            names.push_back(k_class_names[i]);
+        }
+        for (std::size_t i = 0; i < s_minigame_types.size(); ++i)
+        {
+            identities.push_back(&s_minigame_types[i]);
+            names.push_back(k_minigames[i].rtti_name);
+        }
+        std::vector<char> resolved(identities.size(), 0);
+        std::atomic<std::size_t> next{0};
+        const auto drain = [&identities, &resolved, &next]() noexcept
+        {
+            for (std::size_t i = next.fetch_add(1); i < identities.size(); i = next.fetch_add(1))
+            {
+                resolved[i] = identities[i]->vtable().has_value() ? 1 : 0;
+            }
+        };
+        {
+            constexpr unsigned k_max_warm_threads = 8;
+            const unsigned workers = std::clamp(std::thread::hardware_concurrency(), 1u, k_max_warm_threads) - 1;
+            std::vector<std::jthread> pool;
+            pool.reserve(workers);
+            try
+            {
+                for (unsigned k = 0; k < workers; ++k)
+                {
+                    pool.emplace_back(drain);
+                }
+            }
+            catch (const std::system_error &)
+            {
+                // Fewer workers than asked for: the calling thread drains whatever they leave.
+            }
+            drain();
+        } // the pool joins here, so every entry of `resolved` is final below
+
+        std::size_t resolved_count = 0;
+        for (std::size_t i = 0; i < identities.size(); ++i)
+        {
+            if (resolved[i] != 0)
+            {
+                ++resolved_count;
+            }
+            else
+            {
+                (void)DMK::log().try_log(DMK::LogLevel::Debug, "RTTI: {} did not resolve at init", names[i]);
+            }
+        }
+        (void)DMK::log().try_log(DMK::LogLevel::Info, "RTTI: {}/{} class identities resolved", resolved_count,
+                                 identities.size());
+
         s_ready.store(true, std::memory_order_release);
     }
 
@@ -94,6 +163,20 @@ namespace TPVCamera
             return false;
         }
         return answer(s_class_types, index, vtable, k_class_names[index]);
+    }
+
+    std::optional<std::uintptr_t> class_vtable(GameClass klass) noexcept
+    {
+        const std::size_t index = static_cast<std::size_t>(klass);
+        if (index >= k_class_count || !s_ready.load(std::memory_order_acquire) || index >= s_class_types.size())
+        {
+            return std::nullopt;
+        }
+        if (const std::optional<Address> primary = s_class_types[index].vtable(); primary.has_value())
+        {
+            return primary->raw();
+        }
+        return std::nullopt;
     }
 
     bool minigame_vtable_is(std::size_t index, std::uintptr_t vtable) noexcept

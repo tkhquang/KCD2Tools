@@ -49,6 +49,16 @@ namespace TPVCamera
     [[nodiscard]] DMK::Result<void> initialize_camera(uintptr_t module_base, size_t module_size,
                                                       DMK::hook::HookStack &hooks);
 
+    /**
+     * @brief Stops the native turn animation, so the body follows the look again, before the hooks are removed.
+     * @details The locomotion action keeps the LockBodyTurn reference it took while the mod reported third person, so
+     *          unloading without this would leave the body free of the look (not following it) until the player's next
+     *          step. The switch-off runs on the game thread, in the next game-view frames; this waits for it, bounded
+     *          to about half a second for a game that renders no frame (minimized, loading). Idempotent.
+     * @note Call from shutdown while the camera hooks are still installed.
+     */
+    void release_native_turn_animation() noexcept;
+
 } // namespace TPVCamera
 
 #endif // TPVCAMERA_CAMERA_HOOK_HPP

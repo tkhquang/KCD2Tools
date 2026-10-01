@@ -54,14 +54,6 @@ namespace TPVCamera
         // so the game looks normal on load until the player toggles the third-person view.
         std::atomic<bool> applying{false};
 
-        // Player look controller (C_Player + C_PLAYER_LOOK_CONTROLLER_OFFSET), republished every frame by
-        // the frustum detour on the RENDER thread and read by the input detour's body-turn pitch bridge on
-        // the INPUT thread. Published only when the self-heal AUTHORIZES writes through that offset, so a
-        // reader may write through it without repeating the authorization. 0 whenever it cannot be
-        // resolved, which the reader treats as "do nothing". Relaxed: a standalone pointer with no
-        // dependent data, re-validated by the guarded write itself.
-        std::atomic<std::uintptr_t> look_controller{0};
-
         // Zoom offset from the configured base distance, driven by the zoom hold keys
         // (polled per frame in the detour). Keeping zoom as a delta from the INI
         // FollowDistance (rather than an absolute value) is what lets an INI edit apply
@@ -85,6 +77,11 @@ namespace TPVCamera
         // hit. A thin ray grazing an edge alternates hit/miss each frame; holding through the
         // gap stops the camera pumping (sawtooth) instead of easing out and snapping back in.
         float collision_hold_timer{0.0f};
+        // First-person fallback (render thread only): set while the camera arm is shorter than HeadClearance, so the
+        // camera would sit inside the player's head; head_fallback_blend eases the camera from the collided position
+        // onto the eye (1 = at the eye) and back. The head is hidden while it is set (see the head-visibility detour).
+        bool head_fallback{false};
+        float head_fallback_blend{0.0f};
 
         // Free-look "level" blend (render thread only, like the fields above): eases 0 -> 1 while
         // orbiting and back to 0 on release. While orbiting the camera rig is built from a level
@@ -196,6 +193,22 @@ namespace TPVCamera
         float basis_quat_z{0.0f};
         float basis_quat_w{1.0f};
         bool basis_quat_valid{false};
+
+        // Turn-in-place pivot hold (render thread only). A native turn-in-place animation steps the body a little
+        // (its root motion moves the entity 5-20 cm), and the pivot follows the entity origin, so without this the
+        // camera shifts with every turn whose steps were not kept in place. turn_hold_x/y is the horizontal
+        // displacement the body made while turning in place. It is subtracted from the body origin so the pivot stays
+        // where it was, and eased back to zero once the player moves or the native turn stops. Normally the steps are
+        // kept in place and this stays near zero. turn_hold_timer keeps absorbing briefly after the rotation stops,
+        // for the step's settle. turn_track_* is the previous frame's body origin and yaw. turn_track_valid is cleared
+        // on suppression so the first engaged frame only seeds the tracker.
+        float turn_hold_x{0.0f};
+        float turn_hold_y{0.0f};
+        float turn_hold_timer{0.0f};
+        float turn_track_x{0.0f};
+        float turn_track_y{0.0f};
+        float turn_track_yaw{0.0f};
+        bool turn_track_valid{false};
     };
 
     /**
