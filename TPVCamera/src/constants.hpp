@@ -114,13 +114,15 @@ namespace Constants
     // driven separately via the BODY-turn constants below.
     constexpr ptrdiff_t LOOK_CONTROLLER_YAW_OFFSET = 0x10;
     constexpr ptrdiff_t LOOK_CONTROLLER_YAW2_OFFSET = 0x44;
-    // The derived look quaternion (XYZW) the cameras read, at controller + 0x24. It is the player's clean AIM
-    // orientation: re-derived from the scalar pitch+yaw every frame, so it carries NO head-bob, weapon-sway, or
-    // engine view-shake (combat / hit / landing). At rest it equals the CView eye quat (SVIEWPARAMS_ROTATION_
-    // OFFSET) exactly; during an action the eye quat diverges by the view-shake while this stays on the aim.
-    // StableAimBasis builds the third-person rig basis from THIS instead of the bobbing/shaking eye quat, so a
-    // multi-meter follow distance no longer amplifies the eye-quat view-shake into a camera-position swing.
-    // Live-verified on retail 1.5.5.
+    // The derived look quaternion (XYZW) at controller + 0x24, returned by GetLookQuat (C_Player vtable slot 57).
+    // The engine rebuilds it every frame from the controller's Euler angles (pitch +0x8, roll +0xC, yaw +0x10).
+    // It is the player's clean AIM orientation and carries NO head-bob, weapon-sway, or engine view-shake (combat /
+    // hit / landing). At rest it equals the CView eye quat (SVIEWPARAMS_ROTATION_OFFSET). During an action the eye
+    // quat diverges by the view-shake while this quat stays on the aim. StableAimBasis builds the third-person rig
+    // basis from this aim, so a multi-meter follow distance does not amplify the view-shake into a camera swing.
+    // The raw quat is not always level. A horse mount animation leaves a roll angle at +0xC that normal look input
+    // never clears, so the quat stays tilted for the ride. StableAimBasis therefore reads it through
+    // level_look_rotation, which keeps only the heading and the scalar pitch, as the first-person camera does.
     constexpr ptrdiff_t LOOK_CONTROLLER_QUAT_OFFSET = 0x24;
 
     // Player BODY-turn: force the entity world yaw (camera-relative body facing)
@@ -196,6 +198,23 @@ namespace Constants
     // each read; the orbit-freeze gate no-ops if either link cannot be resolved.
     constexpr ptrdiff_t GENV_HARDWARE_MOUSE_OFFSET = 0x118;
     constexpr ptrdiff_t HARDWARE_MOUSE_CURSOR_COUNT_OFFSET = 0x30;
+
+    // Engine frame clock: the camera paces its per-frame integrators on the engine's own frame time so that a
+    // rate-driven motion (the gamepad orbit) advances by the same step per frame as the world. The timer
+    // (ITimer*, class CTimer) is a g_env member at GENV_TIMER_OFFSET, confirmed by its RTTI name before use.
+    //   GetFrameStartTime = vtable slot 5 (+0x28): const CTimeValue &(this /*rcx*/, ETimer which /*edx*/). The
+    //     CTimeValue is one int64; the UI clock's value is stamped once at frame start and never pauses, so it
+    //     identifies the frame (both game-view frustum builds of one frame read the same stamp).
+    //   GetFrameTime = vtable slot 9 (+0x48): float(this /*rcx*/, ETimer which /*edx*/), seconds. The GAME clock
+    //     returns the frame time the world advanced by: clamped, time-scaled and, with t_Smoothing on (the
+    //     default), averaged over the last quarter second. It returns 0 while the game timer is paused, when the
+    //     UI clock's unsmoothed frame time is used instead so menus still ease.
+    constexpr ptrdiff_t GENV_TIMER_OFFSET = 0x80;
+    constexpr const char *CTIMER_RTTI_NAME = ".?AVCTimer@@";
+    constexpr ptrdiff_t ITIMER_VTABLE_GET_FRAME_START_TIME_OFFSET = 0x28;
+    constexpr ptrdiff_t ITIMER_VTABLE_GET_FRAME_TIME_OFFSET = 0x48;
+    constexpr int ETIMER_GAME = 0;
+    constexpr int ETIMER_UI = 1;
 
     // ray_hit field offsets (CryEngine physinterface.h; struct size 0x50).
     constexpr size_t RAY_HIT_SIZE = 0x50;
@@ -370,6 +389,23 @@ namespace Constants
     // Safety cap on the per-query node count: if the box overlaps more nodes than this the render clamp is
     // skipped for that frame. Also sizes the stack list buffer for the count-then-fill query (uncapped memcpy).
     constexpr int RENDER_OCCLUSION_MAX_NODES = 1024;
+    // Headroom kept free in that buffer between the counting query and the filling one. The fill copies whatever
+    // the octree holds at that moment, so a node registered between the two calls would otherwise land past the
+    // end of the buffer. A count above RENDER_OCCLUSION_MAX_NODES - RENDER_OCCLUSION_NODE_SLACK is treated like a
+    // count above the cap.
+    constexpr int RENDER_OCCLUSION_NODE_SLACK = 64;
+    // C3DEngine::GetObjectsByTypeInBox(this /*rcx*/, EERType type /*edx*/, const AABB* bbox /*r8*/,
+    //   IRenderNode** p_out /*r9*/, uint64 rnd_flags_mask /*stack*/) -> uint32 count, the vtable slot right before
+    // GetObjectsInBox. Same count-or-fill contract, but it descends only into octree cells whose per-type object
+    // mask holds the type and walks only that type's object list, keeping the objects whose GetRenderNodeType()
+    // equals it. A brush query therefore skips the vegetation, decal, light and entity objects the untyped query
+    // visits and every caller here discards, which is most of the untyped query's cost. rnd_flags_mask ~0 keeps
+    // every node whatever its render flags. The slot is trusted only while the GetObjectsInBox slot of the same
+    // vtable holds the resolved AnchorId::GetObjectsInBox entry, which pins the slot numbering; otherwise the
+    // untyped query is used and the callers' own type filter applies.
+    constexpr ptrdiff_t ENGINE3D_VTABLE_GET_OBJECTS_BY_TYPE_IN_BOX_OFFSET = 242 * 8;
+    constexpr ptrdiff_t ENGINE3D_VTABLE_GET_OBJECTS_IN_BOX_OFFSET = 243 * 8;
+    constexpr uint64_t ENGINE3D_QUERY_ANY_RNDFLAGS = ~0ull;
 
     // Precise roof height: sample the ACTUAL cloth surface at the camera column from the brush's render
     // mesh vertices, instead of the coarse world-AABB bottom (which over-ducks under a sloped canopy: the
@@ -488,6 +524,110 @@ namespace Constants
     constexpr ptrdiff_t OFFSET_MANAGER_PTR_STORAGE = 0x38; // Global context to camera manager
     // RTTI type-descriptor name of the camera manager, the self-heal anchor for OFFSET_MANAGER_PTR_STORAGE.
     constexpr const char *C_CAMERA_MANAGER_RTTI_NAME = ".?AVC_CameraManager@game@wh@@";
+
+    // wh::engine3d::C_CameraObserver: the engine observer that follows the system view camera. Its update, vtable slot
+    // 30, copies GetViewCamera()'s position, forward and field of view into its out-parameters. The AI selects which
+    // NPCs to update in full, and which to hide and pause, from this observer, so in third person it judges from the
+    // pulled-back camera instead of the eye.
+    constexpr const char *C_CAMERA_OBSERVER_RTTI_NAME = ".?AVC_CameraObserver@engine3d@wh@@";
+    constexpr size_t CAMERA_OBSERVER_VTABLE_UPDATE_SLOT = 30;
+    // The update reads the view camera through ISystem vtable +0x438 (call qword ptr [rax+438h]); finding these bytes
+    // among its first instructions confirms the slot before it is hooked.
+    constexpr uint8_t CAMERA_OBSERVER_UPDATE_SIGNATURE[] = {0xFF, 0x90, 0x38, 0x04, 0x00, 0x00};
+    constexpr size_t CAMERA_OBSERVER_UPDATE_SIGNATURE_WINDOW = 0x30;
+
+    // Native turn-in-place animation. The free-roam locomotion action (wh::entitymodule::C_PlayerMovementAction) plays
+    // its turn fragments, and takes the LockBodyTurn reference that stops the body following the look, only when the
+    // actor reports third person.
+    // IActor::IsThirdPerson is C_Player vtable slot 72: for the local player it asks the active camera (slot 4), which
+    // is false for the first-person camera the mod keeps active. The function is shared by every actor class and
+    // answers true for any actor that is not the local player.
+    constexpr size_t C_PLAYER_IS_THIRD_PERSON_VTABLE_SLOT = 72;
+    // IsThirdPerson calls the active camera's slot 4 (mov rdx,[rcx+20h]; mov rcx,rax; call rdx) among its first
+    // instructions; finding these bytes confirms the slot before it is hooked.
+    constexpr uint8_t C_PLAYER_IS_THIRD_PERSON_SIGNATURE[] = {0x48, 0x8B, 0x51, 0x20, 0x48, 0x8B, 0xC8, 0xFF, 0xD2};
+    constexpr size_t C_PLAYER_IS_THIRD_PERSON_SIGNATURE_WINDOW = 0x50;
+    // IGameObjectExtension::HandleEvent is C_Player vtable slot 23. When the camera manager switches the active camera
+    // it sends the player SGameObjectEvent 38 through this slot, and the movement action answers it, while idle, by
+    // re-reading IsThirdPerson and taking or dropping its LockBodyTurn reference. The mod sends the same event when it
+    // starts or stops reporting third person, so the body follows at once instead of on the next locomotion change.
+    constexpr size_t C_PLAYER_HANDLE_EVENT_VTABLE_SLOT = 23;
+    // HandleEvent compares the event id with 38 (cmp dword ptr [rsi+8],26h); finding it confirms the slot.
+    constexpr uint8_t C_PLAYER_HANDLE_EVENT_SIGNATURE[] = {0x83, 0x7E, 0x08, 0x26};
+    constexpr size_t C_PLAYER_HANDLE_EVENT_SIGNATURE_WINDOW = 0x300;
+    // The event object: vtable, event id, then the target/flags word and a 16-byte parameter, as the camera manager
+    // builds it (SGameObjectEvent{38, 0x4FFFF, 0}).
+    constexpr const char *SGAME_OBJECT_EVENT_RTTI_NAME = ".?AUSGameObjectEvent@@";
+    constexpr uint32_t GAME_OBJECT_EVENT_CAMERA_CHANGED = 38;
+    constexpr uint32_t GAME_OBJECT_EVENT_CAMERA_CHANGED_FLAGS = 0x4FFFF;
+
+    // The turn decision in ComputeMoveState, around the turn-trigger return address: the signed look-minus-body angle
+    // is copied to xmm13 and its absolute value to xmm7, IsThirdPerson is called with rcx = rbx = the actor, and then
+    // `comiss xmm7, [35 degrees]; seta cl; jmp short` sets cl, the turn-versus-idle choice, every idle frame. Because
+    // the game re-decides against the same 35 degrees every frame, a turn stops as soon as the gap drops under it, so
+    // the body always rests about 35 degrees short of the look. A mid hook on the `seta cl` (3 bytes) + `jmp short` (2
+    // bytes) sets the flags it reads, which lets the mod start turns at its own angle and finish them facing the look.
+    // The window below, from TURN_DECISION_WINDOW_BEFORE bytes before the return address, proves that layout before the
+    // hook goes in (identical on Steam 1.5.6, GOG 1.5 and Game Pass 1.4); a 0x100 entry marks a wildcard byte.
+    constexpr size_t TURN_DECISION_WINDOW_BEFORE = 0x25;
+    constexpr size_t TURN_DECISION_SITE_AFTER = 0x0B; // the `seta cl`, from the return address
+    constexpr uint16_t TURN_DECISION_WINDOW[] = {
+        0x44, 0x0F, 0x28,  0xE8,                       // movaps xmm13, xmm0   (signed angle)
+        0x41, 0x0F, 0x28,  0xFD,                       // movaps xmm7, xmm13
+        0x0F, 0x54, 0x3D,  0x100, 0x100, 0x100, 0x100, // andps xmm7, [abs mask]
+        0x41, 0x0F, 0x2F,  0xF8,                       // comiss xmm7, xmm8
+        0x0F, 0x86, 0x100, 0x100, 0x100, 0x100,        // jbe
+        0x48, 0x8B, 0x03,  0x48,  0x8B,  0xCB,         // mov rax,[rbx]; mov rcx,rbx  (actor)
+        0xFF, 0x90, 0x40,  0x02,  0x00,  0x00,         // call [rax+240h]  (IsThirdPerson)
+        0x84, 0xC0, 0x74,  0x100,                      // test al,al; jz
+        0x0F, 0x2F, 0x3D,  0x100, 0x100, 0x100, 0x100, // comiss xmm7, [35 degrees]
+        0x0F, 0x97, 0xC1,                              // seta cl  <- hook site
+        0xEB,                                          // jmp short
+    };
+
+    // The game's spin latch, which the turn-decision hook must never set. rdi is the C_PlayerMovementAction there
+    // (ComputeMoveState's `this`, unchanged up to the hook site). The latch sets when a turn is decided while a turn
+    // fragment is still installed (state 1 or 2) and the gap's sign differs from the previous evaluation's non-zero
+    // sign, and then spins the body the OLD way, the long way round. Each instruction below reads one of those fields
+    // and is checked at its offset from the hook site before the hook goes in (identical on Steam 1.5.6, GOG 1.5 and
+    // Game Pass 1.4), which proves the field offsets the hook reads.
+    constexpr ptrdiff_t MOVEMENT_ACTION_SPIN_LATCH_OFFSET = 0xF0;      // uint8, latch set
+    constexpr ptrdiff_t MOVEMENT_ACTION_INSTALLED_STATE_OFFSET = 0xD0; // int32, 1 and 2 = a turn is installed
+    constexpr ptrdiff_t MOVEMENT_ACTION_LAST_SIGN_OFFSET = 0xD4;       // float, previous evaluation's sign, 0 = none
+    constexpr size_t TURN_SPIN_LATCH_READ_AT = 0x74;
+    constexpr uint8_t TURN_SPIN_LATCH_READ[] = {0x40, 0x38, 0xB7, 0xF0, 0x00, 0x00, 0x00}; // cmp [rdi+0F0h], sil
+    constexpr size_t TURN_INSTALLED_STATE_READ_AT = 0xBE;
+    constexpr uint8_t TURN_INSTALLED_STATE_READ[] = {0x8B, 0x87, 0xD0, 0x00, 0x00, 0x00, // mov eax, [rdi+0D0h]
+                                                     0x3B, 0xC5};                        // cmp eax, ebp (1)
+    constexpr size_t TURN_LAST_SIGN_READ_AT = 0xCD;
+    constexpr uint8_t TURN_LAST_SIGN_READ[] = {0xF3, 0x0F, 0x10, 0x87,
+                                               0xD4, 0x00, 0x00, 0x00}; // movss xmm0, [rdi+0D4h]
+
+    // ComputeMoveState keeps its turn-angle output pointer in r12 from its prologue to its end. The installed action's
+    // Update passes one; UpdatePending, which runs it while the action is only queued behind another one (an
+    // interaction, a stagger), passes null, so r12 == 0 at the hook site means the player's movement is not this
+    // action's. Both instructions are checked at their offset from the hook site (identical on all three builds;
+    // nothing between them writes r12).
+    constexpr size_t TURN_OUTPUT_SAVE_BEFORE = 0x385;
+    constexpr uint8_t TURN_OUTPUT_SAVE[] = {0x4C, 0x8B, 0xE2}; // mov r12, rdx
+    constexpr size_t TURN_OUTPUT_STORE_AT = 0x186;
+    constexpr uint8_t TURN_OUTPUT_STORE[] = {0x4D, 0x85, 0xE4,                    // test r12, r12
+                                             0x74, 0x06,                          // jz
+                                             0xF3, 0x41, 0x0F, 0x11, 0x34, 0x24}; // movss [r12], xmm6
+
+    // CAnimatedCharacter movement request type, read by UpdatePhysicalEntityMovement (1 absolute, 2 impulse). An
+    // impulse's translation is a push, not a step, and the turn-in-place detour never drops it. The read is checked at
+    // its offset from the function's start before the hook goes in (identical on all three builds).
+    constexpr ptrdiff_t ANIMATED_CHARACTER_MOVEMENT_TYPE_OFFSET = 0x698;
+    constexpr int32_t ANIMATED_CHARACTER_MOVEMENT_IMPULSE = 2;
+    constexpr size_t PHYS_ENT_MOVEMENT_TYPE_READ_AT = 0x66C;
+    constexpr uint8_t PHYS_ENT_MOVEMENT_TYPE_READ[] = {0x44, 0x8B, 0x8F, 0x98, 0x06, 0x00, 0x00, // mov r9d, [rdi+698h]
+                                                       0x41, 0x83, 0xF9, 0x02};                  // cmp r9d, 2
+
+    // LockBodyTurn reference count on C_Player (C_Player vtable slot 135 adds or removes one; mounting, pickups and
+    // scripted interactions hold references too). While it is 0 the body follows the look, as in first person. Read
+    // only, for the log.
+    constexpr ptrdiff_t C_PLAYER_LOCK_BODY_TURN_COUNT_OFFSET = 0x174;
 
     // Game-state detection (see game_state.cpp)
     // Active-camera pointer on the wh::game::C_CameraManager (the same manager reached via
@@ -611,6 +751,8 @@ namespace Constants
     // Hide-head flag mirrored on the player entity (relative to the entity passed to the
     // head-visibility setter); read to re-assert the head while the offset is active.
     constexpr ptrdiff_t OFFSET_ENTITY_HIDE_HEAD_FLAG = 0xA38;
+    // The setter's third argument, stored next to the flag (+0xA39); the game passes it back unchanged on re-applies.
+    constexpr ptrdiff_t OFFSET_ENTITY_HIDE_HEAD_ARG = 0xA39;
 
     // Input Event Offsets
     // SInputEvent layout (CryEngine IInput.h: deviceType@+0x00, state@+0x04, keyName@+0x08, keyId@+0x10,

@@ -44,6 +44,7 @@
 #include <DetourModKit.hpp>
 
 #include <windows.h>
+#include <intrin.h>
 
 #include <algorithm>
 #include <atomic>
@@ -51,6 +52,7 @@
 #include <cmath>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <array>
 
@@ -178,9 +180,124 @@ namespace TPVCamera
     // capture mouse-look deltas and freeze the player by not dispatching while orbiting.
     using InputDispatchFunc = void(__fastcall *)(uintptr_t controller, uintptr_t input_event, char flag);
 
+    // wh::engine3d::C_CameraObserver update (vtable slot CAMERA_OBSERVER_VTABLE_UPDATE_SLOT): bool __fastcall(observer
+    // /*rcx*/, Vec3 *position /*rdx*/, bool *position_valid /*r8*/, Vec3 *direction /*r9*/, bool *direction_valid,
+    // float *fov). It copies the system view camera's translation, forward column and field of view.
+    using CameraObserverUpdateFunc = bool(__fastcall *)(uintptr_t observer, float *position, bool *position_valid,
+                                                        float *direction, bool *direction_valid, float *fov);
+
+    // IActor::IsThirdPerson (C_Player vtable slot C_PLAYER_IS_THIRD_PERSON_VTABLE_SLOT):
+    // bool __fastcall(actor /*rcx*/). One function shared by every actor class; it answers true for any actor that is
+    // not the local player.
+    using IsThirdPersonFunc = bool(__fastcall *)(uintptr_t actor);
+
+    // IGameObjectExtension::HandleEvent (C_Player vtable slot C_PLAYER_HANDLE_EVENT_VTABLE_SLOT):
+    // void __fastcall(extension /*rcx*/, const SGameObjectEvent *event /*rdx*/).
+    using HandleEventFunc = void(__fastcall *)(uintptr_t extension, const void *event);
+
+    // CAnimatedCharacter::UpdatePhysicalEntityMovement: char __fastcall(animchar /*rcx*/, QuatT *movement /*rdx*/).
+    // The frame's movement is a rotation (x, y, z, w) followed by a translation (x, y, z). The translation is requested
+    // from physics as a velocity and the rotation is composed into the body.
+    using UpdatePhysEntMovementFunc = char(__fastcall *)(uintptr_t animchar, float *movement);
+
     static FrustumBuildFunc s_frustum_build_original = nullptr;
     static SetHeadVisibilityFunc s_set_head_visibility_original = nullptr;
     static InputDispatchFunc s_input_dispatch_original = nullptr;
+    static CameraObserverUpdateFunc s_camera_observer_update_original = nullptr;
+    static IsThirdPersonFunc s_is_third_person_original = nullptr;
+
+    // Native turn-in-place animation. The game is kept in first person, where the body follows the look and
+    // C_PlayerMovementAction (the free-roam locomotion action) never plays its turn fragments. The body follows the
+    // look while the player's LockBodyTurn count (C_Player vtable slot 135) is 0, and the action holds one LockBodyTurn
+    // reference in third person. The IsThirdPerson detour answers "third person" for s_native_turn_actor (0 = off) at
+    // exactly two of that action's call sites:
+    //   - the idle LockBodyTurn sync (s_lock_sync_return), which then takes the action's reference so the body stops
+    //     following the look;
+    //   - the turn trigger (s_turn_trigger_return, only while s_native_turn_trigger is set), after which the game turns
+    //     once the look leads the body by more than 35 degrees. The turn-decision hook below replaces that decision
+    //     with its own start angle and with turns that finish facing the look.
+    // Both are required: the trigger alone never frees the body, and the sync alone freezes it with no turn to follow.
+    // Every other caller keeps the first-person answer, among them the first-person view effects (bow-draw zoom and aim
+    // sensitivity, the horse camera), the pose aligner and the animation-event audio. The return addresses are written
+    // once at install, before the hook arms. The actor and the trigger flag are published by the frustum detour each
+    // game-view frame. s_native_turn_armed is set only once the hook is armed. The trampoline pointer itself is never
+    // cleared, because an armed (or pinned) hook still routes calls through it.
+    static uintptr_t s_turn_trigger_return = 0;
+    static uintptr_t s_lock_sync_return = 0;
+    static std::atomic<bool> s_native_turn_armed{false};
+    static std::atomic<uintptr_t> s_native_turn_actor{0};
+    static std::atomic<bool> s_native_turn_trigger{false};
+    // C_Player::HandleEvent and the SGameObjectEvent vtable, validated at install. The feature is not armed without
+    // them: a switch-off could not reach an idle action, which would keep its reference (body not following the look).
+    static uintptr_t s_player_handle_event = 0;
+    static uintptr_t s_game_object_event_vtable = 0;
+    // Set by release_native_turn_animation() during shutdown: the frustum detour stops reporting third person and has
+    // the action drop its reference, on the game thread.
+    static std::atomic<bool> s_native_turn_release_requested{false};
+    // update_native_turn calls under way, counted on entry before the release flag is read and uncounted on every
+    // return. Once shutdown has set the flag and then sees none under way, no call that read the flag unset is left.
+    static std::atomic<int> s_native_turn_updating{0};
+    // A change being published and its camera-changed event, counted from BEFORE the actor store until the event has
+    // returned. Shutdown reads the actor and then this count, so it cannot remove the hooks under an event in flight.
+    static std::atomic<int> s_native_turn_changes_in_flight{0};
+
+    // Turn decision: the mid hook on ComputeMoveState's `seta cl` (see TURN_DECISION_WINDOW). On its own the game
+    // starts a turn past 35 degrees and stops it as soon as the gap is back under 35, so the body always rests about 35
+    // degrees short of the look. The hook starts a turn past s_turn_start_angle (NativeTurnAngle, radians), or past
+    // k_turn_settle_angle once the look has rested for s_turn_settle_delay (NativeTurnSettleDelay). It then keeps the
+    // turn going until the body is within k_turn_finish_angle of the look, or until the gap changes sign (he faces it).
+    // s_turn_continuing, s_turn_last_sign and the rest state carry the decision from frame to frame. Only the hook
+    // updates them, on whichever job worker updates the player that frame, one frame after another; a feature switch
+    // in update_native_turn only resets them. The hook runs on every idle frame with a gap, so a player frame without
+    // it (s_turn_decision_missed, raised by the movement detour) means the action left its idle decision (he walked, an
+    // interaction or a script took over, turns were off) and the decision starts over. Breaks are counted in frames,
+    // so a long frame is not a break. Without the movement detour the break falls back to wall-clock time: more than
+    // k_turn_decision_break_ms since s_turn_decision_tick.
+    // The look counts as resting while the gap stays within k_turn_rest_drift of its value when the rest began. While
+    // he is not turning only the look changes the gap, and a cumulative bound (not a per-frame rate) keeps a slow pan
+    // from counting as rest. A turn that sets the game's spin latch is refused for that frame (see
+    // MOVEMENT_ACTION_SPIN_LATCH_OFFSET): one frame later the game has taken the new sign and the turn can start.
+    constexpr float k_turn_finish_angle = 0.07f; // rad (4 deg)
+    constexpr float k_turn_settle_angle = 0.21f; // rad (12 deg)
+    constexpr float k_turn_rest_drift = 0.0175f; // rad (1 deg)
+    constexpr uint64_t k_turn_decision_break_ms = 150;
+    static std::atomic<float> s_turn_start_angle{0.61086524f};
+    static std::atomic<float> s_turn_settle_delay{0.8f}; // seconds, 0 = no settle turns
+    static std::atomic<bool> s_turn_continuing{false};
+    static std::atomic<float> s_turn_last_sign{0.0f};
+    static std::atomic<float> s_turn_rest_gap{0.0f};
+    static std::atomic<uint64_t> s_turn_rest_since{0};
+    static std::atomic<uint64_t> s_turn_decision_tick{0};
+    static std::atomic<bool> s_turn_decision_missed{false};
+    static std::atomic<bool> s_turn_steps_hooked{false}; // the movement detour is armed: breaks are counted in frames
+
+    // Turn steps in place. A turn fragment's root motion walks the body 5-20 cm, which leaves a still camera off centre
+    // (and shifts a camera that follows it). The movement detour drops the horizontal part of the player's movement on
+    // the frames the movement action is in its idle/turn decision, from the first turn frame through a tail after the
+    // last one: a turn cut short at the look still sends a step, for at most one frame, while the game blends to idle.
+    // The tail lasts k_turn_step_tail_frames decision frames or k_turn_step_tail_ms, whichever is longer, so neither a
+    // long frame nor a high frame rate cuts it short, and it ends on the first frame without a decision.
+    // s_turn_decision_seen is set by the decision hook and taken by the movement detour, which CAnimatedCharacter's
+    // update calls right after the action's update on the same thread, so the flag is exact per frame: the frame he
+    // starts walking, or anything else takes the action over, his movement goes through untouched. s_turn_decided_tick
+    // is when the hook last chose to turn (GetTickCount64, 0 = tail ended). s_player_animchar is the player's
+    // CAnimatedCharacter, published by the frustum detour while the native turn is on (0 otherwise).
+    constexpr int k_turn_step_tail_frames = 3;
+    constexpr uint64_t k_turn_step_tail_ms = 300;
+    static std::atomic<bool> s_turn_decision_seen{false};
+    static std::atomic<int> s_turn_tail_frames{0};
+    static std::atomic<uint64_t> s_turn_decided_tick{0};
+    static std::atomic<uintptr_t> s_player_animchar{0};
+    static UpdatePhysEntMovementFunc s_phys_ent_movement_original = nullptr;
+
+    // The first-person eye position of the last game-view frame that rendered the third-person offset, published by the
+    // frustum detour for the camera-observer detour. The components are separate atomics: a reader racing a writer can
+    // mix two consecutive frames' eyes, which differ by a frame of movement and do not matter to the AI. s_ai_eye_valid
+    // is released after the components and cleared when the offset disengages.
+    static std::atomic<float> s_ai_eye_x{0.0f};
+    static std::atomic<float> s_ai_eye_y{0.0f};
+    static std::atomic<float> s_ai_eye_z{0.0f};
+    static std::atomic<bool> s_ai_eye_valid{false};
 
     // Resolved SSystemGlobalEnvironment (g_env) base, set once at init (AOB, with the static RVA as
     // fallback). Reused by the player/animchar walks; p_physical_world is g_env + PHYSICAL_WORLD_OFFSET.
@@ -191,13 +308,14 @@ namespace TPVCamera
     // using the RTTI type name (not a hardcoded address) keeps the gate working across game patches.
     static uintptr_t s_cview_vtable_runtime = 0;
 
-    // Latched from the head-visibility setter so the per-frame re-assert can drive the head
-    // without waiting for the game to call the setter again (toggling the offset does not
-    // make the game call it, so without the re-assert the head would stay hidden after an
-    // FPV/TPV switch). The setter only ever runs for the player (it toggles the
-    // FirstPersonView rig), so the entity is the player. s_head_was_active tracks the offset's
-    // active state across frames so the head is restored to the game's intended value
-    // exactly once when the offset turns off.
+    // Latched from the head-visibility setter (or adopted from the player's stored setter
+    // arguments, see adopt_head_state) so the per-frame re-assert can drive the head without
+    // waiting for the game to call the setter again (toggling the offset does not make the
+    // game call it, so without the re-assert the head would stay hidden after an FPV/TPV
+    // switch). The setter only ever runs for the player (it toggles the FirstPersonView
+    // rig), so the entity is the player. s_head_was_active tracks the offset's active state
+    // across frames so the head is restored to the game's intended value exactly once when
+    // the offset turns off.
     static std::atomic<uintptr_t> s_head_entity{0};
     static std::atomic<uint8_t> s_head_flags{0};
     static std::atomic<bool> s_game_intended_hide_head{false};
@@ -207,6 +325,11 @@ namespace TPVCamera
     // frustum detour each frame. The head-visibility detour and the free-look input gate read it so
     // they mirror the live offset state without recomputing the whole forced-view policy themselves.
     static std::atomic<bool> s_offset_active{false};
+
+    // First-person fallback, published by the offset each frame: true while the camera has no room behind the player
+    // (the arm is shorter than HeadClearance) and sits at the eye, so the head must be hidden like in first person or
+    // the view would be inside it. Read by the head re-assert and the head-visibility detour.
+    static std::atomic<bool> s_head_fallback{false};
 
     // Published by the frustum detour each game-view frame: true while the game is showing the OS cursor
     // (a UI is up). The free-look input gate reads it to FREEZE the orbit - hold its angles and ignore
@@ -290,19 +413,130 @@ namespace TPVCamera
         return true;
     }
 
+    // ITimer::GetFrameStartTime and ITimer::GetFrameTime (see constants.hpp): the engine frame clock.
+    using TimerGetFrameStartTimeFunc = const std::int64_t *(__fastcall *)(uintptr_t timer, int which);
+    using TimerGetFrameTimeFunc = float(__fastcall *)(uintptr_t timer, int which);
+
     /**
-     * @brief Wall-clock seconds since the previous call, clamped.
-     * @details The frustum builder runs once or twice per frame for the game view (projection
-     *          setup plus the final rebuild). A second call within the same frame sees a near-zero
-     *          delta, so the integrators do not double-advance; the lower clamp is therefore 0.
+     * @brief One engine frame as the frame clock reports it.
+     */
+    struct EngineFrame
+    {
+        /// UI-clock frame-start stamp, identical for every read within one frame.
+        std::int64_t start_stamp;
+        /// Seconds the world advanced this frame.
+        float seconds;
+    };
+
+    /**
+     * @brief Reads the engine frame clock through the g_env timer.
+     * @details The timer is confirmed by its RTTI name and both vtable slots must point into the game image
+     *          before either is called; the frame time must come back finite and non-negative. The game clock
+     *          reads 0 while the game timer is paused (the pause menu), and the UI clock's frame time stands in
+     *          then: nothing in the world moves, so its lack of smoothing cannot show, and the view still eases
+     *          into and out of the menu. Runs under the frustum detour's SEH frame, which contains a fault in
+     *          either engine call.
+     * @return The frame, or std::nullopt when the clock cannot be trusted.
+     */
+    [[nodiscard]] static std::optional<EngineFrame> read_engine_frame()
+    {
+        const ModuleInfo &mod = module_info();
+        if (s_genv_runtime == 0 || mod.base == 0)
+        {
+            return std::nullopt;
+        }
+        const auto timer = mem::read<uintptr_t>(Address{s_genv_runtime + Constants::GENV_TIMER_OFFSET});
+        if (!timer || !mem::is_plausible_ptr(Address{*timer}))
+        {
+            return std::nullopt;
+        }
+        const auto vtable = mem::read<uintptr_t>(Address{*timer});
+        if (!vtable || !vtable_is(GameClass::Timer, *vtable))
+        {
+            return std::nullopt;
+        }
+        const auto start_fn =
+            mem::read<uintptr_t>(Address{*vtable + Constants::ITIMER_VTABLE_GET_FRAME_START_TIME_OFFSET});
+        const auto time_fn = mem::read<uintptr_t>(Address{*vtable + Constants::ITIMER_VTABLE_GET_FRAME_TIME_OFFSET});
+        const auto in_image = [&mod](const auto &fn) { return fn && *fn >= mod.base && *fn < mod.base + mod.size; };
+        if (!in_image(start_fn) || !in_image(time_fn))
+        {
+            return std::nullopt;
+        }
+
+        const std::int64_t *stamp_slot =
+            reinterpret_cast<TimerGetFrameStartTimeFunc>(*start_fn)(*timer, Constants::ETIMER_UI);
+        const auto stamp = mem::read<std::int64_t>(Address{reinterpret_cast<uintptr_t>(stamp_slot)});
+        if (!stamp)
+        {
+            return std::nullopt;
+        }
+        const auto get_frame_time = reinterpret_cast<TimerGetFrameTimeFunc>(*time_fn);
+        float seconds = get_frame_time(*timer, Constants::ETIMER_GAME);
+        if (!(seconds > 0.0f))
+        {
+            seconds = get_frame_time(*timer, Constants::ETIMER_UI);
+        }
+        if (!std::isfinite(seconds) || seconds < 0.0f)
+        {
+            return std::nullopt;
+        }
+        return EngineFrame{*stamp, seconds};
+    }
+
+    /**
+     * @brief Seconds the camera's per-frame integrators and easings advance on this frustum build, clamped.
+     * @details The game view's frustum is built twice per frame (the projection setup, then the final rebuild).
+     *          The frame's time is spent on the first build and the second advances by 0; the engine's
+     *          frame-start stamp tells the two apart.
+     *
+     *          The duration is the engine's own game frame time, not the wall-clock gap between two builds. The
+     *          engine averages its frame time over the last quarter second and moves the whole world by that
+     *          average, so everything it animates advances by a near-constant step per frame. The raw gap between
+     *          two builds carries the full frame-to-frame variance instead (about a tenth of a frame on average,
+     *          up to half a frame). A rate-driven motion paced on it, the gamepad orbit most of all, then turns by
+     *          an uneven step each frame against an evenly moving world, which reads as micro-stutter in a slow
+     *          pan. Pacing on the engine clock keeps the camera in step with the world. The wall-clock gap is the
+     *          fallback whenever the engine clock cannot be read, and it keeps running every call so that
+     *          fallback always measures from the previous build.
      */
     [[nodiscard]] static float frame_delta()
     {
         static std::chrono::steady_clock::time_point s_last_time = std::chrono::steady_clock::now();
         const auto now = std::chrono::steady_clock::now();
-        const float delta_time = std::chrono::duration<float>(now - s_last_time).count();
+        const float wall_delta = std::chrono::duration<float>(now - s_last_time).count();
         s_last_time = now;
-        return std::clamp(delta_time, 0.0f, 0.1f);
+
+        const std::optional<EngineFrame> frame = read_engine_frame();
+
+        // Report which clock paces the camera once per switch, so a log shows whether the engine clock resolved.
+        enum class ClockSource
+        {
+            None,
+            Engine,
+            Wall,
+        };
+        static ClockSource s_clock_source = ClockSource::None;
+        const ClockSource clock_source = frame.has_value() ? ClockSource::Engine : ClockSource::Wall;
+        if (clock_source != s_clock_source)
+        {
+            s_clock_source = clock_source;
+            const char *const clock_name =
+                frame.has_value() ? "engine frame clock" : "wall clock (engine clock unavailable)";
+            (void)DMK::log().try_log(DMK::LogLevel::Debug, "Camera: pacing on the {}", clock_name);
+        }
+
+        if (frame.has_value())
+        {
+            static std::int64_t s_last_stamp = 0;
+            if (frame->start_stamp == s_last_stamp)
+            {
+                return 0.0f; // second build of the same frame: the frame's time was already spent
+            }
+            s_last_stamp = frame->start_stamp;
+            return std::clamp(frame->seconds, 0.0f, 0.1f);
+        }
+        return std::clamp(wall_delta, 0.0f, 0.1f);
     }
 
     /**
@@ -620,6 +854,145 @@ namespace TPVCamera
             anim_char->offset(Constants::ANIMCHAR_OVERRIDE_ROT_ACTIVE_OFFSET), 1);
     }
 
+    // Turn-in-place pivot hold tuning. A native turn step is the body rotating TOWARD the look (faster than
+    // k_turn_hold_yaw_rate) while it trails the look by more than k_turn_hold_min_gap, moving no faster than
+    // k_turn_hold_max_speed and with no movement input. Its displacement, and that of the step's foot settle for
+    // k_turn_hold_settle after the rotation stops, is held off the pivot. A body that moves faster than
+    // k_turn_hold_follow_speed without being held is really moving, and the hold eases back onto it at
+    // k_turn_hold_release_rate. A per-frame jump beyond k_turn_hold_teleport is a teleport or a load, not a step, and
+    // drops the hold. The hold never exceeds k_turn_hold_max. With the turn steps kept in place
+    // (detour_phys_ent_movement) there is normally nothing to hold; this keeps the camera still when that hook is
+    // unavailable.
+    constexpr float k_turn_hold_yaw_rate = 0.26f;    // rad/s (15 deg/s)
+    constexpr float k_turn_hold_min_gap = 0.17f;     // rad (10 deg)
+    constexpr float k_turn_hold_max_speed = 1.2f;    // m/s
+    constexpr float k_turn_hold_follow_speed = 0.3f; // m/s
+    constexpr float k_turn_hold_settle = 0.35f;      // seconds
+    constexpr float k_turn_hold_teleport = 0.25f;    // meters per frame
+    constexpr float k_turn_hold_max = 0.5f;          // meters
+    constexpr float k_turn_hold_release_rate = 8.0f; // 1/s
+
+    /**
+     * @brief Keeps the pivot still while the body turns in place, returning the horizontal offset to hold off it.
+     * @details A native turn-in-place animation carries root motion: the body steps 5-20 cm while it turns, and the
+     *          rig anchors to the body, so the camera shifts with every turn unless the step is held off. The
+     *          displacement of a turn step is absorbed into a hold the caller subtracts from its anchor, so the camera
+     *          stays where it was during and after the turn. A turn step is recognised by its signature: the body
+     *          rotates toward the look it trails, at step speed, with no movement input. Running to a stop, a
+     *          scripted move or a push does not match it, so the camera follows them, and any such movement also
+     *          eases the hold back onto the body. Standing still keeps the hold. Without the look the rotation alone
+     *          is used. Normally the steps are kept in place (detour_phys_ent_movement) and the hold stays near zero;
+     *          it is the fallback for when that hook is unavailable.
+     * @param cam Camera state holding the tracker and the hold.
+     * @param body_origin The entity world origin this frame.
+     * @param body_yaw The entity world yaw this frame (radians).
+     * @param look_yaw The look yaw this frame (radians), used only when @p look_valid.
+     * @param look_valid Whether @p look_yaw was read.
+     * @param delta_time Frame time in seconds.
+     * @return The horizontal offset (z = 0) to subtract from the anchor.
+     */
+    static Vector3 hold_turn_in_place_pivot(CameraState &cam, const Vector3 &body_origin, float body_yaw,
+                                            float look_yaw, bool look_valid, float delta_time)
+    {
+        if (!cam.turn_track_valid)
+        {
+            cam.turn_track_x = body_origin.x;
+            cam.turn_track_y = body_origin.y;
+            cam.turn_track_yaw = body_yaw;
+            cam.turn_track_valid = true;
+            cam.turn_hold_x = 0.0f;
+            cam.turn_hold_y = 0.0f;
+            cam.turn_hold_timer = 0.0f;
+            return Vector3{0.0f, 0.0f, 0.0f};
+        }
+        const float step_x = body_origin.x - cam.turn_track_x;
+        const float step_y = body_origin.y - cam.turn_track_y;
+        const float step = std::sqrt(step_x * step_x + step_y * step_y);
+        const float turn = std::remainder(body_yaw - cam.turn_track_yaw, 2.0f * DirectX::XM_PI);
+        cam.turn_track_x = body_origin.x;
+        cam.turn_track_y = body_origin.y;
+        cam.turn_track_yaw = body_yaw;
+        if (step > k_turn_hold_teleport)
+        {
+            cam.turn_hold_x = 0.0f;
+            cam.turn_hold_y = 0.0f;
+            cam.turn_hold_timer = 0.0f;
+            return Vector3{0.0f, 0.0f, 0.0f};
+        }
+
+        const float speed = delta_time > 1e-4f ? step / delta_time : 0.0f;
+        const bool native_turn = s_native_turn_actor.load(std::memory_order_relaxed) != 0;
+        const bool move_input =
+            !player_onaction_available() || player_onaction_move_magnitude() > k_orbit_move_input_stop;
+        const bool in_place = native_turn && !move_input && speed < k_turn_hold_max_speed;
+        bool toward_look = true;
+        if (look_valid)
+        {
+            const float gap = std::remainder(look_yaw - body_yaw, 2.0f * DirectX::XM_PI);
+            toward_look = std::fabs(gap) > k_turn_hold_min_gap && turn * gap > 0.0f;
+        }
+        if (in_place && toward_look && std::fabs(turn) > k_turn_hold_yaw_rate * delta_time)
+        {
+            cam.turn_hold_timer = k_turn_hold_settle;
+        }
+        else
+        {
+            cam.turn_hold_timer = std::max(0.0f, cam.turn_hold_timer - delta_time);
+        }
+
+        if (in_place && cam.turn_hold_timer > 0.0f)
+        {
+            cam.turn_hold_x += step_x;
+            cam.turn_hold_y += step_y;
+        }
+        else if (!native_turn || speed > k_turn_hold_follow_speed)
+        {
+            // Real movement (or the feature off). Keyed on the body's speed rather than the movement-input latch, which
+            // a combat action-map swap can strand above zero with the keys up.
+            const float keep = std::exp(-k_turn_hold_release_rate * delta_time);
+            cam.turn_hold_x *= keep;
+            cam.turn_hold_y *= keep;
+        }
+        const float held = std::sqrt(cam.turn_hold_x * cam.turn_hold_x + cam.turn_hold_y * cam.turn_hold_y);
+        if (held > k_turn_hold_max)
+        {
+            const float scale = k_turn_hold_max / held;
+            cam.turn_hold_x *= scale;
+            cam.turn_hold_y *= scale;
+        }
+        return Vector3{cam.turn_hold_x, cam.turn_hold_y, 0.0f};
+    }
+
+    /**
+     * @brief Rebuilds the look orientation from its heading and the scalar pitch, without the stale roll.
+     * @details The raw look quat can carry a stale roll angle (see LOOK_CONTROLLER_QUAT_OFFSET).
+     *          C_CameraFirstPerson::Update never renders that quat directly. It takes only the heading of the look
+     *          forward vector and combines it with the scalar pitch that C_Player vtable slot 59 returns
+     *          (controller + LOOK_CONTROLLER_PITCH2_OFFSET), so the roll never reaches the first-person view. This
+     *          helper builds RotZ(heading) * RotX(pitch) from the same two inputs, which gives a level aim with no
+     *          view shake. The game's own third-person camera renders the raw quat instead, which is why it tilts on
+     *          horseback.
+     * @param look Look quat read from the controller.
+     * @param pitch Scalar look pitch in radians, 0 = level.
+     * @return Roll-free look orientation.
+     */
+    [[nodiscard]] static Quaternion level_look_rotation(const Quaternion &look, float pitch) noexcept
+    {
+        // Heading of forward = look * +Y, the yaw the engine extracts. The engine writes forward.y as
+        // 2 * (y * y + w * w) - 1, which holds only at unit length. The homogeneous form below keeps the heading
+        // exact for the slightly non-unit quats the caller's sanity check still accepts.
+        const float forward_x = 2.0f * (look.x * look.y - look.w * look.z);
+        const float forward_y = look.w * look.w - look.x * look.x + look.y * look.y - look.z * look.z;
+        const float heading = std::atan2(-forward_x, forward_y);
+        const float sin_heading = std::sin(heading * 0.5f);
+        const float cos_heading = std::cos(heading * 0.5f);
+        const float sin_pitch = std::sin(pitch * 0.5f);
+        const float cos_pitch = std::cos(pitch * 0.5f);
+        // Expanded product RotZ(heading) * RotX(pitch) in XYZW order.
+        return Quaternion{cos_heading * sin_pitch, sin_heading * sin_pitch, sin_heading * cos_pitch,
+                          cos_heading * cos_pitch};
+    }
+
     /**
      * @brief Offsets the game view camera matrix behind the player and advances zoom/smoothing.
      * @details Reads the eye anchor and orientation from the untouched CView pose (position at
@@ -698,35 +1071,14 @@ namespace TPVCamera
         const Vector3 eye_forward = eye_rotation.rotate(Vector3{0.0f, 1.0f, 0.0f});
         const Vector3 eye_up = eye_rotation.rotate(Vector3{0.0f, 0.0f, 1.0f});
 
-        // Publish the look controller for the input thread. The body-turn pitch bridge runs in the input
-        // detour, where re-walking g_env -> ... -> C_Player per event would be wasteful and racy. It is
-        // published through write_authorized_offset (not the retained nominal the read-only basis below
-        // accepts) because the bridge WRITES the pitch through it: on a drifted C_Player layout the offset
-        // is not authorized, nothing is published, and the bridge simply does nothing.
-        {
-            uintptr_t publish_controller = 0;
-            if (c_player != 0)
-            {
-                if (const auto authorized = write_authorized_offset(runtime_offsets().c_player_look_controller))
-                {
-                    const auto resolved = mem::read<uintptr_t>(Address{c_player + *authorized});
-                    if (resolved && mem::is_plausible_ptr(Address{*resolved}))
-                    {
-                        publish_controller = *resolved;
-                    }
-                }
-            }
-            cam.look_controller.store(publish_controller, std::memory_order_relaxed);
-        }
-
         // Stable rig basis. The third-person rig (camera = pivot - forward * distance) amplifies any rotation of
-        // the basis into a position swing; the EyeHeight body anchor removed the POSITIONAL bob, this removes the
-        // ROTATIONAL component the engine bakes into the eye quat during animations (head-bob and weapon-sway
+        // the basis into a position swing. The EyeHeight body anchor removes the POSITIONAL bob, and this removes
+        // the ROTATIONAL component the engine bakes into the eye quat during animations (head-bob and weapon-sway
         // rotation, combat / hit / landing shake). StableAimBasis follows the player's clean look-controller AIM
-        // quat instead - it carries none of that engine view-shake and equals the eye quat at rest - and
-        // AimBasisSmoothing low-passes it. basis_overridden records whether the basis was shaped at all: when
-        // neither feature is active it stays the raw eye quat and the orientation path below is byte-identical to
-        // the convergence/orbit-only behaviour (a fail-safe default).
+        // instead, leveled by level_look_rotation. That aim carries none of the engine view-shake and equals the eye
+        // quat at rest. AimBasisSmoothing low-passes it. basis_overridden records whether the basis was shaped at
+        // all. When neither feature is active the basis stays the raw eye quat, and the orientation path below is
+        // byte-identical to the convergence/orbit-only behavior (a fail-safe default).
         Quaternion basis_rotation = eye_rotation;
         bool basis_overridden = false;
         Quaternion look_rotation = eye_rotation;
@@ -735,9 +1087,9 @@ namespace TPVCamera
         {
             // Read the look controller through the self-healed offset (seeded from the constant, recovered if
             // the C_Player layout drifts) so the basis tracks the same controller the orbit aim control writes.
-            // Read-only here (the basis is derived from the controller's quat), so the retained nominal is
-            // acceptable: worst case on a drifted layout it reads a neighbouring field and the quat sanity
-            // check below rejects it. The WRITE path (apply_orbit_aim_control) demands a Confirmed heal.
+            // Read-only here (the basis is derived from the controller's quat and pitch), so the retained nominal is
+            // acceptable: worst case on a drifted layout it reads neighboring fields and the sanity checks below
+            // reject them. The WRITE path (apply_orbit_aim_control) demands a Confirmed heal.
             const std::ptrdiff_t c_player_look_controller_offset =
                 offset_value(runtime_offsets().c_player_look_controller);
             const auto controller = mem::read<uintptr_t>(Address{c_player + c_player_look_controller_offset});
@@ -745,22 +1097,26 @@ namespace TPVCamera
             {
                 const auto look_quat =
                     mem::read<Quaternion>(Address{*controller + Constants::LOOK_CONTROLLER_QUAT_OFFSET});
-                if (look_quat)
+                const auto look_pitch =
+                    mem::read<float>(Address{*controller + Constants::LOOK_CONTROLLER_PITCH2_OFFSET});
+                if (look_quat && look_pitch)
                 {
                     const Quaternion q = *look_quat;
                     const float n2 = q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w;
-                    // Accept only a finite, ~unit quaternion: a layout drift feeding garbage must fall back to
-                    // the eye quat, never rotate the rig by a denormal.
-                    if (std::isfinite(n2) && n2 > 0.9f && n2 < 1.1f)
+                    // Accept only a finite, ~unit quaternion and a finite pitch within the engine's +/-1.5608 rad
+                    // look clamp, plus a small margin. A layout drift that feeds garbage falls back to the eye quat
+                    // and never rotates the rig by a denormal.
+                    if (std::isfinite(n2) && n2 > 0.9f && n2 < 1.1f && std::isfinite(*look_pitch) &&
+                        std::fabs(*look_pitch) <= 1.6f)
                     {
-                        look_rotation = q;
+                        look_rotation = level_look_rotation(q, *look_pitch);
                         look_valid = true;
                     }
                 }
             }
         }
-        // Low-pass the basis quaternion toward the target - the look quat when StableAimBasis resolved it, else
-        // the raw eye quat. Snaps on the first engaged frame (basis_quat_valid false) so the camera does not
+        // Low-pass the basis quaternion toward the target: the leveled look orientation when StableAimBasis resolved
+        // it, else the raw eye quat. Snaps on the first engaged frame (basis_quat_valid false) so the camera does not
         // swing in from a stale orientation across a first-person gap. AimBasisSmoothing 0 disables the filter
         // (the target is used directly).
         const float basis_smoothing = std::clamp(cfg.aim_basis_smoothing.load(std::memory_order_relaxed), 0.0f, 1.0f);
@@ -877,6 +1233,7 @@ namespace TPVCamera
         // Read the player body world origin once. It feeds the stable anchor (below) AND the
         // device-agnostic movement speed used by the camera-relative move alignment; body_valid gates both.
         Vector3 body_origin{0.0f, 0.0f, 0.0f};
+        float body_yaw = 0.0f;
         bool body_valid = false;
         uintptr_t entity_addr = 0;
         {
@@ -900,17 +1257,33 @@ namespace TPVCamera
                 if (world_matrix)
                 {
                     body_origin = Vector3{world_matrix->m[0][3], world_matrix->m[1][3], world_matrix->m[2][3]};
+                    // Forward is column 1; yaw in the engine convention forward = (-sin yaw, cos yaw).
+                    body_yaw = std::atan2(-world_matrix->m[0][1], world_matrix->m[1][1]);
                     body_valid = true;
                 }
             }
         }
+        // Held off the anchor while the body steps through a native turn-in-place animation, so the camera does not
+        // shift with the turn. The look yaw comes from the look quat, or from the eye quat, whose yaw is the look yaw
+        // in first person.
+        Vector3 turn_hold{0.0f, 0.0f, 0.0f};
+        if (body_valid)
+        {
+            const Vector3 look_fwd = (look_valid ? look_rotation : eye_rotation).rotate(Vector3{0.0f, 1.0f, 0.0f});
+            const bool look_yaw_valid = look_fwd.x * look_fwd.x + look_fwd.y * look_fwd.y > 1e-6f;
+            const float look_yaw = look_yaw_valid ? std::atan2(-look_fwd.x, look_fwd.y) : 0.0f;
+            turn_hold = hold_turn_in_place_pivot(cam, body_origin, body_yaw, look_yaw, look_yaw_valid, delta_time);
+        }
+        const Vector3 anchor_origin = body_origin - turn_hold;
         // Publish the live REAL eye height (FP eye above the body root) for the overlay read-out and as the
         // dynamic-eye-sync source. eye_position carries head bob; body_origin is the bob-free feet origin.
         if (body_valid)
         {
             cam.real_eye_height.store(eye_position.z - body_origin.z, std::memory_order_relaxed);
         }
-        Vector3 anchor_base = eye_position;
+        // The eye anchor (EyeHeight 0, or no body) takes the turn hold too, so switching anchor mode with a hold in
+        // place does not jump; the hold then eases out as usual.
+        Vector3 anchor_base = eye_position - turn_hold;
         if (body_valid && eye_height > 0.0f)
         {
             float effective_eye_height = eye_height;
@@ -946,7 +1319,7 @@ namespace TPVCamera
             // Publish for the overlay status line (actively re-anchoring vs. using the configured height).
             cam.eye_sync_engaged.store(sync_engaged, std::memory_order_relaxed);
             cam.eye_sync_effective.store(effective_eye_height, std::memory_order_relaxed);
-            anchor_base = body_origin + world_up * effective_eye_height;
+            anchor_base = anchor_origin + world_up * effective_eye_height;
         }
         else
         {
@@ -1368,7 +1741,7 @@ namespace TPVCamera
                     // aiming / cinematic state was active when the body-turn engaged.
                     (void)DMK::log().try_log(
                         DMK::LogLevel::Trace,
-                        "Orbit: move-orbit START (body-turn engaging) -- move_magnitude={:.2f}, continuous_align={}, "
+                        "Orbit: move-orbit START (body-turn engaging) - move_magnitude={:.2f}, continuous_align={}, "
                         "state_mask=0x{:X}",
                         move_magnitude, cfg.orbit_continuous_align.load(std::memory_order_relaxed),
                         game_state_mask().load(std::memory_order_relaxed));
@@ -1398,7 +1771,7 @@ namespace TPVCamera
                 // exactly where the moving camera was, with no jump the instant movement stops.
                 cam.orbit_yaw.store(orbit_yaw_deg, std::memory_order_relaxed);
                 (void)DMK::log().try_log(DMK::LogLevel::Trace,
-                                         "Orbit: move-orbit STOP (body-turn releasing) -- move_magnitude={:.2f}",
+                                         "Orbit: move-orbit STOP (body-turn releasing) - move_magnitude={:.2f}",
                                          move_magnitude);
             }
             cam.orbit_moving = moving;
@@ -1853,6 +2226,52 @@ namespace TPVCamera
         collision_done:;
         }
 
+        // First-person fallback. With no room behind the player - a low lintel in a doorway (the roof clamp holds the
+        // camera under it), a wall right behind - collision pulls the camera onto the pivot, inside the head, and the
+        // view shows the head's inside until the player moves. Below HeadClearance of arm the camera eases onto the
+        // real eye instead and the head is hidden by the game's own first-person rig (s_head_fallback, read by the
+        // head re-assert and the head-visibility detour), so the view is plain first person until there is room
+        // again. The arm is measured after collision, so a close zoom counts too. The margin keeps a doorway from
+        // switching it on and off as the arm hovers around the threshold.
+        {
+            constexpr float k_head_fallback_margin = 0.15f; // meters of extra room before third person resumes
+            constexpr float k_head_fallback_rate = 12.0f;   // ease rate, 1/sec (frame-rate independent below)
+            const float clearance = cfg.head_clearance.load(std::memory_order_relaxed);
+            // Measured from the head where it really is: the pivot plus the turn hold, which keeps the pivot off the
+            // body while it steps through a turn.
+            const float arm = (camera_position - (pivot + turn_hold)).magnitude();
+            if (clearance <= 0.0f)
+            {
+                cam.head_fallback = false;
+            }
+            else if (!cam.head_fallback && arm < clearance)
+            {
+                cam.head_fallback = true;
+                (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                         "Camera: first-person fallback ON (arm {:.2f} m < HeadClearance {:.2f} m)",
+                                         arm, clearance);
+            }
+            else if (cam.head_fallback && arm > clearance + k_head_fallback_margin)
+            {
+                cam.head_fallback = false;
+                (void)DMK::log().try_log(DMK::LogLevel::Debug, "Camera: first-person fallback OFF (arm {:.2f} m)", arm);
+            }
+            const float target = cam.head_fallback ? 1.0f : 0.0f;
+            const float k = 1.0f - std::exp(-k_head_fallback_rate * delta_time);
+            cam.head_fallback_blend += (target - cam.head_fallback_blend) * k;
+            if (std::fabs(target - cam.head_fallback_blend) < 1e-3f)
+            {
+                cam.head_fallback_blend = target;
+            }
+            // The head hides as soon as the fallback starts (the camera is already close to it) and shows again only
+            // once the camera is back out past halfway.
+            s_head_fallback.store(cam.head_fallback || cam.head_fallback_blend > 0.5f, std::memory_order_relaxed);
+            if (cam.head_fallback_blend > 0.0f)
+            {
+                camera_position = camera_position + (fpv_position - camera_position) * cam.head_fallback_blend;
+            }
+        }
+
         // Write the offset position into the camera matrix translation column. The basis columns are
         // left as the engine built them (from the eye quat) unless convergence/orbit changed the look,
         // so the camera otherwise stays parallel to the player's view. The caller computes the cull
@@ -1921,50 +2340,83 @@ namespace TPVCamera
     }
 
     /**
-     * @brief Calls the head-visibility setter on the latched player entity.
-     * @details Invokes the original (the trampoline, so this does not re-enter our detour)
-     *          with the latched flags. Faults are caught by the CView::Update SEH wrapper this
-     *          runs under. Runs on the view-update thread, the same thread the engine drives the
-     *          setter on.
-     * @param entity Latched player entity.
+     * @brief Calls the head-visibility setter on the player entity.
+     * @details Invokes the original (the trampoline, so this does not re-enter our detour).
+     *          Faults are caught by the frustum detour's SEH wrapper this runs under. Runs on
+     *          the view-update thread, the same thread the engine drives the setter on.
+     * @param entity Player entity (C_Player).
      * @param hide_head Desired hide state (false = head shown).
+     * @param flags The setter's third argument.
      */
-    static void call_head_visibility(uintptr_t entity, bool hide_head)
+    static void call_head_visibility(uintptr_t entity, bool hide_head, uint8_t flags)
     {
         if (s_set_head_visibility_original)
         {
-            s_set_head_visibility_original(entity, hide_head,
-                                           static_cast<char>(s_head_flags.load(std::memory_order_relaxed)));
+            s_set_head_visibility_original(entity, hide_head, static_cast<char>(flags));
         }
     }
 
     /**
+     * @brief Latches @p player as if the game had just called the head-visibility setter on it.
+     * @details The setter stores its hide value at OFFSET_ENTITY_HIDE_HEAD_FLAG and its third
+     *          argument at OFFSET_ENTITY_HIDE_HEAD_ARG, and the game re-applies the head from
+     *          exactly those two fields. A player the detour has not seen a call on (a new level,
+     *          or a freshly loaded generation) is adopted from them before the re-assert first
+     *          changes the head. Turning the offset off then restores what the game applied, not
+     *          the default of a never-latched state, which would show the head in first person.
+     * @param player The live C_Player.
+     * @return False when either field cannot be read; nothing is latched then.
+     */
+    static bool adopt_head_state(uintptr_t player)
+    {
+        const auto hide_head = mem::read<uint8_t>(Address{player + Constants::OFFSET_ENTITY_HIDE_HEAD_FLAG});
+        const auto flags = mem::read<uint8_t>(Address{player + Constants::OFFSET_ENTITY_HIDE_HEAD_ARG});
+        if (!hide_head || !flags)
+        {
+            return false;
+        }
+        s_head_entity.store(player, std::memory_order_relaxed);
+        s_head_flags.store(*flags, std::memory_order_relaxed);
+        s_game_intended_hide_head.store(*hide_head != 0, std::memory_order_relaxed);
+        return true;
+    }
+
+    /**
      * @brief Keeps the player head in sync with the offset state once per frame.
-     * @details While the offset is active the head must stay shown, but the engine only
+     * @details While the offset is active the head must stay shown (hidden only during the
+     *          first-person fallback, when the camera sits at the eye), but the engine only
      *          sets head visibility on its own transitions, so re-call the setter whenever
-     *          the live hide flag says the head is hidden. When the offset has just turned
+     *          the live hide flag disagrees. When the offset has just turned
      *          off, restore the game's intended hide value exactly once so the first-person
      *          rig hides the head again. The hide flag is re-read rather than cached so this
      *          self-heals regardless of who last changed it, and a call is issued only on a
      *          mismatch so the engine is not driven every frame.
+     *          The player is the live C_Player resolved this frame when there is one, else the
+     *          one the setter was last called on. A live player that differs from the latched
+     *          one is adopted first (adopt_head_state), because a freshly loaded generation or a
+     *          new level has no call latched until the game next switches the view itself.
      * @param active Whether the offset is currently being applied to the game view.
+     * @param c_player The live C_Player (vtable-validated), or 0.
      */
-    static void reassert_head_visibility(bool active)
+    static void reassert_head_visibility(bool active, uintptr_t c_player)
     {
-        const uintptr_t entity = s_head_entity.load(std::memory_order_relaxed);
-        if (entity != 0 && mem::is_plausible_ptr(Address{entity}))
+        const uintptr_t latched = s_head_entity.load(std::memory_order_relaxed);
+        const uintptr_t entity = c_player != 0 ? c_player : latched;
+        if (entity != 0 && mem::is_plausible_ptr(Address{entity}) && (entity == latched || adopt_head_state(entity)))
         {
+            const uint8_t flags = s_head_flags.load(std::memory_order_relaxed);
             if (active)
             {
+                const bool want_hidden = s_head_fallback.load(std::memory_order_relaxed);
                 const auto hide_flag = mem::read<uint8_t>(Address{entity + Constants::OFFSET_ENTITY_HIDE_HEAD_FLAG});
-                if (hide_flag && *hide_flag != 0)
+                if (hide_flag && (*hide_flag != 0) != want_hidden)
                 {
-                    call_head_visibility(entity, false);
+                    call_head_visibility(entity, want_hidden, flags);
                 }
             }
             else if (s_head_was_active.load(std::memory_order_relaxed))
             {
-                call_head_visibility(entity, s_game_intended_hide_head.load(std::memory_order_relaxed));
+                call_head_visibility(entity, s_game_intended_hide_head.load(std::memory_order_relaxed), flags);
             }
         }
         s_head_was_active.store(active, std::memory_order_relaxed);
@@ -2098,6 +2550,235 @@ namespace TPVCamera
     }
 
     /**
+     * @brief SGameObjectEvent as the camera manager builds it when it switches the active camera.
+     */
+    struct alignas(16) GameObjectEvent
+    {
+        uintptr_t vtable;
+        uint32_t event;
+        uint32_t flags;
+        uint64_t param[2];
+    };
+    static_assert(sizeof(GameObjectEvent) == 0x20, "SGameObjectEvent is 0x20 bytes");
+
+    /**
+     * @brief Sends the player the camera-changed event, so its locomotion action re-reads IsThirdPerson now.
+     * @details The camera manager sends this event through C_Player::HandleEvent whenever it switches the active
+     *          camera, and the movement action answers it, while idle, by taking or dropping its LockBodyTurn
+     *          reference to match IsThirdPerson. Thread: the actor updates, the locomotion action included, run on
+     *          job-system workers early in the frame and finish before C_Player::Update (vtable slot 22, where the
+     *          game sends this same event) runs on the main thread. C_Player::UpdateView follows on the main thread,
+     *          and the frustum detour runs inside it, so this is sent from the same thread and frame phase as the
+     *          game's own. Guarded: a layout change in the handler must never crash the game.
+     * @param c_player The live C_Player (vtable-validated), or 0.
+     * @return True when the event was delivered.
+     */
+    static bool send_camera_changed_event(uintptr_t c_player) noexcept
+    {
+        if (c_player == 0 || s_player_handle_event == 0 || s_game_object_event_vtable == 0)
+        {
+            return false;
+        }
+        const GameObjectEvent event{
+            .vtable = s_game_object_event_vtable,
+            .event = Constants::GAME_OBJECT_EVENT_CAMERA_CHANGED,
+            .flags = Constants::GAME_OBJECT_EVENT_CAMERA_CHANGED_FLAGS,
+            .param = {0, 0},
+        };
+        __try
+        {
+            reinterpret_cast<HandleEventFunc>(s_player_handle_event)(c_player, &event);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * @brief Reads the player's LockBodyTurn reference count, or -1 when it cannot be read. Used only for the log.
+     */
+    static int32_t read_lock_body_turn_count(uintptr_t c_player)
+    {
+        if (c_player == 0)
+        {
+            return -1;
+        }
+        const auto count = mem::read<int32_t>(Address{c_player + Constants::C_PLAYER_LOCK_BODY_TURN_COUNT_OFFSET});
+        return count ? *count : -1;
+    }
+
+    /**
+     * @brief Reads the player's world body yaw and look yaw, in radians (engine convention: forward = (-sin, cos)).
+     * @return False when either could not be read. Used only for the log.
+     */
+    static bool read_body_and_look_yaw(uintptr_t c_player, float &body_yaw, float &look_yaw)
+    {
+        const auto entity = mem::read<uintptr_t>(Address{c_player + offset_value(runtime_offsets().c_player_entity)});
+        const auto controller =
+            mem::read<uintptr_t>(Address{c_player + offset_value(runtime_offsets().c_player_look_controller)});
+        if (!entity || !controller || !mem::is_plausible_ptr(Address{*entity}) ||
+            !mem::is_plausible_ptr(Address{*controller}))
+        {
+            return false;
+        }
+        const auto world =
+            mem::read<GameStructures::Matrix34f>(Address{*entity}.offset(Constants::OFFSET_ENTITY_WORLD_MATRIX_MEMBER));
+        const auto yaw = mem::read<float>(Address{*controller + Constants::LOOK_CONTROLLER_YAW_OFFSET});
+        if (!world || !yaw || !std::isfinite(*yaw))
+        {
+            return false;
+        }
+        body_yaw = std::atan2(-world->m[0][1], world->m[1][1]);
+        look_yaw = *yaw;
+        return true;
+    }
+
+    /**
+     * @brief Publishes the native turn-animation state for the IsThirdPerson detour and re-syncs the locomotion
+     *        action's LockBodyTurn reference on every change.
+     * @details The detour reports third person to the locomotion action while all of these hold:
+     *          - the third-person view is engaged, including its ease-out, so the body follows the look again only
+     *            once the view is back at the eye;
+     *          - the setting is on and no NativeTurnExcludeState state is active;
+     *          - the view is not on the first-person eye (@p eye_anchored: the head fallback, or an Eye Height 0
+     *            preset). On the eye the body follows the look as in first person, because the eye sits on the head
+     *            bone and swings with a turn, and a body free of the look with no turns stays behind while the player
+     *            looks around.
+     *          Turns are held off (the body stays free of the look but starts no turn) while @p turns_allowed is
+     *          false, which is free-look. Its look input is captured, so a look change is the mod's own heading write
+     *          on a move start and must not start a turn fragment under the orbit body override.
+     *          On a change the action is told at once through the camera-changed event, so an idle body is freed or
+     *          follows the look again now rather than on its next locomotion change. Following again snaps the body
+     *          to the look, as the game does when it leaves its own third-person camera. A player that went away (a
+     *          load) took its action with it, so only the live player is ever sent the event. Game-view frustum
+     *          frames only.
+     * @param c_player The live C_Player (vtable-validated), or 0.
+     * @param engaged Whether the third-person offset is rendering this frame.
+     * @param state The debounced GameState mask.
+     * @param eye_anchored Whether the view rides the first-person eye (see above).
+     * @param turns_allowed Whether a turn fragment may start (see above).
+     * @param delta_time Frame time in seconds, for the trace cadence.
+     */
+    static void update_native_turn(uintptr_t c_player, bool engaged, uint32_t state, bool eye_anchored,
+                                   bool turns_allowed, float delta_time)
+    {
+        // Counted before the release flag is read and uncounted on every return (both sequentially consistent, like
+        // the shutdown side), so a shutdown that sees no call under way knows any later call sees the flag.
+        s_native_turn_updating.fetch_add(1, std::memory_order_seq_cst);
+        struct UpdateScope
+        {
+            ~UpdateScope() { s_native_turn_updating.fetch_sub(1, std::memory_order_seq_cst); }
+        } const update_scope;
+        const LiveSettings &cfg = settings();
+        const bool enabled = cfg.native_turn_animation.load(std::memory_order_relaxed);
+        const bool excluded = (state & cfg.native_turn_exclude_mask.load(std::memory_order_relaxed)) != 0;
+        const bool releasing = s_native_turn_release_requested.load(std::memory_order_seq_cst);
+
+        // Without a resolved player there is no one to send the event to, so switching off would leave the action's
+        // reference taken until its next idle start. Keep the published state through a brief miss; a longer one is a
+        // load or a menu, whose player (and action) is going away anyway.
+        constexpr float k_player_miss_grace = 0.5f; // seconds
+        static float s_player_missing = 0.0f;
+        if (c_player == 0 && !releasing)
+        {
+            s_player_missing += delta_time;
+            if (s_player_missing < k_player_miss_grace)
+            {
+                return;
+            }
+        }
+        else
+        {
+            s_player_missing = 0.0f;
+        }
+        const bool want = s_native_turn_armed.load(std::memory_order_acquire) && c_player != 0 && engaged && enabled &&
+                          !excluded && !eye_anchored && !releasing;
+        s_native_turn_trigger.store(want && turns_allowed, std::memory_order_relaxed);
+
+        const uintptr_t actor = want ? c_player : 0;
+        const uintptr_t previous = s_native_turn_actor.load(std::memory_order_relaxed);
+        if (actor != previous)
+        {
+            // Counted before the store, so a shutdown that sees the new actor also sees the change in flight.
+            s_native_turn_changes_in_flight.fetch_add(1, std::memory_order_seq_cst);
+            s_turn_continuing.store(false, std::memory_order_relaxed);     // a fresh start for the turn decision
+            s_turn_decision_missed.store(true, std::memory_order_relaxed); // and for the look's rest
+            s_native_turn_actor.store(actor, std::memory_order_seq_cst);
+            const uintptr_t target = actor != 0 ? actor : (previous == c_player ? previous : 0);
+            const int32_t count_before = read_lock_body_turn_count(target);
+            const bool sent = send_camera_changed_event(target);
+            const int32_t count_after = read_lock_body_turn_count(target);
+            s_native_turn_changes_in_flight.fetch_sub(1, std::memory_order_seq_cst);
+            (void)DMK::log().try_log(
+                DMK::LogLevel::Debug,
+                "Native turn: {} (view engaged {}, setting {}, excluded state {}, view on the eye {}, shutting down "
+                "{}); camera-changed event {}, LockBodyTurn count {} -> {} (0 = body follows the look)",
+                actor != 0 ? "ON" : "OFF", engaged, enabled, excluded, eye_anchored, releasing,
+                sent ? "sent" : "not sent", count_before, count_after);
+        }
+
+        // The player's animated character, for the movement detour that keeps turn steps in place (0 while off).
+        uintptr_t player_animchar = 0;
+        if (actor != 0)
+        {
+            const RuntimeOffsets &offsets = runtime_offsets();
+            const std::array<std::ptrdiff_t, 3> animchar_chain{offset_value(offsets.c_player_animated_human),
+                                                               offset_value(offsets.animated_human_animchar), 0};
+            const auto anim_char = mem::walk(Address{c_player}, animchar_chain);
+            if (anim_char && mem::is_plausible_ptr(*anim_char))
+            {
+                const auto vt = mem::read<uintptr_t>(*anim_char);
+                if (vt && vtable_is(GameClass::AnimatedCharacter, *vt))
+                {
+                    player_animchar = anim_char->raw();
+                }
+            }
+        }
+        s_player_animchar.store(player_animchar, std::memory_order_relaxed);
+
+        // The turn decision's settings, read by the decision hook in the next frame's actor update.
+        const float start_angle_deg = std::clamp(cfg.native_turn_angle.load(std::memory_order_relaxed), 10.0f, 90.0f);
+        s_turn_start_angle.store(DMK::math::degrees_to_radians(start_angle_deg), std::memory_order_relaxed);
+        s_turn_settle_delay.store(std::max(0.0f, cfg.native_turn_settle_delay.load(std::memory_order_relaxed)),
+                                  std::memory_order_relaxed);
+
+        if (actor == 0 || !DMK::log().is_enabled(DMK::LogLevel::Trace))
+        {
+            return;
+        }
+
+        // Trace the gap between the look and the body a few times a second while it changes, so a log shows each
+        // turn's start, progress and finish against the LockBodyTurn count and the decision state.
+        static float s_trace_timer = 0.0f;
+        static float s_last_gap_deg = 0.0f;
+        s_trace_timer += delta_time;
+        if (s_trace_timer >= 0.1f)
+        {
+            s_trace_timer = 0.0f;
+            float body_yaw = 0.0f;
+            float look_yaw = 0.0f;
+            if (read_body_and_look_yaw(c_player, body_yaw, look_yaw))
+            {
+                const float gap = std::remainder(look_yaw - body_yaw, 2.0f * DirectX::XM_PI);
+                const float gap_deg = DMK::math::radians_to_degrees(gap);
+                if (std::fabs(gap_deg - s_last_gap_deg) > 1.0f)
+                {
+                    (void)DMK::log().try_log(DMK::LogLevel::Trace,
+                                             "Native turn: look leads body by {:.1f} deg (LockBodyTurn count {}, turn "
+                                             "trigger {}, turning {}, look still for {} ms)",
+                                             gap_deg, read_lock_body_turn_count(c_player),
+                                             s_native_turn_trigger.load(std::memory_order_relaxed) ? "on" : "off",
+                                             s_turn_continuing.load(std::memory_order_relaxed),
+                                             GetTickCount64() - s_turn_rest_since.load(std::memory_order_relaxed));
+                }
+                s_last_gap_deg = gap_deg;
+            }
+        }
+    }
+
+    /**
      * @brief Gate + matrix-offset body for the frustum-builder detour. Separated from the SEH wrapper
      *        so that frame can hold C++ objects that need unwinding.
      * @details Cheapest exits first: the runtime toggle, then the CView vtable identity (a single
@@ -2131,8 +2812,11 @@ namespace TPVCamera
         // trigger a one-time forced switch, so only skip when the player is in manual first person with
         // no forced states configured and the head has already been restored (the head-restore branch
         // keeps running for one frame after a toggle-off, while s_head_was_active is still set).
+        // The native turn animation must also be off (it lets the body follow the look again on the frame the view
+        // disengages).
         if (!cam.applying.load(std::memory_order_relaxed) && (forced_fpv | forced_tpv) == 0 &&
-            !s_head_was_active.load(std::memory_order_relaxed) && cam.view_blend <= 1e-3f)
+            !s_head_was_active.load(std::memory_order_relaxed) && cam.view_blend <= 1e-3f &&
+            s_native_turn_actor.load(std::memory_order_relaxed) == 0)
         {
             // Even while idle (first person, no forced state), probe for the player until the world is
             // first seen so game_world_ready becomes true in-world REGARDLESS of the third-person view
@@ -2249,7 +2933,14 @@ namespace TPVCamera
         // The offset is rendered while heading TO or holding third person, so the ease-OUT renders too.
         const bool offset_engaged = want_tpv || cam.view_blend > 1e-3f;
         s_offset_active.store(offset_engaged, std::memory_order_relaxed);
-        reassert_head_visibility(offset_engaged);
+        reassert_head_visibility(offset_engaged, c_player);
+        // The body's native turn-in-place animation follows the offset too (it follows the look again once the view is
+        // back at the eye), and is off while the view rides the first-person eye (the head fallback, or an Eye Height 0
+        // preset anchored to it). No turn starts under free-look.
+        const bool eye_anchored =
+            s_head_fallback.load(std::memory_order_relaxed) || cfg.eye_height.load(std::memory_order_relaxed) <= 0.0f;
+        update_native_turn(c_player, offset_engaged, state, eye_anchored,
+                           !cam.orbit_active.load(std::memory_order_relaxed), delta_time);
 
         // Edge tracker for the disengage cleanup below: true while the offset is rendering, so the cleanup runs
         // ONCE on the third-person -> first-person transition, not every first-person frame.
@@ -2274,8 +2965,13 @@ namespace TPVCamera
             }
             cam.collision_valid = false;
             cam.collision_hold_timer = 0.0f;
+            cam.head_fallback = false;
+            cam.head_fallback_blend = 0.0f;
+            s_head_fallback.store(false, std::memory_order_relaxed);
             // First person (or suppressed): the camera is the eye, so the interaction hook must NOT redirect.
             interaction_aim_pose().invalidate();
+            // Nor does the AI's camera observer need the eye substituted.
+            s_ai_eye_valid.store(false, std::memory_order_release);
             cam.orbit_level_blend = 0.0f;
             cam.orbit_render_valid =
                 false; // next engaged frame snaps the orbit low-pass instead of easing across the gap
@@ -2283,6 +2979,7 @@ namespace TPVCamera
             cam.eye_sync_valid = false;    // and the dynamic eye-height low-pass
             cam.fov_ease_valid = false;    // and the per-preset FOV override ease
             cam.basis_quat_valid = false;  // and the aim-basis low-pass
+            cam.turn_track_valid = false;  // and the turn-in-place pivot hold
             cam.orbit_moving = false;
             cam.orbit_target_valid = false;
             // Back to first person: the next engaged frame should snap the preset, not ease across the gap.
@@ -2294,6 +2991,16 @@ namespace TPVCamera
         // Resolve the active preset (by debounced state, or the overlay's editing pin) and ease the
         // live framing toward it BEFORE the matrix offset reads those settings this frame.
         Presets::resolve_and_apply(state, delta_time);
+
+        // Publish the untouched first-person eye for the camera-observer detour before the matrix is offset: the AI
+        // judges which NPCs to update from the observer, and in first person that observer stands at the eye.
+        if (const auto eye = mem::read<Vector3>(Address{cview + Constants::SVIEWPARAMS_POSITION_OFFSET}); eye)
+        {
+            s_ai_eye_x.store(eye->x, std::memory_order_relaxed);
+            s_ai_eye_y.store(eye->y, std::memory_order_relaxed);
+            s_ai_eye_z.store(eye->z, std::memory_order_relaxed);
+            s_ai_eye_valid.store(true, std::memory_order_release);
+        }
 
         // Smoothstep the linear view blend for an ease-in/out feel, then offset with it.
         const float vb = cam.view_blend;
@@ -2344,9 +3051,10 @@ namespace TPVCamera
 
                 // Mirror the head to the offset's effective active state (published by the frustum
                 // detour) rather than the raw toggle, so a forced-FPV/TPV state shows or hides the head
-                // to match the view the player actually sees.
+                // to match the view the player actually sees. The first-person fallback (camera at the
+                // eye, no room behind) hides it like first person does.
                 const bool active = s_offset_active.load(std::memory_order_relaxed);
-                const bool final_hide_head = active ? false : hide_head;
+                const bool final_hide_head = active ? s_head_fallback.load(std::memory_order_relaxed) : hide_head;
                 s_set_head_visibility_original(entity, final_hide_head, flags);
             }
         }
@@ -2460,11 +3168,6 @@ namespace TPVCamera
         __try
         {
             block = orbit_capture_and_decide(input_event);
-            // Only when free-look did NOT take the event: while orbiting, the look pitch belongs to the
-            // orbit ring and orbit_capture_and_decide has already blocked it.
-            if (!block)
-            {
-            }
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -2504,6 +3207,551 @@ namespace TPVCamera
         logger.warning("Camera: g_env AOB unavailable; using static fallback at {}",
                        DMK::format::format_address(fallback));
         return fallback;
+    }
+
+    /**
+     * @brief Camera-observer update detour: keeps the AI's camera observer at the first-person eye in third person.
+     * @details The engine's camera observer copies the system view camera, which carries the third-person offset.
+     *          The AI selects which NPCs to update in full, and which to hide and pause, from that observer, so an
+     *          NPC a few metres beyond its reach from the pulled-back camera (a sleeper in a house, someone inside a
+     *          shop) vanishes in third person while first person, whose camera is the eye, shows it. The original
+     *          runs first. While the offset renders, its position is replaced with the eye the frustum detour last
+     *          published, so every consumer of the observer sees what it sees in first person. The direction and
+     *          field of view stay as the original set them: the offset camera looks the same way as the eye.
+     */
+    static bool __fastcall detour_camera_observer_update(uintptr_t observer, float *position, bool *position_valid,
+                                                         float *direction, bool *direction_valid, float *fov) noexcept
+    {
+        const bool updated =
+            s_camera_observer_update_original != nullptr &&
+            s_camera_observer_update_original(observer, position, position_valid, direction, direction_valid, fov);
+        // The original has just written through this pointer, so writing it again is as safe as its own store.
+        if (updated && position != nullptr && s_offset_active.load(std::memory_order_relaxed) &&
+            s_ai_eye_valid.load(std::memory_order_acquire))
+        {
+            position[0] = s_ai_eye_x.load(std::memory_order_relaxed);
+            position[1] = s_ai_eye_y.load(std::memory_order_relaxed);
+            position[2] = s_ai_eye_z.load(std::memory_order_relaxed);
+        }
+        return updated;
+    }
+
+    /**
+     * @brief Reads a vtable slot and returns its target when it lies in the game image and carries @p signature
+     *        within its first @p window bytes, else 0, so a patch that moves the slot is refused rather than hooked.
+     */
+    static uintptr_t read_checked_vtable_slot(uintptr_t vtable, size_t slot, std::span<const uint8_t> signature,
+                                              size_t window, uintptr_t module_base, size_t module_size)
+    {
+        constexpr size_t k_max_window = 0x300;
+        const auto slot_value = mem::read<uintptr_t>(Address{vtable + slot * sizeof(uintptr_t)});
+        const uintptr_t target = slot_value.has_value() ? *slot_value : 0;
+        if (target < module_base || target >= module_base + module_size || window > k_max_window)
+        {
+            return 0;
+        }
+        std::array<std::uint8_t, k_max_window> head{};
+        const auto body = std::span{head}.first(window);
+        if (!mem::read_into(Address{target}, std::as_writable_bytes(body)).has_value() ||
+            std::search(body.begin(), body.end(), signature.begin(), signature.end()) == body.end())
+        {
+            return 0;
+        }
+        return target;
+    }
+
+    /**
+     * @brief Hooks the camera observer's update, found through its RTTI vtable (no signature scan).
+     * @details Best-effort: without it the camera still works, and NPCs just beyond the pulled-back camera's reach stay
+     *          hidden in third person, as they would for the unmodded game with its view camera there. The slot's
+     *          target must lie in the game image and still read the view camera (the GetViewCamera call bytes among
+     *          its first instructions), so a patch that moves the slot leaves the hook uninstalled rather than hooking
+     *          another function.
+     */
+    static void install_camera_observer_hook(uintptr_t module_base, size_t module_size, DMK::hook::HookStack &hooks)
+    {
+        DMK::Logger &logger = DMK::log();
+        const std::optional<std::uintptr_t> vtable = class_vtable(GameClass::CameraObserver);
+        if (!vtable.has_value())
+        {
+            logger.warning("Camera: C_CameraObserver did not resolve; in third person the AI keeps judging NPCs from "
+                           "the pulled-back camera");
+            return;
+        }
+        const uintptr_t target =
+            read_checked_vtable_slot(*vtable, Constants::CAMERA_OBSERVER_VTABLE_UPDATE_SLOT,
+                                     std::span{Constants::CAMERA_OBSERVER_UPDATE_SIGNATURE},
+                                     Constants::CAMERA_OBSERVER_UPDATE_SIGNATURE_WINDOW, module_base, module_size);
+        if (target == 0)
+        {
+            logger.warning("Camera: C_CameraObserver slot {} is not an in-image update that reads the view camera; "
+                           "camera-observer hook skipped",
+                           Constants::CAMERA_OBSERVER_VTABLE_UPDATE_SLOT);
+            return;
+        }
+
+        auto result = DMK::hook::inline_at(
+            DMK::hook::InlineRequest{.name = "CameraObserverUpdate", .target = DMK::Address{target}},
+            detour_camera_observer_update);
+        if (!result.has_value())
+        {
+            logger.warning("Camera: camera-observer hook failed ({}); in third person the AI keeps judging NPCs from "
+                           "the pulled-back camera",
+                           result.error().message());
+            return;
+        }
+        // Publish the trampoline before enable() arms the patch, so the detour never sees a null original.
+        s_camera_observer_update_original = result->original<CameraObserverUpdateFunc>();
+        const auto armed = result->enable();
+        hooks.push(std::move(*result));
+        if (!armed.has_value())
+        {
+            logger.warning("Camera: camera-observer hook could not be armed ({}); in third person the AI keeps judging "
+                           "NPCs from the pulled-back camera",
+                           armed.error().message());
+            return;
+        }
+        logger.info("Camera: the AI camera observer follows the first-person eye in third person (C_CameraObserver "
+                    "slot {} at {})",
+                    Constants::CAMERA_OBSERVER_VTABLE_UPDATE_SLOT, DMK::format::format_address(target));
+    }
+
+    /**
+     * @brief IsThirdPerson detour: answers "third person" to the free-roam locomotion action for the native turn.
+     * @details Hot (every actor, several calls a frame each), so it only compares: the published player first, then
+     *          the caller's return address against the two resolved call sites. The inline hook enters this detour
+     *          with a jump, so _ReturnAddress() is the game caller's return address. Every other call, every other
+     *          actor's included, goes to the original unchanged. Reads nothing through a pointer, so it needs no SEH
+     *          frame.
+     */
+    static bool __fastcall detour_is_third_person(uintptr_t actor) noexcept
+    {
+        if (actor != 0 && actor == s_native_turn_actor.load(std::memory_order_relaxed))
+        {
+            const uintptr_t ret = reinterpret_cast<uintptr_t>(_ReturnAddress());
+            if (ret == s_lock_sync_return)
+            {
+                return true;
+            }
+            if (ret == s_turn_trigger_return && s_native_turn_trigger.load(std::memory_order_relaxed))
+            {
+                return true;
+            }
+        }
+        const IsThirdPersonFunc original = s_is_third_person_original;
+        return original != nullptr && original(actor);
+    }
+
+    /**
+     * @brief True when deciding to turn this frame would set the game's spin latch: the latch is clear, a turn
+     *        fragment is still installed and the gap's @p sign differs from the previous evaluation's non-zero sign
+     *        (see MOVEMENT_ACTION_SPIN_LATCH_OFFSET). @p action is the C_PlayerMovementAction the hook runs in. An
+     *        unreadable field counts as a latch, so the turn waits.
+     */
+    static bool would_set_spin_latch(uintptr_t action, float sign) noexcept
+    {
+        const auto latched = mem::read<uint8_t>(Address{action + Constants::MOVEMENT_ACTION_SPIN_LATCH_OFFSET});
+        const auto state = mem::read<int32_t>(Address{action + Constants::MOVEMENT_ACTION_INSTALLED_STATE_OFFSET});
+        const auto last_sign = mem::read<float>(Address{action + Constants::MOVEMENT_ACTION_LAST_SIGN_OFFSET});
+        if (!latched.has_value() || !state.has_value() || !last_sign.has_value())
+        {
+            return true;
+        }
+        return *latched == 0 && (*state == 1 || *state == 2) && *last_sign != 0.0f && *last_sign != sign;
+    }
+
+    /** @brief True when the bytes at @p address are exactly @p code. */
+    static bool code_matches(uintptr_t address, std::span<const uint8_t> code)
+    {
+        std::array<std::uint8_t, 16> bytes{};
+        if (code.size() > bytes.size())
+        {
+            return false;
+        }
+        const auto read = std::span{bytes}.first(code.size());
+        return mem::read_into(Address{address}, std::as_writable_bytes(read)).has_value() &&
+               std::equal(read.begin(), read.end(), code.begin());
+    }
+
+    /**
+     * @brief Turn-decision mid hook: decides turn versus idle for the player through the flags `seta cl` reads.
+     * @details Runs at the `seta cl` right after the game compared |angle| (xmm7) with its 35 degrees. The game
+     *          reaches it only after IsThirdPerson answered true, so for the player only while the native turn is on
+     *          with turns allowed. Leaves any other actor to the game. Sets the flags so that cl comes out as the
+     *          mod's decision: CF and ZF clear gives cl = 1 (turn), ZF set gives cl = 0 (idle). xmm7 is left alone,
+     *          so the animation's turn angle and playback speed, which the game derives from it next, are the game's
+     *          own. See s_turn_start_angle.
+     */
+    static void detour_turn_decision(DMK::hook::MidContext &ctx) noexcept
+    {
+        const uintptr_t actor = DMK::hook::gpr(ctx, DMK::hook::Gpr::Rbx);
+        if (actor == 0 || actor != s_native_turn_actor.load(std::memory_order_relaxed))
+        {
+            return;
+        }
+        if (DMK::hook::gpr(ctx, DMK::hook::Gpr::R12) == 0)
+        {
+            // UpdatePending: the action is queued behind another one that moves him (see TURN_OUTPUT_SAVE). Left to the
+            // game, and not an idle decision.
+            return;
+        }
+        const float gap = DMK::hook::xmm(ctx, 13).lane<float>(0); // signed look-minus-body angle, radians
+        if (!std::isfinite(gap))
+        {
+            return;
+        }
+        const float gap_abs = std::fabs(gap);
+        const float sign = gap < 0.0f ? -1.0f : 1.0f;
+        const uint64_t now = GetTickCount64();
+        const uint64_t last_decision = s_turn_decision_tick.exchange(now, std::memory_order_relaxed);
+        const bool broke = s_turn_steps_hooked.load(std::memory_order_relaxed)
+                               ? s_turn_decision_missed.exchange(false, std::memory_order_relaxed)
+                               : now - last_decision > k_turn_decision_break_ms;
+        if (broke)
+        {
+            // Back in the idle decision after a break: what came before no longer describes this turn or this rest.
+            s_turn_continuing.store(false, std::memory_order_relaxed);
+            s_turn_rest_gap.store(gap, std::memory_order_relaxed);
+            s_turn_rest_since.store(now, std::memory_order_relaxed);
+        }
+        s_turn_decision_seen.store(true, std::memory_order_relaxed);
+
+        // The look's rest, judged on the gap itself (see k_turn_rest_drift).
+        if (std::fabs(gap - s_turn_rest_gap.load(std::memory_order_relaxed)) > k_turn_rest_drift)
+        {
+            s_turn_rest_gap.store(gap, std::memory_order_relaxed);
+            s_turn_rest_since.store(now, std::memory_order_relaxed);
+        }
+        const float settle_delay = s_turn_settle_delay.load(std::memory_order_relaxed);
+        const uint64_t rest_ms = now - s_turn_rest_since.load(std::memory_order_relaxed);
+        const bool rested = settle_delay > 0.0f && static_cast<float>(rest_ms) >= settle_delay * 1000.0f;
+
+        // A started turn continues until he faces the look; otherwise one starts past the start angle, or past the
+        // settle angle once the look has rested.
+        const bool wants_turn =
+            s_turn_continuing.load(std::memory_order_relaxed)
+                ? gap_abs > k_turn_finish_angle && sign == s_turn_last_sign.load(std::memory_order_relaxed)
+                : gap_abs > s_turn_start_angle.load(std::memory_order_relaxed) ||
+                      (gap_abs > k_turn_settle_angle && rested);
+        const bool turn = wants_turn && !would_set_spin_latch(DMK::hook::gpr(ctx, DMK::hook::Gpr::Rdi), sign);
+        s_turn_continuing.store(turn, std::memory_order_relaxed);
+        s_turn_last_sign.store(sign, std::memory_order_relaxed);
+        if (turn)
+        {
+            s_turn_decided_tick.store(now, std::memory_order_relaxed);
+            s_turn_tail_frames.store(k_turn_step_tail_frames, std::memory_order_relaxed);
+        }
+        else if (const int tail = s_turn_tail_frames.load(std::memory_order_relaxed); tail > 0)
+        {
+            s_turn_tail_frames.store(tail - 1, std::memory_order_relaxed);
+        }
+
+        constexpr uintptr_t k_carry_flag = 0x1;
+        constexpr uintptr_t k_zero_flag = 0x40;
+        uintptr_t &cpu_flags = DMK::hook::flags(ctx);
+        cpu_flags = turn ? (cpu_flags & ~(k_carry_flag | k_zero_flag)) : (cpu_flags | k_zero_flag);
+    }
+
+    /**
+     * @brief Installs the turn-decision mid hook, after proving the code around the turn trigger is the expected one.
+     * @details Best-effort: without it the native turn still works, with the game's own 35 degrees and the body
+     *          resting about 35 degrees short of the look. Every byte of TURN_DECISION_WINDOW must match (wildcards
+     *          aside), which fixes the registers the hook reads (rbx, xmm13) and the instruction it sits on. The
+     *          game's reads of its spin latch fields through rdi (TURN_SPIN_LATCH_READ and the two after it) and the
+     *          code that keeps the output pointer in r12 (TURN_OUTPUT_SAVE, TURN_OUTPUT_STORE) must match too.
+     * @return True when the hook is armed.
+     */
+    static bool install_turn_decision_hook(uintptr_t trigger_return, DMK::hook::HookStack &hooks)
+    {
+        DMK::Logger &logger = DMK::log();
+        constexpr size_t k_window = std::size(Constants::TURN_DECISION_WINDOW);
+        std::array<std::uint8_t, k_window> bytes{};
+        const uintptr_t window_start = trigger_return - Constants::TURN_DECISION_WINDOW_BEFORE;
+        bool matches = mem::read_into(Address{window_start}, std::as_writable_bytes(std::span{bytes})).has_value();
+        for (size_t i = 0; matches && i < k_window; ++i)
+        {
+            const uint16_t expected = Constants::TURN_DECISION_WINDOW[i];
+            matches = expected > 0xFF || bytes[i] == static_cast<std::uint8_t>(expected);
+        }
+        const uintptr_t site = trigger_return + Constants::TURN_DECISION_SITE_AFTER;
+        matches = matches && code_matches(site + Constants::TURN_SPIN_LATCH_READ_AT, Constants::TURN_SPIN_LATCH_READ) &&
+                  code_matches(site + Constants::TURN_INSTALLED_STATE_READ_AT, Constants::TURN_INSTALLED_STATE_READ) &&
+                  code_matches(site + Constants::TURN_LAST_SIGN_READ_AT, Constants::TURN_LAST_SIGN_READ) &&
+                  code_matches(site - Constants::TURN_OUTPUT_SAVE_BEFORE, Constants::TURN_OUTPUT_SAVE) &&
+                  code_matches(site + Constants::TURN_OUTPUT_STORE_AT, Constants::TURN_OUTPUT_STORE);
+        if (!matches)
+        {
+            logger.warning("Camera: turn decision code at {} is not the expected one; turns rest about 35 degrees "
+                           "short of the look",
+                           DMK::format::format_address(window_start));
+            return false;
+        }
+        auto result = DMK::hook::mid_at(DMK::hook::MidRequest{.name = "TurnDecision", .target = DMK::Address{site}},
+                                        detour_turn_decision);
+        if (!result.has_value())
+        {
+            logger.warning("Camera: turn decision hook failed ({}); turns rest about 35 degrees short of the look",
+                           result.error().message());
+            return false;
+        }
+        const auto armed = result->enable();
+        hooks.push(std::move(*result));
+        if (!armed.has_value())
+        {
+            logger.warning("Camera: turn decision hook could not be armed ({}); turns rest about 35 degrees short "
+                           "of the look",
+                           armed.error().message());
+            return false;
+        }
+        logger.info("Camera: turn decision hooked at {} (turns finish facing the look)",
+                    DMK::format::format_address(site));
+        return true;
+    }
+
+    /**
+     * @brief Movement detour: keeps a native turn step on the spot, so the body pivots without moving.
+     * @details Drops the horizontal translation of the player's movement on a frame his movement action ran its
+     *          idle/turn decision, from the first turn frame through the step tail after the last one (see
+     *          s_turn_decision_seen). A frame without a decision ends the tail and marks a break for the decision hook.
+     *          The rotation and the vertical part are left to the game, and so is an impulse.
+     *          Every other character, and the player on any frame the action did not decide (walking, interactions,
+     *          scripted animations), goes through untouched. Hot (every animated character each frame), so it only
+     *          compares before calling the original.
+     */
+    static char __fastcall detour_phys_ent_movement(uintptr_t animchar, float *movement) noexcept
+    {
+        if (animchar != 0 && animchar == s_player_animchar.load(std::memory_order_relaxed))
+        {
+            if (!s_turn_decision_seen.exchange(false, std::memory_order_relaxed))
+            {
+                // Something else drove this frame: a break for the decision, and the end of any step tail.
+                s_turn_decision_missed.store(true, std::memory_order_relaxed);
+                s_turn_tail_frames.store(0, std::memory_order_relaxed);
+                s_turn_decided_tick.store(0, std::memory_order_relaxed);
+            }
+            else if (movement != nullptr &&
+                     (s_turn_tail_frames.load(std::memory_order_relaxed) > 0 ||
+                      GetTickCount64() - s_turn_decided_tick.load(std::memory_order_relaxed) < k_turn_step_tail_ms))
+            {
+                const auto type =
+                    mem::read<int32_t>(Address{animchar + Constants::ANIMATED_CHARACTER_MOVEMENT_TYPE_OFFSET});
+                if (type.has_value() && *type != Constants::ANIMATED_CHARACTER_MOVEMENT_IMPULSE)
+                {
+                    movement[4] = 0.0f; // translation x
+                    movement[5] = 0.0f; // translation y
+                }
+            }
+        }
+        const UpdatePhysEntMovementFunc original = s_phys_ent_movement_original;
+        return original != nullptr ? original(animchar, movement) : 0;
+    }
+
+    /**
+     * @brief Hooks CAnimatedCharacter::UpdatePhysicalEntityMovement to keep turn steps in place. Best-effort: without
+     *        it a turn step moves the body 5-20 cm, which the still camera leaves slightly off centre.
+     */
+    static void install_turn_in_place_hook(DMK::hook::HookStack &hooks)
+    {
+        DMK::Logger &logger = DMK::log();
+        const uintptr_t target = anchor_address(AnchorId::PhysEntMovement);
+        if (target == 0)
+        {
+            logger.warning("Camera: UpdatePhysicalEntityMovement did not resolve; turn steps move the body a little");
+            return;
+        }
+        if (!code_matches(target + Constants::PHYS_ENT_MOVEMENT_TYPE_READ_AT, Constants::PHYS_ENT_MOVEMENT_TYPE_READ))
+        {
+            // The movement type the detour reads to leave impulses alone is not where this build keeps it.
+            logger.warning("Camera: UpdatePhysicalEntityMovement at {} is not the expected one; turn steps move the "
+                           "body a little",
+                           DMK::format::format_address(target));
+            return;
+        }
+        auto result = DMK::hook::inline_at(
+            DMK::hook::InlineRequest{.name = "UpdatePhysicalEntityMovement", .target = DMK::Address{target}},
+            detour_phys_ent_movement);
+        if (!result.has_value())
+        {
+            logger.warning("Camera: UpdatePhysicalEntityMovement hook failed ({}); turn steps move the body a little",
+                           result.error().message());
+            return;
+        }
+        // Published before enable() arms the patch, and never cleared: an armed or pinned hook still routes through it.
+        s_phys_ent_movement_original = result->original<UpdatePhysEntMovementFunc>();
+        const auto armed = result->enable();
+        hooks.push(std::move(*result));
+        if (!armed.has_value())
+        {
+            logger.warning("Camera: UpdatePhysicalEntityMovement hook could not be armed ({}); turn steps move "
+                           "the body a little",
+                           armed.error().message());
+            return;
+        }
+        s_turn_steps_hooked.store(true, std::memory_order_relaxed);
+        logger.info("Camera: turn steps kept in place (UpdatePhysicalEntityMovement at {})",
+                    DMK::format::format_address(target));
+    }
+
+    /**
+     * @brief Hooks IsThirdPerson for the native turn-in-place animation, found through the C_Player vtable.
+     * @details Best-effort: without it the camera still works and the body follows the look, as in first person.
+     *          The install requires all of these:
+     *          - both locomotion call sites resolve (answering at only one of them either never turns or freezes the
+     *            body);
+     *          - the slot's target lies in the game image and still asks the active camera;
+     *          - the camera-changed event resolves. Without it a switch-off cannot reach an idle action, whose body
+     *            then stays free of the look in first person until the player's next step.
+     *          The trampoline pointer is only ever overwritten by a new hook, never cleared: an armed hook, or one a
+     *          failed teardown left pinned in a reused image, still routes calls through it. s_native_turn_armed is
+     *          what switches the feature on, and only once enable() succeeded.
+     */
+    static void install_native_turn_hook(uintptr_t module_base, size_t module_size, DMK::hook::HookStack &hooks)
+    {
+        DMK::Logger &logger = DMK::log();
+        // A reloaded generation can be handed the previous image with its statics intact; start from off.
+        s_native_turn_armed.store(false, std::memory_order_release);
+        s_native_turn_actor.store(0, std::memory_order_relaxed);
+        s_native_turn_trigger.store(false, std::memory_order_relaxed);
+        s_native_turn_release_requested.store(false, std::memory_order_relaxed);
+        s_native_turn_changes_in_flight.store(0, std::memory_order_relaxed);
+        s_turn_continuing.store(false, std::memory_order_relaxed);
+        s_turn_rest_since.store(GetTickCount64(), std::memory_order_relaxed);
+        s_turn_decision_tick.store(0, std::memory_order_relaxed);
+        s_turn_decision_missed.store(false, std::memory_order_relaxed);
+        s_turn_steps_hooked.store(false, std::memory_order_relaxed);
+        s_turn_decision_seen.store(false, std::memory_order_relaxed);
+        s_turn_tail_frames.store(0, std::memory_order_relaxed);
+        s_turn_decided_tick.store(0, std::memory_order_relaxed);
+        s_player_animchar.store(0, std::memory_order_relaxed);
+
+        const uintptr_t trigger_return = anchor_address(AnchorId::TurnTriggerReturn);
+        const uintptr_t lock_sync_return = anchor_address(AnchorId::LockSyncReturn);
+        if (trigger_return == 0 || lock_sync_return == 0)
+        {
+            logger.warning("Camera: native turn animation unavailable (locomotion call sites did not resolve: turn "
+                           "trigger {}, LockBodyTurn sync {})",
+                           DMK::format::format_address(trigger_return), DMK::format::format_address(lock_sync_return));
+            return;
+        }
+        const std::optional<std::uintptr_t> player_vtable = class_vtable(GameClass::Player);
+        if (!player_vtable.has_value())
+        {
+            logger.warning("Camera: native turn animation unavailable (C_Player did not resolve)");
+            return;
+        }
+        const uintptr_t target =
+            read_checked_vtable_slot(*player_vtable, Constants::C_PLAYER_IS_THIRD_PERSON_VTABLE_SLOT,
+                                     std::span{Constants::C_PLAYER_IS_THIRD_PERSON_SIGNATURE},
+                                     Constants::C_PLAYER_IS_THIRD_PERSON_SIGNATURE_WINDOW, module_base, module_size);
+        if (target == 0)
+        {
+            logger.warning("Camera: native turn animation unavailable (C_Player slot {} is not IsThirdPerson)",
+                           Constants::C_PLAYER_IS_THIRD_PERSON_VTABLE_SLOT);
+            return;
+        }
+
+        s_player_handle_event =
+            read_checked_vtable_slot(*player_vtable, Constants::C_PLAYER_HANDLE_EVENT_VTABLE_SLOT,
+                                     std::span{Constants::C_PLAYER_HANDLE_EVENT_SIGNATURE},
+                                     Constants::C_PLAYER_HANDLE_EVENT_SIGNATURE_WINDOW, module_base, module_size);
+        s_game_object_event_vtable = class_vtable(GameClass::GameObjectEvent).value_or(0);
+        if (s_player_handle_event == 0 || s_game_object_event_vtable == 0)
+        {
+            logger.warning("Camera: native turn animation unavailable (camera-changed event did not resolve: "
+                           "HandleEvent {}, SGameObjectEvent {})",
+                           DMK::format::format_address(s_player_handle_event),
+                           DMK::format::format_address(s_game_object_event_vtable));
+            return;
+        }
+
+        // Written before the hook arms, so the detour never compares against a half-set pair.
+        s_turn_trigger_return = trigger_return;
+        s_lock_sync_return = lock_sync_return;
+
+        auto result = DMK::hook::inline_at(
+            DMK::hook::InlineRequest{.name = "IsThirdPerson", .target = DMK::Address{target}}, detour_is_third_person);
+        if (!result.has_value())
+        {
+            logger.warning("Camera: IsThirdPerson hook failed ({}); native turn animation unavailable",
+                           result.error().message());
+            return;
+        }
+        // Publish the trampoline before enable() arms the patch, so the detour never sees a null original.
+        s_is_third_person_original = result->original<IsThirdPersonFunc>();
+        const auto armed = result->enable();
+        hooks.push(std::move(*result));
+        if (!armed.has_value())
+        {
+            // The detour may still be reachable (a backend error after the patch committed leaves the hook active), so
+            // the trampoline stays; the feature simply stays off.
+            logger.warning("Camera: IsThirdPerson hook could not be armed ({}); native turn animation unavailable",
+                           armed.error().message());
+            return;
+        }
+        s_native_turn_armed.store(true, std::memory_order_release);
+        logger.info("Camera: native turn animation ready (IsThirdPerson at {}; turn trigger {}, LockBodyTurn sync {})",
+                    DMK::format::format_address(target), DMK::format::format_address(trigger_return),
+                    DMK::format::format_address(lock_sync_return));
+
+        // Lets turns finish facing the look instead of resting 35 degrees short, and keeps their steps on the spot.
+        // The step hook keys on the decision hook's per-frame flag, so it goes in only with it. Best-effort.
+        if (install_turn_decision_hook(trigger_return, hooks))
+        {
+            install_turn_in_place_hook(hooks);
+        }
+    }
+
+    void release_native_turn_animation() noexcept
+    {
+        // Sequentially consistent with update_native_turn, which counts itself under way before it reads this flag.
+        s_native_turn_release_requested.store(true, std::memory_order_seq_cst);
+        if (!s_native_turn_armed.load(std::memory_order_seq_cst))
+        {
+            return; // never armed: nothing was or can be published
+        }
+        const bool was_active = s_native_turn_actor.load(std::memory_order_seq_cst) != 0;
+        // The frustum detour has the action drop its reference on the game thread, because the locomotion action
+        // must not be driven from this one. The switch-off is complete when all three of these hold:
+        //   - no update_native_turn call is under way: a later call reads the flag set and cannot switch on, and a
+        //     call that read it unset has returned;
+        //   - no actor is published;
+        //   - no change is in flight. The actor is read before the count, and a change is counted before its actor
+        //     store, so a switch-off still delivering its event is always seen.
+        // The wait is bounded: a minimized or loading game renders no game-view frame. Polls every k_release_poll_ms,
+        // first for a game-view frame and then, after a forced switch-off, for an event still in flight.
+        constexpr DWORD k_release_poll_ms = 10;
+        constexpr int k_release_frame_polls = 40;
+        constexpr int k_release_event_polls = 10;
+        const auto settled = []() noexcept -> bool
+        {
+            const bool idle = s_native_turn_updating.load(std::memory_order_seq_cst) == 0;
+            const bool no_actor = s_native_turn_actor.load(std::memory_order_seq_cst) == 0;
+            return idle && no_actor && s_native_turn_changes_in_flight.load(std::memory_order_seq_cst) == 0;
+        };
+        for (int i = 0; i < k_release_frame_polls && !settled(); ++i)
+        {
+            Sleep(k_release_poll_ms);
+        }
+        if (settled())
+        {
+            if (was_active)
+            {
+                (void)DMK::log().try_log(DMK::LogLevel::Info,
+                                         "Shutdown: native turn animation switched off (the body follows the look)");
+            }
+            return;
+        }
+        // No game-view frame came: stop answering "third person" without the event. Then give a change that is
+        // mid-event a moment to return.
+        s_native_turn_actor.store(0, std::memory_order_seq_cst);
+        for (int i = 0;
+             i < k_release_event_polls && s_native_turn_changes_in_flight.load(std::memory_order_seq_cst) != 0; ++i)
+        {
+            Sleep(k_release_poll_ms);
+        }
+        (void)DMK::log().try_log(DMK::LogLevel::Warning,
+                                 "Shutdown: no game frame switched the native turn animation off; the body follows the "
+                                 "look again on the player's next step");
     }
 
     DMK::Result<void> initialize_camera(uintptr_t module_base, size_t module_size, DMK::hook::HookStack &hooks)
@@ -2626,6 +3874,14 @@ namespace TPVCamera
                 hooks.push(std::move(*input_result));
             }
         }
+
+        // Keep the AI judging which NPCs to update (and which to hide and pause) from the first-person eye while the
+        // third-person offset renders. Best-effort, like the two hooks above.
+        install_camera_observer_hook(module_base, module_size, hooks);
+
+        // Let the body play the game's own turn-in-place animations while the third-person view is engaged.
+        // Best-effort, like the hooks above.
+        install_native_turn_hook(module_base, module_size, hooks);
 
         logger.info("Camera: Third-person camera hooks installed");
         return {};

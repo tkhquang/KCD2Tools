@@ -27,6 +27,7 @@
 #include <windows.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <optional>
@@ -39,6 +40,32 @@ namespace
     /// Set when TPVCamera::shutdown() could not prove every hooked prologue was restored.
     bool s_hook_restore_failed = false;
 
+    /// This generation's id from the loader's Init request. Names the profile export of a profiling build.
+    std::uint64_t s_generation_id = 0;
+
+    /**
+     * @brief Writes the directory this DLL was loaded from, with a trailing backslash, into @p out.
+     * @return False when the module path cannot be resolved.
+     */
+    [[nodiscard]] bool module_directory(char (&out)[MAX_PATH]) noexcept
+    {
+        out[0] = '\0';
+        HMODULE self = nullptr;
+        if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               reinterpret_cast<LPCWSTR>(&module_directory), &self) == 0 ||
+            GetModuleFileNameA(self, out, MAX_PATH) == 0)
+        {
+            return false;
+        }
+        char *const slash = std::strrchr(out, '\\');
+        if (slash == nullptr)
+        {
+            return false;
+        }
+        slash[1] = '\0';
+        return true;
+    }
+
     /**
      * @brief Appends one line to the LOADER's log, which outlives every generation.
      * @details The unload verdict is computed after ~Session, so DMK::log() is gone by then. Sending it
@@ -49,21 +76,11 @@ namespace
     void append_loader_log(const char *line) noexcept
     {
         char module_path[MAX_PATH]{};
-        HMODULE self = nullptr;
-        if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                               reinterpret_cast<LPCWSTR>(&append_loader_log), &self) == 0 ||
-            GetModuleFileNameA(self, module_path, MAX_PATH) == 0)
+        if (!module_directory(module_path))
         {
             OutputDebugStringA(line);
             return;
         }
-        char *const slash = std::strrchr(module_path, '\\');
-        if (slash == nullptr)
-        {
-            OutputDebugStringA(line);
-            return;
-        }
-        slash[1] = '\0';
 
         char log_path[MAX_PATH]{};
         (void)std::snprintf(log_path, sizeof(log_path), "%sKCD2_TPVCamera_Loader.log", module_path);
@@ -85,6 +102,46 @@ namespace
         }
         OutputDebugStringA(line);
     }
+
+#ifdef DMK_ENABLE_PROFILING
+    /**
+     * @brief Writes this generation's profiler samples to KCD2_TPVCamera_profile_genNNNN.json beside the log.
+     * @details A profiling build (-DDMK_ENABLE_PROFILING=ON) records every DMK_PROFILE_SCOPE into a ring owned by the
+     *          DetourModKit instance linked into THIS image, so the samples are gone once the image unmaps. Exporting
+     *          on each Shutdown leaves one Chrome Tracing file per generation (chrome://tracing, ui.perfetto.dev),
+     *          holding the most recent samples that fit the ring. Shutdown runs on the loader's thread, outside the
+     *          loader lock, which the profiler's export requires because it allocates and writes a file. A failure is
+     *          contained here so a diagnostics export can never keep Shutdown from removing the hooks.
+     */
+    void export_profile() noexcept
+    {
+        char module_path[MAX_PATH]{};
+        if (!module_directory(module_path))
+        {
+            return;
+        }
+        char profile_path[MAX_PATH]{};
+        (void)std::snprintf(profile_path, sizeof(profile_path), "%sKCD2_TPVCamera_profile_gen%04llu.json", module_path,
+                            static_cast<unsigned long long>(s_generation_id));
+        bool written = false;
+        try
+        {
+            written = DMK::Profiler::get_instance().export_to_file(profile_path);
+        }
+        catch (...)
+        {
+            written = false;
+        }
+        if (written)
+        {
+            (void)DMK::log().try_log(DMK::LogLevel::Info, "[DEV] Profile written to {}", profile_path);
+        }
+        else
+        {
+            (void)DMK::log().try_log(DMK::LogLevel::Warning, "[DEV] Profile export to {} failed", profile_path);
+        }
+    }
+#endif
 } // namespace
 
 /**
@@ -168,8 +225,9 @@ extern "C"
             }
             s_session.emplace(std::move(*opened));
             s_hook_restore_failed = false;
+            s_generation_id = request->generation_id;
 
-            DMK::log().info("[DEV] Init generation {} -- {}", request->generation_id, Revision());
+            DMK::log().info("[DEV] Init generation {} - {}", request->generation_id, Revision());
 
             // The resident host table travels all the way to Input::start, so the wheel keepalive is booked
             // against the loader instead of this image.
@@ -208,6 +266,11 @@ extern "C"
         try
         {
             DMK::log().info("[DEV] Shutdown called");
+
+#ifdef DMK_ENABLE_PROFILING
+            // Before teardown, while the session's logger still reports where the file went.
+            export_profile();
+#endif
 
             // Mod teardown first, while this module's code pages are still mapped. It joins the overlay
             // thread, removes every hook, and reports whether each prologue was restored.

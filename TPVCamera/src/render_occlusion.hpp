@@ -34,8 +34,9 @@ namespace TPVCamera
 
     /**
      * @brief Maximum camera distance along @p to_camera before a render-only obstruction occludes the character.
-     * @details Queries the render octree (GetObjectsInBox) in a box bounding the pivot->camera arm and, for each
-     *          visible (not ERF_HIDDEN) compact CBrush, ray-marches its render-mesh vertices against the
+     * @details Queries the render octree for the brushes in a box bounding the pivot->camera arm (the brush-typed
+     *          GetObjectsByTypeInBox when the engine vtable has the expected layout, else GetObjectsInBox) and, for
+     *          each visible (not ERF_HIDDEN) compact CBrush, ray-marches its render-mesh vertices against the
      *          pivot->camera sightline to find the nearest distance at which its cloth lies on the view ray. A
      *          brush counts only when at least RENDER_OCCLUSION_MIN_COLUMN_VERTS of its vertices fall inside the
      *          sightline tube, so a thin beam / rope / rail does not jolt the camera while a canopy clamps. No

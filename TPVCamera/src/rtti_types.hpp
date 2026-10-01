@@ -23,6 +23,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 namespace TPVCamera
 {
@@ -48,6 +49,12 @@ namespace TPVCamera
         MissileController,
         /// wh::game::C_ActorModel, which carries the stance the MOUNT and STEALTH presets key on.
         ActorModel,
+        /// wh::engine3d::C_CameraObserver, the engine observer that follows the system view camera.
+        CameraObserver,
+        /// CTimer, the engine frame clock the camera paces its per-frame integrators on.
+        Timer,
+        /// SGameObjectEvent, the event the mod sends the player when it starts or stops the native turn animation.
+        GameObjectEvent,
         /// Enumerator count. Not a class.
         Count,
     };
@@ -58,10 +65,11 @@ namespace TPVCamera
      *        lives in WHGame.dll.
      * @details Call exactly once, from init(), after the module base and size resolve and before any
      *          detour arms. Every query before that point answers through the direct RTTI walk, so the
-     *          table is never read half-built, and each resolving sweep then runs on the init thread
-     *          rather than the render thread.
-     * @note Setup and control plane only: allocates the identity table. Not safe to call twice, because
-     *       a query thread reads the published table without a lock.
+     *          table is never read half-built. Each identity is resolved here, its image sweep shared across
+     *          a few short-lived worker threads, so no sweep is left to run on the render thread's first use.
+     * @note Setup and control plane only: allocates the identity table and starts and joins worker threads,
+     *       so it must run off the loader lock (init() does). Not safe to call twice, because a query thread
+     *       reads the published table without a lock.
      */
     void init_game_types(Region image);
 
@@ -77,6 +85,14 @@ namespace TPVCamera
      * @note Callback-safe once the identity resolves.
      */
     [[nodiscard]] bool vtable_is(GameClass klass, std::uintptr_t vtable) noexcept;
+
+    /**
+     * @brief Returns the primary vtable of @p klass, for reading its slots.
+     * @param klass The class.
+     * @return The vtable address, or std::nullopt before init_game_types() runs or when the class did not resolve.
+     * @note Callback-safe once the identity resolves.
+     */
+    [[nodiscard]] std::optional<std::uintptr_t> class_vtable(GameClass klass) noexcept;
 
     /**
      * @brief Checks whether @p vtable is the primary vtable of the minigame class at @p index.

@@ -182,6 +182,30 @@ namespace TPVCamera
                 .validator_context = &s_image_range,
                 .pages = Pages::Executable,
             },
+            {
+                .label = "TurnTriggerIsThirdPersonReturn",
+                .kind = AnchorKind::RipGlobal,
+                .site = Aob::k_turnTriggerReturnCandidates,
+                .validator = anchor_target_in_image,
+                .validator_context = &s_image_range,
+                .pages = Pages::Executable,
+            },
+            {
+                .label = "LockSyncIsThirdPersonReturn",
+                .kind = AnchorKind::RipGlobal,
+                .site = Aob::k_lockSyncReturnCandidates,
+                .validator = anchor_target_in_image,
+                .validator_context = &s_image_range,
+                .pages = Pages::Executable,
+            },
+            {
+                .label = "UpdatePhysicalEntityMovement",
+                .kind = AnchorKind::RipGlobal,
+                .site = Aob::k_physEntMovementCandidates,
+                .validator = anchor_target_in_image,
+                .validator_context = &s_image_range,
+                .pages = Pages::Executable,
+            },
         };
         static_assert(std::size(k_anchors) == k_anchor_count, "k_anchors must hold one entry per AnchorId.");
 
@@ -240,7 +264,7 @@ namespace TPVCamera
                         continue;
                     }
                     (health.grade == DMK::sighealth::Grade::Unusable ? ++unusable : ++fragile);
-                    logger.debug("Signature health: {}/{} {} -- {}", entry.label, candidate.name(),
+                    logger.debug("Signature health: {}/{} {} - {}", entry.label, candidate.name(),
                                  DMK::sighealth::to_string(health.grade),
                                  DMK::sighealth::format_report(health, candidate.name()));
                 }

@@ -21,7 +21,11 @@ namespace TPVCamera
 
     // I3DEngine::GetObjectsInBox(this, const AABB* bbox, IRenderNode** p_out) -> count (see constants.hpp).
     using GetObjectsInBoxFn = std::uint32_t(__fastcall *)(void *p3d_engine, const float *bbox, void **out_list);
-    // IRenderNode vtable methods (fork-specific slots, verified live; see constants.hpp). GetBBox fills the
+    // C3DEngine::GetObjectsByTypeInBox(this, EERType type, const AABB* bbox, IRenderNode** p_out, uint64 rnd_flags)
+    // -> count (see constants.hpp).
+    using GetObjectsByTypeInBoxFn = std::uint32_t(__fastcall *)(void *p3d_engine, std::uint32_t type, const float *bbox,
+                                                                void **out_list, std::uint64_t rnd_flags_mask);
+    // IRenderNode vtable methods (fork-specific slots; see constants.hpp). GetBBox fills the
     // caller buffer and returns a pointer to {Vec3 min @0, Vec3 max @0xC}.
     using GetBBoxFn = void *(__fastcall *)(void *node, void *out_aabb);
     using GetRenderNodeTypeFn = int(__fastcall *)(void *node);
@@ -43,6 +47,89 @@ namespace TPVCamera
     // Mapped range of the scanned game module, captured once. A freshly read p3DEngine must carry a vtable
     // inside this image or it is rejected before the indirect call (branch-only contains() test, no syscall).
     static DMK::Region s_game_module{};
+
+    // The brush-typed octree query, read from the live engine vtable by refresh_brush_query() and cleared when that
+    // vtable does not have the expected layout. s_brush_query_vtable is the engine vtable the decision was made for,
+    // so it is re-made only when the engine object changes. Render-thread only.
+    static GetObjectsByTypeInBoxFn s_get_objects_by_type_in_box = nullptr;
+    static uintptr_t s_brush_query_vtable = 0;
+
+    /**
+     * @brief Selects the octree query for the engine vtable @p p3d_vtable: the brush-typed one when its slot sits next
+     *        to the resolved GetObjectsInBox, else the untyped one.
+     * @details The typed query visits only brushes, which is what every consumer here keeps, instead of every render
+     *          node in the box. Its slot is trusted only while the neighbouring GetObjectsInBox slot holds the anchored
+     *          entry, since that pins the slot numbering; both slots must lie in the game image. The decision is
+     *          logged when it changes. Called outside any structured-exception frame, before the guarded queries.
+     * @param p3d_vtable The vtable of the engine object read this call (in-image, screened by the caller).
+     */
+    static void refresh_brush_query(uintptr_t p3d_vtable)
+    {
+        if (p3d_vtable == s_brush_query_vtable)
+        {
+            return;
+        }
+        s_brush_query_vtable = p3d_vtable;
+
+        GetObjectsByTypeInBoxFn typed = nullptr;
+        const auto untyped_slot =
+            mem::read<uintptr_t>(Address{p3d_vtable + Constants::ENGINE3D_VTABLE_GET_OBJECTS_IN_BOX_OFFSET});
+        const auto typed_slot =
+            mem::read<uintptr_t>(Address{p3d_vtable + Constants::ENGINE3D_VTABLE_GET_OBJECTS_BY_TYPE_IN_BOX_OFFSET});
+        if (untyped_slot && *untyped_slot == reinterpret_cast<uintptr_t>(s_get_objects_in_box) && typed_slot &&
+            s_game_module.contains(Address{*typed_slot}))
+        {
+            typed = reinterpret_cast<GetObjectsByTypeInBoxFn>(*typed_slot);
+        }
+        s_get_objects_by_type_in_box = typed;
+
+        if (typed != nullptr)
+        {
+            (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                     "RenderOcclusion: brush queries through GetObjectsByTypeInBox {}",
+                                     DMK::format::format_address(reinterpret_cast<uintptr_t>(typed)));
+        }
+        else
+        {
+            (void)DMK::log().try_log(DMK::LogLevel::Warning,
+                                     "RenderOcclusion: GetObjectsByTypeInBox is not next to GetObjectsInBox in the "
+                                     "engine vtable; brush queries filter the full octree query instead");
+        }
+    }
+
+    /**
+     * @brief Fills @p nodes with the render nodes in @p bbox that can be brushes and returns how many it wrote.
+     * @details The brush-typed query when refresh_brush_query() selected it, else the untyped one (whose other node
+     *          types the callers' own EERTYPE_BRUSH filter drops). Both copy their full result without a
+     *          size limit, so the count is taken first and the list is filled only when it fits with
+     *          RENDER_OCCLUSION_NODE_SLACK to spare, covering nodes registered between the two calls. The return is
+     *          the FILL call's count (a node removed in between must not leave a stale slot in range), bounded by
+     *          the buffer. POD-only: called inside the callers' structured-exception frames, which contain a fault.
+     * @param p3d The engine object.
+     * @param bbox Query box {min.xyz, max.xyz}.
+     * @param nodes Buffer of RENDER_OCCLUSION_MAX_NODES entries.
+     * @return The number of entries written, 0 when the box is empty or holds more candidates than fit.
+     */
+    static std::uint32_t query_brush_nodes(void *p3d, const float *bbox, void **nodes) noexcept
+    {
+        constexpr auto k_capacity = static_cast<std::uint32_t>(Constants::RENDER_OCCLUSION_MAX_NODES);
+        constexpr auto k_fit =
+            static_cast<std::uint32_t>(Constants::RENDER_OCCLUSION_MAX_NODES - Constants::RENDER_OCCLUSION_NODE_SLACK);
+        const GetObjectsByTypeInBoxFn typed = s_get_objects_by_type_in_box;
+        const auto brush_type = static_cast<std::uint32_t>(Constants::EERTYPE_BRUSH);
+
+        const std::uint32_t count = (typed != nullptr)
+                                        ? typed(p3d, brush_type, bbox, nullptr, Constants::ENGINE3D_QUERY_ANY_RNDFLAGS)
+                                        : s_get_objects_in_box(p3d, bbox, nullptr);
+        if (count == 0 || count > k_fit)
+        {
+            return 0;
+        }
+        const std::uint32_t copied = (typed != nullptr)
+                                         ? typed(p3d, brush_type, bbox, nodes, Constants::ENGINE3D_QUERY_ANY_RNDFLAGS)
+                                         : s_get_objects_in_box(p3d, bbox, nodes);
+        return (copied < k_capacity) ? copied : k_capacity;
+    }
 
     bool initialize_render_occlusion(uintptr_t module_base, size_t module_size, uintptr_t g_env)
     {
@@ -664,9 +751,8 @@ namespace TPVCamera
      *        the SMALLEST clear distance along the pivot->camera arm over every brush whose cloth lies on the
      *        sightline (k_cloth_unavailable when none do). Fills @p out_hit with the binding brush's identity.
      */
-    static float nearest_sightline_block_guarded(void *p3d, GetObjectsInBoxFn query, const float *bbox, Vector3 pivot,
-                                                 Vector3 camera, uintptr_t mod_lo, uintptr_t mod_hi,
-                                                 RoofHitInfo *out_hit) noexcept
+    static float nearest_sightline_block_guarded(void *p3d, const float *bbox, Vector3 pivot, Vector3 camera,
+                                                 uintptr_t mod_lo, uintptr_t mod_hi, RoofHitInfo *out_hit) noexcept
     {
         float best_dist = k_cloth_unavailable;
         __try
@@ -681,14 +767,12 @@ namespace TPVCamera
             dir.y /= arm_len;
             dir.z /= arm_len;
 
-            const std::uint32_t count = query(p3d, bbox, nullptr);
-            if (count == 0 || count > static_cast<std::uint32_t>(Constants::RENDER_OCCLUSION_MAX_NODES))
+            void *nodes[Constants::RENDER_OCCLUSION_MAX_NODES];
+            const std::uint32_t count = query_brush_nodes(p3d, bbox, nodes);
+            if (count == 0)
             {
                 return k_cloth_unavailable;
             }
-
-            void *nodes[Constants::RENDER_OCCLUSION_MAX_NODES];
-            query(p3d, bbox, nodes);
 
             for (std::uint32_t i = 0; i < count; ++i)
             {
@@ -1065,8 +1149,8 @@ namespace TPVCamera
     // measurement: no compact brush contains the point (terrain / pure-physics body), every candidate is an HLOD
     // proxy, or the hit brush is a compound building whose ROOT mesh is null. The caller then falls back to the
     // physics-ray coverage, so large solids still block. POD-only body.
-    static float coverage_at_point_guarded(void *p3d, GetObjectsInBoxFn query, const float *bbox, Vector3 hit,
-                                           Vector3 pivot, Vector3 camera, uintptr_t mod_lo, uintptr_t mod_hi) noexcept
+    static float coverage_at_point_guarded(void *p3d, const float *bbox, Vector3 hit, Vector3 pivot, Vector3 camera,
+                                           uintptr_t mod_lo, uintptr_t mod_hi) noexcept
     {
         // The OCTREE query is guarded on its own; each candidate node is then measured under measure_node_at_hit's
         // own SEH frame, so a single unreadable neighbour can no longer discard the whole result. `nodes` lives
@@ -1075,12 +1159,11 @@ namespace TPVCamera
         void *nodes[Constants::RENDER_OCCLUSION_MAX_NODES];
         __try
         {
-            count = query(p3d, bbox, nullptr);
-            if (count == 0 || count > static_cast<std::uint32_t>(Constants::RENDER_OCCLUSION_MAX_NODES))
+            count = query_brush_nodes(p3d, bbox, nodes);
+            if (count == 0)
             {
                 return -1.0f;
             }
-            query(p3d, bbox, nodes);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -1157,8 +1240,9 @@ namespace TPVCamera
                     bbox[3] = std::max(pivot.x, camera.x) + margin;
                     bbox[4] = std::max(pivot.y, camera.y) + margin;
                     bbox[5] = std::max(pivot.z, camera.z) + margin;
-                    block = nearest_sightline_block_guarded(reinterpret_cast<void *>(*p3d), s_get_objects_in_box,
-                                                            bbox, pivot, camera, s_mod_lo, s_mod_hi, &hit);
+                    refresh_brush_query(*vtable);
+                    block = nearest_sightline_block_guarded(reinterpret_cast<void *>(*p3d), bbox, pivot, camera,
+                                                            s_mod_lo, s_mod_hi, &hit);
                 }
             }
 
@@ -1220,8 +1304,9 @@ namespace TPVCamera
         bbox[3] = hit_point.x + m;
         bbox[4] = hit_point.y + m;
         bbox[5] = hit_point.z + m;
-        return coverage_at_point_guarded(reinterpret_cast<void *>(*p3d), s_get_objects_in_box, bbox, hit_point, pivot,
-                                         camera, s_mod_lo, s_mod_hi);
+        refresh_brush_query(*vtable);
+        return coverage_at_point_guarded(reinterpret_cast<void *>(*p3d), bbox, hit_point, pivot, camera, s_mod_lo,
+                                         s_mod_hi);
     }
 
     float render_coverage_of_brush(void *node, const Vector3 &pivot, const Vector3 &camera) noexcept
@@ -1296,7 +1381,12 @@ namespace TPVCamera
             const auto p3d = mem::read<uintptr_t>(Address{s_p3d_engine_slot_addr});
             if (p3d && *p3d != 0 && mem::is_plausible_ptr(Address{*p3d}))
             {
-                p3d_ptr = reinterpret_cast<void *>(*p3d);
+                const auto vtable = mem::read<uintptr_t>(Address{*p3d});
+                if (vtable && s_game_module.contains(Address{*vtable}))
+                {
+                    refresh_brush_query(*vtable);
+                    p3d_ptr = reinterpret_cast<void *>(*p3d);
+                }
             }
         }
         __try
@@ -1343,13 +1433,12 @@ namespace TPVCamera
             constexpr float m = 0.25f;
             float bbox[6] = {hit_point.x - m, hit_point.y - m, hit_point.z - m,
                              hit_point.x + m, hit_point.y + m, hit_point.z + m};
-            const std::uint32_t count = s_get_objects_in_box(p3d_ptr, bbox, nullptr);
-            if (count == 0 || count > static_cast<std::uint32_t>(Constants::RENDER_OCCLUSION_MAX_NODES))
+            void *nodes[Constants::RENDER_OCCLUSION_MAX_NODES];
+            const std::uint32_t count = query_brush_nodes(p3d_ptr, bbox, nodes);
+            if (count == 0)
             {
                 return false;
             }
-            void *nodes[Constants::RENDER_OCCLUSION_MAX_NODES];
-            s_get_objects_in_box(p3d_ptr, bbox, nodes);
             // Three tiers, most specific wins: prop (a brush whose MESH is at the hit = the real thin occluder) >
             // solid (a non-HLOD brush that merely contains the hit = a compound building wall, still named) > hlod
             // (a coarse level / building proxy, reported only if nothing better contains the hit so the log never

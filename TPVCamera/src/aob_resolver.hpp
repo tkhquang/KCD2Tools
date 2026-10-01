@@ -262,6 +262,73 @@ namespace TPVCamera
                 -0x10),
         };
 
+        // Return address of the IsThirdPerson call in C_PlayerMovementAction's turn trigger (sub_1809490D8)
+        // Direct, NOT a hook target: the IsThirdPerson detour compares its own return address with this one and
+        // answers "third person" there, so the free-roam locomotion action starts its turn-in-place fragments once
+        // the look leads the body by more than 35 degrees. The `|` marker sits on the instruction after the call.
+        // P1 pins the |angle| computation (andps abs mask, comiss against the move threshold, jbe rel32) into the
+        // virtual call; P2 pins the call and the 35-degree comparison that consumes its result; P3 drops P1's andps.
+        // Verified to match exactly once on Steam 1.5.6 (0x18094948C), GOG 1.5 and Game Pass 1.4.
+        inline const Candidate k_turnTriggerReturnCandidates[] = {
+            Candidate::direct(
+                "TurnTrigger_P1_AngleThroughCall",
+                Pattern::literal("0F 54 3D ?? ?? ?? ?? 41 0F 2F F8 0F 86 ?? ?? ?? ?? 48 8B 03 48 8B CB FF 90 40 02 00 "
+                                 "00 |")),
+            Candidate::direct(
+                "TurnTrigger_P2_CallThroughThreshold",
+                Pattern::literal("FF 90 40 02 00 00 | 84 C0 74 ?? 0F 2F 3D ?? ?? ?? ?? 0F 97 C1 EB ?? 32 C9 F3 0F 10 "
+                                 "05")),
+            Candidate::direct(
+                "TurnTrigger_P3_CompareThroughCall",
+                Pattern::literal("41 0F 2F F8 0F 86 ?? ?? ?? ?? 48 8B 03 48 8B CB FF 90 40 02 00 00 |")),
+        };
+
+        // CAnimatedCharacter::UpdatePhysicalEntityMovement (sub_1808A3188) entry
+        // Direct entry hook. It receives the frame's movement as a QuatT (rotation, then translation): it composes the
+        // rotation into the body and requests the translation from physics as a velocity. Hooked so a native
+        // turn-in-place step turns the body without moving it. P1 is the full prologue (mov rax,rsp, the register saves
+        // and pushes, frame lea and sub) through `mov rsi,rdx`; P2 drops the leading `mov rax,rsp` and walks back 3; P3
+        // anchors on the body after the prologue (`mov r15,[rcx+38h]; xor r13d,r13d`, the xmm saves) and walks back
+        // 0x26. Frame sizes wildcarded. Verified to match exactly once on Steam 1.5.6 (0x1808A3188), GOG 1.5 and
+        // Game Pass 1.4.
+        inline const Candidate k_physEntMovementCandidates[] = {
+            Candidate::direct(
+                "PhysEntMove_P1_PrologueThroughArgs",
+                Pattern::literal("48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 41 54 41 55 41 56 41 57 48 8D A8 ?? "
+                                 "?? ?? ?? 48 81 EC ?? ?? ?? ?? 4C 8B 79 38 45 33 ED 0F 29 70 C8 48 8B F9 0F 29 78 "
+                                 "B8 48 8B F2")),
+            Candidate::direct(
+                "PhysEntMove_P2_SavesThroughBody",
+                Pattern::literal("48 89 58 08 48 89 70 10 48 89 78 18 55 41 54 41 55 41 56 41 57 48 8D A8 ?? ?? ?? ?? "
+                                 "48 81 EC ?? ?? ?? ?? 4C 8B 79 38 45 33 ED 0F 29 70 C8 48 8B F9"),
+                -3),
+            Candidate::direct(
+                "PhysEntMove_P3_BodyAfterPrologue",
+                Pattern::literal("4C 8B 79 38 45 33 ED 0F 29 70 C8 48 8B F9 0F 29 78 B8 48 8B F2 44 0F 29 40 A8 44 0F "
+                                 "29 48 98"),
+                -0x26),
+        };
+
+        // Return address of the IsThirdPerson call in C_PlayerMovementAction's idle LockBodyTurn sync (sub_180B66D24)
+        // Direct, NOT a hook target. On an idle fragment start and on SGameObjectEvent 38 the action re-reads
+        // IsThirdPerson here and takes (third person) or drops (first person) its LockBodyTurn reference; the
+        // detour answers "third person" at this return address so the body stops following the look while idle.
+        // P1 pins the preceding GetAnimatedCharacter call (vtable +0x2D0) through the call and the latch-byte read
+        // (mov cl,[rbp+0F2h]) that follows; P2 and P3 are shorter windows around the call and the latch read.
+        // Verified to match exactly once on Steam 1.5.6 (0x180B66D8C), GOG 1.5 and Game Pass 1.4.
+        inline const Candidate k_lockSyncReturnCandidates[] = {
+            Candidate::direct(
+                "LockSync_P1_AnimCharThroughLatch",
+                Pattern::literal("48 8B 91 D0 02 00 00 48 8B C8 FF D2 48 8B 0F 48 8B F0 48 8B 91 40 02 00 00 48 8B "
+                                 "CF FF D2 | 8A 8D F2 00 00 00")),
+            Candidate::direct(
+                "LockSync_P2_CallThroughTest",
+                Pattern::literal("48 8B 0F 48 8B F0 48 8B 91 40 02 00 00 48 8B CF FF D2 | 8A 8D ?? ?? 00 00 84 C0")),
+            Candidate::direct(
+                "LockSync_P3_CallThroughLatch",
+                Pattern::literal("48 8B 91 40 02 00 00 48 8B CF FF D2 | 8A 8D F2 00 00 00 84 C0")),
+        };
+
         // Interaction ray-query builder entry
         // Direct entry hook. The function is a leaf-style Vec3 copier with no
         // standard prologue, so all anchors are body-shaped. P2 extends the
@@ -450,6 +517,9 @@ namespace TPVCamera
         MenuOpen,             // UI menu-open entry
         MenuClose,            // UI menu-close entry
         GetObjectsInBox,      // I3DEngine::GetObjectsInBox render-octree query (called, not hooked)
+        TurnTriggerReturn,    // IsThirdPerson return address in the turn trigger (compared, not hooked)
+        LockSyncReturn,       // IsThirdPerson return address in the idle LockBodyTurn sync (compared, not hooked)
+        PhysEntMovement,      // CAnimatedCharacter::UpdatePhysicalEntityMovement (turn steps kept in place)
         Count,
     };
 

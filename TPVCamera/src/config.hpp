@@ -107,6 +107,11 @@ namespace TPVCamera
         // (GetObjectsInBox) along the pivot->camera arm and clamping below an overhead brush. Always-live INI
         // setting (not preset-owned), INDEPENDENT of use_coverage_collision; no-ops if the octree is unresolved.
         std::atomic<bool> use_render_occlusion{true};
+        // First-person fallback: when collision leaves the camera less than this many meters from the pivot (a low
+        // lintel in a doorway, a wall right behind), it would sit inside the player's head. Instead it eases onto the
+        // real eye and the head is hidden by the game's own first-person rig, until the camera has this much room
+        // plus a small margin again. 0 = OFF. Live-editable.
+        std::atomic<float> head_clearance{0.35f};
 
         // State-driven camera policy (see game_state.hpp). Each mask is a GameState bit set parsed
         // from a comma-separated INI token list, read on the per-frame detour and the input thread.
@@ -128,6 +133,12 @@ namespace TPVCamera
         // suppress instantly (no debounce frame of TPV in a menu); every other state is matched against
         // the debounced game-state mask. Default seeded from the INI (Menu,Overlay).
         std::atomic<uint32_t> suppress_tpv_mask{0};
+
+        // States in which the native turn-in-place animation is switched off (the body is locked to the look again,
+        // as in first person). A continuous gate like suppress_tpv_mask, NOT gated by enable_state_behavior. Default
+        // seeded from the INI (the states whose own camera or script drives the body: combat, mounts, dialogue,
+        // minigames, aiming, and the scripted stances).
+        std::atomic<uint32_t> native_turn_exclude_mask{0};
 
         // Preset manager (see presets/). Presets are always active: the render-thread resolver selects a
         // camera preset by the debounced game state (DEFAULT/COMBAT/AIMING/MOUNT/STEALTH) - or by the
@@ -161,6 +172,18 @@ namespace TPVCamera
         std::atomic<bool> stable_aim_basis{true};
         std::atomic<float> aim_basis_smoothing{0.3f};
 
+        // Native turn-in-place animation (always-live, NOT preset-owned). The mod keeps the game in first person,
+        // where the body is locked to the look and never plays its turn animations. While the third-person view is
+        // engaged this reports "third person" to the free-roam locomotion action only, so the body lags the look until
+        // it leads by native_turn_angle and then turns with the game's own turn-in-place animations until it faces the
+        // look. The turn's steps are kept on the spot, so the camera does not move during or after the turn.
+        std::atomic<bool> native_turn_animation{true};
+        // How far (degrees) the look can lead the body before a turn starts; the game's own value is 35. Every turn
+        // then continues until the body faces the look. Clamped to 10..90.
+        std::atomic<float> native_turn_angle{35.0f};
+        // Seconds the camera must rest before the body also turns to face a smaller lead (more than 12 degrees but less
+        // than native_turn_angle). 0 = only turn past native_turn_angle.
+        std::atomic<float> native_turn_settle_delay{0.8f};
 
         // Start-of-session auto-enable flags, read ONCE during init(). Disabled by default.
         std::atomic<bool> auto_enable_tpv{false};   // enter third-person automatically on game start
