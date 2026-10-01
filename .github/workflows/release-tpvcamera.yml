@@ -298,6 +298,14 @@ jobs:
           $nexusDescription >> $env:GITHUB_OUTPUT
           "__NEXUS_EOF__" >> $env:GITHUB_OUTPUT
 
+          # Nexus changelog entries: one per line, markdown bullet markers stripped (Nexus renders its own list).
+          $nexusChangelog = (($changelog -split "`r?`n") |
+            ForEach-Object { ($_.Trim() -replace '^[-*+]\s+', '') } |
+            Where-Object { $_ -ne '' }) -join "`n"
+          "NEXUS_CHANGELOG<<__NEXUS_EOF__" >> $env:GITHUB_OUTPUT
+          $nexusChangelog >> $env:GITHUB_OUTPUT
+          "__NEXUS_EOF__" >> $env:GITHUB_OUTPUT
+
           # Write to file for the release action
           Set-Content -Path "release_body.txt" -Value $releaseBody -Encoding UTF8
           echo "RELEASE_BODY_PATH=release_body.txt" >> $env:GITHUB_OUTPUT
@@ -315,30 +323,37 @@ jobs:
           draft: false
           prerelease: ${{ inputs.prerelease }}
 
-      # Publish the built ZIP to Nexus Mods as a new file version.
+      # Publish the built ZIP to Nexus Mods as a new file version, bump the mod page version, and
+      # append the changelog to the mod page Changelog tab.
       # Configure once in repo Settings -> Secrets and variables -> Actions:
-      #   - secret   NEXUSMODS_API_KEY                  : personal key from nexusmods.com/settings/api-keys
-      #                                                   (shared across all mods - one Nexus account).
-      #   - variable NEXUSMODS_TPVCAMERA_FILE_GROUP_ID  : file group id from THIS mod's Files tab "API Info"
+      #   - secret   NEXUSMODS_API_KEY             : personal key from nexusmods.com/settings/api-keys
+      #                                              (shared across all mods - one Nexus account).
+      #   - variable NEXUSMODS_TPVCAMERA_FILE_ID   : file ID from THIS mod's Files tab "Advanced" modal
       #     (per-mod; the id only exists after the mod page is created and ONE file is uploaded manually).
-      # Skipped on pre-releases and whenever the group-id variable is unset, so it is safe to merge
+      #   - variable NEXUSMODS_TPVCAMERA_MOD_ID    : mod ID from the same "Advanced" modal (the v3 API id,
+      #     not necessarily the number in the page URL). Optional; the changelog is skipped when unset.
+      # Skipped on pre-releases and whenever the file-id variable is unset, so it is safe to merge
       # before Nexus is set up. The action and the Nexus v3 upload API are currently beta/evaluation;
       # pinned to a commit SHA (handles the API key) with the tag noted alongside.
       - name: Publish to Nexus Mods
-        if: ${{ !inputs.prerelease && vars.NEXUSMODS_TPVCAMERA_FILE_GROUP_ID != '' }}
-        uses: Nexus-Mods/upload-action@0bf670d75d46988c176c9bfacc94ca0144e0fe3f # v1.0.0-beta.7
+        if: ${{ !inputs.prerelease && vars.NEXUSMODS_TPVCAMERA_FILE_ID != '' }}
+        uses: Nexus-Mods/upload-action@c96019556046053aa26044b44396cd38929daf23 # v1.0.0-beta.10
         with:
           api_key: ${{ secrets.NEXUSMODS_API_KEY }}
-          file_group_id: ${{ vars.NEXUSMODS_TPVCAMERA_FILE_GROUP_ID }}
+          file_id: ${{ vars.NEXUSMODS_TPVCAMERA_FILE_ID }}
           filename: ${{ env.ARTIFACT_NAME }}
           version: ${{ env.NEW_VERSION }}
           display_name: Proper Third Person View (TPV Camera)
           description: ${{ steps.prepare-release.outputs.NEXUS_DESCRIPTION }}
-          file_category: main
-          archive_existing_file: false
+          category: main
+          archive_existing_version: false
           primary_mod_manager_download: true
           allow_mod_manager_download: false
           show_requirements_pop_up: true
+          update_mod_version: true
+          mod_id: ${{ vars.NEXUSMODS_TPVCAMERA_MOD_ID }}
+          # The action rejects a changelog without mod_id, so only send it when the mod id is configured.
+          changelog: ${{ vars.NEXUSMODS_TPVCAMERA_MOD_ID != '' && steps.prepare-release.outputs.NEXUS_CHANGELOG || '' }}
 
       # Only archive the changelog if this is NOT a pre-release
       - name: Archive NEXT_CHANGELOG.md
