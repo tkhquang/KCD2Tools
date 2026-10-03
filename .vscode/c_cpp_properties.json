@@ -1,28 +1,44 @@
 {
+  // Select the configuration matching the module being edited from the C/C++ status bar.
+  // The Visual Studio generator does not emit compile_commands.json, so include roots and
+  // defines are explicit. These configurations match the RelWithDebInfo dev presets.
+  // Run the module's configure task once to generate DetourModKit, Zydis and Zycore headers.
   "configurations": [
     {
-      "name": "windows-gcc-x64",
+      "name": "TPVCamera (MSVC)",
       "includePath": [
-        "${workspaceFolder}/**"
+        "${workspaceFolder}/TPVCamera/src",
+        "${workspaceFolder}/TPVCamera/external/DetourModKit/include",
+        "${workspaceFolder}/TPVCamera/external/DetourModKit/external/DirectXMath/Inc",
+        "${workspaceFolder}/TPVCamera/external/DetourModKit/external/simpleini",
+        "${workspaceFolder}/TPVCamera/external/DetourModKit/external/safetyhook/include",
+        "${workspaceFolder}/TPVCamera/build/dev-msvc/external/DetourModKit/generated",
+        "${workspaceFolder}/TPVCamera/build/dev-msvc/_deps/nlohmann_json-src/include",
+        "${workspaceFolder}/TPVCamera/build/dev-msvc/_deps/imgui-src",
+        "${workspaceFolder}/TPVCamera/build/dev-msvc/_deps/imgui-src/backends",
+        "${workspaceFolder}/TPVCamera/build/dev-msvc/_deps/zydis-src/include",
+        "${workspaceFolder}/TPVCamera/build/dev-msvc/_deps/zydis-build",
+        "${workspaceFolder}/TPVCamera/build/dev-msvc/_deps/zydis-src/dependencies/zycore/include",
+        "${workspaceFolder}/TPVCamera/build/dev-msvc/_deps/zydis-build/zycore"
       ],
       "defines": [
-        "_DEBUG",
+        "NDEBUG",
         "WIN32",
         "_WINDOWS",
         "NOMINMAX",
         "WIN32_LEAN_AND_MEAN",
         "WINVER=0x0A00",
         "_WIN32_WINNT=0x0A00",
-        "_XM_SSE_INTRINSICS_",
         "SAFETYHOOK_NO_DLL",
         "ZYCORE_STATIC_BUILD",
         "ZYDIS_STATIC_BUILD",
+        "_XM_SSE_INTRINSICS_",
         "TPVCAMERA_DEV_BUILD"
       ],
-      "compilerPath": "C:/msys64/mingw64/bin/gcc.exe",
-      "cStandard": "${default}",
-      "cppStandard": "${default}",
-      "intelliSenseMode": "windows-gcc-x64"
+      "compilerPath": "cl.exe",
+      "cStandard": "c23",
+      "cppStandard": "c++23",
+      "intelliSenseMode": "windows-msvc-x64"
     },
     {
       "name": "TPVToggle (MSVC)",
@@ -34,25 +50,47 @@
         "${workspaceFolder}/TPVToggle/external/DetourModKit/external/safetyhook/include",
         "${workspaceFolder}/TPVToggle/build/dev-msvc/external/DetourModKit/generated",
         "${workspaceFolder}/TPVToggle/external/json/include",
-        "${workspaceFolder}/TPVToggle/external/KCD2ModLoader/src",
         "${workspaceFolder}/TPVToggle/build/dev-msvc/_deps/zydis-src/include",
         "${workspaceFolder}/TPVToggle/build/dev-msvc/_deps/zydis-build",
         "${workspaceFolder}/TPVToggle/build/dev-msvc/_deps/zydis-src/dependencies/zycore/include",
         "${workspaceFolder}/TPVToggle/build/dev-msvc/_deps/zydis-build/zycore"
       ],
       "defines": [
-        "_DEBUG",
+        "NDEBUG",
         "WIN32",
         "_WINDOWS",
         "NOMINMAX",
         "WIN32_LEAN_AND_MEAN",
         "WINVER=0x0A00",
         "_WIN32_WINNT=0x0A00",
-        "_XM_SSE_INTRINSICS_",
         "SAFETYHOOK_NO_DLL",
         "ZYCORE_STATIC_BUILD",
         "ZYDIS_STATIC_BUILD",
+        "_XM_SSE_INTRINSICS_",
         "TPVTOGGLE_DEV_BUILD"
+      ],
+      "compilerPath": "cl.exe",
+      "cStandard": "c23",
+      "cppStandard": "c++23",
+      "intelliSenseMode": "windows-msvc-x64"
+    },
+    {
+      "name": "HenrySenses (MSVC)",
+      "includePath": [
+        "${workspaceFolder}/HenrySenses/src",
+        "${workspaceFolder}/HenrySenses/src/dev",
+        "${workspaceFolder}/HenrySenses/external/DetourModKit/include",
+        "${workspaceFolder}/HenrySenses/build/dev-msvc/external/DetourModKit/generated"
+      ],
+      "defines": [
+        "NDEBUG",
+        "WIN32",
+        "_WINDOWS",
+        "NOMINMAX",
+        "WIN32_LEAN_AND_MEAN",
+        "WINVER=0x0A00",
+        "_WIN32_WINNT=0x0A00",
+        "HENRYSENSES_DEV_BUILD"
       ],
       "compilerPath": "cl.exe",
       "cStandard": "c23",

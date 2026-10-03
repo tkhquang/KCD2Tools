@@ -13,3 +13,6 @@
 [submodule "TPVCamera/external/DetourModKit"]
 	path = TPVCamera/external/DetourModKit
 	url = https://github.com/tkhquang/DetourModKit.git
+[submodule "HenrySenses/external/DetourModKit"]
+	path = HenrySenses/external/DetourModKit
+	url = https://github.com/tkhquang/DetourModKit.git

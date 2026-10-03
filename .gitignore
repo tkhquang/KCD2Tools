@@ -8,6 +8,9 @@ TPVToggle/build/*
 TPVCamera/build/*
 !TPVCamera/build/template
 
+HenrySenses/build/*
+!HenrySenses/build/template
+
 LootBeacon/build/*
 LootBeacon/src/**/*.pak
 

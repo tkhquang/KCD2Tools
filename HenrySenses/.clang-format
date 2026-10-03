@@ -1,0 +1,53 @@
+---
+# HenrySenses formatting rules follow DetourModKit's code conventions.
+Language: Cpp
+BasedOnStyle: LLVM
+# The project is C++23. clang-format has no explicit c++23 enum yet, so Latest
+# selects the newest standard it knows and parses C++23 syntax correctly.
+Standard: Latest
+# Keep code and comments within 120 columns. Split long string literals by hand
+# at sentence or phrase boundaries to keep messages readable in the source.
+ColumnLimit: 120
+ReflowComments: Always
+# ReflowComments: Always otherwise re-wraps the deep hang-indented continuation lines of a /** */ Doxygen block and
+# mangles them (collapsing the alignment under the @tag, occasionally emitting a stray "* *"). CommentPragmas marks
+# comment lines that must never be reflowed: matching 3+ leading content spaces (the hang indent under a Doxygen tag)
+# protects every continuation line, which inhibits reflow of the whole block, so hand-wrapped doc-blocks stay intact.
+# Plain // implementation comments carry no such indent and are still reflowed to the column limit. The IWYU default
+# pattern is preserved.
+CommentPragmas: '^ IWYU pragma:|^ {3,}'
+BreakStringLiterals: false
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 4
+AccessModifierOffset: -4
+NamespaceIndentation: All
+# Allman braces for functions, classes, namespaces and control-flow blocks.
+BreakBeforeBraces: Allman
+# Pointers and references attach to the declarator (int *p).
+PointerAlignment: Right
+ReferenceAlignment: Right
+# Keep trivial inline accessors on one line; everything else expands.
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortBlocksOnASingleLine: Never
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+# Wrapped argument and parameter lists take one item per line, with the right paren on its own line. A list that
+# fits inside ColumnLimit stays on one line. BinPackParameters: OnePerLine keeps that conditional; AlwaysOnePerLine
+# would expand a short signature.
+AlignAfterOpenBracket: BlockIndent
+BinPackArguments: false
+AllowAllArgumentsOnNextLine: false
+BinPackParameters: OnePerLine
+AllowAllParametersOfDeclarationOnNextLine: false
+# Pinned at the default so a definition wraps the same way as its declaration.
+BreakFunctionDefinitionParameters: false
+# Braces are written explicitly; the formatter does not add control-flow tokens.
+# Includes are grouped by hand (project, then external, then standard); the
+# formatter must not reorder or regroup them.
+SortIncludes: Never
+IncludeBlocks: Preserve
+SpaceAfterTemplateKeyword: true
+FixNamespaceComments: true

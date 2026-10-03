@@ -4,6 +4,8 @@
 
 **Loot Beacon** is a Lua mod for Kingdom Come: Deliverance II that helps players spot lootable objects in the game world. Activate the highlight feature with a keypress and watch as nearby items, human corpses, and animal carcasses are highlighted with colorful particle effects.
 
+[Henry's Senses](../HenrySenses/) is the native successor, with model outlines, herbs and configurable highlight groups. Loot Beacon remains available as a Lua mod. See [CHANGELOG.md](CHANGELOG.md) for previous releases.
+
 ## Features
 
 - Instantly highlight nearby lootable objects with color-coded beacons (default: F4 key)
