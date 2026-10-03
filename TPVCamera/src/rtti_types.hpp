@@ -63,13 +63,12 @@ namespace TPVCamera
      * @brief Resolves every class identity over the game image.
      * @param image The WHGame.dll range. Region::host() is the game executable, and every class below
      *        lives in WHGame.dll.
-     * @details Call exactly once, from init(), after the module base and size resolve and before any
-     *          detour arms. Every query before that point answers through the direct RTTI walk, so the
-     *          table is never read half-built. Each identity is resolved here, its image sweep shared across
-     *          a few short-lived worker threads, so no sweep is left to run on the render thread's first use.
-     * @note Setup and control plane only: allocates the identity table and starts and joins worker threads,
-     *       so it must run off the loader lock (init() does). Not safe to call twice, because a query thread
-     *       reads the published table without a lock.
+     * @details Initialization calls serialize. A repeated call preserves the published tables because query threads
+     *          read them without a lock. After an allocation failure, a retry completes the unpublished prefix.
+     *          Worker threads resolve identities before publication to keep initial sweeps off the render thread.
+     *          Queries use direct RTTI until publication.
+     * @throws std::invalid_argument If the range is empty or differs from the first accepted range.
+     * @note Setup only. Call from init() after the module range resolves, outside the loader lock.
      */
     void init_game_types(Region image);
 

@@ -24,6 +24,7 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <utility>
 
 namespace TPVCamera
 {
@@ -389,45 +390,66 @@ namespace TPVCamera
     {
         DMK::Logger &logger = DMK::log();
 
-        auto started = DMK::rtti::HealScheduler::start(
-            DMK::rtti::HealConfig{.interval_frames = k_heal_retry_interval_frames});
+        auto started =
+            DMK::rtti::HealScheduler::start(DMK::rtti::HealConfig{.interval_frames = k_heal_retry_interval_frames});
         if (!started)
         {
-            logger.warning("Self-heal: scheduler did not start ({}); every offset stays at its nominal",
-                           started.error().message());
+            logger.warning(
+                "Self-heal: scheduler did not start ({}); every offset stays at its nominal",
+                started.error().message()
+            );
             return;
         }
         // Stamp the configured radius onto every template once, before any group is registered, so the work
         // callbacks below allocate nothing and never throw.
         const std::size_t window = heal_window();
-        s_windowed.emplace(WindowedLandmarks{
-            .entity = with_window(k_entity_lm, window),
-            .animhuman = with_window(k_animhuman_lm, window),
-            .actormodel = with_window(k_actormodel_lm, window),
-            .missile = with_window(k_missile_lm, window),
-            .animchar = with_window(k_animchar_lm, window),
-            .actiongame = with_window(k_actiongame_lm, window),
-            .localactor = with_window(k_localactor_lm, window),
-            .manager = with_window(k_manager_lm, window),
-            .minigame = with_window(k_minigame_subsystem_lm, window),
-            .bracket = {with_window(k_player_top_bracket[0], window), with_window(k_player_top_bracket[1], window)},
-        });
+        s_windowed.emplace(
+            WindowedLandmarks{
+                .entity = with_window(k_entity_lm, window),
+                .animhuman = with_window(k_animhuman_lm, window),
+                .actormodel = with_window(k_actormodel_lm, window),
+                .missile = with_window(k_missile_lm, window),
+                .animchar = with_window(k_animchar_lm, window),
+                .actiongame = with_window(k_actiongame_lm, window),
+                .localactor = with_window(k_localactor_lm, window),
+                .manager = with_window(k_manager_lm, window),
+                .minigame = with_window(k_minigame_subsystem_lm, window),
+                .bracket = {with_window(k_player_top_bracket[0], window), with_window(k_player_top_bracket[1], window)},
+            }
+        );
 
         s_scheduler.emplace(std::move(*started));
         DMK::rtti::HealScheduler &sched = *s_scheduler;
         RuntimeOffsets &offsets = runtime_offsets();
         const WindowedLandmarks &lm = *s_windowed;
+        std::size_t registered_groups = 0;
+        // Groups recover independently. Log failed registrations so missing recovery work remains visible.
+        const auto register_group = [&sched, &logger, &registered_groups](
+                                        std::string_view name,
+                                        DMK::rtti::HealScheduler::Work work,
+                                        DMK::rtti::HealScheduler::Gate gate
+                                    ) -> void
+        {
+            if (const auto registered = sched.add_group(std::move(work), std::move(gate)); registered)
+            {
+                ++registered_groups;
+            }
+            else
+            {
+                logger.warning("Self-heal: {} group did not register ({})", name, registered.error().message());
+            }
+        };
 
         // Chain root: CCryAction -> CActionGame. Every actor walk reads CActionGame through this offset before
         // any C_Player-rooted group can run, so a shift here would defeat the whole chain. The gate keeps the
         // group SILENT while CActionGame does not exist yet: an unpopulated slot is the normal pre-session state
         // (main menu, a slow load), not a layout drift, so it must not spend the retry budget or log.
-        sched.add_group(
+        register_group(
+            "actionGame",
             [&offsets, &lm](DMK::rtti::HealRun &run) noexcept
             {
                 const std::uintptr_t cry_action = s_cry_action_base.load(std::memory_order_relaxed);
-                return heal_and_record(run, "actionGame", lm.actiongame, cry_action,
-                                       offsets.ccryaction_actiongame);
+                return heal_and_record(run, "actionGame", lm.actiongame, cry_action, offsets.ccryaction_actiongame);
             },
             [&offsets]() noexcept
             {
@@ -439,23 +461,25 @@ namespace TPVCamera
                 const auto action_game =
                     mem::read<std::uintptr_t>(Address{cry_action + offset_value(offsets.ccryaction_actiongame)});
                 return action_game.has_value() && mem::is_plausible_ptr(Address{*action_game});
-            });
+            }
+        );
 
         // CActionGame -> local actor. C_Player is found THROUGH this offset, so it cannot be healed from a
         // resolved C_Player; the gate instead waits for the resolver to report the drift signature (a populated
         // slot holding something that is not a C_Player).
-        sched.add_group(
+        register_group(
+            "localActor",
             [&offsets, &lm](DMK::rtti::HealRun &run) noexcept
             {
                 const std::uintptr_t action_game = s_action_game_base.load(std::memory_order_relaxed);
-                return heal_and_record(run, "localActor", lm.localactor, action_game,
-                                       offsets.cactiongame_local_actor);
+                return heal_and_record(run, "localActor", lm.localactor, action_game, offsets.cactiongame_local_actor);
             },
             []() noexcept
             {
                 return s_action_game_base.load(std::memory_order_relaxed) != 0 &&
                        s_local_actor_recovery.load(std::memory_order_relaxed);
-            });
+            }
+        );
 
         // C_Player-direct members whose type is UNIQUE within C_Player, so an independent window scan cannot land
         // on a wrong same-typed neighbour; they heal independently, which keeps each one resilient to a shift that
@@ -463,30 +487,36 @@ namespace TPVCamera
         // instead. The caller only publishes a vtable-validated C_Player, so this group is deterministic on a
         // valid frame and normally latches after one pass.
         //
-        // The latch is keyed on the members that AUTHORIZE A WRITE, not on the group having run: animatedHuman
-        // is the first hop of the body-turn chain, and the bracket owns lookController. Latching regardless
-        // would leave a member that missed its one scan Unverified forever, which now costs the feature rather
-        // than merely falling back to the nominal. The read-only members (actorModel, missileController) do not
-        // hold the group open; a settled bracket does latch even when it fell back, because it is deterministic
-        // on a validated C_Player and a re-scan would reach the same verdict.
-        sched.add_group(
+        // The latch requires the write-authorizing members: animatedHuman and the bracket's lookController.
+        // A missed scan leaves writes unauthorized, so this group retries until those members resolve.
+        // Read-only actorModel and missileController do not delay the latch.
+        // A settled bracket fallback does not retry because its verdict is deterministic for a validated C_Player.
+        register_group(
+            "player",
             [&offsets, &lm](DMK::rtti::HealRun &run) noexcept
             {
                 const std::uintptr_t c_player = s_player_base.load(std::memory_order_relaxed);
                 const bool animated_human_ok =
                     heal_and_record(run, "animatedHuman", lm.animhuman, c_player, offsets.c_player_animated_human);
                 (void)heal_and_record(run, "actorModel", lm.actormodel, c_player, offsets.c_player_actor_model);
-                (void)heal_and_record(run, "missileController", lm.missile, c_player,
-                                      offsets.c_player_missile_controller);
+                (void)(heal_and_record(
+                    run,
+                    "missileController",
+                    lm.missile,
+                    c_player,
+                    offsets.c_player_missile_controller
+                ));
                 const bool bracket_settled = heal_player_bracket(run, c_player, offsets);
                 return animated_human_ok && bracket_settled;
             },
-            []() noexcept { return s_player_base.load(std::memory_order_relaxed) != 0; });
+            []() noexcept { return s_player_base.load(std::memory_order_relaxed) != 0; }
+        );
 
         // animChar lives one hop out, on C_AnimatedHuman, so it is its own group: a single shared latch would
         // freeze it at nominal forever on a frame where C_AnimatedHuman is briefly null. Returning false retries
         // on the next interval instead of abandoning the heal; the gate keeps the wait silent.
-        sched.add_group(
+        register_group(
+            "animChar",
             [&offsets, &lm](DMK::rtti::HealRun &run) noexcept
             {
                 const std::uintptr_t c_player = s_player_base.load(std::memory_order_relaxed);
@@ -498,31 +528,51 @@ namespace TPVCamera
                 }
                 return heal_and_record(run, "animChar", lm.animchar, *anim_human, offsets.animated_human_animchar);
             },
-            []() noexcept { return s_player_base.load(std::memory_order_relaxed) != 0; });
+            []() noexcept { return s_player_base.load(std::memory_order_relaxed) != 0; }
+        );
 
         // The two global-context members latch INDEPENDENTLY, so a frame where one is not yet live retries only
         // that member. The context base is anchored (not navigated through a possibly-drifted offset), so unlike
         // the local-actor offset a context-member drift IS recoverable here.
-        sched.add_group(
+        register_group(
+            "cameraManager",
             [&offsets, &lm](DMK::rtti::HealRun &run) noexcept
             {
                 const std::uintptr_t context = s_context_base.load(std::memory_order_relaxed);
                 return heal_and_record(run, "cameraManager", lm.manager, context, offsets.context_manager);
             },
-            []() noexcept { return s_context_base.load(std::memory_order_relaxed) != 0; });
+            []() noexcept { return s_context_base.load(std::memory_order_relaxed) != 0; }
+        );
 
-        sched.add_group(
+        register_group(
+            "minigameSubsystem",
             [&offsets, &lm](DMK::rtti::HealRun &run) noexcept
             {
                 const std::uintptr_t context = s_context_base.load(std::memory_order_relaxed);
-                return heal_and_record(run, "minigameSubsystem", lm.minigame, context,
-                                       offsets.context_minigame_subsystem);
+                return heal_and_record(
+                    run,
+                    "minigameSubsystem",
+                    lm.minigame,
+                    context,
+                    offsets.context_minigame_subsystem
+                );
             },
-            []() noexcept { return s_context_base.load(std::memory_order_relaxed) != 0; });
+            []() noexcept { return s_context_base.load(std::memory_order_relaxed) != 0; }
+        );
 
+        if (registered_groups == 0)
+        {
+            s_scheduler_ready.store(false, std::memory_order_release);
+            s_scheduler.reset();
+            logger.warning("Self-heal: no groups registered; automatic recovery is disabled");
+            return;
+        }
         s_scheduler_ready.store(true, std::memory_order_release);
-        logger.info("Self-heal: scheduler started ({} frame retry interval, 6 groups)",
-                    k_heal_retry_interval_frames);
+        logger.info(
+            "Self-heal: scheduler started ({} frame retry interval, {} groups)",
+            k_heal_retry_interval_frames,
+            registered_groups
+        );
     }
 
     void offset_heal_tick() noexcept
