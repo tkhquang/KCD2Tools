@@ -1,4 +1,3 @@
-.roo/*
 .idea/*
 build/*
 
@@ -19,7 +18,4 @@ PizzleYanked/src/**/*.pak
 
 !/**/.gitkeep
 tools/*
-.claude/*
 **/docs/analysis/*
-CLAUDE.md
-TPVCamera/.claude/analysis

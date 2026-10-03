@@ -242,11 +242,14 @@ jobs:
 
           ### Technical Details
 
-          This mod is built on **DetourModKit**, a lightweight C++ toolkit for game modding that provides:
-          - Safe function hooking via [SafetyHook](https://github.com/cursey/safetyhook)
-          - AOB (Array of Bytes) pattern scanning
-          - Configuration management
-          - Thread-safe logging
+          This mod is built on [DetourModKit (DMK)](https://github.com/tkhquang/DetourModKit), a full-featured C++23 framework for Windows game modding. It provides:
+
+          - Function hooking via [SafetyHook](https://github.com/cursey/safetyhook) and vtable hooking
+          - AOB (Array of Bytes) pattern scanning and memory access utilities
+          - Keyboard, mouse and XInput controller bindings
+          - INI configuration with live reload
+          - Thread-safe logging and runtime diagnostics
+          - Mod lifecycle management and hot-reload support
           '@
 
           # Format the release body with the values

@@ -227,7 +227,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           files: ${{ env.ARTIFACT_NAME }}
-          name: Henry's Senses - Loot and Object Highlighting ${{ env.VERSION_TAG }}
+          name: KCD2 HenrySenses ${{ env.VERSION_TAG }}
           tag_name: ${{ env.RELEASE_TAG }}
           body_path: ${{ steps.prepare-release.outputs.RELEASE_BODY_PATH }}
           draft: false

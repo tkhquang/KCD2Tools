@@ -8,19 +8,19 @@ A collection of mods for Kingdom Come: Deliverance II that enhance gameplay and 
 
 ## Available Mods
 
-### [TPVToggle](TPVToggle/)
+### [Third Person View (TPV Camera) Enabler](TPVToggle/)
 A lightweight mod that adds a hotkey to toggle between first-person and third-person camera views in Kingdom Come: Deliverance II.
 
-### [TPVCamera](TPVCamera/)
+### [Proper Third Person View (TPV Camera)](TPVCamera/)
 A standalone third-person camera that renders behind the player while aiming, looting, and combat keep working off the first-person frame. Includes free-look orbit, zoom, camera collision, and crosshair convergence.
 
 ### [Henry's Senses - Loot and Object Highlighting](HenrySenses/)
-Highlights loot, herbs, people, animals and interactive objects through walls with outlines on their own models, in configurable highlight groups with their own keys and colours, optional particle effects and a Focus mode that darkens everything else. The native (ASI) successor to LootBeacon.
+A loot and object highlighting mod for Kingdom Come: Deliverance II. The native (ASI) successor to LootBeacon.
 
-### [LootBeacon](LootBeacon/)
+### [Loot Beacon - Never Miss a Drop or Corpse (Highlight Pickable Items)](LootBeacon/)
 A mod that helps players spot dropped items in the game world. Activate the highlight feature with a keypress and watch as nearby pickable items are highlighted with a colorful particle effect. Superseded by Henry's Senses.
 
-### [PizzleYanked](PizzleYanked/)
+### [Pizzle Yanked - Alternate Game Over-Death Text](PizzleYanked/)
 This mod replaces the boring "Game Over" text with the much more historically significant and spiritually accurate phrase: "Pizzle Yanked"
 
 ## Installation
