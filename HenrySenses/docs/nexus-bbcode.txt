@@ -1,5 +1,5 @@
 [size=5]Foreword[/size]
-I originally made [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1722]Loot Beacon[/url] after spending a day searching for Canker's Mace in the tall grass. It helped make nearby loot easier to spot with particle beacons, and player feedback helped improve the colours and visibility.
+I originally made [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1722]Loot Beacon - Never Miss a Drop or Corpse (Highlight Pickable Items)[/url] after spending a day searching for Canker's Mace in the tall grass. It helped make nearby loot easier to spot with particle beacons, and player feedback helped improve the colours and visibility.
 
 [b]Henry's Senses[/b] is its native ASI successor. Press a key to highlight nearby loot and herbs with outlines, fills or corner brackets. It builds on the same idea with model highlights, broader detection and configurable groups for different objects and play styles.
 
@@ -15,7 +15,7 @@ It is still early days. If something doesn't highlight, looks wrong or doesn't w
 [*]Filters for stolen, empty, locked and other tagged objects, using the game's own loot checks[/*]
 [*]Keyboard and XInput controller bindings, including modifier combinations[/*]
 [*]Live configuration reload when you save the INI[/*]
-[*][url=https://github.com/tkhquang/KCD2Tools/tree/main/HenrySenses]Open-source[/url][/*] with full transparency
+[*][url=https://github.com/tkhquang/KCD2Tools]Open-source[/url][/*] with full transparency
 [/list]
 The default Auto renderer uses model highlights, with corner brackets as a fallback when it cannot draw them.
 
@@ -216,4 +216,4 @@ Built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url] for 
 [*]Loot Beacon players - feedback on visibility and colour accessibility[/*]
 [/list]
 
-[url=https://github.com/tkhquang/KCD2Tools/tree/main/HenrySenses]Source code[/url] and [url=https://github.com/tkhquang/KCD2Tools/tree/main/HenrySenses#building-from-source]build instructions, including the dev hot-reload setup[/url], are available on GitHub. Contributions and suggestions are welcome!
+All my Kingdom Come: Deliverance II mods and tools can be found in this [url=https://github.com/tkhquang/KCD2Tools]GitHub repository[/url]. Feel free to contribute or suggest improvements!
