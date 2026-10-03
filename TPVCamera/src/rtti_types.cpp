@@ -17,7 +17,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string_view>
 #include <system_error>
 #include <thread>
@@ -27,10 +29,10 @@ namespace TPVCamera
 {
     namespace
     {
-        constexpr std::size_t k_class_count = static_cast<std::size_t>(GameClass::Count);
+        constexpr std::size_t CLASS_COUNT = static_cast<std::size_t>(GameClass::Count);
 
-        /// MSVC decorated names, indexed by GameClass. The enumerator order IS this order.
-        constexpr std::array<std::string_view, k_class_count> k_class_names = {{
+        /// MSVC decorated names follow the GameClass enumerator order.
+        constexpr std::array<std::string_view, CLASS_COUNT> CLASS_NAMES = {{
             Constants::C_PLAYER_RTTI_NAME,
             Constants::CVIEW_RTTI_NAME,
             Constants::ANIMATED_CHARACTER_RTTI_NAME,
@@ -49,6 +51,10 @@ namespace TPVCamera
         std::deque<DMK::rtti::TypeIdentity> s_class_types;
         std::deque<DMK::rtti::TypeIdentity> s_minigame_types;
 
+        // Only initialization takes this lock. Published tables stay immutable for query threads.
+        std::mutex s_init_mutex;
+        Region s_image{};
+
         // Published with release once both deques are complete, and read with acquire, so a render thread
         // either sees no table and takes the direct RTTI walk, or sees a complete one.
         std::atomic<bool> s_ready{false};
@@ -61,14 +67,18 @@ namespace TPVCamera
          *          An unresolved sweep is not cached, but the library throttles the retry, so a class that is
          *          absent does not re-scan the image every frame.
          */
-        [[nodiscard]] bool answer(const std::deque<DMK::rtti::TypeIdentity> &table, std::size_t index,
-                                  std::uintptr_t vtable, std::string_view mangled) noexcept
+        [[nodiscard]] bool answer(
+            const std::deque<DMK::rtti::TypeIdentity> &table,
+            std::size_t index,
+            std::uintptr_t vtable,
+            std::string_view mangled
+        ) noexcept
         {
             if (vtable == 0)
             {
                 return false;
             }
-            if (s_ready.load(std::memory_order_acquire) && index < table.size())
+            if (s_ready.load(std::memory_order_acquire))
             {
                 if (const std::optional<Address> primary = table[index].vtable(); primary.has_value())
                 {
@@ -81,30 +91,41 @@ namespace TPVCamera
 
     void init_game_types(Region image)
     {
-        for (const std::string_view mangled : k_class_names)
+        const std::lock_guard init_lock(s_init_mutex);
+        if (!image.base || image.size == 0)
         {
-            s_class_types.emplace_back(mangled, image);
+            throw std::invalid_argument("RTTI initialization requires a nonempty game image");
         }
-        for (const MinigameInfo &def : k_minigames)
+        if (s_image.base && (s_image.base != image.base || s_image.size != image.size))
         {
-            s_minigame_types.emplace_back(def.rtti_name, image);
+            throw std::invalid_argument("RTTI identities are bound to a different game image range");
+        }
+        if (s_ready.load(std::memory_order_acquire))
+        {
+            return;
+        }
+        s_image = image;
+        // An allocation failure can leave an unpublished prefix. Resume that prefix without replacement or duplication.
+        for (std::size_t i = s_class_types.size(); i < CLASS_COUNT; ++i)
+        {
+            s_class_types.emplace_back(CLASS_NAMES[i], image);
+        }
+        for (std::size_t i = s_minigame_types.size(); i < k_minigames.size(); ++i)
+        {
+            s_minigame_types.emplace_back(k_minigames[i].rtti_name, image);
         }
 
-        // Resolve every identity now, during init. A TypeIdentity resolves on its first vtable() call with a sweep over
-        // the whole image, tens of milliseconds per class. Left to first use, every sweep lands on the first game-view
-        // frame on the render thread, a hitch of about half a second when the world first appears. Each identity
-        // keeps its own cache and the sweeps only read the image, so a few threads share them (one after another they
-        // add about two seconds to init). The calling thread takes part too, so the warm-up still completes if no
-        // worker can be started. A class that does not resolve here is retried on demand under the library's retry
-        // cooldown, and its callers answer through the direct RTTI walk meanwhile.
+        // Resolve identities before publication because a cold identity scans the whole image.
+        // Each worker owns a distinct identity. The caller also drains work if thread creation fails.
+        // Unresolved identities use direct RTTI and retry under the library's cooldown.
         std::vector<const DMK::rtti::TypeIdentity *> identities;
         std::vector<std::string_view> names;
-        for (std::size_t i = 0; i < s_class_types.size(); ++i)
+        for (std::size_t i = 0; i < CLASS_COUNT; ++i)
         {
             identities.push_back(&s_class_types[i]);
-            names.push_back(k_class_names[i]);
+            names.push_back(CLASS_NAMES[i]);
         }
-        for (std::size_t i = 0; i < s_minigame_types.size(); ++i)
+        for (std::size_t i = 0; i < k_minigames.size(); ++i)
         {
             identities.push_back(&s_minigame_types[i]);
             names.push_back(k_minigames[i].rtti_name);
@@ -119,8 +140,8 @@ namespace TPVCamera
             }
         };
         {
-            constexpr unsigned k_max_warm_threads = 8;
-            const unsigned workers = std::clamp(std::thread::hardware_concurrency(), 1u, k_max_warm_threads) - 1;
+            constexpr unsigned max_warm_threads = 8;
+            const unsigned workers = std::clamp(std::thread::hardware_concurrency(), 1u, max_warm_threads) - 1;
             std::vector<std::jthread> pool;
             pool.reserve(workers);
             try
@@ -135,7 +156,7 @@ namespace TPVCamera
                 // Fewer workers than asked for: the calling thread drains whatever they leave.
             }
             drain();
-        } // the pool joins here, so every entry of `resolved` is final below
+        }
 
         std::size_t resolved_count = 0;
         for (std::size_t i = 0; i < identities.size(); ++i)
@@ -149,8 +170,8 @@ namespace TPVCamera
                 (void)DMK::log().try_log(DMK::LogLevel::Debug, "RTTI: {} did not resolve at init", names[i]);
             }
         }
-        (void)DMK::log().try_log(DMK::LogLevel::Info, "RTTI: {}/{} class identities resolved", resolved_count,
-                                 identities.size());
+        (void)DMK::log()
+            .try_log(DMK::LogLevel::Info, "RTTI: {}/{} class identities resolved", resolved_count, identities.size());
 
         s_ready.store(true, std::memory_order_release);
     }
@@ -158,17 +179,17 @@ namespace TPVCamera
     bool vtable_is(GameClass klass, std::uintptr_t vtable) noexcept
     {
         const std::size_t index = static_cast<std::size_t>(klass);
-        if (index >= k_class_count)
+        if (index >= CLASS_COUNT)
         {
             return false;
         }
-        return answer(s_class_types, index, vtable, k_class_names[index]);
+        return answer(s_class_types, index, vtable, CLASS_NAMES[index]);
     }
 
     std::optional<std::uintptr_t> class_vtable(GameClass klass) noexcept
     {
         const std::size_t index = static_cast<std::size_t>(klass);
-        if (index >= k_class_count || !s_ready.load(std::memory_order_acquire) || index >= s_class_types.size())
+        if (index >= CLASS_COUNT || !s_ready.load(std::memory_order_acquire))
         {
             return std::nullopt;
         }

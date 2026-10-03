@@ -34,8 +34,6 @@ if(NOT MSVC)
   message(FATAL_ERROR "KCD2_TPVCamera requires the MSVC toolchain (Visual Studio 2022+).")
 endif()
 
-add_compile_options(/W4)
-
 # --- Windows Definitions ---
 if(WIN32)
   add_compile_definitions(
@@ -55,7 +53,25 @@ endif()
 
 # Guard against double-definition if a parent project already pulled DetourModKit in.
 if(NOT TARGET DetourModKit)
-  add_subdirectory(external/DetourModKit)
+  # Zydis and Zycore declare an older minimum. Limit the policy override to the dependency tree.
+  block(SCOPE_FOR VARIABLES)
+    if(NOT DEFINED CMAKE_POLICY_VERSION_MINIMUM OR CMAKE_POLICY_VERSION_MINIMUM VERSION_LESS 3.10)
+      set(CMAKE_POLICY_VERSION_MINIMUM 3.10)
+    endif()
+    add_subdirectory(external/DetourModKit)
+
+    # /W0 maps to the Visual Studio warning-level property. /w remains an extra flag and conflicts with /W1.
+    foreach(_dependency_target safetyhook Zydis Zycore)
+      if(TARGET ${_dependency_target})
+        get_target_property(_dependency_alias ${_dependency_target} ALIASED_TARGET)
+        get_target_property(_dependency_options ${_dependency_target} COMPILE_OPTIONS)
+        if(NOT _dependency_alias AND _dependency_options)
+          list(TRANSFORM _dependency_options REPLACE ":/w>$" ":/W0>")
+          set_property(TARGET ${_dependency_target} PROPERTY COMPILE_OPTIONS "${_dependency_options}")
+        endif()
+      endif()
+    endforeach()
+  endblock()
 endif()
 if(NOT TARGET DetourModKit)
   message(FATAL_ERROR "DetourModKit target not created by subdirectory")
@@ -138,6 +154,7 @@ set(COMMON_SOURCES
 # an .asi where image size is not a real constraint. /Gy + /Gw with /OPT:REF +
 # /OPT:ICF still let the linker drop and fold unused functions and data.
 function(configure_logic_target target)
+  target_compile_options(${target} PRIVATE /W4)
   target_include_directories(${target} PRIVATE src)
   # imgui_lib brings the ImGui + Win32/DX11 backend include paths transitively.
   # d3d11/dxgi back the private WARP device; gdi32 backs the layered-window
@@ -196,6 +213,7 @@ else()
   # Thin loader ASI: loads the logic DLL and reloads it from the staging/ subdir
   # on a Numpad 0 press. Links only the Win32 libraries (no DetourModKit).
   add_library(${PROJECT_NAME}-loader SHARED src/dev/mod_loader.cpp)
+  target_compile_options(${PROJECT_NAME}-loader PRIVATE /W4)
   # The loader links the resident wheel host ONLY, never the full archive. Hosting wheel capture here -
   # in a module that is never unloaded - is what lets the logic DLL keep mouse-wheel bindings and still
   # unmap: the permanent MessageHookKeepalive is booked against this module instead of that one.
