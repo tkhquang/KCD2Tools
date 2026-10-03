@@ -1,0 +1,269 @@
+name: Henry's Senses - Version Bump and Release
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_part:
+        description: "Version part to bump"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      version_title:
+        description: "Version title (defaults to the heading in NEXT_CHANGELOG.md)"
+        required: false
+        type: string
+      nexus_description:
+        description: "Nexus file note (appended after the install-steps line; truncated to fit 255 chars total)"
+        required: false
+        type: string
+      prerelease:
+        description: "Is this a pre-release?"
+        required: false
+        default: false
+        type: boolean
+
+# Releases share the same version header and tag namespace across branches.
+concurrency:
+  group: release-henry-senses
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  bump-and-release:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check release branch and initialize dependencies
+        run: |
+          if ($env:GITHUB_REF_TYPE -ne 'branch') {
+            throw 'Run this workflow on a branch, not a tag.'
+          }
+          # Only fetch this mod's dependency tree; other mods and CryEngine are not needed.
+          git submodule update --init --recursive -- HenrySenses/external/DetourModKit
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to initialize HenrySenses submodules.' }
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+
+      - name: Read changelog and determine title
+        id: read-changelog
+        env:
+          TITLE_INPUT: ${{ inputs.version_title }}
+        run: |
+          $content = Get-Content -LiteralPath 'HenrySenses/docs/NEXT_CHANGELOG.md' -Raw -Encoding utf8
+          $lines = $content -split "`r?`n"
+          if ($lines[0] -notmatch '^##\s+(.+)$') {
+            throw 'NEXT_CHANGELOG.md must start with ## followed by a release title.'
+          }
+          $suggestedTitle = $matches[1].Trim()
+          if ($suggestedTitle -eq '[Title for next release]') {
+            throw 'Replace the NEXT_CHANGELOG.md template with release notes before publishing.'
+          }
+          $title = ([string]$env:TITLE_INPUT).Trim()
+          if ([string]::IsNullOrWhiteSpace($title)) { $title = $suggestedTitle }
+          if ($title -match '[\r\n]') { throw 'The release title must be a single line.' }
+          $changelog = ($lines | Select-Object -Skip 1) -join "`n"
+          if ([string]::IsNullOrWhiteSpace($changelog)) { throw 'The changelog must not be empty.' }
+          $notesPath = Join-Path $env:RUNNER_TEMP 'henry-senses-changelog.txt'
+          Set-Content -LiteralPath $notesPath -Value $changelog.Trim() -Encoding utf8
+          "TITLE=$title" >> $env:GITHUB_OUTPUT
+          "NOTES_PATH=$notesPath" >> $env:GITHUB_OUTPUT
+
+      - name: Bump version and update changelog
+        env:
+          VERSION_PART: ${{ inputs.version_part }}
+          RELEASE_TITLE: ${{ steps.read-changelog.outputs.TITLE }}
+          NOTES_PATH: ${{ steps.read-changelog.outputs.NOTES_PATH }}
+        run: |
+          python HenrySenses/scripts/version_updater.py bump $env:VERSION_PART --title $env:RELEASE_TITLE --changelog-file $env:NOTES_PATH
+          if ($LASTEXITCODE -ne 0) { throw 'Version update failed.' }
+
+          $header = Get-Content "HenrySenses\src\version.hpp" -Raw
+          $major = [regex]::Match($header, '#define\s+VERSION_MAJOR\s+(\d+)').Groups[1].Value
+          $minor = [regex]::Match($header, '#define\s+VERSION_MINOR\s+(\d+)').Groups[1].Value
+          $patch = [regex]::Match($header, '#define\s+VERSION_PATCH\s+(\d+)').Groups[1].Value
+          $version = "$major.$minor.$patch"
+          $tag = "HenrySenses-v$version"
+          git show-ref --verify --quiet "refs/tags/$tag"
+          if ($LASTEXITCODE -eq 0) { throw "Tag $tag already exists. Choose a different version bump." }
+          if ($LASTEXITCODE -ne 1) { throw 'Failed to check existing release tags.' }
+          "NEW_VERSION=$version" >> $env:GITHUB_ENV
+          "VERSION_TAG=v$version" >> $env:GITHUB_ENV
+          "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+          "ARTIFACT_NAME=KCD2_HenrySenses_v$version.zip" >> $env:GITHUB_ENV
+          # show-ref returns 1 for the expected missing tag; do not report that as a step failure.
+          exit 0
+
+      - name: Build ASI
+        working-directory: HenrySenses
+        run: |
+          cmake -S . -B build/release-msvc -G "Visual Studio 17 2022" -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed.' }
+          cmake --build build\release-msvc --target KCD2_HenrySenses-ASI --config Release --parallel
+          if ($LASTEXITCODE -ne 0) { throw 'ASI build failed.' }
+          if (-not (Test-Path "build\release-msvc\KCD2_HenrySenses.asi")) {
+            Write-Error "KCD2_HenrySenses.asi was not produced"
+            exit 1
+          }
+
+      # The ASI and runtime templates sit at the archive root.
+      - name: Assemble release archive
+        run: |
+          $package = "HenrySenses\package"
+          New-Item -ItemType Directory -Force -Path $package | Out-Null
+          Copy-Item "HenrySenses\build\release-msvc\KCD2_HenrySenses.asi" $package
+          Copy-Item "HenrySenses\build\template\*" $package -Recurse
+          Compress-Archive -Path "$package\*" -DestinationPath $env:ARTIFACT_NAME -Force
+          Get-ChildItem -Recurse $package | Select-Object FullName, Length | Format-Table -AutoSize | Out-String -Width 200
+
+      - name: Prepare release body and Nexus metadata
+        id: prepare-release
+        env:
+          RELEASE_TITLE: ${{ steps.read-changelog.outputs.TITLE }}
+          NOTES_PATH: ${{ steps.read-changelog.outputs.NOTES_PATH }}
+          NEXUS_DESC_INPUT: ${{ inputs.nexus_description }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          $changelog = Get-Content -LiteralPath $env:NOTES_PATH -Raw -Encoding utf8
+          $releaseBody = @'
+          # Kingdom Come: Deliverance II - Henry's Senses
+
+          ## Release {0} - {1}
+
+          Highlight nearby loot, herbs and other objects with configurable outlines, fills and corner brackets.
+
+          ## Changelog
+
+          {2}
+
+          ### Installation
+
+          1. Install an [ASI loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases) if you do not already have one. Place its x64 loader DLL (commonly `dinput8.dll`) beside `WHGame.dll` in `<game>/Bin/Win64MasterMasterSteamPGO/`.
+          2. Copy all files from this archive into that same binary folder, beside `WHGame.dll` and the loader.
+          3. Launch the game, load a save and press **H** (or **RB + Start**) to highlight loot. **Left Shift + H** (or **RB + Back**) highlights herbs.
+
+          The archive contains `KCD2_HenrySenses.asi`, `KCD2_HenrySenses.ini` and documentation. The ASI loader is not bundled. Keep a copy of your customized INI before updating.
+
+          Edit `KCD2_HenrySenses.ini` and save to apply changes while playing. Check `KCD2_HenrySenses.log` beside the ASI if the mod does not load.
+
+          See the [README](https://github.com/{3}/blob/main/HenrySenses/README.md) for configuration and troubleshooting.
+          '@
+          $releaseBody = $releaseBody -f $env:VERSION_TAG, $env:RELEASE_TITLE, $changelog.Trim(), $env:GITHUB_REPOSITORY
+          if ($env:PRERELEASE -eq 'true') {
+            $releaseBody = "## PRE-RELEASE VERSION`n`nThis build is for testing and may contain bugs or incomplete features.`n`n" + $releaseBody
+          }
+          $bodyPath = Join-Path $env:RUNNER_TEMP 'henry-senses-release-body.md'
+          Set-Content -LiteralPath $bodyPath -Value $releaseBody -Encoding utf8
+          "RELEASE_BODY_PATH=$bodyPath" >> $env:GITHUB_OUTPUT
+
+          # Nexus accepts a 255-character file note and a plain bullet-list changelog.
+          $prefix = "See the description for installation steps.`n`n"
+          $note = ($env:NEXUS_DESC_INPUT -replace "`r`n", "`n").Trim()
+          $remaining = 255 - $prefix.Length
+          if ($note.Length -gt $remaining) { $note = $note.Substring(0, $remaining) }
+          $nexusChangelog = (($changelog -split "`r?`n") |
+            ForEach-Object { ($_.Trim() -replace '^[-*+]\s+', '') } |
+            Where-Object { $_ -ne '' }) -join "`n"
+          $delimiter = "NEXUS_$([guid]::NewGuid().ToString('N'))"
+          "NEXUS_DESCRIPTION<<$delimiter" >> $env:GITHUB_OUTPUT
+          ($prefix + $note) >> $env:GITHUB_OUTPUT
+          $delimiter >> $env:GITHUB_OUTPUT
+          "NEXUS_CHANGELOG<<$delimiter" >> $env:GITHUB_OUTPUT
+          $nexusChangelog >> $env:GITHUB_OUTPUT
+          $delimiter >> $env:GITHUB_OUTPUT
+
+      - name: Commit version changes and create release tag
+        env:
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          git config --local user.email 'github-actions[bot]@users.noreply.github.com'
+          git config --local user.name 'github-actions[bot]'
+          git add -- HenrySenses/src/version.hpp HenrySenses/CHANGELOG.md HenrySenses/build/template/KCD2_HenrySenses_Readme.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to stage version changes.' }
+          git commit -m "Bump HenrySenses version to $env:NEW_VERSION"
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to commit version changes.' }
+          git tag -a $env:RELEASE_TAG -m "Release $env:VERSION_TAG"
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to create release tag.' }
+
+          # The tag always contains the source used to build the archive. Pre-releases keep
+          # the bump on the tag only, leaving the selected branch and pending notes untouched.
+          if ($env:PRERELEASE -eq 'true') {
+            git push origin "refs/tags/$env:RELEASE_TAG"
+          } else {
+            git push --atomic origin "HEAD:refs/heads/$env:GITHUB_REF_NAME" "refs/tags/$env:RELEASE_TAG"
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to push release changes.' }
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: ${{ env.ARTIFACT_NAME }}
+          name: Henry's Senses - Loot and Object Highlighting ${{ env.VERSION_TAG }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          body_path: ${{ steps.prepare-release.outputs.RELEASE_BODY_PATH }}
+          draft: false
+          prerelease: ${{ inputs.prerelease }}
+
+      # The account API key is shared; file and v3 mod IDs identify this mod.
+      # Leave the file ID unset to skip Nexus publishing. mod_id is required only for changelogs.
+      - name: Publish to Nexus Mods
+        if: ${{ !inputs.prerelease && vars.NEXUSMODS_HENRYSENSES_FILE_ID != '' }}
+        uses: Nexus-Mods/upload-action@c96019556046053aa26044b44396cd38929daf23 # v1.0.0-beta.10
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_id: ${{ vars.NEXUSMODS_HENRYSENSES_FILE_ID }}
+          filename: ${{ env.ARTIFACT_NAME }}
+          version: ${{ env.NEW_VERSION }}
+          display_name: Henry's Senses - Loot and Object Highlighting
+          description: ${{ steps.prepare-release.outputs.NEXUS_DESCRIPTION }}
+          category: main
+          archive_existing_version: false
+          primary_mod_manager_download: true
+          allow_mod_manager_download: false
+          show_requirements_pop_up: true
+          update_mod_version: true
+          mod_id: ${{ vars.NEXUSMODS_HENRYSENSES_MOD_ID }}
+          changelog: ${{ vars.NEXUSMODS_HENRYSENSES_MOD_ID != '' && steps.prepare-release.outputs.NEXUS_CHANGELOG || '' }}
+
+      - name: Archive NEXT_CHANGELOG.md
+        if: ${{ !inputs.prerelease && success() }}
+        run: |
+          git pull --ff-only origin $env:GITHUB_REF_NAME
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to update the release branch before archiving.' }
+          $archiveDir = 'HenrySenses/docs/archive'
+          $notesPath = 'HenrySenses/docs/NEXT_CHANGELOG.md'
+          $archivePath = "$archiveDir/CHANGELOG_$env:VERSION_TAG.md"
+          New-Item -ItemType Directory -Path $archiveDir -Force | Out-Null
+          Move-Item -LiteralPath $notesPath -Destination $archivePath
+          $template = @'
+          ## [Title for next release]
+
+          - New feature
+          - Bug fix
+          - Improvement
+          '@
+          Set-Content -LiteralPath $notesPath -Value $template -Encoding utf8
+          git add -- $notesPath $archivePath
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to stage the archived changelog.' }
+          git commit -m "Chore: Archive HenrySenses changelog for $env:VERSION_TAG and prepare for next release"
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to commit the archived changelog.' }
+          git push origin "HEAD:refs/heads/$env:GITHUB_REF_NAME"
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to push the archived changelog.' }

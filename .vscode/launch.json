@@ -1,4 +1,6 @@
 {
+  // The mods are injected libraries. Attach to the running game after loading a dev build
+  // so its RelWithDebInfo PDBs match the loaded binaries.
   "version": "0.2.0",
   "configurations": [
     {
@@ -6,25 +8,6 @@
       "type": "cppvsdbg",
       "request": "attach",
       "processId": "${command:pickProcess}"
-    },
-    {
-      "name": "C/C++ Runner: Debug Session",
-      "type": "cppdbg",
-      "request": "launch",
-      "args": [],
-      "stopAtEntry": false,
-      "externalConsole": true,
-      "cwd": "d:/Workspace/KCD2Tools/TPVCamera/src/dev",
-      "program": "d:/Workspace/KCD2Tools/TPVCamera/src/dev/build/Debug/outDebug",
-      "MIMode": "gdb",
-      "miDebuggerPath": "gdb",
-      "setupCommands": [
-        {
-          "description": "Enable pretty-printing for gdb",
-          "text": "-enable-pretty-printing",
-          "ignoreFailures": true
-        }
-      ]
     }
   ]
 }

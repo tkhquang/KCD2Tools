@@ -1,0 +1,234 @@
+// Henry's Senses silhouette composite.
+//
+// Replaces DeferredSilhouettesOptimised (PostEffectsGame.cfx) for the highlight composite. The stock technique
+// multiplies every outline pixel by a two-row interlace (1.2 / 0.8) and a screen vignette, and finds edges with three
+// asymmetric taps, so fills show crawling scanlines and outlines come out thick on some sides and thin on others.
+// This one draws a uniform outer outline from a ring of samples, a flat interior, no interlace and no vignette.
+//
+// Mask texel (the object's custom render pass): rgb = the highlight colour, already faded; a = 1 for an outline
+// word (Outline, OutlineFill), 0 for a fill word. An OutlineFill word has the lowest bit of its blue byte set (the pass
+// writes the colour bytes unchanged but its alpha only as 0 or 1). The composite is blended additively, after
+// tone-mapping, so a highlight adds exactly its colour times its strength whatever the scene's exposure.
+//
+// The mask is normally supersampled: rasterized without the camera jitter at more than the output resolution, so the
+// bilinear samples below give anti-aliased, stable edges without the upscaler. With [Render] SeeThrough = false the
+// supersampled mask holds whole silhouettes and a second, depth-tested mask (render resolution, drawn with the
+// jitter so its depth test matches the scene) says which parts are visible.
+//
+// No #include: the game checks a shader binary's CRC, which covers every included file, on each load, so an include
+// would tie this shader to one game build. The few helpers it needs are defined here.
+
+float Script : STANDARDSGLOBAL
+<
+  string Script =
+           "NoPreview;"
+           "LocalConstants;"
+           "ShaderDrawType = Custom;"
+           "ShaderType = FX;"
+>;
+
+// x: outline strength, y: interior tint of OutlineFill words, z: outline width, w: edge softness (both in target
+// pixels).
+float4 HSSilhouetteParams0;
+// xy: the visibility mask's UV offset (it is drawn with the camera jitter; this moves it back), zw: target texel size
+// (1 / width, 1 / height).
+float4 HSSilhouetteParams1;
+// x: 1 when the visibility mask applies (SeeThrough = false), else 0.
+float4 HSSilhouetteParams2;
+
+Texture2D    HSSilhouetteMask        : register(t0);
+SamplerState HSSilhouetteMaskSampler : register(s0);
+// The view's linear depth ($ZTarget). Where two highlighted objects meet it says which one is in front, so the nearer
+// one keeps its outline over the farther one. Unbound, it reads 0 and no outline crosses another object.
+Texture2D    HSSilhouetteDepth       : register(t1);
+// The depth-tested mask (SeeThrough = false): a silhouette texel counts only where this mask has a word too. Bound to
+// the mask itself when HSSilhouetteParams2.x is 0.
+Texture2D    HSSilhouetteVisibility  : register(t2);
+
+struct pixout
+{
+  float4 Color : SV_Target0;
+};
+
+struct vtxOutLBSilhouette
+{
+  float4 HPosition : SV_POSITION;
+  float2 baseTC    : TEXCOORDN;
+};
+
+vtxOutLBSilhouette HSSilhouetteVS(uint VertexID : SV_VertexID)
+{
+  // One triangle covering the screen (Common.cfi's GetHPos_FromTriVertexID / GetBaseTC_FromTriVertexID).
+  vtxOutLBSilhouette OUT = (vtxOutLBSilhouette)0;
+  const float2 corner = float2((VertexID << 1) & 2, (VertexID == 0) ? 2.0 : 0.0);
+  OUT.HPosition = float4(corner.x * 2.0 - 1.0, 1.0 - corner.y * 2.0, 0.0, 1.0);
+  OUT.baseTC = corner;
+  return OUT;
+}
+
+float HSMax3(float3 c)
+{
+  return max(c.r, max(c.g, c.b));
+}
+
+// The linear depth of the texel under uv (no filtering: an edge texel must not average two surfaces).
+float HSDepthAt(float2 uv, uint2 depthSize)
+{
+  return HSSilhouetteDepth.Load(int3(min(uint2(saturate(uv) * float2(depthSize)), depthSize - 1), 0)).r;
+}
+
+// 1 where the highlighted object at uv is visible, else 0. The bilinear footprint of the render-resolution visibility
+// mask reaches one texel past its words, so the silhouette's own edge is never cut by the depth-tested mask's coarser,
+// jittered edge; only where an occluder hides the object does the visibility end.
+float HSVisible(float2 uv)
+{
+  if (HSSilhouetteParams2.x <= 0.0)
+    return 1.0;
+  return HSMax3(HSSilhouetteVisibility.SampleLevel(HSSilhouetteMaskSampler, uv + HSSilhouetteParams1.xy, 0).rgb) > 0.0
+           ? 1.0
+           : 0.0;
+}
+
+// Evaluates the highlight at the pixel: `inside` is the interior colour (a fill word as it is, its opacity is in the
+// colour; an outline word tinted), `outline` the outer outline, `coverage` how much of the pixel the highlight owns
+// (the silhouette of any word, or the outline ring), which the focus darkening leaves out.
+void HSEvaluate(float2 baseTC, out float3 inside, out float3 outline, out float coverage)
+{
+  const float  strength = HSSilhouetteParams0.x;
+  const float  interior = HSSilhouetteParams0.y;
+  const float  width    = max(HSSilhouetteParams0.z, 0.5);
+  const float  softness = max(HSSilhouetteParams0.w, 0.75);
+  const float2 uv       = baseTC;
+  const float2 texel    = HSSilhouetteParams1.zw;
+
+  // Sixteen directions: at the usual widths the ring's samples stay closer than the bilinear footprint of a
+  // supersampled mask texel (about 1.3 target pixels), so no thin stem slips between two of them, and no side is
+  // favoured.
+  static const float2 dirs[16] = {
+    float2( 1.000,  0.000), float2( 0.924,  0.383), float2( 0.707,  0.707), float2( 0.383,  0.924),
+    float2( 0.000,  1.000), float2(-0.383,  0.924), float2(-0.707,  0.707), float2(-0.924,  0.383),
+    float2(-1.000,  0.000), float2(-0.924, -0.383), float2(-0.707, -0.707), float2(-0.383, -0.924),
+    float2( 0.000, -1.000), float2( 0.383, -0.924), float2( 0.707, -0.707), float2( 0.924, -0.383)
+  };
+
+  const float4 center = HSSilhouetteMask.SampleLevel(HSSilhouetteMaskSampler, uv, 0) * HSVisible(uv);
+  const float  centerLevel = HSMax3(center.rgb);
+
+  // The outer outline: the nearest outline-word sample within reach sets the distance to the silhouette. A bilinear
+  // sample half on the object reads half its colour, so the fraction of the brightest colour met refines the distance
+  // below a pixel and the edge stays smooth.
+  //
+  // A pixel covered by another highlighted object gets the outline only from a sample of another colour whose depth is
+  // clearly nearer than the pixel's: a person standing in front of an outlined door keeps the outline along the door,
+  // while the door's outline stays out of the person. Objects of one colour that touch still share one outline (a
+  // colour change is the only sign of a second object; within one object depth varies too).
+  float3 ringColor = 0;
+  float  ringAlpha = 0;
+  float3 frontColor = 0;
+  float  frontAlpha = 0;
+  float  frontLevel = 0;
+  float  reference = centerLevel;
+  uint2  depthSize = uint2(0, 0);
+  float  centerDepth = 0.0;
+  float3 centerHue = 0;
+  if (centerLevel > 0.0)
+  {
+    HSSilhouetteDepth.GetDimensions(depthSize.x, depthSize.y);
+    centerDepth = HSDepthAt(uv, depthSize);
+    centerHue = center.rgb / centerLevel;
+  }
+  const float reach = width + softness;
+  [loop]
+  for (float r = 1.0; r <= reach + 0.001; r += 1.0)
+  {
+    [unroll]
+    for (int i = 0; i < 16; i++)
+    {
+      const float2 sampleUV = uv + dirs[i] * r * texel;
+      const float4 s = HSSilhouetteMask.SampleLevel(HSSilhouetteMaskSampler, sampleUV, 0);
+      const float  level = HSMax3(s.rgb);
+      if (level <= 0.0 || s.a <= 0.0 || HSVisible(sampleUV) <= 0.0)
+        continue;
+      reference = max(reference, level);
+      const float sampleCoverage = saturate(level / reference);
+      const float distance = r - sampleCoverage + 0.5;
+      const float alpha = saturate((width - distance) / softness + 0.5) * saturate(s.a);
+      const float3 hue = s.rgb / level;
+      if (alpha > ringAlpha)
+      {
+        ringAlpha = alpha;
+        ringColor = hue;
+      }
+      if (centerDepth > 0.0 && alpha > frontAlpha && HSMax3(abs(hue - centerHue)) > 0.1 &&
+          HSDepthAt(sampleUV, depthSize) < centerDepth * 0.98)
+      {
+        frontAlpha = alpha;
+        frontColor = hue;
+        frontLevel = level;
+      }
+    }
+  }
+
+  // Inside the silhouette the bilinear centre already fades the interior across the edge texel. Only an OutlineFill
+  // word is tinted inside its outline; its flag is read from the texel under the pixel, where no filtering mixes it.
+  // Any alpha marks an outline word: a fill word's is 0 on every texel, while an outline word's edge pixel reads only
+  // part of it (taken for a fill, it drew the object's full colour in a ragged fringe along the silhouette).
+  const float centerCoverage = reference > 0.0 ? saturate(centerLevel / reference) : 0.0;
+  const float ring = ringAlpha * (1.0 - centerCoverage);
+  float fillShare = 1.0;
+  if (center.a > 0.0)
+  {
+    uint2 size;
+    HSSilhouetteMask.GetDimensions(size.x, size.y);
+    const float4 under = HSSilhouetteMask.Load(int3(min(uint2(saturate(uv) * float2(size)), size - 1), 0));
+    const uint blue = (uint)(under.b * 255.0 + 0.5);
+    fillShare = (under.a > 0.5 && (blue & 1u) != 0u) ? interior : 0.0;
+  }
+  inside = center.rgb * fillShare;
+  outline = max(ringColor * reference * ring, frontColor * frontLevel * frontAlpha) * strength;
+  coverage = saturate(centerCoverage + max(ring, frontAlpha));
+}
+
+pixout HSSilhouettePS(vtxOutLBSilhouette IN)
+{
+  pixout OUT = (pixout)0;
+  float3 inside;
+  float3 outline;
+  float  coverage;
+  HSEvaluate(IN.baseTC.xy, inside, outline, coverage);
+  OUT.Color = float4(inside + outline, 0);
+  return OUT;
+}
+
+// The focus coverage: blended ZERO / INV_SRC_ALPHA onto a white target, so the highlight's pixels read 0 and the
+// darkening skips them.
+pixout HSSilhouetteCoveragePS(vtxOutLBSilhouette IN)
+{
+  pixout OUT = (pixout)0;
+  float3 inside;
+  float3 outline;
+  float  coverage;
+  HSEvaluate(IN.baseTC.xy, inside, outline, coverage);
+  OUT.Color = float4(0, 0, 0, coverage);
+  return OUT;
+}
+
+technique HenrySensesSilhouette
+{
+  pass p0
+  {
+    VertexShader = HSSilhouetteVS();
+    PixelShader = HSSilhouettePS();
+    CullMode = None;
+  }
+}
+
+technique HenrySensesSilhouetteCoverage
+{
+  pass p0
+  {
+    VertexShader = HSSilhouetteVS();
+    PixelShader = HSSilhouetteCoveragePS();
+    CullMode = None;
+  }
+}

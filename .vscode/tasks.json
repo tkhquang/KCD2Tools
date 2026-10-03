@@ -34,6 +34,21 @@
       "options": { "cwd": "${workspaceFolder}/TPVToggle" },
       "group": "build",
       "problemMatcher": ["$msCompile"]
+    },
+    {
+      "label": "HenrySenses: configure (msvc-dev)",
+      "type": "shell",
+      "command": "cmake --preset msvc-dev",
+      "options": { "cwd": "${workspaceFolder}/HenrySenses" },
+      "problemMatcher": []
+    },
+    {
+      "label": "HenrySenses: build (msvc-dev)",
+      "type": "shell",
+      "command": "cmake --build --preset msvc-dev",
+      "options": { "cwd": "${workspaceFolder}/HenrySenses" },
+      "group": "build",
+      "problemMatcher": ["$msCompile"]
     }
   ]
 }

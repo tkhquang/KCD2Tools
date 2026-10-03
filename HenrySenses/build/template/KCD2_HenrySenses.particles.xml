@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="us-ascii"?>
+<!--
+  KCD2_HenrySenses particle library (optional).
+
+  Each <Particles Name="x"> below is the effect HenrySenses.x: give it to a highlight group with Effect = HenrySenses.x
+  in KCD2_HenrySenses.ini. Delete this file and the HenrySenses.* effects are off (the game's own effects still work).
+
+  The format is the game's own particle library format (Libs/Particles/*.xml in Data/IPL_GameData.pak): copy any of
+  its effects here and change what you like. Only the game's own textures and materials can be used.
+  DrawOnTop="true" draws the effect over walls and everything else in front of it, like the outline.
+
+  A changed effect shows after the game loads a save or restarts; a new one shows the next time a group shows it.
+-->
+<ParticleLibrary Name="HenrySenses" ParticleVersion="28">
+	<!-- The blacksmith's rising sparks (particles_smithery.particles_smithery.sparks), drawn over walls. -->
+	<Particles Name="sparks">
+		<Params Count="75" Continuous="true" ParticleLifeTime="1,Random=0.361" RandomOffset="x=0.3,z=0.3" OffsetRoundness="0.603" EmitAngle="30" OrientToVelocity="true" Curvature="0" BlendType="Additive" Texture="textures/particles/spark_single_diff.dds" Alpha="ParticleAge=(v=0.137,flags=32;t=0.063,v=1;t=0.68,v=1;t=1,flags=4)" Color="ParticleAge=(t=0.067,v=(x=1,y=1,z=1);t=0.87,v=(x=0.208,y=0.09,z=0.09))" DiffuseLighting="0" DiffuseBacklighting="1" EmissiveLighting="1" Size="0.009,Random=0.393" Stretch="0.02" Speed="0.3" GravityScale="-0.1" Turbulence3DSpeed="1,Random=0.3" TurbulenceSize="0.3" DrawOnTop="true" />
+	</Particles>
+	<!-- A soft golden glow over the object, drawn over walls. -->
+	<Particles Name="glow">
+		<Params Count="2" Continuous="true" ParticleLifeTime="2" BlendType="Additive" Texture="textures/particles/glow_diff.dds" Alpha="0.15,ParticleAge=(flags=32;t=0.467,v=0.455;t=1,flags=4)" Color="(x=1,y=0.8,z=0.3)" DiffuseLighting="0" EmissiveLighting="1.2" Size="0.8,Random=0.25" MoveRelativeEmitter="true" DrawOnTop="true" />
+	</Particles>
+</ParticleLibrary>

@@ -1,3 +1,20 @@
 {
-  "C_Cpp_Runner.msvcBatchPath": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Auxiliary/Build/vcvarsall.bat"
+  // Keep the editor aligned with the modules' 120-column formatting limit.
+  // Exclude build outputs and vendored dependencies from search and watching.
+  // Build templates remain visible because they are tracked source files.
+  "[cpp][ini]": {
+    "editor.rulers": [120],
+    "editor.wordWrapColumn": 120
+  },
+  "search.exclude": {
+    "**/build/**": true,
+    "**/build/template/**": false,
+    "**/external/**": true
+  },
+  "files.watcherExclude": {
+    "**/build/**": true,
+    "**/build/template/**": false,
+    "**/external/**": true
+  },
+  "cmake.sourceDirectory": "${workspaceFolder}/TPVCamera"
 }

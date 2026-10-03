@@ -4,11 +4,11 @@
 [size=6]Game Over? Nah, Pizzle Yanked! (Alternate Death Text)[/size]
 
 [size=5]Description[/size]
-Tired of the same old depressing "Game Over" screen? Let's be honest — it doesn't really capture the [i]essence[/i] of your medieval misfortunes.
+Tired of the same old depressing "Game Over" screen? Let's be honest - it doesn't really capture the [i]essence[/i] of your medieval misfortunes.
 
 This mod replaces the boring [b]"Game Over"[/b] text with the much more historically significant and spiritually accurate phrase:
 [size=5][b]"Pizzle Yanked"[/b][/size]
-Because when you take a sword to the chest or get jumped by three drunk peasants behind the tavern, it ain't just your health bar that's gone — it's your dignity too.
+Because when you take a sword to the chest or get jumped by three drunk peasants behind the tavern, it ain't just your health bar that's gone - it's your dignity too.
 
 This is a [i]completely cosmetic[/i], lore-breaking, and deeply unnecessary mod. Which makes it perfect.
 
@@ -17,10 +17,10 @@ This is a [i]completely cosmetic[/i], lore-breaking, and deeply unnecessary mod.
 [*] Replaces the “Game Over” screen text with: [b]"Pizzle Yanked"[/b]
 [*] 100% immersion-breaking. 200% funnier.
 [*] Compatible with all causes of death, including heroic fails and peasant brawls
-[*] Localization file override (English only for now — help me translate “Pizzle Yanked” into medieval French and we’ll talk)
+[*] Localization file override (English only for now - help me translate “Pizzle Yanked” into medieval French and we’ll talk)
 [/list]
 
-[i]Note:[/i] This mod currently [b]only affects English localization[/b]. I don’t know what “Pizzle Yanked” should look like in other languages — if you have suggestions (or regional slang just as dumb), send them my way and I’ll add them!
+[i]Note:[/i] This mod currently [b]only affects English localization[/b]. I don’t know what “Pizzle Yanked” should look like in other languages - if you have suggestions (or regional slang just as dumb), send them my way and I’ll add them!
 
 [size=5]Installation[/size]
 [b]Manual[/b]
@@ -83,9 +83,9 @@ Because sometimes, death hits harder than just losing your HP.
 [h2]Features[/h2]
 [list]
 [*]Changes the “Game Over” screen text to: [b]"Pizzle Yanked"[/b]
-[*]Fully cosmetic and immersion-breaking — the best kind of mod
+[*]Fully cosmetic and immersion-breaking - the best kind of mod
 [*]Works with all forms of death, from epic battles to tavern brawls
-[*]Currently supports [b]English only[/b] — if you know how to say "Pizzle Yanked" in French, German, or Klingon, let me know!
+[*]Currently supports [b]English only[/b] - if you know how to say "Pizzle Yanked" in French, German, or Klingon, let me know!
 [/list]
 
 [h2]Installation[/h2]
@@ -110,8 +110,8 @@ If you know a funny or equivalent phrase in your native language, [b]please reac
 
 [h2]Credits[/h2]
 [list]
-[*][url=https://www.reddit.com/r/kingdomcome/comments/1k7al5i/kcd2_i_hate_this_game/]This Reddit post[/url] – For inspiring this noble mod
-[*]Warhorse Studios – For making a serious game that definitely needed this
+[*][url=https://www.reddit.com/r/kingdomcome/comments/1k7al5i/kcd2_i_hate_this_game/]This Reddit post[/url] - For inspiring this noble mod
+[*]Warhorse Studios - For making a serious game that definitely needed this
 [/list]
 
 [h2]Source Code[/h2]
