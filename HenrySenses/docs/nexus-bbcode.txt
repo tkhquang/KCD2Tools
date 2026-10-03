@@ -66,7 +66,9 @@ Highlights pulse for [b]5 seconds[/b], then fade over [b]1 second[/b], within [b
 Open [b]KCD2_HenrySenses.ini[/b] beside the ASI with a text editor such as Notepad. Save the file to apply changes while playing. Lines starting with a semicolon are comments explaining the options.
 
 [size=4]Shared settings and highlight groups[/size]
-A [b]highlight group[/b] is a set of things you want to see together. Each Highlight.<Name> section can have its own colour, key, range and behaviour. The supplied groups are:
+A [b]highlight group[/b] is a set of things you want to see together. Each Highlight.<Name> section can have its own colour, key, range and behaviour. [b]You can create your own groups freely.[/b] Replace <Name> with a unique label of your choice, such as [Highlight.Gathering], and combine any supported target types in Targets. The name is just a label; Targets, Only and Except define what the group highlights. Names must be unique, ignoring case.
+
+The supplied groups are working examples you can edit, rename, remove or use as starting points for your own combinations:
 [list]
 [*][b]Loot (enabled):[/b] corpses, carcasses, items and containers, excluding empty or stolen targets.[/*]
 [*][b]Butcher (enabled):[/b] butcherable carcasses.[/*]
@@ -79,6 +81,8 @@ A [b]highlight group[/b] is a set of things you want to see together. Each Highl
 [/list]
 
 The [b]Settings[/b] section provides shared defaults. A value inside a group's section overrides that default [b]for that group only[/b]. For example, changing Key under Settings changes the Loot and Butcher bindings, but Herbs keeps its own LShift+H,Gamepad_RB+Gamepad_Back binding. Filters belong to individual groups; Loot's Except list does not apply to Butcher.
+
+Give several groups the same [b]Key[/b] to activate them together while keeping separate colours, filters and styles.
 
 Edit the existing sections for these common changes:
 [list]
@@ -156,21 +160,20 @@ Effect = HenrySenses.sparks
 EffectScale = 1.0
 [/code]
 
-[size=4]Example: herbs on a separate toggle[/size]
-Replace the existing Highlight.Herbs section with:
+[size=4]Example: create your own gathering group[/size]
+Add this new section at the end of the INI to combine dropped items and herbs under one toggle. You can copy it again with another unique name and choose different targets, filters and controls:
 [code]
-[Highlight.Herbs]
+[Highlight.Gathering]
 Enabled = true
-Targets = Herbs
-Color = 40FF40FF
+Targets = Items:FF8000FF, Herbs:40FF40FF
 Style = Outline
-Key = F8,Gamepad_RB+Gamepad_Back
+Key = F8,Gamepad_RB+Gamepad_DpadLeft
 Key.Consume = true
 Mode = Toggle
 Radius = 40
 [/code]
 
-After saving, [b]F8[/b] or [b]RB + Back[/b] switches green herb outlines on and off within [b]40 metres[/b]. Loot keeps its usual key and range. This group still uses the shared FadeOut and HideIn settings because it does not specify its own.
+After saving, [b]F8[/b] or [b]RB + D-pad left[/b] toggles orange item outlines and green herb outlines within [b]40 metres[/b]. The group inherits shared settings such as FadeOut and HideIn. Add [b]Except = Stolen[/b] to this section if you want it to skip stolen items. As the last group in the file, it takes priority over earlier active groups for overlapping targets.
 
 [size=5]Keyboard & Controllers[/size]
 Set [b]Key[/b] under Settings for shared controls, or inside a group for independent controls. Named keys such as H, F7 and Mouse4 work; LShift+H is a combination. Leave it empty or use NONE to remove a binding.
