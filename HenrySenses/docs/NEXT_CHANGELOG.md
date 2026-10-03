@@ -1,10 +1,5 @@
-## Intial release
+## [Title for next release]
 
-- Highlight nearby loot, bodies, herbs and mushrooms with H or a controller shortcut.
-- Use RB with Start or Back for the default controller shortcuts.
-- Choose outlines, filled highlights or corner brackets, with optional visibility through walls.
-- Create groups with their own colours, range, filters and controls.
-- Use pulse, toggle, hold or always-on highlighting.
-- Optionally highlight people, animals, doors, beds, workstations and other usable objects.
-- Filter stolen, empty, locked and hostile targets using the game's own checks.
-- Add optional sparkles, glow or a tinted focus effect.
+- New feature
+- Bug fix
+- Improvement
