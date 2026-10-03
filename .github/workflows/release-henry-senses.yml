@@ -163,6 +163,17 @@ jobs:
           Edit `KCD2_HenrySenses.ini` and save to apply changes while playing. Check `KCD2_HenrySenses.log` beside the ASI if the mod does not load.
 
           See the [README](https://github.com/{3}/blob/main/HenrySenses/README.md) for configuration and troubleshooting.
+
+          ### Technical Details
+
+          Henry's Senses is built on [DetourModKit (DMK)](https://github.com/tkhquang/DetourModKit), a full-featured C++23 framework for Windows game modding. It provides:
+
+          - Function hooking via [SafetyHook](https://github.com/cursey/safetyhook) and vtable hooking
+          - AOB (Array of Bytes) pattern scanning and memory access utilities
+          - Keyboard, mouse and XInput controller bindings
+          - INI configuration with live reload
+          - Thread-safe logging and runtime diagnostics
+          - Mod lifecycle management and hot-reload support
           '@
           $releaseBody = $releaseBody -f $env:VERSION_TAG, $env:RELEASE_TITLE, $changelog.Trim(), $env:GITHUB_REPOSITORY
           if ($env:PRERELEASE -eq 'true') {

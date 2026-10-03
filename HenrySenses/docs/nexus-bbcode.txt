@@ -15,7 +15,7 @@ It is still early days. If something doesn't highlight, looks wrong or doesn't w
 [*]Filters for stolen, empty, locked and other tagged objects, using the game's own loot checks[/*]
 [*]Keyboard and XInput controller bindings, including modifier combinations[/*]
 [*]Live configuration reload when you save the INI[/*]
-[*][url=https://github.com/tkhquang/KCD2Tools]Open-source[/url][/*] with full transparency
+[*][url=https://github.com/tkhquang/KCD2Tools]Open-source[/url], built on the [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url] modding framework[/*]
 [/list]
 The default Auto renderer uses model highlights, with corner brackets as a fallback when it cannot draw them.
 
