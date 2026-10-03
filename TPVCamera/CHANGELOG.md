@@ -2,6 +2,12 @@
 
 All notable changes to the TPVCamera mod will be documented in this file.
 
+## [1.5.1] - Camera Stability
+
+- Updated the mod's support library for improved reliability.
+- Improved startup diagnostics when camera recovery is unavailable.
+- Updated shared build and editor guidance for working with the camera and highlighting mods.
+
 ## [1.5.0] - Turn-in-Place Animations and a Steadier Camera
 
 - Henry now turns on the spot with the game's own turn animations in third person, and the camera stays still while he turns.
@@ -76,6 +82,7 @@ All notable changes to the TPVCamera mod will be documented in this file.
 - Third person stays out of every minigame (lockpicking, reading, alchemy, pickpocketing, and more), and you can give any minigame its own framing
 - Configurable hotkeys, with most changes applying while you play
 
+[1.5.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.5.1
 [1.5.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.5.0
 [1.4.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.4.0
 [1.3.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.3.0
