@@ -24,15 +24,79 @@ The default `Auto` renderer uses model highlights, with corner brackets as a fal
 
 ## Installation
 
-Built around **KCD2 Steam 1.5.6**. An **ASI loader** is required and is not bundled.
+Built around **KCD2 Steam 1.5.6**. This is an `.asi` plugin and requires an **ASI loader**, which is **not bundled** in the download.
 
-1. **Install an ASI loader** if you don't already have one. Place the loader DLL (commonly `dinput8.dll`) beside `WHGame.dll`, in `<game>/Bin/Win64MasterMasterSteamPGO/` on Steam.
-2. **Install the mod.** Copy all files from the release archive into the binary folder beside `WHGame.dll` and the loader: `<game>/Bin/Win64MasterMasterSteamPGO/` on Steam.
-3. **Launch the game**, load a save and press **H** to highlight loot.
+### Find the installation folder
 
-`KCD2_HenrySenses.log` appears beside the ASI when the mod loads. Custom `HenrySenses.*` particle effects require the optional `KCD2_HenrySenses.particles.xml` beside it and an `Effect` setting in a group; no group uses particles by default.
+Open your KC:D 2 installation folder, then open the `Bin/Win64MasterMaster...` subfolder that contains **`WHGame.dll`**. On Steam this is:
 
-The Lua Loot Beacon can remain installed with its default **F4** binding. Henry's Senses does not use the `Mods` folder.
+```text
+<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/
+```
+
+Other stores use their own `Bin/Win64MasterMaster...` folder; use `WHGame.dll` to identify the correct one. The loader and mod files go directly into this folder.
+
+### Step 1: Install an ASI loader (once)
+
+If you already have a working ASI loader for KC:D 2, skip to Step 2. The same loader can load Henry's Senses, TPVCamera and other ASI mods.
+
+Download **one x64** variant of [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases) by ThirteenAG:
+
+| Download | When to use it |
+| --- | --- |
+| [dinput8-x64.zip](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/dinput8-x64.zip) | Usual choice if `dinput8.dll` is unused. |
+| [version-x64.zip](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/version-x64.zip) | Alternative when `dinput8.dll` is already used, including by KCSE. |
+| [winmm-x64.zip](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/winmm-x64.zip) | Another alternative if `version.dll` is also used or does not load. |
+
+Extract the DLL from the chosen ZIP directly beside `WHGame.dll`. Use the **x64** build, not Win32, and install only one Ultimate ASI Loader variant. Do not overwrite a DLL belonging to another mod.
+
+> **Using [Kingdom Come Script Extender (KCSE)](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332)?** KCSE uses `dinput8.dll`. Keep KCSE's file and install Ultimate ASI Loader as **`version.dll`** or **`winmm.dll`** in the same folder. Choose an unused name from the downloads above; do not rename or replace KCSE's DLL.
+
+### Step 2: Install the mod
+
+Download the Henry's Senses release archive from [GitHub Releases](https://github.com/tkhquang/KCD2Tools/releases) or the mod's Nexus Files tab. Extract its contents directly into the **same folder** beside `WHGame.dll` and your loader DLL, without an extra archive-named subfolder.
+
+- `KCD2_HenrySenses.asi` is the mod.
+- `KCD2_HenrySenses.ini` contains the settings.
+- `KCD2_HenrySenses.particles.xml` supplies optional custom particle effects. Keep it beside the ASI if you use a `HenrySenses.*` effect in a group; no group uses particles by default.
+
+Henry's Senses does not use the `Mods` folder. The old Lua Loot Beacon can remain installed with its default **F4** binding.
+
+```text
+Bin/Win64MasterMasterSteamPGO/
+|-- WHGame.dll                         (game file, already present)
+|-- dinput8.dll                        (ASI loader; see KCSE note above)
+|-- KCD2_HenrySenses.asi                (this mod)
+|-- KCD2_HenrySenses.ini                (settings)
+|-- KCD2_HenrySenses.particles.xml      (optional particle effects)
+\-- KCD2_HenrySenses.log                (created when the mod loads)
+```
+
+With KCSE, `dinput8.dll` in this example belongs to KCSE; your chosen ASI loader, `version.dll` or `winmm.dll`, sits alongside it.
+
+### Step 3: Launch and verify
+
+Launch the game, load a save and press **H** (or hold **RB + press Start**) to highlight loot. **Left Shift + H** (or hold **RB + press Back**) highlights herbs.
+
+Check for `KCD2_HenrySenses.log` beside the ASI. If it is missing, check that the ASI and x64 loader DLL are directly beside `WHGame.dll`, then try another unused loader variant and relaunch. Replace only the Ultimate ASI Loader DLL you installed; keep KCSE and other mods' DLLs. On Wine/Proton, also check the override below.
+
+When updating, back up your customized INI before extracting the new archive, then reapply your settings to the supplied INI.
+
+### Linux / Steam Deck (Wine/Proton)
+
+Add an override for your chosen loader DLL in the game's **Properties -> Launch Options** on Steam:
+
+```text
+WINEDLLOVERRIDES="dinput8=n,b" %command%
+```
+
+Use `version=n,b` or `winmm=n,b` instead when using that loader name. If you also use KCSE's `dinput8.dll` with the `version.dll` loader, retain both overrides:
+
+```text
+WINEDLLOVERRIDES="dinput8,version=n,b" %command%
+```
+
+For a command-line launch, set the same `WINEDLLOVERRIDES` value before your launch command. Keep any overrides your other mods need.
 
 ## Controls
 

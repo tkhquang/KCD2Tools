@@ -154,11 +154,16 @@ jobs:
 
           ### Installation
 
-          1. Install an [ASI loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases) if you do not already have one. Place its x64 loader DLL (commonly `dinput8.dll`) beside `WHGame.dll` in `<game>/Bin/Win64MasterMasterSteamPGO/`.
-          2. Copy all files from this archive into that same binary folder, beside `WHGame.dll` and the loader.
+          1. Install one **x64** variant of [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases) if you do not already have a working ASI loader. Extract its DLL beside `WHGame.dll` in `<game>/Bin/Win64MasterMasterSteamPGO/` (Steam); other stores use their own `Bin/Win64MasterMaster...` folder. Choose an unused DLL name:
+             - [dinput8.dll](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/dinput8-x64.zip) - usual choice if unused
+             - [version.dll](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/version-x64.zip) - alternative when `dinput8.dll` is already used, including by KCSE
+             - [winmm.dll](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/winmm-x64.zip) - another alternative
+          2. Extract this archive directly into that same binary folder, beside `WHGame.dll` and the loader, without an extra archive-named subfolder. Nothing goes into the `Mods` folder.
           3. Launch the game, load a save and press **H** (or **RB + Start**) to highlight loot. **Left Shift + H** (or **RB + Back**) highlights herbs.
 
-          The archive contains `KCD2_HenrySenses.asi`, `KCD2_HenrySenses.ini` and documentation. The ASI loader is not bundled. Keep a copy of your customized INI before updating.
+          **[KCSE users](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332):** keep KCSE's `dinput8.dll` and use `version.dll` or `winmm.dll` for Ultimate ASI Loader. Do not rename or replace KCSE's DLL or overwrite another mod's DLL. The same ASI loader can load Henry's Senses and TPVCamera.
+
+          The archive contains `KCD2_HenrySenses.asi`, `KCD2_HenrySenses.ini`, the optional custom-particle XML and documentation. The ASI loader is not bundled. Back up your customized INI before updating, then reapply your settings to the supplied INI.
 
           Edit `KCD2_HenrySenses.ini` and save to apply changes while playing. Check `KCD2_HenrySenses.log` beside the ASI if the mod does not load.
 

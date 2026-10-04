@@ -28,43 +28,81 @@ start in first-person instead.
 
 ## Installation
 
-This mod is an `.asi` plugin, so it needs an **ASI loader** to run. The loader is **not bundled** in the
-download; you install it once yourself (Step 2). If you already have an ASI loader for KC:D 2 from another
-mod, skip that step.
+This is an `.asi` plugin and requires an **ASI loader**, which is **not bundled** in the download.
 
-1. **Remove the old mod (if present).** If you previously installed the older **KCD2_TPVToggle** mod,
-   delete `KCD2_TPVToggle.asi` and `KCD2_TPVToggle.ini` from the game's binary folder. TPVCamera replaces
-   it, and running both third-person camera mods at once will conflict.
-2. **Install an ASI loader.** Download [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases)
-   by **ThirteenAG** and place one of these DLLs in your game's binary folder (the `Bin/Win64MasterMaster...`
-   subfolder that contains `WHGame.dll`):
-   - [`dinput8.dll`](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/dinput8-x64.zip) - recommended (tested with KC:D 2)
-   - [`version.dll`](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/version-x64.zip) - alternative if `dinput8.dll` does not work
-   - [`winmm.dll`](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/winmm-x64.zip) - another alternative
+### Find the installation folder
 
-   Each link downloads a ZIP; extract just the DLL next to `WHGame.dll`.
-3. **Install the mod.** Extract all files from this mod's archive into that **same** binary folder (next to
-   `WHGame.dll` and the loader DLL). On Steam this is
-   `<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/`; the GOG version uses its own
-   `Bin/Win64MasterMaster...` folder.
-4. **Launch and play.** Third-person turns on automatically once you reach gameplay. Press `F3` (default),
-   or hold `LB + RB` on a controller, to toggle back to first-person.
+Open your KC:D 2 installation folder, then open the `Bin/Win64MasterMaster...` subfolder that contains **`WHGame.dll`**. On Steam this is:
 
-To check the loader is working, launch once and look for a `KCD2_TPVCamera.log` file in the binary folder.
-If it is missing, the loader is not loading the mod; try the other loader DLL above (rename it if needed)
-and relaunch.
+```text
+<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/
+```
+
+Other stores use their own `Bin/Win64MasterMaster...` folder; use `WHGame.dll` to identify the correct one. The loader and mod files go directly into this folder.
+
+If you previously installed **KCD2_TPVToggle**, remove `KCD2_TPVToggle.asi` and `KCD2_TPVToggle.ini` first. TPVCamera replaces it, and running both camera mods at once will conflict. To keep a backup, move the old ASI outside the game folder or rename its extension to `.asi.bak`.
+
+### Step 1: Install an ASI loader (once)
+
+If you already have a working ASI loader for KC:D 2, skip to Step 2. The same loader can load TPVCamera, Henry's Senses and other ASI mods.
+
+Download **one x64** variant of [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases) by ThirteenAG:
+
+| Download | When to use it |
+| --- | --- |
+| [dinput8-x64.zip](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/dinput8-x64.zip) | Usual choice if `dinput8.dll` is unused. |
+| [version-x64.zip](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/version-x64.zip) | Alternative when `dinput8.dll` is already used, including by KCSE. |
+| [winmm-x64.zip](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/winmm-x64.zip) | Another alternative if `version.dll` is also used or does not load. |
+
+Extract the DLL from the chosen ZIP directly beside `WHGame.dll`. Use the **x64** build, not Win32, and install only one Ultimate ASI Loader variant. Do not overwrite a DLL belonging to another mod.
+
+> **Using [Kingdom Come Script Extender (KCSE)](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332)?** KCSE uses `dinput8.dll`. Keep KCSE's file and install Ultimate ASI Loader as **`version.dll`** or **`winmm.dll`** in the same folder. Choose an unused name from the downloads above; do not rename or replace KCSE's DLL.
+
+### Step 2: Install the mod
+
+Download the TPVCamera release archive from [GitHub Releases](https://github.com/tkhquang/KCD2Tools/releases) or the mod's Nexus Files tab. Extract its contents directly into the **same folder** beside `WHGame.dll` and your loader DLL, without an extra archive-named subfolder.
+
+- `KCD2_TPVCamera.asi` is the mod.
+- `KCD2_TPVCamera.ini` contains hotkeys and global settings.
+- `KCD2_TPVCamera_presets.json` is created on first run; it is not included in the archive.
+
+TPVCamera does not use the `Mods` folder.
+
+```text
+Bin/Win64MasterMasterSteamPGO/
+|-- WHGame.dll                         (game file, already present)
+|-- dinput8.dll                        (ASI loader; see KCSE note above)
+|-- KCD2_TPVCamera.asi                  (this mod)
+|-- KCD2_TPVCamera.ini                  (settings)
+|-- KCD2_TPVCamera_presets.json         (created on first run)
+\-- KCD2_TPVCamera.log                  (created when the mod loads)
+```
+
+With KCSE, `dinput8.dll` in this example belongs to KCSE; your chosen ASI loader, `version.dll` or `winmm.dll`, sits alongside it.
+
+### Step 3: Launch and verify
+
+Launch the game; third-person turns on automatically once you reach gameplay. Press **F3** or hold **LB + RB** on a controller to toggle back to first-person.
+
+Check for `KCD2_TPVCamera.log` beside the ASI. If it is missing, check that the ASI and x64 loader DLL are directly beside `WHGame.dll`, then try another unused loader variant and relaunch. Replace only the Ultimate ASI Loader DLL you installed; keep KCSE and other mods' DLLs. On Wine/Proton, also check the override below.
+
+When updating, back up your customized INI before extracting the new archive, then reapply your settings to the supplied INI. Keep `KCD2_TPVCamera_presets.json` to retain your saved camera presets.
 
 ### Linux / Steam Deck (Wine/Proton)
 
-Your ASI loader DLL needs a Wine/Proton DLL override so the game loads it instead of the built-in
-version. If you installed `dinput8.dll` (the recommended loader), set the following override:
+Add an override for your chosen loader DLL in the game's **Properties -> Launch Options** on Steam:
 
-- **Steam:** Go to the game's **Properties -> Launch Options** and add:
-  `WINEDLLOVERRIDES="dinput8=n,b" %command%`
-- **Command line:** Prepend your launch command with:
-  `WINEDLLOVERRIDES="dinput8=n,b"`
+```text
+WINEDLLOVERRIDES="dinput8=n,b" %command%
+```
 
-If you chose a different loader DLL, use its name instead (for example `winmm=n,b` for `winmm.dll`).
+Use `version=n,b` or `winmm=n,b` instead when using that loader name. If you also use KCSE's `dinput8.dll` with the `version.dll` loader, retain both overrides:
+
+```text
+WINEDLLOVERRIDES="dinput8,version=n,b" %command%
+```
+
+For a command-line launch, set the same `WINEDLLOVERRIDES` value before your launch command. Keep any overrides your other mods need.
 
 ## Controls
 
