@@ -23,10 +23,10 @@ namespace TPVCamera
         DMK::Logger &logger = DMK::log();
         logger.info("GameInterface: Initializing from resolved anchors...");
 
-        // The Context cascade's RipRelative candidates each resolve the same global-context storage slot
-        // (the RIP-relative MOV/load target), so anchor_address returns the slot directly, or 0 if the
-        // module-scoped resolution missed.
-        const uintptr_t ctx_slot = anchor_address(AnchorId::Context);
+        // The Context quorum resolves the global-context storage slot (the RIP-relative MOV/load target) when at
+        // least two of its three code sites agree, so the gated read returns the slot directly, or 0 when the
+        // GameState gate failed.
+        const uintptr_t ctx_slot = gated_anchor_address(Feature::GameState, AnchorId::Context);
         if (ctx_slot == 0)
         {
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "game_interface/context_anchor"});
@@ -36,11 +36,6 @@ namespace TPVCamera
 
         logger.info("GameInterface: Global context pointer storage at {}", format_address(ctx_slot));
         return {};
-    }
-
-    void cleanup_game_interface()
-    {
-        g_global_context_ptr_address.store(nullptr, std::memory_order_relaxed);
     }
 
 } // namespace TPVCamera

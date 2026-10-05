@@ -7,8 +7,6 @@
 #include "aob_resolver.hpp"
 #include "constants.hpp"
 
-#include "dmk_aliases.hpp"
-
 #include <DetourModKit.hpp>
 
 #include <windows.h>
@@ -72,12 +70,12 @@ namespace TPVCamera
         s_brush_query_vtable = p3d_vtable;
 
         GetObjectsByTypeInBoxFn typed = nullptr;
-        const auto untyped_slot =
-            mem::read<uintptr_t>(Address{p3d_vtable + Constants::ENGINE3D_VTABLE_GET_OBJECTS_IN_BOX_OFFSET});
-        const auto typed_slot =
-            mem::read<uintptr_t>(Address{p3d_vtable + Constants::ENGINE3D_VTABLE_GET_OBJECTS_BY_TYPE_IN_BOX_OFFSET});
+        const auto untyped_slot = DMK::memory::read<uintptr_t>(
+            DMK::Address{p3d_vtable + Constants::ENGINE3D_VTABLE_GET_OBJECTS_IN_BOX_OFFSET});
+        const auto typed_slot = DMK::memory::read<uintptr_t>(
+            DMK::Address{p3d_vtable + Constants::ENGINE3D_VTABLE_GET_OBJECTS_BY_TYPE_IN_BOX_OFFSET});
         if (untyped_slot && *untyped_slot == reinterpret_cast<uintptr_t>(s_get_objects_in_box) && typed_slot &&
-            s_game_module.contains(Address{*typed_slot}))
+            s_game_module.contains(DMK::Address{*typed_slot}))
         {
             typed = reinterpret_cast<GetObjectsByTypeInBoxFn>(*typed_slot);
         }
@@ -135,17 +133,17 @@ namespace TPVCamera
     {
         DMK::Logger &logger = DMK::log();
 
-        const uintptr_t fn = anchor_address(AnchorId::GetObjectsInBox);
-        if (fn == 0)
+        const uintptr_t fn = gated_anchor_address(Feature::Occlusion, AnchorId::GetObjectsInBox);
+        if (fn == 0 || g_env == 0)
         {
             logger.warning(
-                "RenderOcclusion: GetObjectsInBox not found (game patched?); render occlusion unavailable");
+                "RenderOcclusion: GetObjectsInBox or g_env not found (game patched?); render occlusion unavailable");
             return false;
         }
 
         s_get_objects_in_box = reinterpret_cast<GetObjectsInBoxFn>(fn);
         s_p3d_engine_slot_addr = g_env + Constants::GENV_3DENGINE_OFFSET;
-        s_game_module = Region{Address{module_base}, module_size};
+        s_game_module = DMK::Region{DMK::Address{module_base}, module_size};
         s_mod_lo = module_base;
         s_mod_hi = module_base + module_size;
 
@@ -639,7 +637,7 @@ namespace TPVCamera
         const uintptr_t self_vt = *reinterpret_cast<uintptr_t *>(sb);
         const uintptr_t begin = *reinterpret_cast<uintptr_t *>(sb + Constants::STATOBJ_SUBOBJ_BEGIN_OFFSET);
         const uintptr_t end = *reinterpret_cast<uintptr_t *>(sb + Constants::STATOBJ_SUBOBJ_END_OFFSET);
-        if (begin == 0 || end <= begin || !mem::is_plausible_ptr(Address{begin}) ||
+        if (begin == 0 || end <= begin || !DMK::memory::is_plausible_ptr(DMK::Address{begin}) ||
             (end - begin) % Constants::SUBOBJ_STRIDE != 0)
         {
             return false; // not a populated sub-object vector (drift / simple statobj streamed out)
@@ -658,7 +656,7 @@ namespace TPVCamera
             }
             auto *so = reinterpret_cast<std::byte *>(begin + static_cast<uintptr_t>(i) * Constants::SUBOBJ_STRIDE);
             void *child = *reinterpret_cast<void **>(so + Constants::SUBOBJ_PSTATOBJ_OFFSET);
-            if (child == nullptr || !mem::is_plausible_ptr(Address{reinterpret_cast<uintptr_t>(child)}) ||
+            if (child == nullptr || !DMK::memory::is_plausible_ptr(DMK::Address{reinterpret_cast<uintptr_t>(child)}) ||
                 *reinterpret_cast<uintptr_t *>(child) != self_vt)
             {
                 continue; // not a sibling CStatObj -> skip (also rejects garbage at a non-compound vector offset)
@@ -1038,7 +1036,7 @@ namespace TPVCamera
         const uintptr_t self_vt = *reinterpret_cast<uintptr_t *>(sb);
         const uintptr_t begin = *reinterpret_cast<uintptr_t *>(sb + Constants::STATOBJ_SUBOBJ_BEGIN_OFFSET);
         const uintptr_t end = *reinterpret_cast<uintptr_t *>(sb + Constants::STATOBJ_SUBOBJ_END_OFFSET);
-        if (begin == 0 || end <= begin || !mem::is_plausible_ptr(Address{begin}) ||
+        if (begin == 0 || end <= begin || !DMK::memory::is_plausible_ptr(DMK::Address{begin}) ||
             (end - begin) % Constants::SUBOBJ_STRIDE != 0)
         {
             return false;
@@ -1052,7 +1050,7 @@ namespace TPVCamera
         {
             auto *so = reinterpret_cast<std::byte *>(begin + static_cast<uintptr_t>(i) * Constants::SUBOBJ_STRIDE);
             void *child = *reinterpret_cast<void **>(so + Constants::SUBOBJ_PSTATOBJ_OFFSET);
-            if (child == nullptr || !mem::is_plausible_ptr(Address{reinterpret_cast<uintptr_t>(child)}) ||
+            if (child == nullptr || !DMK::memory::is_plausible_ptr(DMK::Address{reinterpret_cast<uintptr_t>(child)}) ||
                 *reinterpret_cast<uintptr_t *>(child) != self_vt)
             {
                 continue;
@@ -1224,12 +1222,12 @@ namespace TPVCamera
             RoofHitInfo hit{};
 
             // Resolve p3DEngine fresh and screen it (set once the 3DEngine exists; must carry an in-image vtable).
-            const auto p3d = mem::read<uintptr_t>(Address{s_p3d_engine_slot_addr});
-            if (p3d && *p3d != 0 && mem::is_plausible_ptr(Address{*p3d}))
+            const auto p3d = DMK::memory::read<uintptr_t>(DMK::Address{s_p3d_engine_slot_addr});
+            if (p3d && *p3d != 0 && DMK::memory::is_plausible_ptr(DMK::Address{*p3d}))
             {
-                const auto vtable = mem::read<uintptr_t>(Address{*p3d});
-                if (vtable && mem::is_plausible_ptr(Address{*vtable}) &&
-                    s_game_module.contains(Address{*vtable}))
+                const auto vtable = DMK::memory::read<uintptr_t>(DMK::Address{*p3d});
+                if (vtable && DMK::memory::is_plausible_ptr(DMK::Address{*vtable}) &&
+                    s_game_module.contains(DMK::Address{*vtable}))
                 {
                     // Query box bounding the pivot->camera arm, expanded by the standoff.
                     const float margin = radius + 0.05f;
@@ -1283,14 +1281,14 @@ namespace TPVCamera
         {
             return -1.0f;
         }
-        const auto p3d = mem::read<uintptr_t>(Address{s_p3d_engine_slot_addr});
-        if (!p3d || *p3d == 0 || !mem::is_plausible_ptr(Address{*p3d}))
+        const auto p3d = DMK::memory::read<uintptr_t>(DMK::Address{s_p3d_engine_slot_addr});
+        if (!p3d || *p3d == 0 || !DMK::memory::is_plausible_ptr(DMK::Address{*p3d}))
         {
             return -1.0f;
         }
-        const auto vtable = mem::read<uintptr_t>(Address{*p3d});
-        if (!vtable || !mem::is_plausible_ptr(Address{*vtable}) ||
-            !s_game_module.contains(Address{*vtable}))
+        const auto vtable = DMK::memory::read<uintptr_t>(DMK::Address{*p3d});
+        if (!vtable || !DMK::memory::is_plausible_ptr(DMK::Address{*vtable}) ||
+            !s_game_module.contains(DMK::Address{*vtable}))
         {
             return -1.0f;
         }
@@ -1373,16 +1371,16 @@ namespace TPVCamera
         {
             *out_kind = 0; // 0 none, 1 foreign-linked, 2 prop (mesh at hit), 3 solid (bbox only), 4 hlod
         }
-        // Resolve the render-engine pointer up front (mem::read is itself guarded); keeping its Result local
+        // Resolve the render-engine pointer up front (memory::read is itself guarded); keeping its Result local
         // out of the structured-exception frame below avoids object-unwinding (MSVC C2712) in the __try.
         void *p3d_ptr = nullptr;
         if (s_get_objects_in_box != nullptr && s_p3d_engine_slot_addr != 0)
         {
-            const auto p3d = mem::read<uintptr_t>(Address{s_p3d_engine_slot_addr});
-            if (p3d && *p3d != 0 && mem::is_plausible_ptr(Address{*p3d}))
+            const auto p3d = DMK::memory::read<uintptr_t>(DMK::Address{s_p3d_engine_slot_addr});
+            if (p3d && *p3d != 0 && DMK::memory::is_plausible_ptr(DMK::Address{*p3d}))
             {
-                const auto vtable = mem::read<uintptr_t>(Address{*p3d});
-                if (vtable && s_game_module.contains(Address{*vtable}))
+                const auto vtable = DMK::memory::read<uintptr_t>(DMK::Address{*p3d});
+                if (vtable && s_game_module.contains(DMK::Address{*vtable}))
                 {
                     refresh_brush_query(*vtable);
                     p3d_ptr = reinterpret_cast<void *>(*p3d);

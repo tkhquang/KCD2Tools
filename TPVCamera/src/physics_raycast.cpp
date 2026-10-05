@@ -7,8 +7,6 @@
 #include "aob_resolver.hpp"
 #include "constants.hpp"
 
-#include "dmk_aliases.hpp"
-
 #include <DetourModKit.hpp>
 
 #include <windows.h>
@@ -45,11 +43,11 @@ namespace TPVCamera
 
         // The module-scoped cascade resolved the helper inside the game image (or 0 on a miss); read here
         // from the anchor registry resolved at startup by resolve_all_anchors().
-        const uintptr_t ray_fn = anchor_address(AnchorId::RayWorldIntersection);
-        if (ray_fn == 0)
+        const uintptr_t ray_fn = gated_anchor_address(Feature::Collision, AnchorId::RayWorldIntersection);
+        if (ray_fn == 0 || g_env == 0)
         {
-            logger.warning(
-                "PhysicsRaycast: RayWorldIntersection not found (game patched?); collision/aim raycast unavailable");
+            logger.warning("PhysicsRaycast: RayWorldIntersection or g_env not found (game patched?); collision/aim "
+                           "raycast unavailable");
             return false;
         }
 
@@ -57,7 +55,7 @@ namespace TPVCamera
         // p_physical_world is a member of the g_env struct (see PHYSICAL_WORLD_OFFSET); deriving its
         // slot from the patch-resiliently resolved g_env base avoids a second hardcoded address.
         s_physical_world_global_addr = g_env + Constants::PHYSICAL_WORLD_OFFSET;
-        s_game_module = Region{Address{module_base}, module_size};
+        s_game_module = DMK::Region{DMK::Address{module_base}, module_size};
 
         logger.info("PhysicsRaycast: RayWorldIntersection at {}, p_physical_world slot at {}",
                     DMK::format::format_address(ray_fn), DMK::format::format_address(s_physical_world_global_addr));
@@ -93,8 +91,8 @@ namespace TPVCamera
         }
 
         // Resolve the physical world fresh; bail cleanly while it is null (no level / loading).
-        const auto world_value = mem::read<uintptr_t>(Address{s_physical_world_global_addr});
-        if (!world_value || *world_value == 0 || !mem::is_plausible_ptr(Address{*world_value}))
+        const auto world_value = DMK::memory::read<uintptr_t>(DMK::Address{s_physical_world_global_addr});
+        if (!world_value || *world_value == 0 || !DMK::memory::is_plausible_ptr(DMK::Address{*world_value}))
         {
             return std::nullopt;
         }
@@ -143,7 +141,7 @@ namespace TPVCamera
      * @brief Releases the SPWIParams WriteLockCond (InterlockedAdd(prw, -iActive)) under an SEH frame.
      * @details The engine repoints prw and sets iActive only when it took the real global world lock;
      *          otherwise prw stays the self-pointer and iActive is 0 (a no-op). prw is read back from the
-     *          engine-written params and screened with mem::is_plausible_ptr, but a stale-but-plausible
+     *          engine-written params and screened with memory::is_plausible_ptr, but a stale-but-plausible
      *          prw (the world counter concurrently invalidated) would fault on the atomic store, so the
      *          store runs under __try. POD-only body so the SEH frame shares no C++ unwinding.
      */
@@ -153,7 +151,7 @@ namespace TPVCamera
         {
             auto *prw = *reinterpret_cast<volatile long **>(params + Constants::SPWI_OFF_LOCK_PRW);
             const long active = *reinterpret_cast<volatile long *>(params + Constants::SPWI_OFF_LOCK_IACTIVE);
-            if (prw && mem::is_plausible_ptr(Address{reinterpret_cast<uintptr_t>(prw)}) && active != 0)
+            if (prw && DMK::memory::is_plausible_ptr(DMK::Address{reinterpret_cast<uintptr_t>(prw)}) && active != 0)
             {
                 _InterlockedExchangeAdd(prw, -active);
             }
@@ -188,8 +186,8 @@ namespace TPVCamera
         }
 
         // Resolve the physical world fresh; bail cleanly while it is null (no level / loading).
-        const auto world_value = mem::read<uintptr_t>(Address{s_physical_world_global_addr});
-        if (!world_value || *world_value == 0 || !mem::is_plausible_ptr(Address{*world_value}))
+        const auto world_value = DMK::memory::read<uintptr_t>(DMK::Address{s_physical_world_global_addr});
+        if (!world_value || *world_value == 0 || !DMK::memory::is_plausible_ptr(DMK::Address{*world_value}))
         {
             log_fail_once("physical world null (no level / loading)");
             return std::nullopt;
@@ -201,15 +199,17 @@ namespace TPVCamera
         // process, and the vtable slot is the patch-stable anchor. The slot is a lock wrapper that takes
         // the world mutex and forwards to the real impl, so calling it from the render thread is safe
         // (it waits for the mutex; it never re-enters our code).
-        const auto vtable = mem::read<uintptr_t>(Address{world});
-        if (!vtable || !mem::is_plausible_ptr(Address{*vtable}) || !s_game_module.contains(Address{*vtable}))
+        const auto vtable = DMK::memory::read<uintptr_t>(DMK::Address{world});
+        if (!vtable || !DMK::memory::is_plausible_ptr(DMK::Address{*vtable}) ||
+            !s_game_module.contains(DMK::Address{*vtable}))
         {
             log_fail_once("world vtable unreadable or outside the game image");
             return std::nullopt;
         }
-        const auto fn_slot = mem::read<uintptr_t>(Address{*vtable + Constants::PHYS_WORLD_VTABLE_PWI_OFFSET});
-        if (!fn_slot || !mem::is_plausible_ptr(Address{*fn_slot}) ||
-            !s_game_module.contains(Address{*fn_slot}))
+        const auto fn_slot =
+            DMK::memory::read<uintptr_t>(DMK::Address{*vtable + Constants::PHYS_WORLD_VTABLE_PWI_OFFSET});
+        if (!fn_slot || !DMK::memory::is_plausible_ptr(DMK::Address{*fn_slot}) ||
+            !s_game_module.contains(DMK::Address{*fn_slot}))
         {
             log_fail_once("PWI vtable slot unresolved or outside the game image");
             return std::nullopt;
@@ -332,7 +332,7 @@ namespace TPVCamera
 
     float collider_horizontal_footprint(uintptr_t collider) noexcept
     {
-        if (collider == 0 || !mem::is_plausible_ptr(Address{collider}))
+        if (collider == 0 || !DMK::memory::is_plausible_ptr(DMK::Address{collider}))
         {
             return -1.0f;
         }
@@ -341,15 +341,19 @@ namespace TPVCamera
         // entity id with flags, NOT static - but its bbox 0.30x0.30x3.69 is valid). Do NOT require STATIC, or
         // entity posts are missed. Only fType == 0 (terrain heightmap / unowned geom) reads a 0x0 bbox (live), so
         // exclude it; the degenerate-AABB check below catches it too.
-        const auto ftype = mem::read<int>(Address{collider + Constants::PHYS_ENTITY_FOREIGN_TYPE_OFFSET});
+        const auto ftype = DMK::memory::read<int>(DMK::Address{collider + Constants::PHYS_ENTITY_FOREIGN_TYPE_OFFSET});
         if (!ftype || *ftype == 0)
         {
             return -1.0f;
         }
-        const auto min_x = mem::read<float>(Address{collider + Constants::PHYS_ENTITY_BBOX_MIN_OFFSET + 0});
-        const auto min_y = mem::read<float>(Address{collider + Constants::PHYS_ENTITY_BBOX_MIN_OFFSET + 4});
-        const auto max_x = mem::read<float>(Address{collider + Constants::PHYS_ENTITY_BBOX_MAX_OFFSET + 0});
-        const auto max_y = mem::read<float>(Address{collider + Constants::PHYS_ENTITY_BBOX_MAX_OFFSET + 4});
+        const auto min_x =
+            DMK::memory::read<float>(DMK::Address{collider + Constants::PHYS_ENTITY_BBOX_MIN_OFFSET + 0});
+        const auto min_y =
+            DMK::memory::read<float>(DMK::Address{collider + Constants::PHYS_ENTITY_BBOX_MIN_OFFSET + 4});
+        const auto max_x =
+            DMK::memory::read<float>(DMK::Address{collider + Constants::PHYS_ENTITY_BBOX_MAX_OFFSET + 0});
+        const auto max_y =
+            DMK::memory::read<float>(DMK::Address{collider + Constants::PHYS_ENTITY_BBOX_MAX_OFFSET + 4});
         if (!min_x || !min_y || !max_x || !max_y)
         {
             return -1.0f;
@@ -369,17 +373,18 @@ namespace TPVCamera
 
     uintptr_t static_brush_render_node(uintptr_t collider) noexcept
     {
-        if (collider == 0 || !mem::is_plausible_ptr(Address{collider}))
+        if (collider == 0 || !DMK::memory::is_plausible_ptr(DMK::Address{collider}))
         {
             return 0;
         }
-        const auto ftype = mem::read<int>(Address{collider + Constants::PHYS_ENTITY_FOREIGN_TYPE_OFFSET});
+        const auto ftype = DMK::memory::read<int>(DMK::Address{collider + Constants::PHYS_ENTITY_FOREIGN_TYPE_OFFSET});
         if (!ftype || *ftype != Constants::PHYS_FOREIGN_ID_STATIC)
         {
             return 0; // not a static brush owner (entity-attached / pure-physics): no usable render node
         }
-        const auto node = mem::read<uintptr_t>(Address{collider + Constants::PHYS_ENTITY_FOREIGN_DATA_OFFSET});
-        if (!node || !mem::is_plausible_ptr(Address{*node}))
+        const auto node =
+            DMK::memory::read<uintptr_t>(DMK::Address{collider + Constants::PHYS_ENTITY_FOREIGN_DATA_OFFSET});
+        if (!node || !DMK::memory::is_plausible_ptr(DMK::Address{*node}))
         {
             return 0;
         }

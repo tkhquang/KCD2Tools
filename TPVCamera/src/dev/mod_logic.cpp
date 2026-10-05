@@ -2,30 +2,24 @@
  * @file mod_logic.cpp
  * @brief The hot-reloaded half of the dev build: one generation of mod logic behind a C ABI.
  *
- * @details The resident loader owns the process; this DLL owns one generation. The loader calls Init()
- *          after LoadLibrary and Shutdown() before FreeLibrary. There is no DllMain bootstrap on this
- *          path, so Init() owns the Session directly and Shutdown() drops it.
- *
- *          Shutdown()'s return value is an UNMAP AUTHORIZATION, not a status. Returning success while a
- *          detour body in this image is still reachable is what turns a reload into a stale image and
- *          then a crash. The verdict therefore follows DetourModKit's hot-reload guide: drain, clear
- *          hooks newest-first, drop the Session, then read module pins as STATE.
- *
- *          "As state" is the part that matters. An earlier version computed a DELTA of
- *          diagnostics::total_intentional_leaks() across teardown, which reads zero for a wheel
- *          keepalive because that pin is booked at install time - so it authorised unmapping an image
- *          that could never unmap. diagnostics::module_pin_count() reports the open reference itself
- *          and stays readable after ~Session.
+ * @details The resident loader calls Init() after LoadLibrary and Shutdown() before it releases or retains the
+ *          image. There is no DllMain bootstrap on this path, so Init() owns the Session and Shutdown() drops it.
+ *          Shutdown() returns a retirement verdict (protocol.h). Zero refuses retirement, and the loader keeps the
+ *          image mapped. TPVCAMERA_RELOAD_OK permits release. TPVCAMERA_RELOAD_RETAINED makes the loader keep its
+ *          module reference, because a pin or a leak (a retained XInput chain, for example) can still own code or
+ *          state in this image.
  */
 
 #include "constants.hpp"
 #include "protocol.h"
 #include "tpv_camera.hpp"
+#include "version.hpp"
 
 #include <DetourModKit.hpp>
 
 #include <windows.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -34,14 +28,27 @@
 
 namespace
 {
-    /// The live Session for this generation. Empty between Shutdown() and the next Init().
+    /// The live Session for this generation. Empty before Init() and after a retired Shutdown().
     std::optional<DMK::Session> s_session;
 
-    /// Set when TPVCamera::shutdown() could not prove every hooked prologue was restored.
-    bool s_hook_restore_failed = false;
+    // Latches the first failed teardown: a mod thread that did not join or a hook that did not restore its target.
+    // A retry must never turn either into an unload acceptance, and a latched image never starts a generation.
+    bool s_teardown_failed = false;
 
     /// This generation's id from the loader's Init request. Names the profile export of a profiling build.
     std::uint64_t s_generation_id = 0;
+
+    /// The module that holds this code, or nullptr when the loader cannot report it.
+    [[nodiscard]] HMODULE own_module() noexcept
+    {
+        HMODULE self = nullptr;
+        if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               reinterpret_cast<LPCWSTR>(&own_module), &self) == 0)
+        {
+            return nullptr;
+        }
+        return self;
+    }
 
     /**
      * @brief Writes the directory this DLL was loaded from, with a trailing backslash, into @p out.
@@ -50,10 +57,8 @@ namespace
     [[nodiscard]] bool module_directory(char (&out)[MAX_PATH]) noexcept
     {
         out[0] = '\0';
-        HMODULE self = nullptr;
-        if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                               reinterpret_cast<LPCWSTR>(&module_directory), &self) == 0 ||
-            GetModuleFileNameA(self, out, MAX_PATH) == 0)
+        const HMODULE self = own_module();
+        if (self == nullptr || GetModuleFileNameA(self, out, MAX_PATH) == 0)
         {
             return false;
         }
@@ -67,11 +72,8 @@ namespace
     }
 
     /**
-     * @brief Appends one line to the LOADER's log, which outlives every generation.
-     * @details The unload verdict is computed after ~Session, so DMK::log() is gone by then. Sending it
-     *          only to OutputDebugStringA hides it from anyone without a debugger attached - which is
-     *          exactly how a refusal loop went unexplained: the loader reported "Shutdown refused" four
-     *          times with the reason nowhere on disk.
+     * @brief Appends one line to the loader's log, which outlives every generation.
+     * @details The retirement verdict is computed after ~Session, when DMK::log() no longer has a sink.
      */
     void append_loader_log(const char *line) noexcept
     {
@@ -91,12 +93,12 @@ namespace
             SYSTEMTIME now{};
             GetLocalTime(&now);
             char stamped[640];
-            const int len = std::snprintf(stamped, sizeof(stamped), "[%02u:%02u:%02u.%03u] %s\n", now.wHour,
-                                          now.wMinute, now.wSecond, now.wMilliseconds, line);
-            if (len > 0)
+            const int length = std::snprintf(stamped, sizeof(stamped), "[%02u:%02u:%02u.%03u] %s\n", now.wHour,
+                                             now.wMinute, now.wSecond, now.wMilliseconds, line);
+            if (length > 0)
             {
-                DWORD wrote = 0;
-                (void)WriteFile(file, stamped, static_cast<DWORD>(len), &wrote, nullptr);
+                DWORD written = 0;
+                (void)WriteFile(file, stamped, static_cast<DWORD>(length), &written, nullptr);
             }
             CloseHandle(file);
         }
@@ -106,12 +108,10 @@ namespace
 #ifdef DMK_ENABLE_PROFILING
     /**
      * @brief Writes this generation's profiler samples to KCD2_TPVCamera_profile_genNNNN.json beside the log.
-     * @details A profiling build (-DDMK_ENABLE_PROFILING=ON) records every DMK_PROFILE_SCOPE into a ring owned by the
-     *          DetourModKit instance linked into THIS image, so the samples are gone once the image unmaps. Exporting
-     *          on each Shutdown leaves one Chrome Tracing file per generation (chrome://tracing, ui.perfetto.dev),
-     *          holding the most recent samples that fit the ring. Shutdown runs on the loader's thread, outside the
-     *          loader lock, which the profiler's export requires because it allocates and writes a file. A failure is
-     *          contained here so a diagnostics export can never keep Shutdown from removing the hooks.
+     * @details The profiler ring belongs to the DetourModKit instance linked into this image, so its samples go with
+     *          the image. Each Shutdown() therefore leaves one Chrome Tracing file per generation. The export
+     *          allocates and writes a file, so it runs on the loader's control thread, off the loader lock. A failure
+     *          stays here, so a diagnostics export never keeps Shutdown() from its teardown.
      */
     void export_profile() noexcept
     {
@@ -132,79 +132,131 @@ namespace
         {
             written = false;
         }
-        if (written)
-        {
-            (void)DMK::log().try_log(DMK::LogLevel::Info, "[DEV] Profile written to {}", profile_path);
-        }
-        else
-        {
-            (void)DMK::log().try_log(DMK::LogLevel::Warning, "[DEV] Profile export to {} failed", profile_path);
-        }
+        (void)DMK::log().try_log(written ? DMK::LogLevel::Info : DMK::LogLevel::Warning,
+                                 written ? "[DEV] Profile written to {}" : "[DEV] Profile export to {} failed",
+                                 profile_path);
     }
 #endif
-} // namespace
 
-/**
- * @brief Bumped by hand when a specific rebuild needs to be identifiable in the loader's log.
- * @details The loader logs this through the Revision export. `__DATE__`/`__TIME__` alone move only when
- *          THIS translation unit recompiles, so a change elsewhere in the mod can produce an unchanged
- *          stamp. A macro rather than a constant so it pastes straight into the returned literal.
- */
-#define TPVCAMERA_DEV_BUILD_REVISION "21"
+    /**
+     * @brief Tears the mod down and latches a permanent failure.
+     * @return TPVCamera::shutdown()'s status. Busy stays retryable. Failed latches, so a retry never reports success.
+     */
+    [[nodiscard]] TPVCamera::RetireStatus tear_down_generation() noexcept
+    {
+        if (s_teardown_failed)
+        {
+            return TPVCamera::RetireStatus::Failed;
+        }
+        try
+        {
+            const TPVCamera::RetireStatus status = TPVCamera::shutdown();
+            s_teardown_failed = status == TPVCamera::RetireStatus::Failed;
+            return status;
+        }
+        catch (...)
+        {
+            s_teardown_failed = true;
+            return TPVCamera::RetireStatus::Failed;
+        }
+    }
+
+    /**
+     * @brief Computes the retirement verdict after ~Session and records it in the loader's log.
+     * @details A latched teardown failure refuses retirement. Otherwise any open module pin or intentional leak
+     *          retains the image, because a leak counter does not prove which leaked resource still holds a pin.
+     */
+    [[nodiscard]] std::uint32_t retirement_verdict() noexcept
+    {
+        namespace diag = DMK::diagnostics;
+        const std::size_t pins = diag::total_module_pins();
+        const std::size_t leaks = diag::total_intentional_leaks();
+        const std::uint32_t verdict = s_teardown_failed         ? 0u
+                                      : pins != 0 || leaks != 0 ? TPVCAMERA_RELOAD_RETAINED
+                                                                : TPVCAMERA_RELOAD_OK;
+
+        char line[400];
+        (void)std::snprintf(
+            line, sizeof(line),
+            "[KCD2_TPVCamera][DEV] retirement verdict: %s (pins %zu: wheel %zu, xinput %zu+%zu, worker %zu; leaks %zu)",
+            verdict == 0u                          ? "REFUSED (a mod worker or a hook did not retire)"
+            : verdict == TPVCAMERA_RELOAD_RETAINED ? "retained"
+                                                   : "released",
+            pins, diag::module_pin_count(diag::ModulePinReason::MessageHookKeepalive),
+            diag::module_pin_count(diag::ModulePinReason::XInputKeepalive),
+            diag::module_pin_count(diag::ModulePinReason::XInputTarget),
+            diag::module_pin_count(diag::ModulePinReason::Worker), leaks);
+        append_loader_log(line);
+        return verdict;
+    }
+
+    /**
+     * @brief Drops every reclaimable generation resource after a failed Init() step.
+     * @details Input start is the last fallible step of TPVCamera::init(), so no input callback can run here, and the
+     *          rollback omits the typed drain.
+     */
+    void roll_back_generation() noexcept
+    {
+        if (tear_down_generation() != TPVCamera::RetireStatus::Retired)
+        {
+            // A worker or a hook still depends on the Session and this image: keep both.
+            return;
+        }
+        s_session.reset();
+    }
+} // namespace
 
 extern "C"
 {
     /**
-     * @brief Reports which bytes the loader actually mapped.
-     * @details Exported so the LOADER can log it. Logging the build identity from inside Init() loses it
-     *          whenever Init() fails, which is exactly when knowing the build matters most.
+     * @brief Reports which bytes the loader mapped.
+     * @details The image identity (PE timestamp, image size and section layout) changes with every link, so it names
+     *          the exact build without a hand-bumped counter.
      */
-    __declspec(dllexport) const char *Revision() noexcept
+    __declspec(dllexport) const char *DMK_WHEELHOST_CALL Revision() noexcept
     {
-        return "rev " TPVCAMERA_DEV_BUILD_REVISION " (" __DATE__ " " __TIME__ ")";
+        static const std::array<char, 96> revision = []() noexcept
+        {
+            std::array<char, 96> text{};
+            const HMODULE self = own_module();
+            const DMK::scan::ImageIdentity identity =
+                self != nullptr
+                    ? DMK::scan::image_identity(DMK::Region{DMK::Address{reinterpret_cast<std::uintptr_t>(self)}, 1})
+                    : DMK::scan::ImageIdentity{};
+            (void)std::snprintf(text.data(), text.size(), "%s image %016llX", TPVCamera::Version::VERSION_TAG,
+                                static_cast<unsigned long long>(identity.token()));
+            return text;
+        }();
+        return revision.data();
     }
 
     /**
-     * @brief Starts one generation.
-     * @param request Loader-owned request. Its wheel-host table is valid for the whole process.
-     * @return TPVCAMERA_RELOAD_OK when the generation is live, otherwise zero after rollback.
+     * @brief Starts one generation with the loader's resident wheel host.
+     * @param request The versioned request. Its host table remains valid for the process lifetime.
+     * @return TPVCAMERA_RELOAD_OK when the generation is live, or zero when initialization fails.
+     * @note The loader calls this from its control thread, off the loader lock.
      */
-    __declspec(dllexport) unsigned Init(const TpvReloadInitRequest *request) noexcept
+    __declspec(dllexport) std::uint32_t DMK_WHEELHOST_CALL Init(const TpvReloadInitRequest *request) noexcept
     {
-        // Validate the whole request before touching a field: a stale generation left in the deploy
-        // directory must fail loudly rather than read through a shifted layout.
-        //
-        // A NULL wheel host is a deliberate, supported choice, not an error. The loader decides whether a
-        // generation leases its resident host; when it does not, this generation uses the local
-        // MessageHook backend and books its own permanent wheel keepalive, so its image is retained after
-        // teardown. The loader charges that against its reload budget. A NON-null table must still match
-        // the expected identity, so a foreign table is never accepted.
         if (request == nullptr || request->struct_size < sizeof(TpvReloadInitRequest) ||
             request->abi_version != TPVCAMERA_RELOAD_ABI_VERSION || request->generation_id == 0 ||
-            s_session.has_value())
+            request->wheel_host == nullptr || request->expected_host_identity == 0 ||
+            request->wheel_host->host_identity != request->expected_host_identity || s_session.has_value() ||
+            s_teardown_failed)
         {
-            append_loader_log("[KCD2_TPVCamera][DEV] Init rejected an invalid or stale reload request");
-            return 0;
-        }
-        if (request->wheel_host != nullptr &&
-            (request->expected_host_identity == 0 ||
-             request->wheel_host->host_identity != request->expected_host_identity))
-        {
-            append_loader_log("[KCD2_TPVCamera][DEV] Init rejected a foreign wheel-host table");
+            append_loader_log("[KCD2_TPVCamera][DEV] Init rejected an invalid request, a foreign wheel host or a "
+                              "retired image");
             return 0;
         }
 
-        // The loader calls this through a C function pointer, so an exception must never unwind across the
-        // boundary. Guard the whole body and return zero on any failure.
+        // The loader calls this through a C function pointer, so no exception may cross the boundary.
         try
         {
             DMK::AsyncLoggerConfig async_cfg;
             async_cfg.overflow_policy = DMK::OverflowPolicy::SyncFallback;
 
-            // LogOpenMode::Append is what keeps a reload diagnosable. Under the default Truncate, this
-            // generation's first sink open erases the PREVIOUS generation's teardown records - including
-            // the XInput retention warning naming which writer owns the prologue, which is the only line
-            // that explains a retained image.
+            // LogOpenMode::Append keeps the previous generation's teardown records, including the XInput retention
+            // lines that explain a retained image. The loader truncates the file once per game run.
             auto opened = DMK::Session::start(DMK::ModInfo{
                 .name = Constants::MOD_NAME,
                 .log_file = Constants::LOG_FILE_NAME,
@@ -212,10 +264,8 @@ extern "C"
                 .instance_mutex_prefix = Constants::INSTANCE_MUTEX_PREFIX,
                 .log = async_cfg,
                 .log_open_mode = DMK::LogOpenMode::Append,
-                // Keep the [file:line] stamp only where it earns its place. Trace records are the ones
-                // read while actively debugging, so they keep their call site; Debug and above render
-                // clean, which matters most under LogOpenMode::Append where every generation's records
-                // accumulate in one file.
+                // The [file:line] stamp stays on Trace records, which are read while debugging. Every generation
+                // appends to one file, so Debug and above render without it.
                 .log_source_stamp_mode = DMK::LogSourceStampMode::at_or_below(DMK::LogLevel::Trace),
             });
             if (!opened.has_value())
@@ -224,123 +274,95 @@ extern "C"
                 return 0;
             }
             s_session.emplace(std::move(*opened));
-            s_hook_restore_failed = false;
             s_generation_id = request->generation_id;
 
             DMK::log().info("[DEV] Init generation {} - {}", request->generation_id, Revision());
 
-            // The resident host table travels all the way to Input::start, so the wheel keepalive is booked
-            // against the loader instead of this image.
+            // The resident host table reaches Input::start, so the wheel keepalive lands on the loader.
             if (auto ready = TPVCamera::init(*s_session, request->wheel_host); !ready.has_value())
             {
                 DMK::log().error("[DEV] TPVCamera initialization FAILED ({})", ready.error().message());
-                s_session.reset();
+                roll_back_generation();
                 return 0;
             }
             return TPVCAMERA_RELOAD_OK;
         }
         catch (...)
         {
-            // The logger may not have come up yet, so report through the loader's file.
             append_loader_log("[KCD2_TPVCamera][DEV] Init threw an exception");
-            s_session.reset();
+            if (s_session.has_value())
+            {
+                roll_back_generation();
+            }
             return 0;
         }
     }
 
     /**
-     * @brief Tears this generation down and reports whether the image may be unmapped.
-     * @return TPVCAMERA_RELOAD_OK when the drain succeeded, every prologue was restored, and the only
-     *         remaining module pins are the documented-inert ones.
-     * @note The loader must keep the DLL mapped on a zero return.
+     * @brief Retires feature state before the loader releases or retains this image.
+     * @return Zero refuses retirement. TPVCAMERA_RELOAD_OK permits release. TPVCAMERA_RELOAD_RETAINED requires the
+     *         loader's module reference.
+     * @note The loader keeps the DLL mapped on a zero result.
      */
-    __declspec(dllexport) unsigned Shutdown() noexcept
+    __declspec(dllexport) std::uint32_t DMK_WHEELHOST_CALL Shutdown() noexcept
     {
-        namespace diag = DMK::diagnostics;
-
         if (!s_session.has_value())
         {
-            return 0;
+            return retirement_verdict();
         }
-
         try
         {
             DMK::log().info("[DEV] Shutdown called");
 
 #ifdef DMK_ENABLE_PROFILING
-            // Before teardown, while the session's logger still reports where the file went.
+            // Before teardown, while the Session's logger still reports where the file went.
             export_profile();
 #endif
 
-            // Mod teardown first, while this module's code pages are still mapped. It joins the overlay
-            // thread, removes every hook, and reports whether each prologue was restored.
-            s_hook_restore_failed = !TPVCamera::shutdown();
-
-            // The library's own authorization to unmap. It retires every binding and config setter DMK
-            // still owns and delivers a held hold-combo's balancing edge while this module's code is
-            // mapped, so no callback body can be entered afterwards.
-            const DMK::LogicDllUnloadStatus drain = DMK::prepare_logic_dll_unload_all();
-            if (drain != DMK::LogicDllUnloadStatus::SafeToUnload)
+            // Mod workers join first, then every hook disables, drains, and restores newest-first while this image
+            // stays mapped. Busy refuses this retirement only: the loader keeps the image live, and the next reload
+            // press retries the teardown.
+            switch (tear_down_generation())
             {
-                DMK::log().error("[DEV] drain refused unload (status {}); module stays mapped",
+            case TPVCamera::RetireStatus::Retired:
+                break;
+            case TPVCamera::RetireStatus::Busy:
+                DMK::log().warning("[DEV] Shutdown: a detour stayed busy; retirement refused until the next attempt");
+                return 0;
+            case TPVCamera::RetireStatus::Failed:
+                DMK::log().error("[DEV] Shutdown: a mod worker or a hook did not retire; the image stays mapped");
+                return retirement_verdict();
+            }
+
+            // The typed drain retires every DMK-owned binding and config callback and delivers a held combo's
+            // release while this image is mapped. Only SafeToUnload authorizes retirement.
+            if (const DMK::LogicDllUnloadStatus drain = DMK::prepare_logic_dll_unload_all();
+                drain != DMK::LogicDllUnloadStatus::SafeToUnload)
+            {
+                DMK::log().error("[DEV] Shutdown: the drain refused retirement (status {}); the image stays mapped",
                                  static_cast<int>(drain));
                 return 0;
             }
 
-            // Drop the Session last: it shuts the library subsystems down in order, input included. The
-            // XInput layer can decide to retain here, which is why the verdict below runs after this.
+            // Ordered Session teardown can retain the XInput chain, so the verdict reads the pins after it.
             s_session.reset();
-
-            // Which pins are TOLERABLE is the part worth getting right. The reference example demands a
-            // global zero, but it registers no consume gamepad binding and therefore never installs XInput
-            // interception. This mod does, and when a rival writer (the Steam overlay) owns the
-            // XInputGetState prologue, retention is MANDATORY: restoring our bytes would leave that
-            // writer's chain jumping into freed memory. The guide's rule is the one that applies here -
-            // a retained XInput set and a wheel keepalive are INERT after teardown, while every other
-            // nonzero reason can still identify live code.
-            //
-            // So the image may stay mapped, but nothing in it can run. The loader treats that as a
-            // retained generation and charges it against its reload budget.
-            const std::size_t wheel_pins = diag::module_pin_count(diag::ModulePinReason::MessageHookKeepalive);
-            const std::size_t xinput_self = diag::module_pin_count(diag::ModulePinReason::XInputKeepalive);
-            const std::size_t xinput_targets = diag::module_pin_count(diag::ModulePinReason::XInputTarget);
-            const std::size_t total_pins = diag::total_module_pins();
-            const std::size_t inert_pins = wheel_pins + xinput_self + xinput_targets;
-
-            char verdict[400];
-            (void)std::snprintf(verdict, sizeof(verdict),
-                                "[KCD2_TPVCamera][DEV] unload verdict: wheel=%zu xinput_self=%zu "
-                                "xinput_targets=%zu total=%zu (inert=%zu), hooks_restored=%s",
-                                wheel_pins, xinput_self, xinput_targets, total_pins, inert_pins,
-                                s_hook_restore_failed ? "NO" : "yes");
-            append_loader_log(verdict);
-
-            // A wheel keepalive here is EXPECTED while the local MessageHook backend is in use: this
-            // image is then retained, which the loader charges against its reload budget. It would only be
-            // a defect if the loader had leased its resident host for this generation.
-            if (s_hook_restore_failed)
-            {
-                append_loader_log("[KCD2_TPVCamera][DEV] unload REFUSED: a hooked prologue was not restored");
-                return 0;
-            }
-            if (total_pins != inert_pins)
-            {
-                append_loader_log("[KCD2_TPVCamera][DEV] unload REFUSED: a pin reason outside the "
-                                  "documented-inert set remains; live code may still be reachable");
-                return 0;
-            }
-            return TPVCAMERA_RELOAD_OK;
+            return retirement_verdict();
         }
         catch (...)
         {
-            append_loader_log("[KCD2_TPVCamera][DEV] Shutdown threw an exception; refusing unload");
+            s_teardown_failed = true;
+            append_loader_log("[KCD2_TPVCamera][DEV] Shutdown threw an exception; retirement refused");
             return 0;
         }
     }
 } // extern "C"
 
-/// The loader drives Init and Shutdown explicitly, so attach and detach have no work of their own.
-BOOL APIENTRY DllMain(HMODULE, DWORD, LPVOID)
+/** @brief Prevents Session teardown under the loader lock at process termination. */
+BOOL APIENTRY DllMain(HMODULE, DWORD reason, LPVOID reserved) noexcept
 {
+    if (reason == DLL_PROCESS_DETACH && reserved != nullptr && s_session.has_value())
+    {
+        s_session->abandon();
+    }
     return TRUE;
 }

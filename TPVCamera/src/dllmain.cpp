@@ -17,8 +17,8 @@
 
 #include <windows.h>
 
-// In the two-DLL dev build the logic is loaded by a thin loader ASI that owns the
-// entry points (see src/dev/logic_exports.cpp). The production ASI uses DllMain.
+// In the two-DLL dev build the resident loader ASI (src/dev/mod_loader.cpp) drives the logic DLL through the
+// Init and Shutdown exports in src/dev/mod_logic.cpp. The production ASI uses this DllMain.
 #ifndef TPVCAMERA_DEV_BUILD
 
 namespace
@@ -72,7 +72,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD ul_reason_for_call, LPVOID lp_rese
         // the abandon path inside bootstrap_detach is the correct no-op.
         if (lp_reserved == nullptr)
         {
-            // The verdict is discarded here on purpose. DllMain cannot refuse a FreeLibrary already in
+            // The status is discarded here on purpose. DllMain cannot refuse a FreeLibrary already in
             // progress, and this ASI is loaded once for the process, so there is no later load that a
             // pinned backend could hand a stale image to. shutdown() logs the failure itself.
             (void)TPVCamera::shutdown();

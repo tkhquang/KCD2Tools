@@ -7,8 +7,6 @@
 #include "constants.hpp"
 #include "game_state.hpp"
 
-#include "dmk_aliases.hpp"
-
 #include <DetourModKit.hpp>
 
 #include <algorithm>
@@ -44,6 +42,7 @@ namespace TPVCamera
             Constants::C_CAMERA_OBSERVER_RTTI_NAME,
             Constants::CTIMER_RTTI_NAME,
             Constants::SGAME_OBJECT_EVENT_RTTI_NAME,
+            Constants::ANIMATION_SET_RTTI_NAME,
         }};
 
         // A TypeIdentity is pinned, so a std::vector cannot hold one: a reallocation has to move its
@@ -53,7 +52,7 @@ namespace TPVCamera
 
         // Only initialization takes this lock. Published tables stay immutable for query threads.
         std::mutex s_init_mutex;
-        Region s_image{};
+        DMK::Region s_image{};
 
         // Published with release once both deques are complete, and read with acquire, so a render thread
         // either sees no table and takes the direct RTTI walk, or sees a complete one.
@@ -80,16 +79,16 @@ namespace TPVCamera
             }
             if (s_ready.load(std::memory_order_acquire))
             {
-                if (const std::optional<Address> primary = table[index].vtable(); primary.has_value())
+                if (const std::optional<DMK::Address> primary = table[index].vtable(); primary.has_value())
                 {
-                    return Address{vtable} == *primary;
+                    return DMK::Address{vtable} == *primary;
                 }
             }
-            return DMK::rtti::vtable_is_type(Address{vtable}, mangled);
+            return DMK::rtti::vtable_is_type(DMK::Address{vtable}, mangled);
         }
     } // namespace
 
-    void init_game_types(Region image)
+    void init_game_types(DMK::Region image)
     {
         const std::lock_guard init_lock(s_init_mutex);
         if (!image.base || image.size == 0)
@@ -193,7 +192,7 @@ namespace TPVCamera
         {
             return std::nullopt;
         }
-        if (const std::optional<Address> primary = s_class_types[index].vtable(); primary.has_value())
+        if (const std::optional<DMK::Address> primary = s_class_types[index].vtable(); primary.has_value())
         {
             return primary->raw();
         }

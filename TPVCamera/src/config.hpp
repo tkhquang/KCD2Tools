@@ -194,6 +194,11 @@ namespace TPVCamera
         // the heal runs (not a hot path); clamped to the DMK maximum. Larger tolerates a bigger insertion at
         // a slightly higher risk of a wrong heal onto a same-typed neighbour. Not for normal users to touch.
         std::atomic<int> self_heal_window{0x100};
+
+        // Advanced. Writes every built-in signature, with the baselines captured from the live game, to
+        // KCD2_TPVCamera.signatures.captured.ini at startup (see export_signatures in aob_resolver.hpp). Read once
+        // after the anchors resolve.
+        std::atomic<bool> export_signatures{false};
     };
 
     /** @brief Returns the process-wide live (atomic) settings. */

@@ -134,6 +134,7 @@ set(COMMON_SOURCES
   src/tpv_camera.cpp
   src/version.cpp
   src/hooks/camera_hook.cpp
+  src/hooks/hook_set.cpp
   src/hooks/ui_menu_hooks.cpp
   src/hooks/ui_overlay_hooks.cpp
   src/hooks/interaction_hook.cpp

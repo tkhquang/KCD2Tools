@@ -9,8 +9,6 @@
 #include "ui_menu_hooks.hpp"
 #include "aob_resolver.hpp"
 
-#include "../dmk_aliases.hpp"
-
 #include <DetourModKit.hpp>
 
 #include <atomic>
@@ -40,6 +38,7 @@ namespace TPVCamera
      */
     static void __fastcall menu_open_detour(void *this_ptr, char param_byte) noexcept
     {
+        const DetourScope in_flight;
         (void)DMK::log().log_noexcept(DMK::LogLevel::Debug, "UIMenuHook: Game menu is opening");
         s_is_menu_open.store(true, std::memory_order_relaxed);
 
@@ -57,6 +56,7 @@ namespace TPVCamera
      */
     static void __fastcall menu_close_detour(void *this_ptr) noexcept
     {
+        const DetourScope in_flight;
         (void)DMK::log().log_noexcept(DMK::LogLevel::Debug, "UIMenuHook: Game menu is closing");
         s_is_menu_open.store(false, std::memory_order_relaxed);
 
@@ -66,7 +66,7 @@ namespace TPVCamera
         }
     }
 
-    DMK::Result<void> initialize_ui_menu_hooks(DMK::hook::HookStack &hooks)
+    DMK::Result<void> initialize_ui_menu_hooks(HookSet &hooks)
     {
         // The default hook::Options prologue policy is Fail: refuse the install when the resolved entry
         // leads with a call or breakpoint byte. A sibling mod's E9 jump hook decodes as a relocatable
@@ -79,9 +79,9 @@ namespace TPVCamera
 
         // Each cascade resolves the function entry directly (P1 anchors on the entry; the mid-body P2/P3
         // fallbacks walk back to it via their negative disp_offset), resolved up front by
-        // resolve_all_anchors() and read here via anchor_address().
-        const uintptr_t menu_open_addr = anchor_address(AnchorId::MenuOpen);
-        const uintptr_t menu_close_addr = anchor_address(AnchorId::MenuClose);
+        // resolve_all_anchors() and read here through the MenuState gate.
+        const uintptr_t menu_open_addr = gated_anchor_address(Feature::MenuState, AnchorId::MenuOpen);
+        const uintptr_t menu_close_addr = gated_anchor_address(Feature::MenuState, AnchorId::MenuClose);
         if (menu_open_addr == 0 || menu_close_addr == 0)
         {
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "ui_menu_hooks/anchor"});
@@ -93,13 +93,13 @@ namespace TPVCamera
         {
             return std::unexpected(open_result.error());
         }
-        // Publish each trampoline BEFORE enable() arms its patch.
+        // Publish each trampoline and store each handle BEFORE enable() arms its patch, so the set owns a hook whose
+        // arm fails with the patch live.
         s_menu_open_original = open_result->original<MenuOpenFunc>();
-        if (auto armed = open_result->enable(); !armed.has_value())
+        if (auto armed = hooks.push(std::move(*open_result)).enable(); !armed.has_value())
         {
             return std::unexpected(armed.error());
         }
-        hooks.push(std::move(*open_result));
 
         auto close_result = DMK::hook::inline_at(
             DMK::hook::InlineRequest{.name = "MenuClose", .target = DMK::Address{menu_close_addr}}, menu_close_detour);
@@ -108,11 +108,10 @@ namespace TPVCamera
             return std::unexpected(close_result.error());
         }
         s_menu_close_original = close_result->original<MenuCloseFunc>();
-        if (auto armed = close_result->enable(); !armed.has_value())
+        if (auto armed = hooks.push(std::move(*close_result)).enable(); !armed.has_value())
         {
             return std::unexpected(armed.error());
         }
-        hooks.push(std::move(*close_result));
 
         return {};
     }

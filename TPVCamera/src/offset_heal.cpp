@@ -12,8 +12,6 @@
 #include "constants.hpp"
 #include "global_state.hpp"
 
-#include "dmk_aliases.hpp"
-
 #include <DetourModKit.hpp>
 
 #include <algorithm>
@@ -268,7 +266,7 @@ namespace TPVCamera
         bool heal_and_record(DMK::rtti::HealRun &run, std::string_view label, const DMK::rtti::Landmark &landmark,
                              std::uintptr_t base, DMK::rtti::HealedSlot &slot) noexcept
         {
-            const auto result = run.heal_into(label, landmark, Address{base}, slot, false);
+            const auto result = run.heal_into(label, landmark, DMK::Address{base}, slot, false);
             record_drift(label, landmark.nominal_offset, result);
             return result.has_value();
         }
@@ -284,7 +282,7 @@ namespace TPVCamera
         bool heal_player_bracket(DMK::rtti::HealRun &run, std::uintptr_t c_player, RuntimeOffsets &offsets) noexcept
         {
             const WindowedLandmarks &lm = *s_windowed;
-            const auto fit = DMK::rtti::solve_fingerprint(Address{c_player}, lm.bracket, lm.bracket[0].window);
+            const auto fit = DMK::rtti::solve_fingerprint(DMK::Address{c_player}, lm.bracket, lm.bracket[0].window);
             if (!fit)
             {
                 // Bracket disagreed (non-uniform shift across the span). lookController has no RTTI of its own,
@@ -305,7 +303,7 @@ namespace TPVCamera
             // The bracket's evidence is C_Player's own members, so the resolving image is the game module the
             // landmark types live in. Stamping its generation is what lets a later authorized(generation) call
             // reject the offset if that image is ever replaced under us.
-            const std::uint64_t generation = DMK::rtti::image_generation(Address{module_info().base});
+            const std::uint64_t generation = DMK::rtti::image_generation(DMK::Address{module_info().base});
             const DMK::rtti::OffsetValidity validity =
                 generation != 0 ? DMK::rtti::OffsetValidity::Confirmed : DMK::rtti::OffsetValidity::Unverified;
 
@@ -349,16 +347,6 @@ namespace TPVCamera
     {
         static RuntimeOffsets offsets;
         return offsets;
-    }
-
-    std::ptrdiff_t offset_value(const DMK::rtti::HealedSlot &slot) noexcept
-    {
-        return slot.load().value;
-    }
-
-    DMK::Result<std::ptrdiff_t> write_authorized_offset(const DMK::rtti::HealedSlot &slot) noexcept
-    {
-        return slot.authorized();
     }
 
     void note_framework_base(std::uintptr_t cry_action) noexcept
@@ -458,9 +446,9 @@ namespace TPVCamera
                 {
                     return false;
                 }
-                const auto action_game =
-                    mem::read<std::uintptr_t>(Address{cry_action + offset_value(offsets.ccryaction_actiongame)});
-                return action_game.has_value() && mem::is_plausible_ptr(Address{*action_game});
+                const auto action_game = DMK::memory::read<std::uintptr_t>(
+                    DMK::Address{cry_action + offsets.ccryaction_actiongame.load().value});
+                return action_game.has_value() && DMK::memory::is_plausible_ptr(DMK::Address{*action_game});
             }
         );
 
@@ -520,9 +508,9 @@ namespace TPVCamera
             [&offsets, &lm](DMK::rtti::HealRun &run) noexcept
             {
                 const std::uintptr_t c_player = s_player_base.load(std::memory_order_relaxed);
-                const auto anim_human =
-                    mem::read<std::uintptr_t>(Address{c_player + offset_value(offsets.c_player_animated_human)});
-                if (!anim_human || !mem::is_plausible_ptr(Address{*anim_human}))
+                const auto anim_human = DMK::memory::read<std::uintptr_t>(
+                    DMK::Address{c_player + offsets.c_player_animated_human.load().value});
+                if (!anim_human || !DMK::memory::is_plausible_ptr(DMK::Address{*anim_human}))
                 {
                     return false;
                 }

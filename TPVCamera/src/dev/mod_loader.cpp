@@ -1,25 +1,18 @@
 /**
  * @file mod_loader.cpp
- * @brief Resident dev loader: owns the process, reloads one logic generation at a time.
+ * @brief Resident dev loader: owns the process and replaces one logic generation at a time.
  *
- * @details Structure follows DetourModKit's checked-in `examples/staged_reload` pair, which its
- *          hot-reload guide treats as the reference implementation. Three properties matter and each
- *          exists for a failure that was actually observed here:
- *
- *          1. **Unique staged names.** Mapping the build output locks that path, so a rebuild cannot
- *             replace it and every reload replays identical bytes while reporting success. Mapping a
- *             REUSED name is worse: once an image is pinned, LoadLibrary on the same path silently
- *             returns the pinned predecessor. Each generation gets a name never used before in this
- *             process.
- *          2. **A resident wheel host.** A mouse-wheel binding makes the input engine take a permanent
- *             module keepalive on whichever module hosts wheel capture. Hosting it here - in a module
- *             that is never unloaded - is what lets the logic DLL keep `WheelUp` bindings AND still
- *             unmap. This loader therefore links only DetourModKit::WheelHost, never the full archive.
- *          3. **Proof, not assumption.** A generation is only considered gone after its typed Shutdown
- *             accepts, a probe lease opens and closes, and one of its code addresses is observed to
- *             become unmapped. Anything less has been mistaken for a successful reload before.
- *
- *          This loader is dev-only. The release build is a single ASI with no reload path at all.
+ * @details The loader follows DetourModKit's staged-generation reload pattern (its hot-reload guide and the
+ *          examples/staged_reload pair). It links only DetourModKit::WheelHost, never the full archive, and it is
+ *          never unloaded:
+ *          - The build deploys KCD2_TPVCamera.logic.dll (and its PDB) to staging\. A reload promotes them beside the
+ *            loader, then maps a unique copy (KCD2_TPVCamera.genNNNN.logic.dll). The build output stays unlocked, and
+ *            a reused name can never return a retained predecessor with its statics intact.
+ *          - The resident wheel host owns the wheel capture and its permanent keepalive, so a generation can keep
+ *            its WheelUp bindings and still unmap.
+ *          - A generation retires only on a typed Shutdown() verdict, a closed probe lease, and either an observed
+ *            unmap or a charge against the retained-generation budget. A refused or failed retirement keeps the
+ *            image mapped. The loader never initializes a retired or refused image again.
  */
 
 #include "protocol.h"
@@ -28,241 +21,242 @@
 
 #include <windows.h>
 
-#include <atomic>
+#include <process.h>
+
+#include <array>
+#include <cstddef>
 #include <cstdint>
-#include <cstdio>
-#include <cstring>
+#include <filesystem>
+#include <format>
+#include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <system_error>
+#include <type_traits>
+#include <utility>
 
 namespace
 {
-    constexpr const char *k_logic_dll_name = "KCD2_TPVCamera.logic.dll";
-    constexpr const char *k_logic_pdb_name = "KCD2_TPVCamera.logic.pdb";
-    /// Staged generations are "<mod>.genNNNN.logic.dll", so ".logic.dll" stays a stable suffix and one
-    /// glob covers the build output and every staged copy. Matches the reference pair's scheme.
-    constexpr const char *k_generation_prefix = "KCD2_TPVCamera.gen";
-    constexpr const char *k_generation_suffix = ".logic.dll";
-    constexpr const char *k_loader_log_name = "KCD2_TPVCamera_Loader.log";
-    /// The mod's own log. The loader truncates it once per run; see the note in loader_thread.
-    constexpr const char *k_mod_log_name = "KCD2_TPVCamera.log";
-    constexpr const char *k_log_prefix = "[KCD2_TPVCamera Loader] ";
-    constexpr const char *k_staging_subdir = "staging";
+    using InitFn = std::uint32_t(DMK_WHEELHOST_CALL *)(const TpvReloadInitRequest *) noexcept;
+    using ShutdownFn = std::uint32_t(DMK_WHEELHOST_CALL *)() noexcept;
+    using RevisionFn = const char *(DMK_WHEELHOST_CALL *)() noexcept;
 
-    constexpr int k_reload_vk = VK_NUMPAD0;
-    constexpr DWORD k_control_poll_ms = 100;
-    /// Quiescence so an in-flight per-frame detour body returns before FreeLibrary.
-    constexpr DWORD k_post_shutdown_ms = 100;
-    constexpr DWORD k_unmap_poll_ms = 10;
-    /// A release can complete slightly after FreeLibrary returns, so the unmap check polls rather than
-    /// sampling once. A single sample reports a healthy generation as pinned.
-    constexpr DWORD k_unmap_timeout_ms = 2000;
+    constexpr std::wstring_view LOGIC_DLL_NAME = L"KCD2_TPVCamera.logic.dll";
+    constexpr std::wstring_view LOGIC_PDB_NAME = L"KCD2_TPVCamera.logic.pdb";
+    /// Staged copies are "KCD2_TPVCamera.genNNNN.logic.dll", so one prefix and suffix cover every one of them.
+    constexpr std::wstring_view STAGED_PREFIX = L"KCD2_TPVCamera.gen";
+    constexpr std::wstring_view STAGED_SUFFIX = L".logic.dll";
+    constexpr std::wstring_view STAGING_DIRECTORY = L"staging";
+    constexpr std::wstring_view LOADER_LOG_NAME = L"KCD2_TPVCamera_Loader.log";
+    constexpr std::wstring_view MOD_LOG_NAME = L"KCD2_TPVCamera.log";
 
-    /// Caps retained images before the loader stops reloading and asks for a restart.
-    constexpr unsigned k_max_retained_generations = 24;
+    /// The reload key. A reload starts on its release, so a held key cannot retrigger it.
+    constexpr int RELOAD_VK = VK_NUMPAD0;
+    constexpr SHORT KEY_DOWN_MASK = static_cast<SHORT>(0x8000);
+    constexpr DWORD CONTROL_POLL_MS = 50;
+    constexpr DWORD UNMAP_POLL_MS = 10;
+    /// A release can complete slightly after FreeLibrary returns, so the unmap probe polls until this deadline.
+    constexpr DWORD UNMAP_TIMEOUT_MS = 2000;
+    constexpr std::size_t MODULE_PATH_INITIAL_CHARS = 512;
+    constexpr std::size_t MODULE_PATH_MAX_CHARS = 32'768;
 
-    /**
-     * @brief Whether a generation drives wheel capture through the loader's resident host.
-     * @details FALSE for now, and the reason is a measured DMK v4.1 defect, not a preference.
-     *
-     *          With the resident host, wheel capture works in the FIRST generation and is dead in every
-     *          generation after a reload. Measured in the dead generation: route reports Ready (mounted,
-     *          target thread alive, capture armable), the binding resolves, the INI parses WheelUp, there
-     *          are zero warnings - and the notches pass through to the GAME untouched, so the host is not
-     *          capturing them for the new lease. The poller cannot self-correct either: it only retargets
-     *          when the route is not Ready or the thread changed, and here it is Ready on the right
-     *          thread, so capture is never re-armed for the new lease owner.
-     *
-     *          Falling back to the local MessageHook backend costs one permanent keepalive per generation
-     *          (ModulePinReason::MessageHookKeepalive), so each retired image is retained and charged
-     *          against the reload budget below. That is the better trade for a dev loop: every feature
-     *          works, and the budget still allows a long session before a restart.
-     *
-     *          Flip to true once the handover is fixed upstream; the whole plumbing stays in place.
-     */
-    constexpr bool k_use_resident_wheel_host = true;
+    /// Caps retained generations, by count and by staged-file bytes, before the loader requests a restart.
+    constexpr std::size_t MAX_RETAINED_GENERATIONS = 32;
+    constexpr std::uintmax_t MAX_RETAINED_BYTES = 128ull * 1024 * 1024;
 
-    /// Loader-owned owner id for the probe lease: ASCII "TPVPROBE". Any value a generation never uses.
-    constexpr std::uint64_t k_lease_probe_owner = UINT64_C(0x54505650524F4245);
+    /// Loader-owned owner id for the probe lease: ASCII "TPVPROBE", a value no generation uses.
+    constexpr std::uint64_t LEASE_PROBE_OWNER = UINT64_C(0x54505650524F4245);
 
-    std::atomic<bool> s_running{false};
-    std::atomic<bool> s_reloading{false};
-    HANDLE s_thread = nullptr;
-
-    /// Process-lifetime wheel host. Started once, never stopped: the loader outlives every generation.
-    WheelHostTable s_wheel_host{};
-    std::uint64_t s_host_identity = 0;
-
-    /// Latched when a generation could not be proved gone. Further reloads would stack unknown state.
-    bool s_restart_required = false;
-    unsigned s_generation_counter = 0;
-    unsigned s_retained_generations = 0;
-
-    using InitFn = unsigned(__cdecl *)(const TpvReloadInitRequest *) noexcept;
-    using ShutdownFn = unsigned(__cdecl *)() noexcept;
-    using RevisionFn = const char *(__cdecl *)() noexcept;
-
-    /// One mapped generation and everything needed to retire it.
+    /// One loaded staged copy and its exports.
     struct Generation
     {
+        std::filesystem::path path;
         HMODULE module = nullptr;
         InitFn init = nullptr;
         ShutdownFn shutdown = nullptr;
         RevisionFn revision = nullptr;
-        /// An address inside the image, used to prove the unmap. Any exported code address works.
+        /// An exported code address inside the image, probed after FreeLibrary to prove the unmap.
         const void *unmap_address = nullptr;
         std::uint64_t generation_id = 0;
-        std::string path;
+        /// The staged file size, charged against the retention byte budget when the image stays mapped.
+        std::uintmax_t image_bytes = 0;
     };
 
+    HMODULE s_loader_module = nullptr;
+    std::filesystem::path s_directory;
+    WheelHostTable s_wheel_host{};
+    // The host identity captured once at start. The request carries this copy, so the logic-side identity check
+    // compares against the start-time value instead of the field it validates.
+    std::uint64_t s_host_identity = 0;
     std::optional<Generation> s_current;
-    char s_log_path[MAX_PATH]{};
-    std::string s_loader_dir;
+    unsigned s_generation_counter = 0;
+    std::size_t s_retained_count = 0;
+    std::uintmax_t s_retained_bytes = 0;
+    bool s_restart_required = false;
+    // The loader's own reference of each retained image, held until process exit. A leak counter does not prove that
+    // the leaked resource holds a module pin, so the loader keeps a reference of its own.
+    std::array<HMODULE, MAX_RETAINED_GENERATIONS> s_retained_loader_refs{};
 
-    /* ---- logging ------------------------------------------------------------------------------ */
+    static_assert(std::is_nothrow_move_constructible_v<Generation>);
 
-    void log_msg(const char *msg) noexcept
+    [[nodiscard]] std::optional<std::filesystem::path> loader_directory()
     {
-        char line[768];
-        const int len = std::snprintf(line, sizeof(line), "%s%s\n", k_log_prefix, msg);
-        if (len <= 0)
+        std::wstring buffer(MODULE_PATH_INITIAL_CHARS, L'\0');
+        for (;;)
         {
-            return;
-        }
-        OutputDebugStringA(line);
-
-        // The loader keeps its OWN log. The mod's log belongs to a Session that dies with each
-        // generation, and the loader's most important lines are emitted while no Session exists at all.
-        if (s_log_path[0] == '\0')
-        {
-            return;
-        }
-        const HANDLE file = CreateFileA(s_log_path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-                                        OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (file == INVALID_HANDLE_VALUE)
-        {
-            return;
-        }
-        SYSTEMTIME now{};
-        GetLocalTime(&now);
-        char stamped[832];
-        const int stamped_len = std::snprintf(stamped, sizeof(stamped), "[%02u:%02u:%02u.%03u] %s", now.wHour,
-                                              now.wMinute, now.wSecond, now.wMilliseconds, line);
-        if (stamped_len > 0)
-        {
-            DWORD written = 0;
-            (void)WriteFile(file, stamped, static_cast<DWORD>(stamped_len), &written, nullptr);
-        }
-        CloseHandle(file);
-    }
-
-    template <class... Args> void logf(const char *fmt, Args... args) noexcept
-    {
-        char buffer[768];
-        if (std::snprintf(buffer, sizeof(buffer), fmt, args...) > 0)
-        {
-            log_msg(buffer);
-        }
-    }
-
-    /* ---- paths -------------------------------------------------------------------------------- */
-
-    std::string loader_dir(HMODULE self)
-    {
-        char path[MAX_PATH]{};
-        if (GetModuleFileNameA(self, path, MAX_PATH) == 0)
-        {
-            return {};
-        }
-        char *const slash = std::strrchr(path, '\\');
-        if (slash == nullptr)
-        {
-            return {};
-        }
-        slash[1] = '\0';
-        return std::string{path};
-    }
-
-    std::string generation_path(unsigned generation)
-    {
-        char name[128];
-        std::snprintf(name, sizeof(name), "%s%04u%s", k_generation_prefix, generation, k_generation_suffix);
-        return s_loader_dir + name;
-    }
-
-    void move_staged_file(const std::string &staging_dir, const char *filename)
-    {
-        const std::string src = staging_dir + filename;
-        if (GetFileAttributesA(src.c_str()) == INVALID_FILE_ATTRIBUTES)
-        {
-            return;
-        }
-        CopyFileA(src.c_str(), (s_loader_dir + filename).c_str(), FALSE);
-        DeleteFileA(src.c_str());
-    }
-
-    /// Promotes a freshly built logic DLL (and its PDB) out of the staging directory.
-    void promote_from_staging()
-    {
-        const std::string staging_dir = s_loader_dir + k_staging_subdir + "\\";
-        const std::string staged_dll = staging_dir + k_logic_dll_name;
-        if (GetFileAttributesA(staged_dll.c_str()) == INVALID_FILE_ATTRIBUTES)
-        {
-            return; // nothing new was built
-        }
-        if (!CopyFileA(staged_dll.c_str(), (s_loader_dir + k_logic_dll_name).c_str(), FALSE))
-        {
-            log_msg("Failed to promote the staged logic DLL");
-            return;
-        }
-        DeleteFileA(staged_dll.c_str());
-        move_staged_file(staging_dir, k_logic_pdb_name);
-        log_msg("Promoted staged logic DLL");
-    }
-
-    /**
-     * @brief Deletes staged copies left by earlier runs.
-     * @details A copy that still backs a mapped image stays locked, so failures are expected and ignored.
-     */
-    void sweep_stale_generations()
-    {
-        unsigned removed = 0;
-        WIN32_FIND_DATAA found{};
-        const std::string pattern = s_loader_dir + k_generation_prefix + "*" + k_generation_suffix;
-        const HANDLE search = FindFirstFileA(pattern.c_str(), &found);
-        if (search == INVALID_HANDLE_VALUE)
-        {
-            return;
-        }
-        do
-        {
-            if (DeleteFileA((s_loader_dir + found.cFileName).c_str()))
+            const DWORD capacity = static_cast<DWORD>(buffer.size());
+            const DWORD length = GetModuleFileNameW(s_loader_module, buffer.data(), capacity);
+            if (length == 0)
             {
-                ++removed;
+                return std::nullopt;
             }
-        } while (FindNextFileA(search, &found));
-        FindClose(search);
-        if (removed != 0)
-        {
-            logf("Swept %u stale generation file(s) from previous runs", removed);
+            if (length < capacity)
+            {
+                buffer.resize(length);
+                return std::filesystem::path{buffer}.parent_path();
+            }
+            if (buffer.size() >= MODULE_PATH_MAX_CHARS)
+            {
+                return std::nullopt;
+            }
+            const std::size_t next_size = buffer.size() * 2;
+            buffer.resize(next_size > MODULE_PATH_MAX_CHARS ? MODULE_PATH_MAX_CHARS : next_size);
         }
     }
 
-    /* ---- release proofs ------------------------------------------------------------------------ */
+    /// Appends one line to the loader-owned log, which survives every generation.
+    void append_log(std::string_view line) noexcept
+    {
+        try
+        {
+            SYSTEMTIME now{};
+            GetLocalTime(&now);
+            const std::string stamped = std::format("[{:02}:{:02}:{:02}.{:03}] [KCD2_TPVCamera Loader] {}\n", now.wHour,
+                                                    now.wMinute, now.wSecond, now.wMilliseconds, line);
+            OutputDebugStringA(stamped.c_str());
+            if (s_directory.empty())
+            {
+                return;
+            }
+            const std::filesystem::path log_path = s_directory / LOADER_LOG_NAME;
+            const HANDLE file = CreateFileW(log_path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                            nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (file == INVALID_HANDLE_VALUE)
+            {
+                return;
+            }
+            DWORD written = 0;
+            (void)WriteFile(file, stamped.data(), static_cast<DWORD>(stamped.size()), &written, nullptr);
+            CloseHandle(file);
+        }
+        catch (...)
+        {
+            // The log is best-effort and never terminates the loader.
+        }
+    }
+
+    template <typename... Args> void append_formatted_log(std::format_string<Args...> text, Args &&...args) noexcept
+    {
+        try
+        {
+            append_log(std::format(text, std::forward<Args>(args)...));
+        }
+        catch (...)
+        {
+        }
+    }
+
+    void remove_file(const std::filesystem::path &path) noexcept
+    {
+        std::error_code error;
+        (void)std::filesystem::remove(path, error);
+    }
+
+    /// Deletes staged copies from earlier sessions. A copy that still backs a mapped image stays locked and survives.
+    void remove_stale_staged_files() noexcept
+    {
+        try
+        {
+            std::size_t removed = 0;
+            std::error_code error;
+            for (const std::filesystem::directory_entry &entry :
+                 std::filesystem::directory_iterator(s_directory, error))
+            {
+                const std::wstring name = entry.path().filename().wstring();
+                std::error_code remove_error;
+                if (name.starts_with(STAGED_PREFIX) && name.ends_with(STAGED_SUFFIX) &&
+                    std::filesystem::remove(entry.path(), remove_error))
+                {
+                    ++removed;
+                }
+            }
+            if (removed > 0)
+            {
+                append_formatted_log("Removed {} stale staged copies", removed);
+            }
+        }
+        catch (...)
+        {
+        }
+    }
+
+    /// Moves a freshly built logic DLL and its PDB from staging\ beside the loader. A missing build changes nothing.
+    void promote_from_staging() noexcept
+    {
+        const std::filesystem::path staging = s_directory / STAGING_DIRECTORY;
+        std::error_code error;
+        if (!std::filesystem::exists(staging / LOGIC_DLL_NAME, error))
+        {
+            return;
+        }
+        for (const std::wstring_view name : {LOGIC_DLL_NAME, LOGIC_PDB_NAME})
+        {
+            std::error_code copy_error;
+            if (std::filesystem::copy_file(staging / name, s_directory / name,
+                                           std::filesystem::copy_options::overwrite_existing, copy_error))
+            {
+                remove_file(staging / name);
+            }
+            else if (name == LOGIC_DLL_NAME)
+            {
+                append_formatted_log("Promoting the staged logic DLL failed: {}", copy_error.message());
+                return;
+            }
+        }
+        append_log("Promoted the staged logic DLL");
+    }
+
+    void record_retained_generation(const Generation &generation, HMODULE loader_reference = nullptr) noexcept
+    {
+        if (s_retained_count < s_retained_loader_refs.size())
+        {
+            s_retained_loader_refs[s_retained_count] = loader_reference;
+        }
+        if (s_retained_count < (std::numeric_limits<std::size_t>::max)())
+        {
+            ++s_retained_count;
+        }
+        s_retained_bytes = generation.image_bytes > (std::numeric_limits<std::uintmax_t>::max)() - s_retained_bytes
+                               ? (std::numeric_limits<std::uintmax_t>::max)()
+                               : s_retained_bytes + generation.image_bytes;
+        append_formatted_log("Generation {} retained ({} of {} images, {} of {} bytes)", generation.generation_id,
+                             s_retained_count, MAX_RETAINED_GENERATIONS, s_retained_bytes, MAX_RETAINED_BYTES);
+    }
 
     /**
-     * @brief Waits for an address inside the retired image to stop belonging to any loaded module.
-     * @details Address-based rather than name-based: it asks the loader the exact question that matters,
-     *          and UNCHANGED_REFCOUNT keeps the probe from perturbing the count it measures. Probing a
-     *          freed address is safe - the call simply fails, which IS the answer.
+     * @brief Waits until no loaded module owns an address of the retired image.
+     * @details UNCHANGED_REFCOUNT leaves the reference count as it is, and a probe of a released address fails,
+     *          which is the answer. Never pass the returned handle to FreeLibrary.
+     * @return True only when the address becomes unmapped before the deadline.
      */
     [[nodiscard]] bool wait_for_unmap(const void *address) noexcept
     {
         if (address == nullptr)
         {
-            return false; // no probe address means no proof
+            return false;
         }
-        for (DWORD waited = 0; waited < k_unmap_timeout_ms; waited += k_unmap_poll_ms)
+        for (DWORD waited = 0; waited < UNMAP_TIMEOUT_MS; waited += UNMAP_POLL_MS)
         {
             HMODULE owner = nullptr;
             if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
@@ -271,137 +265,202 @@ namespace
             {
                 return true;
             }
-            Sleep(k_unmap_poll_ms);
+            Sleep(UNMAP_POLL_MS);
         }
         return false;
     }
 
     /**
-     * @brief Confirms the retired generation left no lease open on the resident wheel host.
-     * @details The host allows one lease at a time, so a successful open proves the generation closed
-     *          its own. A failed close leaves host state unknown, which is as serious as a failed unmap.
+     * @brief Opens and closes a probe lease after a generation's Shutdown().
+     * @details The host allows one lease at a time, so an open proves the generation closed its own. A failed
+     *          close leaves the host state unknown, which requires a restart.
+     * @return True only when the generation left no lease open.
      */
     [[nodiscard]] bool host_lease_is_closed(std::uint64_t generation_id) noexcept
     {
         WheelHostLease probe = 0;
         const int32_t open_status =
-            s_wheel_host.open_lease(s_wheel_host.host_context, k_lease_probe_owner, generation_id, &probe);
+            s_wheel_host.open_lease(s_wheel_host.host_context, LEASE_PROBE_OWNER, generation_id, &probe);
         if (open_status != DMK_WHEELHOST_OK)
         {
-            logf("Generation %llu left its wheel-host lease open (status %d)",
-                 static_cast<unsigned long long>(generation_id), open_status);
+            append_formatted_log("Generation {} left its wheel-host lease open (status {})", generation_id,
+                                 open_status);
             return false;
         }
         const int32_t close_status =
-            s_wheel_host.close_lease(s_wheel_host.host_context, probe, k_lease_probe_owner, generation_id);
+            s_wheel_host.close_lease(s_wheel_host.host_context, probe, LEASE_PROBE_OWNER, generation_id);
         if (close_status != DMK_WHEELHOST_OK)
         {
             s_restart_required = true;
-            logf("The loader could not close its wheel-host probe lease (status %d); restart required",
-                 close_status);
+            append_formatted_log("The loader could not close its wheel-host probe lease (status {})", close_status);
             return false;
         }
         return true;
     }
 
-    /// Retires a generation: lease probe, FreeLibrary once, then proof of unmap.
-    [[nodiscard]] bool release_generation(Generation &generation) noexcept
+    /**
+     * @brief Releases a retired image, or keeps its loader reference within the retention budget.
+     * @return True after accepted retirement. A failed lease probe or module release returns false.
+     */
+    [[nodiscard]] bool release_generation(Generation &generation, std::uint32_t verdict) noexcept
     {
         if (generation.module == nullptr)
         {
             return true;
         }
-        // Only meaningful when a generation actually leased the host.
-        if (k_use_resident_wheel_host && !host_lease_is_closed(generation.generation_id))
+        if (!host_lease_is_closed(generation.generation_id))
         {
             return false;
         }
-
-        // Shutdown removed every hook, so no NEW detour entry can occur. What it cannot drain is a game
-        // thread already inside a per-frame detour body in this image. Those return in microseconds.
-        Sleep(k_post_shutdown_ms);
-
-        const HMODULE module = generation.module;
-        const void *const address = generation.unmap_address;
+        if (verdict == TPVCAMERA_RELOAD_RETAINED)
+        {
+            // Keep the loader's reference: a leaked resource can still need this image even without a module pin.
+            record_retained_generation(generation, generation.module);
+            generation.module = nullptr;
+            return true;
+        }
+        if (FreeLibrary(generation.module) == 0)
+        {
+            append_formatted_log("FreeLibrary failed (error {})", GetLastError());
+            return false;
+        }
         generation.module = nullptr;
-        generation.init = nullptr;
-        generation.shutdown = nullptr;
-        generation.revision = nullptr;
-
-        if (FreeLibrary(module) == 0)
+        if (!wait_for_unmap(generation.unmap_address))
         {
-            logf("FreeLibrary failed (error %lu); restart required", GetLastError());
-            s_restart_required = true;
-            return false;
+            record_retained_generation(generation);
+            return true;
         }
-        if (!wait_for_unmap(address))
-        {
-            return false;
-        }
-        DeleteFileA(generation.path.c_str());
+        remove_file(generation.path);
         return true;
     }
 
-    /* ---- generation lifecycle ------------------------------------------------------------------- */
+    /// Runs a generation's Shutdown() and releases it on an accepted verdict.
+    [[nodiscard]] bool retire_generation(Generation &generation) noexcept
+    {
+        if (generation.shutdown == nullptr)
+        {
+            return false;
+        }
+        const std::uint32_t verdict = generation.shutdown();
+        if (verdict != TPVCAMERA_RELOAD_OK && verdict != TPVCAMERA_RELOAD_RETAINED)
+        {
+            append_log("Shutdown refused retirement; the generation stays mapped");
+            return false;
+        }
+        return release_generation(generation, verdict);
+    }
 
-    [[nodiscard]] bool load_generation()
+    /// Retires a stage whose exports or Init() failed. A stage that does not retire stays mapped until restart.
+    void retire_failed_stage(Generation &generation) noexcept
+    {
+        if (!retire_generation(generation))
+        {
+            s_restart_required = true;
+            record_retained_generation(generation, generation.module);
+            generation.module = nullptr;
+            append_log("The failed stage did not retire; restart the game before another reload");
+        }
+    }
+
+    /**
+     * @brief Copies the logic DLL to a unique staged name and measures it.
+     * @return False when the copy or its size query fails, in which case no file is left behind.
+     */
+    [[nodiscard]] bool stage_copy(Generation &generation) noexcept
+    {
+        try
+        {
+            ++s_generation_counter;
+            generation.generation_id = s_generation_counter;
+            generation.path =
+                s_directory / std::format(L"{}{:04}{}", STAGED_PREFIX, s_generation_counter, STAGED_SUFFIX);
+            std::error_code error;
+            std::filesystem::copy_file(s_directory / LOGIC_DLL_NAME, generation.path,
+                                       std::filesystem::copy_options::overwrite_existing, error);
+            if (error)
+            {
+                remove_file(generation.path);
+                append_formatted_log("Staging generation {} failed: {}", generation.generation_id, error.message());
+                return false;
+            }
+            generation.image_bytes = std::filesystem::file_size(generation.path, error);
+            if (error)
+            {
+                const std::string message = error.message();
+                remove_file(generation.path);
+                append_formatted_log("Measuring staged generation {} failed: {}", generation.generation_id, message);
+                return false;
+            }
+            return true;
+        }
+        catch (...)
+        {
+            return false;
+        }
+    }
+
+    template <class Fn> [[nodiscard]] Fn resolve_export(HMODULE module, const char *symbol) noexcept
+    {
+        return reinterpret_cast<Fn>(reinterpret_cast<void *>(GetProcAddress(module, symbol)));
+    }
+
+    /// Stages, loads, resolves and initializes one generation.
+    [[nodiscard]] bool load_generation() noexcept
     {
         Generation generation;
-        ++s_generation_counter;
-        generation.generation_id = s_generation_counter;
-        generation.path = generation_path(s_generation_counter);
-
-        if (!CopyFileA((s_loader_dir + k_logic_dll_name).c_str(), generation.path.c_str(), FALSE))
+        if (!stage_copy(generation))
         {
-            logf("Staging generation %04u failed (error %lu)", s_generation_counter, GetLastError());
             return false;
         }
-
-        generation.module = LoadLibraryA(generation.path.c_str());
+        if (s_retained_count >= MAX_RETAINED_GENERATIONS || s_retained_bytes > MAX_RETAINED_BYTES ||
+            generation.image_bytes > MAX_RETAINED_BYTES - s_retained_bytes)
+        {
+            s_restart_required = true;
+            remove_file(generation.path);
+            append_log("The next image exceeds the retention budget; restart the game before another reload");
+            return false;
+        }
+        generation.module = LoadLibraryW(generation.path.c_str());
         if (generation.module == nullptr)
         {
-            logf("LoadLibrary failed (error %lu)", GetLastError());
-            DeleteFileA(generation.path.c_str());
+            const DWORD error = GetLastError();
+            remove_file(generation.path);
+            append_formatted_log("LoadLibrary failed (error {})", error);
             return false;
         }
-        generation.init = reinterpret_cast<InitFn>(
-            reinterpret_cast<void *>(GetProcAddress(generation.module, TPVCAMERA_RELOAD_INIT_SYMBOL)));
-        generation.shutdown = reinterpret_cast<ShutdownFn>(
-            reinterpret_cast<void *>(GetProcAddress(generation.module, TPVCAMERA_RELOAD_SHUTDOWN_SYMBOL)));
-        generation.revision = reinterpret_cast<RevisionFn>(
-            reinterpret_cast<void *>(GetProcAddress(generation.module, TPVCAMERA_RELOAD_REVISION_SYMBOL)));
+        generation.init = resolve_export<InitFn>(generation.module, "Init");
+        generation.shutdown = resolve_export<ShutdownFn>(generation.module, "Shutdown");
+        generation.revision = resolve_export<RevisionFn>(generation.module, "Revision");
         generation.unmap_address = reinterpret_cast<const void *>(generation.init);
-
         if (generation.init == nullptr || generation.shutdown == nullptr || generation.revision == nullptr)
         {
-            log_msg("The logic DLL is missing Init/Shutdown/Revision exports");
-            (void)release_generation(generation);
+            append_log("The logic DLL is missing its Init, Shutdown or Revision export");
+            retire_failed_stage(generation);
             return false;
         }
-
         const TpvReloadInitRequest request{
             .struct_size = static_cast<std::uint32_t>(sizeof(TpvReloadInitRequest)),
             .abi_version = TPVCAMERA_RELOAD_ABI_VERSION,
             .generation_id = generation.generation_id,
-            .expected_host_identity = k_use_resident_wheel_host ? s_host_identity : 0,
-            .wheel_host = k_use_resident_wheel_host ? &s_wheel_host : nullptr,
+            .expected_host_identity = s_host_identity,
+            .wheel_host = &s_wheel_host,
         };
         if (generation.init(&request) != TPVCAMERA_RELOAD_OK)
         {
-            log_msg("Init refused the load");
-            (void)release_generation(generation);
+            append_log("Init failed");
+            retire_failed_stage(generation);
             return false;
         }
-
         const char *const revision = generation.revision();
-        logf("Generation %04u is live -- %s", s_generation_counter, revision != nullptr ? revision : "unknown");
+        append_formatted_log("Generation {} is live. Revision: {}.", generation.generation_id,
+                             revision != nullptr ? std::string_view{revision} : std::string_view{"unknown"});
         s_current.emplace(std::move(generation));
         return true;
     }
 
     /**
-     * @brief Retires the live generation.
-     * @return false when it must stay mapped. The caller must NOT load another over it.
+     * @brief Retires the live generation before a fresh load.
+     * @return False after a refusal or a failed release. The caller must not load another generation over it.
      */
     [[nodiscard]] bool unload_current() noexcept
     {
@@ -409,151 +468,152 @@ namespace
         {
             return true;
         }
-        if (s_current->shutdown() == 0)
+        const std::uint32_t verdict = s_current->shutdown();
+        if (verdict != TPVCAMERA_RELOAD_OK && verdict != TPVCAMERA_RELOAD_RETAINED)
         {
-            // Shutdown already ran its teardown before refusing, so the mod is inert but the image must
-            // stay mapped. Re-entering Init on this handle restores it in place - the best available
-            // outcome, and it is still the OLD code.
-            log_msg("Shutdown refused the unload; the generation stays mapped");
-            if (s_current->init != nullptr)
-            {
-                const TpvReloadInitRequest request{
-                    .struct_size = static_cast<std::uint32_t>(sizeof(TpvReloadInitRequest)),
-                    .abi_version = TPVCAMERA_RELOAD_ABI_VERSION,
-                    .generation_id = s_current->generation_id,
-                    .expected_host_identity = k_use_resident_wheel_host ? s_host_identity : 0,
-                    .wheel_host = k_use_resident_wheel_host ? &s_wheel_host : nullptr,
-                };
-                if (s_current->init(&request) == TPVCAMERA_RELOAD_OK)
-                {
-                    log_msg("Re-initialized the existing generation in place; still running the OLD code");
-                }
-            }
+            append_log("Shutdown refused retirement; the generation stays mapped. Retry after quiescence");
             return false;
         }
-
-        Generation retiring = std::move(*s_current);
-        s_current.reset();
-        if (!release_generation(retiring))
+        if (!release_generation(*s_current, verdict))
         {
-            // The image stays mapped for the process. Its code can still be reachable, so the reload
-            // budget shrinks and the loader eventually stops rather than stacking unknown state.
-            ++s_retained_generations;
-            logf("Generation %llu could not be proved gone; %u of %u retained images used",
-                 static_cast<unsigned long long>(retiring.generation_id), s_retained_generations,
-                 k_max_retained_generations);
-            if (s_retained_generations >= k_max_retained_generations)
-            {
-                s_restart_required = true;
-                log_msg("The retained-generation budget is exhausted; restart the game to reload again");
-            }
+            s_restart_required = true;
+            append_log("The current generation did not retire; restart the game before another reload");
+            return false;
+        }
+        s_current.reset();
+        return true;
+    }
+
+    /**
+     * @brief Checks the retention budget before teardown, so a full budget never retires the live generation.
+     * @details The count check reserves slots for the current generation and a failed successor. The byte check
+     *          includes the current image. load_generation() checks the successor's size before its load.
+     */
+    [[nodiscard]] bool budget_allows_reload() noexcept
+    {
+        const std::uintmax_t current_bytes = s_current.has_value() ? s_current->image_bytes : 0;
+        const std::size_t current_slot = s_current.has_value() ? 1 : 0;
+        if (s_retained_count >= MAX_RETAINED_GENERATIONS - current_slot || s_retained_bytes > MAX_RETAINED_BYTES ||
+            current_bytes > MAX_RETAINED_BYTES - s_retained_bytes)
+        {
+            s_restart_required = true;
+            append_log("The retained-generation budget is full; restart the game before another reload");
+            return false;
         }
         return true;
     }
 
-    void reload_once()
+    void reload_once() noexcept
     {
         if (s_restart_required)
         {
-            log_msg("A previous reload could not be proved safe; restart the game");
+            append_log("A previous reload could not be proved safe; restart the game");
             return;
         }
-        log_msg("Numpad 0 released -- reloading logic DLL...");
+        if (!budget_allows_reload())
+        {
+            return;
+        }
+        append_log("Numpad 0 released. The loader retires the live generation and loads the build.");
         if (!unload_current())
         {
-            return; // refused: the current generation stays live
+            return;
         }
         promote_from_staging();
         if (!load_generation())
         {
-            log_msg("Reload FAILED -- no generation is live");
+            append_log("The reload failed; no generation is live until the next press");
         }
     }
 
-    DWORD WINAPI loader_thread(LPVOID param)
+    /**
+     * @brief Accepts the reload key only while this process owns the foreground window.
+     * @details GetAsyncKeyState reads global key state, so an unguarded press in another window reloads the game.
+     */
+    [[nodiscard]] bool foreground_belongs_to_this_process() noexcept
     {
-        s_loader_dir = loader_dir(static_cast<HMODULE>(param));
-        std::snprintf(s_log_path, sizeof(s_log_path), "%s%s", s_loader_dir.c_str(), k_loader_log_name);
-        (void)DeleteFileA(s_log_path); // one log per game run, holding every generation
-
-        // Truncate the MOD log here too, exactly once, before any generation opens it.
-        //
-        // Each generation starts its Session with LogOpenMode::Append, because the default Truncate makes
-        // a reload erase the outgoing generation's teardown records - including the XInput retention
-        // warning, which is the only line that explains a retained image. But Append cannot tell "next
-        // generation" from "next game run", so nothing truncated the file at all and it accumulated
-        // across restarts (measured: 11 sessions, 4.9 MB). Owning the reset here restores the intended
-        // meaning: one file per game run, holding every generation within that run.
+        const HWND foreground = GetForegroundWindow();
+        if (foreground == nullptr)
         {
-            const std::string mod_log = s_loader_dir + k_mod_log_name;
-            (void)DeleteFileA(mod_log.c_str());
+            return false;
         }
+        DWORD process_id = 0;
+        (void)GetWindowThreadProcessId(foreground, &process_id);
+        return process_id == GetCurrentProcessId();
+    }
 
-        log_msg("Loader thread started");
-        sweep_stale_generations();
-
-        // The resident wheel host is started once, before the first generation, and never stopped. It owns
-        // the permanent wheel keepalive so no logic generation has to.
-        const int32_t host_status = wheel_host_start(0, DMK_WHEELHOST_ABI_VERSION,
-                                                     static_cast<std::uint32_t>(sizeof(s_wheel_host)), &s_wheel_host);
-        if (host_status != DMK_WHEELHOST_OK)
+    unsigned __stdcall control_thread(void *) noexcept
+    {
+        try
         {
-            logf("The resident wheel host failed to start (status %d); reload is unavailable", host_status);
-            return 0;
-        }
-        s_host_identity = s_wheel_host.host_identity;
-        log_msg("Resident wheel host started (owns the wheel keepalive for the process)");
-
-        promote_from_staging();
-        if (!load_generation())
-        {
-            log_msg("Initial logic DLL load failed -- press Numpad 0 after rebuilding to retry");
-        }
-
-        bool was_key_down = false;
-        while (s_running.load(std::memory_order_relaxed))
-        {
-            Sleep(k_control_poll_ms);
-            const bool is_key_down = (GetAsyncKeyState(k_reload_vk) & 0x8000) != 0;
-            if (was_key_down && !is_key_down) // reload on the key-up edge so a held key cannot retrigger
+            const std::optional<std::filesystem::path> directory = loader_directory();
+            if (!directory.has_value())
             {
-                if (!s_reloading.exchange(true, std::memory_order_acq_rel))
+                return 0;
+            }
+            s_directory = *directory;
+
+            // One loader log and one mod log per game run. Each generation appends to the mod log
+            // (LogOpenMode::Append), so the loader starts both files fresh exactly once.
+            remove_file(s_directory / LOADER_LOG_NAME);
+            remove_file(s_directory / MOD_LOG_NAME);
+
+            append_log("The loader started");
+            remove_stale_staged_files();
+
+            // The resident wheel host starts once, before the first generation, and lives for the process. It owns
+            // the permanent wheel keepalive, so no generation has to. ABI v2 starts unmounted in target-wait state.
+            // The logic-side poller resolves the game UI thread and drives the host retarget through the C table,
+            // so the loader needs no window wait of its own.
+            const int32_t host_status = wheel_host_start(
+                0, DMK_WHEELHOST_ABI_VERSION, static_cast<std::uint32_t>(sizeof(s_wheel_host)), &s_wheel_host);
+            if (host_status != DMK_WHEELHOST_OK)
+            {
+                append_formatted_log("The resident wheel host failed to start (status {}); reload is unavailable",
+                                     host_status);
+                return 0;
+            }
+            s_host_identity = s_wheel_host.host_identity;
+
+            promote_from_staging();
+            if (!load_generation())
+            {
+                append_log("The initial load failed; press Numpad 0 after a rebuild to retry");
+            }
+
+            bool was_down = false;
+            for (;;) // The loader lives for the game session. Process exit ends this thread.
+            {
+                Sleep(CONTROL_POLL_MS);
+                const bool down = (GetAsyncKeyState(RELOAD_VK) & KEY_DOWN_MASK) != 0;
+                if (was_down && !down && foreground_belongs_to_this_process())
                 {
                     reload_once();
-                    s_reloading.store(false, std::memory_order_release);
                 }
+                was_down = down;
             }
-            was_key_down = is_key_down;
         }
-
-        // Terminal path: the thread is exiting because s_running was cleared in DLL_PROCESS_DETACH. Only
-        // run the logic's Shutdown here; do NOT FreeLibrary. That path is joined by DllMain under the OS
-        // loader lock, which FreeLibrary also needs, so it would deadlock until the join times out.
-        if (s_current.has_value() && s_current->shutdown != nullptr)
+        catch (...)
         {
-            (void)s_current->shutdown();
+            // An exception cannot cross the CRT thread boundary into the host process.
+            return 0;
         }
-        return 0;
     }
 } // namespace
 
-BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
+/** @brief Starts the control thread on attach. The loader is never unloaded, so detach has no work. */
+BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) noexcept
 {
     if (reason == DLL_PROCESS_ATTACH)
     {
+        s_loader_module = module;
         DisableThreadLibraryCalls(module);
-        s_running.store(true, std::memory_order_relaxed);
-        s_thread = CreateThread(nullptr, 0, loader_thread, module, 0, nullptr);
-    }
-    else if (reason == DLL_PROCESS_DETACH)
-    {
-        s_running.store(false, std::memory_order_relaxed);
-        if (s_thread != nullptr)
+        const std::uintptr_t thread = _beginthreadex(nullptr, 0, &control_thread, nullptr, 0, nullptr);
+        if (thread == 0)
         {
-            WaitForSingleObject(s_thread, 2000);
-            CloseHandle(s_thread);
-            s_thread = nullptr;
+            return FALSE;
         }
+        CloseHandle(reinterpret_cast<HANDLE>(thread));
     }
     return TRUE;
 }
