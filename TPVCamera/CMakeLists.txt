@@ -77,7 +77,7 @@ if(NOT TARGET DetourModKit)
   message(FATAL_ERROR "DetourModKit target not created by subdirectory")
 endif()
 
-# --- Dear ImGui (compiled from source, linked directly -- no ReShade) ---
+# --- Dear ImGui (compiled from source, linked directly - no ReShade) ---
 # The self-hosted overlay (src/overlay) renders ImGui through a private WARP
 # D3D11 device and composites it over the game window with GDI; it links ImGui
 # directly and calls ImGui:: / ImGui_ImplWin32_* / ImGui_ImplDX11_* with no
@@ -207,7 +207,7 @@ if(NOT TPVCAMERA_DEV_BUILD)
     )
   endif()
 
-  message(STATUS "KCD2_TPVCamera (${PROJECT_VERSION}) -- production ASI build -> KCD2_TPVCamera.asi")
+  message(STATUS "KCD2_TPVCamera (${PROJECT_VERSION}) - production ASI build -> KCD2_TPVCamera.asi")
 else()
   # --- Dev Build: a thin loader ASI plus a logic DLL it hot-reloads in place ---
 
@@ -277,7 +277,7 @@ else()
                    "Set -DTPVCAMERA_GAME_DIR=<game plugins dir> to enable hot-reload deploy.")
   endif()
 
-  message(STATUS "KCD2_TPVCamera (${PROJECT_VERSION}) -- DEV (two-DLL hot-reload) build")
+  message(STATUS "KCD2_TPVCamera (${PROJECT_VERSION}) - DEV (two-DLL hot-reload) build")
   message(STATUS "    - ${PROJECT_NAME}-loader -> KCD2_TPVCamera.asi (thin loader)")
   message(STATUS "    - ${PROJECT_NAME}-logic  -> KCD2_TPVCamera.logic.dll (mod logic)")
 endif()

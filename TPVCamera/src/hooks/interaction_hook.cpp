@@ -57,7 +57,7 @@ namespace TPVCamera
         // origin+dir Vec3s the caller passed.
         using RayQueryBuildFunc = uintptr_t(__fastcall *)(uintptr_t out, uintptr_t origin, uintptr_t dir, int objtypes,
                                                           int flags, uintptr_t skip_ents, unsigned __int8 n, char mode);
-        RayQueryBuildFunc s_original = nullptr;
+        std::atomic<RayQueryBuildFunc> s_ray_query_build_original{nullptr};
 
         // [lo, hi) of sub_1808333C8 (the interactor look-ray builder). The redirect fires only when the query
         // builder's return address lies in this range, so ONLY the interaction look-ray is touched.
@@ -81,7 +81,7 @@ namespace TPVCamera
         // (shrines/beds/doors) when the body is not turned: it projects the candidate through the gameplay camera and
         // rejects it if off the reticle. We force-pass candidates whose world point lies on the crosshair ray.
         using OnScreenCheckFunc = char(__fastcall *)(uintptr_t a1, uintptr_t a2, float *a3, uintptr_t a4);
-        OnScreenCheckFunc s_onscreen_original = nullptr;
+        std::atomic<OnScreenCheckFunc> s_onscreen_original{nullptr};
         std::atomic<unsigned long long> s_onscreen_calls{0};  // on-screen reticle checks intercepted
         std::atomic<unsigned long long> s_onscreen_forced{0}; // checks force-passed for a crosshair-ray candidate
 
@@ -247,7 +247,8 @@ namespace TPVCamera
                 maybe_log_status();
             }
 
-            return s_original(out, origin, dir, objtypes, flags, skip_ents, n, mode);
+            const RayQueryBuildFunc original = s_ray_query_build_original.load(std::memory_order_acquire);
+            return original(out, origin, dir, objtypes, flags, skip_ents, n, mode);
         }
 
         /**
@@ -294,11 +295,12 @@ namespace TPVCamera
             const DetourScope in_flight;
             s_onscreen_calls.fetch_add(1, std::memory_order_relaxed);
 
+            const OnScreenCheckFunc original = s_onscreen_original.load(std::memory_order_acquire);
             float ex, ey, ez, dx, dy, dz;
             if (a2 == 0 || a3 == nullptr || !settings().interact_from_camera.load(std::memory_order_relaxed) ||
                 !interaction_aim_pose().load(ex, ey, ez, dx, dy, dz))
             {
-                return s_onscreen_original(a1, a2, a3, a4);
+                return original(a1, a2, a3, a4);
             }
 
             if (force_onscreen_candidate(a2, a3, ex, ey, ez, dx, dy, dz))
@@ -306,7 +308,7 @@ namespace TPVCamera
                 s_onscreen_forced.fetch_add(1, std::memory_order_relaxed);
                 return 1;
             }
-            return s_onscreen_original(a1, a2, a3, a4);
+            return original(a1, a2, a3, a4);
         }
 
     } // namespace
@@ -347,7 +349,7 @@ namespace TPVCamera
         }
         // Publish the trampoline and store the handle BEFORE enable() arms the patch, so the set owns a hook whose arm
         // fails with the patch live.
-        s_original = result->original<RayQueryBuildFunc>();
+        s_ray_query_build_original.store(result->original<RayQueryBuildFunc>(), std::memory_order_release);
         if (auto armed = hooks.push(std::move(*result)).enable(); !armed.has_value())
         {
             return std::unexpected(armed.error());
@@ -371,7 +373,7 @@ namespace TPVCamera
             }
             else
             {
-                s_onscreen_original = onscreen_result->original<OnScreenCheckFunc>();
+                s_onscreen_original.store(onscreen_result->original<OnScreenCheckFunc>(), std::memory_order_release);
                 if (auto armed = hooks.push(std::move(*onscreen_result)).enable(); !armed.has_value())
                 {
                     logger.warning("InteractionHook[init]: on-screen reticle hook could not be armed ({}); "

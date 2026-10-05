@@ -50,6 +50,20 @@ namespace TPVCamera
     [[nodiscard]] DMK::Result<void> initialize_camera(uintptr_t module_base, size_t module_size, HookSet &hooks);
 
     /**
+     * @brief Resolves the zoom hold bindings to BindingTokens and publishes them for the per-frame query.
+     * @details BindingToken acquisition is control-plane work. A token goes stale whenever its binding reshapes
+     *          (an INI rebind or a consume-flag change), so call this after the input engine starts and again
+     *          after every INI reload. Until the first publish the detour uses the name-based query.
+     * @note Setup/control-plane only: it allocates. Never call it from a detour or an input callback.
+     */
+    void refresh_zoom_binding_tokens() noexcept;
+
+    /**
+     * @brief Drops the published zoom BindingTokens. Call at teardown, after the detours are quiescent.
+     */
+    void release_zoom_binding_tokens() noexcept;
+
+    /**
      * @brief Stops the native turn animation, so the body follows the look again, before the hooks are removed.
      * @details The locomotion action keeps the LockBodyTurn reference it took while the mod reported third person, so
      *          unloading without this would leave the body free of the look (not following it) until the player's next

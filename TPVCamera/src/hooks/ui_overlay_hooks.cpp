@@ -15,6 +15,8 @@
 
 #include <DetourModKit.hpp>
 
+#include <atomic>
+
 namespace TPVCamera
 {
 
@@ -22,8 +24,8 @@ namespace TPVCamera
     using HideOverlaysFunc = void(__fastcall *)(void *this_ptr, uint8_t param_byte, char param_char);
     using ShowOverlaysFunc = void(__fastcall *)(void *this_ptr, uint8_t param_byte, char param_char);
 
-    static HideOverlaysFunc s_hide_overlays_original = nullptr;
-    static ShowOverlaysFunc s_show_overlays_original = nullptr;
+    static std::atomic<HideOverlaysFunc> s_hide_overlays_original{nullptr};
+    static std::atomic<ShowOverlaysFunc> s_show_overlays_original{nullptr};
 
     /**
      * @brief HideOverlays detour: a UI element is about to show, so mark the overlay active.
@@ -35,9 +37,9 @@ namespace TPVCamera
     static void __fastcall hide_overlays_detour(void *this_ptr, uint8_t param_byte, char param_char) noexcept
     {
         const DetourScope in_flight;
-        if (s_hide_overlays_original)
+        if (const HideOverlaysFunc original = s_hide_overlays_original.load(std::memory_order_acquire))
         {
-            s_hide_overlays_original(this_ptr, param_byte, param_char);
+            original(this_ptr, param_byte, param_char);
         }
         overlay_state().active.store(true, std::memory_order_relaxed);
     }
@@ -51,9 +53,9 @@ namespace TPVCamera
     static void __fastcall show_overlays_detour(void *this_ptr, uint8_t param_byte, char param_char) noexcept
     {
         const DetourScope in_flight;
-        if (s_show_overlays_original)
+        if (const ShowOverlaysFunc original = s_show_overlays_original.load(std::memory_order_acquire))
         {
-            s_show_overlays_original(this_ptr, param_byte, param_char);
+            original(this_ptr, param_byte, param_char);
         }
         overlay_state().active.store(false, std::memory_order_relaxed);
     }
@@ -78,7 +80,7 @@ namespace TPVCamera
         }
         // Publish each trampoline and store each handle BEFORE enable() arms its patch, so the set owns a hook whose
         // arm fails with the patch live.
-        s_hide_overlays_original = hide_result->original<HideOverlaysFunc>();
+        s_hide_overlays_original.store(hide_result->original<HideOverlaysFunc>(), std::memory_order_release);
         if (auto armed = hooks.push(std::move(*hide_result)).enable(); !armed.has_value())
         {
             return std::unexpected(armed.error());
@@ -95,7 +97,7 @@ namespace TPVCamera
         {
             return std::unexpected(show_result.error());
         }
-        s_show_overlays_original = show_result->original<ShowOverlaysFunc>();
+        s_show_overlays_original.store(show_result->original<ShowOverlaysFunc>(), std::memory_order_release);
         if (auto armed = hooks.push(std::move(*show_result)).enable(); !armed.has_value())
         {
             return std::unexpected(armed.error());

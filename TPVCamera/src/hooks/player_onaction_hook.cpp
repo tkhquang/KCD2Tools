@@ -28,7 +28,7 @@ namespace TPVCamera
     using ActionDispatchFunc = uintptr_t(__fastcall *)(uintptr_t self, const char **action_name,
                                                        unsigned int activation, float value);
 
-    static ActionDispatchFunc s_action_dispatch_original = nullptr;
+    static std::atomic<ActionDispatchFunc> s_action_dispatch_original{nullptr};
     static std::atomic<bool> s_available{false};
 
     // Movement action names whose value magnitude signals locomotion intent, across input devices and ALL
@@ -179,7 +179,8 @@ namespace TPVCamera
     {
         const DetourScope in_flight;
         capture_movement_input_guarded(action_name, value);
-        return s_action_dispatch_original ? s_action_dispatch_original(self, action_name, activation, value) : 0;
+        const ActionDispatchFunc original = s_action_dispatch_original.load(std::memory_order_acquire);
+        return original ? original(self, action_name, activation, value) : 0;
     }
 
     DMK::Result<void> initialize_player_onaction_hook(HookSet &hooks)
@@ -205,7 +206,7 @@ namespace TPVCamera
 
         // Publish the trampoline and store the handle BEFORE enable() arms the patch, so the set owns a hook whose arm
         // fails with the patch live.
-        s_action_dispatch_original = result->original<ActionDispatchFunc>();
+        s_action_dispatch_original.store(result->original<ActionDispatchFunc>(), std::memory_order_release);
         if (auto armed = hooks.push(std::move(*result)).enable(); !armed.has_value())
         {
             return std::unexpected(armed.error());

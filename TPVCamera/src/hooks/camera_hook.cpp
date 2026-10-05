@@ -49,6 +49,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string_view>
 #include <array>
@@ -197,11 +198,14 @@ namespace TPVCamera
     // from physics as a velocity and the rotation is composed into the body.
     using UpdatePhysEntMovementFunc = char(__fastcall *)(uintptr_t animchar, float *movement);
 
-    static FrustumBuildFunc s_frustum_build_original = nullptr;
-    static SetHeadVisibilityFunc s_set_head_visibility_original = nullptr;
-    static InputDispatchFunc s_input_dispatch_original = nullptr;
-    static CameraObserverUpdateFunc s_camera_observer_update_original = nullptr;
-    static IsThirdPersonFunc s_is_third_person_original = nullptr;
+    // Trampoline slots. Each install stores its slot with release order before the hook arms. Each detour reads its
+    // slot with acquire order, so a detour never chains through a slot it cannot see.
+    static std::atomic<FrustumBuildFunc> s_frustum_build_original{nullptr};
+    static std::atomic<SetHeadVisibilityFunc> s_set_head_visibility_original{nullptr};
+    static std::atomic<InputDispatchFunc> s_input_dispatch_original{nullptr};
+    static std::atomic<CameraObserverUpdateFunc> s_camera_observer_update_original{nullptr};
+    static std::atomic<IsThirdPersonFunc> s_is_third_person_original{nullptr};
+    static std::atomic<UpdatePhysEntMovementFunc> s_phys_ent_movement_original{nullptr};
 
     // Native turn-in-place animation. The game is kept in first person, where the body follows the look and
     // C_PlayerMovementAction (the free-roam locomotion action) never plays its turn fragments. The body follows the
@@ -248,12 +252,8 @@ namespace TPVCamera
     // game starts a turn past 35 degrees and stops it as soon as the gap is back under 35, so the body always rests
     // about 35 degrees short of the look. The hook starts a turn past s_turn_start_angle (NativeTurnAngle, radians), or
     // past k_turn_settle_angle once the look has rested for s_turn_settle_delay (NativeTurnSettleDelay). It then keeps
-    // the turn on until the body is within k_turn_finish_angle of the look, or until the gap changes sign within
-    // k_turn_wrap_angle (he faces the look, or the look came back across his facing). A sign change past
-    // k_turn_wrap_angle means the look went on past his back. There the gap wraps through 180 degrees, and its sign
-    // flips between frames while he turns. The turn keeps its direction through the wrap, so s_turn_last_sign holds
-    // the turn's direction while the turn lasts.
-    // s_turn_continuing, s_turn_last_sign and the rest state carry the decision from frame to frame. Only the hook
+    // the turn on until the body is within k_turn_finish_angle of the look, or until the gap changes sign (he faces
+    // it). s_turn_continuing, s_turn_last_sign and the rest state carry the decision from frame to frame. Only the hook
     // updates them, on whichever job worker updates the player that frame, one frame after another; a feature switch
     // in update_native_turn only resets them. The hook runs on every idle frame with a gap, so a player frame without
     // it (s_turn_decision_missed, raised by the movement detour) means the action left its idle decision (he walked, an
@@ -261,17 +261,13 @@ namespace TPVCamera
     // so a long frame is not a break. Without the movement detour the break falls back to wall-clock time: more than
     // k_turn_decision_break_ms since s_turn_decision_tick.
     // The look counts as resting while the gap stays within k_turn_rest_drift of its value when the rest began. While
-    // he is not turning only the look changes the gap, and a cumulative bound (not a per-frame rate) keeps a slow pan
-    // from counting as rest. The game's spin latch holds a turn's old direction when the gap's sign changes under it.
-    // The latch therefore keeps a wrapped turn in its direction. Any other turn that sets the latch is refused for that
-    // frame (see would_set_spin_latch). One frame later the game holds the new sign, and the turn can start. A frame
-    // without a turn clears the latch (see release_spin_latch), so the next turn starts on the gap's own sign. The
-    // action's field offsets the hook reads are resolved from the game's code at install and written before the hook
-    // arms.
-    constexpr float k_turn_finish_angle = 0.07f;    // rad (4 deg)
-    constexpr float k_turn_wrap_angle = 1.5707964f; // rad (90 deg)
-    constexpr float k_turn_settle_angle = 0.21f;    // rad (12 deg)
-    constexpr float k_turn_rest_drift = 0.0175f;    // rad (1 deg)
+    // his body holds still only the look changes the gap, and a cumulative bound (not a per-frame rate) means a slow
+    // pan never counts as rest. A turn that sets the game's spin latch is refused for that frame (see
+    // would_set_spin_latch). One frame later the game holds the new sign, and the turn can start. The action's field
+    // offsets the hook reads are resolved from the game's code at install and written before the hook arms.
+    constexpr float k_turn_finish_angle = 0.07f; // rad (4 deg)
+    constexpr float k_turn_settle_angle = 0.21f; // rad (12 deg)
+    constexpr float k_turn_rest_drift = 0.0175f; // rad (1 deg)
     constexpr uint64_t k_turn_decision_break_ms = 150;
     static std::atomic<float> s_turn_start_angle{0.61086524f};
     static std::atomic<float> s_turn_settle_delay{0.8f}; // seconds, 0 = no settle turns
@@ -305,7 +301,6 @@ namespace TPVCamera
     static std::atomic<int> s_turn_tail_frames{0};
     static std::atomic<uint64_t> s_turn_decided_tick{0};
     static std::atomic<uintptr_t> s_player_animchar{0};
-    static UpdatePhysEntMovementFunc s_phys_ent_movement_original = nullptr;
     static ptrdiff_t s_movement_type_offset = 0;
 
     // Crouched animations (see Constants::CROUCHED_IDLE_PLAYER_ANIMATION). The game looks a clip's animation up by the
@@ -327,6 +322,20 @@ namespace TPVCamera
     static std::atomic<float> s_ai_eye_y{0.0f};
     static std::atomic<float> s_ai_eye_z{0.0f};
     static std::atomic<bool> s_ai_eye_valid{false};
+
+    /**
+     * @brief The zoom hold bindings resolved to BindingTokens for the per-frame query.
+     * @details Acquired on the control plane (refresh_zoom_binding_tokens: after the input engine starts and after
+     *          every INI reload, the only places their bindings reshape) and published whole, so the render thread
+     *          never resolves a binding name itself. A token left stale by a reshape reads "not held" (fail closed)
+     *          until the reload callback republishes, a window of a few milliseconds.
+     */
+    struct ZoomBindingTokens
+    {
+        DMK::input::BindingToken zoom_in;
+        DMK::input::BindingToken zoom_out;
+    };
+    static std::atomic<std::shared_ptr<const ZoomBindingTokens>> s_zoom_tokens;
 
     // Resolved SSystemGlobalEnvironment (g_env) base, set once at init by the AOB cascade (0 when it missed).
     // Reused by the player/animchar walks. p_physical_world is g_env + PHYSICAL_WORLD_OFFSET.
@@ -1050,28 +1059,22 @@ namespace TPVCamera
 
         // Follow distance = configured base (hot-reloadable INI FollowDistance, re-read every
         // frame so an edit applies live) plus the accumulated zoom offset from the hold
-        // keys (queried lock-free, render thread safe), clamped to the configured window.
-        // Query the two zoom holds through resolved BindingTokens rather than by name: this runs on the
-        // render thread every frame, and a token skips the name lookup for a direct slot read. A token is
-        // invalidated by any reshape of the binding SET, which for this mod means an INI reload rebinding
-        // the zoom combos, so token_current() re-acquires rather than silently reading a stale slot.
-        // is_active(token) is itself fail-closed on a stale token, making this a performance guard only.
+        // keys, clamped to the configured window. The holds are queried through the BindingTokens the control
+        // plane publishes (refresh_zoom_binding_tokens), the library's per-frame form of the query. Before the
+        // first publish the name-based query stands in.
         const DMK::input::Input &input = DMK::input::Input::instance();
-        static DMK::input::BindingToken s_zoom_in_token = input.acquire_token(k_zoom_in_binding);
-        static DMK::input::BindingToken s_zoom_out_token = input.acquire_token(k_zoom_out_binding);
-        if (!input.token_current(s_zoom_in_token))
-        {
-            s_zoom_in_token = input.acquire_token(k_zoom_in_binding);
-            s_zoom_out_token = input.acquire_token(k_zoom_out_binding);
-        }
-
+        const std::shared_ptr<const ZoomBindingTokens> zoom_tokens = s_zoom_tokens.load(std::memory_order_acquire);
+        const bool zoom_in_held =
+            zoom_tokens ? input.is_active(zoom_tokens->zoom_in) : input.is_active(k_zoom_in_binding);
+        const bool zoom_out_held =
+            zoom_tokens ? input.is_active(zoom_tokens->zoom_out) : input.is_active(k_zoom_out_binding);
         float zoom_offset = cam.zoom_offset.load(std::memory_order_relaxed);
         const float zoom_step = cfg.zoom_step.load(std::memory_order_relaxed);
-        if (input.is_active(s_zoom_in_token))
+        if (zoom_in_held)
         {
             zoom_offset -= zoom_step * delta_time; // zoom in pulls the camera closer
         }
-        if (input.is_active(s_zoom_out_token))
+        if (zoom_out_held)
         {
             zoom_offset += zoom_step * delta_time;
         }
@@ -2388,9 +2391,9 @@ namespace TPVCamera
      */
     static void call_head_visibility(uintptr_t entity, bool hide_head, uint8_t flags)
     {
-        if (s_set_head_visibility_original)
+        if (const SetHeadVisibilityFunc original = s_set_head_visibility_original.load(std::memory_order_acquire))
         {
-            s_set_head_visibility_original(entity, hide_head, static_cast<char>(flags));
+            original(entity, hide_head, static_cast<char>(flags));
         }
     }
 
@@ -3079,7 +3082,8 @@ namespace TPVCamera
     {
         const DetourScope in_flight;
         frustum_build_offset_guarded(camera);
-        return s_frustum_build_original ? s_frustum_build_original(camera) : 0;
+        const FrustumBuildFunc original = s_frustum_build_original.load(std::memory_order_acquire);
+        return original ? original(camera) : 0;
     }
 
     /**
@@ -3087,28 +3091,26 @@ namespace TPVCamera
      * @details Apart from the detour, because the detour's DetourScope needs C++ object unwinding, which a __try
      *          frame cannot hold.
      */
-    static void set_head_visibility_guarded(uintptr_t entity, bool hide_head, char flags) noexcept
+    static void set_head_visibility_guarded(SetHeadVisibilityFunc original, uintptr_t entity, bool hide_head,
+                                            char flags) noexcept
     {
         __try
         {
-            if (s_set_head_visibility_original)
-            {
-                // Latch the player entity, the flags, and the game's intended hide value so
-                // the per-frame re-assert can keep the head shown while the offset is active
-                // and restore the game's value when it turns off. This is the player because
-                // the setter only toggles the FirstPersonView rig.
-                s_head_entity.store(entity, std::memory_order_relaxed);
-                s_head_flags.store(static_cast<uint8_t>(flags), std::memory_order_relaxed);
-                s_game_intended_hide_head.store(hide_head, std::memory_order_relaxed);
+            // Latch the player entity, the flags, and the game's intended hide value so
+            // the per-frame re-assert can keep the head shown while the offset is active
+            // and restore the game's value when it turns off. This is the player because
+            // the setter only toggles the FirstPersonView rig.
+            s_head_entity.store(entity, std::memory_order_relaxed);
+            s_head_flags.store(static_cast<uint8_t>(flags), std::memory_order_relaxed);
+            s_game_intended_hide_head.store(hide_head, std::memory_order_relaxed);
 
-                // Mirror the head to the offset's effective active state (published by the frustum
-                // detour) rather than the raw toggle, so a forced-FPV/TPV state shows or hides the head
-                // to match the view the player actually sees. The first-person fallback (camera at the
-                // eye, no room behind) hides it like first person does.
-                const bool active = s_offset_active.load(std::memory_order_relaxed);
-                const bool final_hide_head = active ? s_head_fallback.load(std::memory_order_relaxed) : hide_head;
-                s_set_head_visibility_original(entity, final_hide_head, flags);
-            }
+            // Mirror the head to the offset's effective active state (published by the frustum
+            // detour) rather than the raw toggle, so a forced-FPV/TPV state shows or hides the head
+            // to match the view the player actually sees. The first-person fallback (camera at the
+            // eye, no room behind) hides it like first person does.
+            const bool active = s_offset_active.load(std::memory_order_relaxed);
+            const bool final_hide_head = active ? s_head_fallback.load(std::memory_order_relaxed) : hide_head;
+            original(entity, final_hide_head, flags);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -3126,7 +3128,10 @@ namespace TPVCamera
     static void __fastcall detour_set_head_visibility(uintptr_t entity, bool hide_head, char flags) noexcept
     {
         const DetourScope in_flight;
-        set_head_visibility_guarded(entity, hide_head, flags);
+        if (const SetHeadVisibilityFunc original = s_set_head_visibility_original.load(std::memory_order_acquire))
+        {
+            set_head_visibility_guarded(original, entity, hide_head, flags);
+        }
     }
 
     /**
@@ -3247,9 +3252,13 @@ namespace TPVCamera
     static void __fastcall detour_input_dispatch(uintptr_t controller, uintptr_t input_event, char flag) noexcept
     {
         const DetourScope in_flight;
-        if (!orbit_capture_guarded(input_event) && s_input_dispatch_original)
+        if (orbit_capture_guarded(input_event))
         {
-            s_input_dispatch_original(controller, input_event, flag);
+            return;
+        }
+        if (const InputDispatchFunc original = s_input_dispatch_original.load(std::memory_order_acquire))
+        {
+            original(controller, input_event, flag);
         }
     }
 
@@ -3295,9 +3304,9 @@ namespace TPVCamera
                                                          float *direction, bool *direction_valid, float *fov) noexcept
     {
         const DetourScope in_flight;
+        const CameraObserverUpdateFunc original = s_camera_observer_update_original.load(std::memory_order_acquire);
         const bool updated =
-            s_camera_observer_update_original != nullptr &&
-            s_camera_observer_update_original(observer, position, position_valid, direction, direction_valid, fov);
+            original != nullptr && original(observer, position, position_valid, direction, direction_valid, fov);
         // The original has just written through this pointer, so writing it again is as safe as its own store.
         if (updated && position != nullptr && s_offset_active.load(std::memory_order_relaxed) &&
             s_ai_eye_valid.load(std::memory_order_acquire))
@@ -3390,7 +3399,8 @@ namespace TPVCamera
             return;
         }
         // Publish the trampoline before enable() arms the patch, so the detour never sees a null original.
-        s_camera_observer_update_original = result->original<CameraObserverUpdateFunc>();
+        s_camera_observer_update_original.store(result->original<CameraObserverUpdateFunc>(),
+                                                std::memory_order_release);
         const auto armed = hooks.push(std::move(*result)).enable();
         if (!armed.has_value())
         {
@@ -3427,7 +3437,7 @@ namespace TPVCamera
                 return true;
             }
         }
-        const IsThirdPersonFunc original = s_is_third_person_original;
+        const IsThirdPersonFunc original = s_is_third_person_original.load(std::memory_order_acquire);
         return original != nullptr && original(actor);
     }
 
@@ -3448,21 +3458,6 @@ namespace TPVCamera
             return true;
         }
         return *latched == 0 && (*state == 1 || *state == 2) && *last_sign != 0.0f && *last_sign != sign;
-    }
-
-    /**
-     * @brief Clears the game's spin latch on @p action when it is set, so the next turn takes the gap's own sign.
-     * @details The game derives the latch on every evaluation from its current value, so a cleared latch stays clear
-     *          until a turn sets it. A latch left set holds at least until the gap is back under 20 degrees, which
-     *          can outlast the turn that set it.
-     */
-    static void release_spin_latch(uintptr_t action) noexcept
-    {
-        const DMK::Address latch{action + s_spin_latch_offset};
-        if (DMK::memory::read<uint8_t>(latch).value_or(0) != 0)
-        {
-            (void)DMK::memory::write_in_place<uint8_t>(latch, 0);
-        }
     }
 
     /**
@@ -3518,23 +3513,16 @@ namespace TPVCamera
         const uint64_t rest_ms = now - s_turn_rest_since.load(std::memory_order_relaxed);
         const bool rested = settle_delay > 0.0f && static_cast<float>(rest_ms) >= settle_delay * 1000.0f;
 
-        // A started turn continues until he faces the look, in its own direction through a wrap of the gap (see
-        // k_turn_wrap_angle). Otherwise a turn starts past the start angle, or past the settle angle after the look
-        // rested. Only a wrapped turn can set the game's spin latch, which holds the turn's direction.
-        const uintptr_t action = DMK::hook::gpr(ctx, DMK::hook::Gpr::Rdi);
-        const bool continuing = s_turn_continuing.load(std::memory_order_relaxed);
-        const float direction = s_turn_last_sign.load(std::memory_order_relaxed);
-        const bool wrapped = continuing && sign != direction && gap_abs > k_turn_wrap_angle;
-        const bool wants_turn = continuing ? gap_abs > k_turn_finish_angle && (sign == direction || wrapped)
-                                           : gap_abs > s_turn_start_angle.load(std::memory_order_relaxed) ||
-                                                 (gap_abs > k_turn_settle_angle && rested);
-        const bool turn = wants_turn && (wrapped || !would_set_spin_latch(action, sign));
-        if (!turn)
-        {
-            release_spin_latch(action);
-        }
+        // A started turn continues until he faces the look. Otherwise a turn starts past the start angle, or past the
+        // settle angle after the look rested.
+        const bool wants_turn =
+            s_turn_continuing.load(std::memory_order_relaxed)
+                ? gap_abs > k_turn_finish_angle && sign == s_turn_last_sign.load(std::memory_order_relaxed)
+                : gap_abs > s_turn_start_angle.load(std::memory_order_relaxed) ||
+                      (gap_abs > k_turn_settle_angle && rested);
+        const bool turn = wants_turn && !would_set_spin_latch(DMK::hook::gpr(ctx, DMK::hook::Gpr::Rdi), sign);
         s_turn_continuing.store(turn, std::memory_order_relaxed);
-        s_turn_last_sign.store(wrapped ? direction : sign, std::memory_order_relaxed);
+        s_turn_last_sign.store(sign, std::memory_order_relaxed);
         if (turn)
         {
             s_turn_decided_tick.store(now, std::memory_order_relaxed);
@@ -3551,75 +3539,12 @@ namespace TPVCamera
         cpu_flags = turn ? (cpu_flags & ~(k_carry_flag | k_zero_flag)) : (cpu_flags | k_zero_flag);
     }
 
-    // The game's move states for an installed turn (ComputeMoveState's return value, held in esi on the turn path).
-    constexpr uintptr_t k_turn_kind_small = 1;
-    constexpr uintptr_t k_turn_kind_large = 2;
-
-    /**
-     * @brief Turn-kind mid hook: keeps the player's native turns on the game's small-turn fragment.
-     * @details Runs on the game's turn path right after the game picks the turn fragment type into esi (see
-     *          Aob::k_turnKindCandidates). A gap of at most 90 degrees picks a small turn, and a larger gap picks a
-     *          large turn. An action without a large-turn fragment picks a small turn at any angle. The game picks
-     *          again every frame with no hysteresis. A change of type installs the other fragment, and its clip starts
-     *          over. A turn whose gap crosses 90 degrees therefore restarts its animation midway, and a gap near 90
-     *          degrees restarts it again and again. The first-person game never plays either fragment. The hook turns
-     *          a large turn into a small one, which is the game's own path for an action without a large-turn
-     *          fragment. Each native turn therefore plays one fragment from start to finish. Any other actor is left
-     *          to the game.
-     */
-    static void detour_turn_kind(DMK::hook::MidContext &ctx) noexcept
-    {
-        const uintptr_t actor = DMK::hook::gpr(ctx, DMK::hook::Gpr::Rbx);
-        if (actor == 0 || actor != s_native_turn_actor.load(std::memory_order_relaxed))
-        {
-            return;
-        }
-        uintptr_t &kind = DMK::hook::gpr(ctx, DMK::hook::Gpr::Rsi);
-        if (kind == k_turn_kind_large)
-        {
-            kind = k_turn_kind_small;
-        }
-    }
-
-    /**
-     * @brief Hooks the turn path's fragment-type choice (see detour_turn_kind). Best-effort: without it a turn past 90
-     *        degrees switches between the large-turn and small-turn fragments and restarts its animation midway.
-     * @param kind_site The site resolve_turn_decision_layout proved, or 0 when it did not resolve.
-     */
-    static void install_turn_kind_hook(uintptr_t kind_site, HookSet &hooks)
-    {
-        DMK::Logger &logger = DMK::log();
-        if (kind_site == 0)
-        {
-            logger.warning("Camera: turn kind hook skipped; turns past 90 degrees restart their animation midway");
-            return;
-        }
-        auto result = DMK::hook::mid_at(DMK::hook::MidRequest{.name = "TurnKind", .target = DMK::Address{kind_site}},
-                                        detour_turn_kind);
-        if (!result.has_value())
-        {
-            logger.warning("Camera: turn kind hook failed ({}); turns past 90 degrees restart their animation midway",
-                           result.error().message());
-            return;
-        }
-        const auto armed = hooks.push(std::move(*result)).enable();
-        if (!armed.has_value())
-        {
-            logger.warning("Camera: turn kind hook could not be armed ({}); turns past 90 degrees restart their "
-                           "animation midway",
-                           armed.error().message());
-            return;
-        }
-        logger.info("Camera: turn kind hooked at {} (every turn plays the small-turn fragment)",
-                    DMK::format::format_address(kind_site));
-    }
-
     /**
      * @brief Installs the turn-decision mid hook on the site resolve_turn_decision_layout proves around the trigger.
      * @details Best-effort: without it the native turn still works, with the game's own 35 degrees and the body
      *          resting about 35 degrees short of the look. The layout fixes the registers the hook reads (rbx, xmm13,
      *          rdi, r12), the instruction it sits on, and the action's spin-latch field offsets, which are written
-     *          before the hook arms. The turn-kind hook goes in with it.
+     *          before the hook arms.
      * @return True when the hook is armed.
      */
     static bool install_turn_decision_hook(uintptr_t trigger_return, HookSet &hooks)
@@ -3653,7 +3578,6 @@ namespace TPVCamera
         }
         logger.info("Camera: turn decision hooked at {} (turns finish facing the look)",
                     DMK::format::format_address(site));
-        install_turn_kind_hook(layout->kind_site, hooks);
         return true;
     }
 
@@ -3691,7 +3615,7 @@ namespace TPVCamera
                 }
             }
         }
-        const UpdatePhysEntMovementFunc original = s_phys_ent_movement_original;
+        const UpdatePhysEntMovementFunc original = s_phys_ent_movement_original.load(std::memory_order_acquire);
         return original != nullptr ? original(animchar, movement) : 0;
     }
 
@@ -3728,7 +3652,7 @@ namespace TPVCamera
             return;
         }
         // Published before enable() arms the patch, and never cleared: an armed or pinned hook still routes through it.
-        s_phys_ent_movement_original = result->original<UpdatePhysEntMovementFunc>();
+        s_phys_ent_movement_original.store(result->original<UpdatePhysEntMovementFunc>(), std::memory_order_release);
         const auto armed = hooks.push(std::move(*result)).enable();
         if (!armed.has_value())
         {
@@ -3962,7 +3886,7 @@ namespace TPVCamera
             return;
         }
         // Publish the trampoline before enable() arms the patch, so the detour never sees a null original.
-        s_is_third_person_original = result->original<IsThirdPersonFunc>();
+        s_is_third_person_original.store(result->original<IsThirdPersonFunc>(), std::memory_order_release);
         const auto armed = hooks.push(std::move(*result)).enable();
         if (!armed.has_value())
         {
@@ -4092,7 +4016,7 @@ namespace TPVCamera
         // Publish the trampoline and store the handle BEFORE enable() arms the patch. The detour then cannot observe a
         // null original on its first frame, and the set owns a hook whose arm fails with the patch live. The backend
         // allocates the trampoline at install, so it is readable off the still-disabled handle.
-        s_frustum_build_original = frustum_result->original<FrustumBuildFunc>();
+        s_frustum_build_original.store(frustum_result->original<FrustumBuildFunc>(), std::memory_order_release);
         if (auto armed = hooks.push(std::move(*frustum_result)).enable(); !armed.has_value())
         {
             return std::unexpected(armed.error());
@@ -4118,7 +4042,8 @@ namespace TPVCamera
             }
             else
             {
-                s_set_head_visibility_original = head_result->original<SetHeadVisibilityFunc>();
+                s_set_head_visibility_original.store(head_result->original<SetHeadVisibilityFunc>(),
+                                                     std::memory_order_release);
                 if (auto armed = hooks.push(std::move(*head_result)).enable(); !armed.has_value())
                 {
                     logger.warning("Camera: Head visibility hook could not be armed ({}); player may appear "
@@ -4149,7 +4074,7 @@ namespace TPVCamera
             }
             else
             {
-                s_input_dispatch_original = input_result->original<InputDispatchFunc>();
+                s_input_dispatch_original.store(input_result->original<InputDispatchFunc>(), std::memory_order_release);
                 if (auto armed = hooks.push(std::move(*input_result)).enable(); !armed.has_value())
                 {
                     logger.warning("Camera: Input dispatcher hook could not be armed ({}); free-look orbit "
@@ -4169,6 +4094,30 @@ namespace TPVCamera
 
         logger.info("Camera: Third-person camera hooks installed");
         return {};
+    }
+
+    void refresh_zoom_binding_tokens() noexcept
+    {
+        try
+        {
+            const DMK::input::Input &input = DMK::input::Input::instance();
+            s_zoom_tokens.store(std::make_shared<const ZoomBindingTokens>(ZoomBindingTokens{
+                                    .zoom_in = input.acquire_token(k_zoom_in_binding),
+                                    .zoom_out = input.acquire_token(k_zoom_out_binding),
+                                }),
+                                std::memory_order_release);
+        }
+        catch (...)
+        {
+            // An allocation failure leaves no tokens published, so the render thread falls back to the name-based
+            // query and never reads a stale pair.
+            s_zoom_tokens.store(nullptr, std::memory_order_release);
+        }
+    }
+
+    void release_zoom_binding_tokens() noexcept
+    {
+        s_zoom_tokens.store(nullptr, std::memory_order_release);
     }
 
 } // namespace TPVCamera
