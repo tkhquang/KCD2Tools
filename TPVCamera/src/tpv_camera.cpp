@@ -378,24 +378,27 @@ namespace TPVCamera
 
     /**
      * @brief Starts the INI hot-reload watcher.
-     * @details The bound atomic setters re-apply the live settings on each reload,
-     *          so the callback only reports the outcome.
+     * @details The bound setters re-apply the live settings on each reload. A reload that runs them also rebinds
+     *          every key combo (Input::rebind) and re-applies each Consume flag, the only runtime reshapes of the
+     *          input bindings. A reshape leaves the published zoom BindingTokens stale, so the callback republishes
+     *          them on the watcher thread, a control-plane thread, before it reports the outcome.
      */
-    static void enable_hot_reload()
+    static void enable_hot_reload(const DMK::config::Ini &ini)
     {
         DMK::Logger &logger = DMK::log();
 
         const DMK::config::AutoReloadStatus status =
-            DMK::config::enable_auto_reload(std::chrono::milliseconds{250},
-                                            [](bool setters_ran)
-                                            {
-                                                DMK::Logger &reload_logger = DMK::log();
-                                                if (setters_ran)
-                                                    reload_logger.info("INI auto-reload: live settings applied");
-                                                else
-                                                    reload_logger.info("INI auto-reload: no setter ran (file unchanged "
-                                                                       "or unreadable)");
-                                            });
+            ini.enable_auto_reload(std::chrono::milliseconds{250},
+                                   [](bool setters_ran)
+                                   {
+                                       refresh_zoom_binding_tokens();
+                                       DMK::Logger &reload_logger = DMK::log();
+                                       if (setters_ran)
+                                           reload_logger.info("INI auto-reload: live settings applied");
+                                       else
+                                           reload_logger.info("INI auto-reload: no setter ran (file unchanged or "
+                                                              "unreadable)");
+                                   });
 
         if (status == DMK::config::AutoReloadStatus::Started)
             logger.info("INI hot-reload watcher started (250 ms debounce)");
@@ -414,15 +417,16 @@ namespace TPVCamera
         // pointer stays valid for as long as any binding can be registered.
         s_binding_scope = &session.scope();
 
-        // Register every config item, then the press and hold bindings, then load and log once. The
-        // bindings are all registered before load() so the INI key combos (and the optional consume flags
-        // on the gamepad zoom triggers) apply to them during load, exactly as the press combos rebind on
-        // load.
+        // Register every config item, then the press and hold bindings, then load and log once through the
+        // Session's INI handle. The bindings are all registered before load() so the INI key combos (and the
+        // optional consume flags on the gamepad zoom triggers) apply to them during load, exactly as the press
+        // combos rebind on load.
+        const DMK::config::Ini ini = session.ini();
         register_config_items();
         register_press_bindings();
         register_hold_bindings();
-        DMK::config::load(Constants::get_config_filename());
-        DMK::config::log_all();
+        ini.load(Constants::get_config_filename());
+        ini.log_all();
 
         // Camera presets are user-owned and created automatically: the file is seeded from the embedded
         // factory defaults on first run, any missing built-in is re-added, and a corrupt file falls back to
@@ -442,11 +446,8 @@ namespace TPVCamera
 
         // Each fallible step below returns the library's own typed Error rather than a mod-invented one, so
         // init()'s caller sees the real ErrorCode (and its category) instead of a stringified summary.
-        if (auto validated = validate_game_module(); !validated)
-            return validated;
-
-        if (auto hooked = initialize_hooks(); !hooked)
-            return hooked;
+        DMK_TRY_VOID(validate_game_module());
+        DMK_TRY_VOID(initialize_hooks());
 
         // The input engine drives every hotkey, so a failed start disables the mod's controls even though
         // the camera itself still renders. Surface the reason rather than discarding it.
@@ -460,7 +461,7 @@ namespace TPVCamera
             input_settings.wheel_host = wheel_host;
             input_settings.wheel_host_required = true;
         }
-        if (auto started = DMK::input::Input::instance().start(input_settings); !started.has_value())
+        if (auto started = session.input().start(input_settings); !started.has_value())
         {
             logger.error("Input engine failed to start ({}); hotkeys unavailable", started.error().message());
             return std::unexpected(started.error());
@@ -468,7 +469,10 @@ namespace TPVCamera
         logger.info("Input engine started ({} wheel backend)",
                     wheel_host != nullptr ? "resident-host" : "local MessageHook");
 
-        enable_hot_reload();
+        // The input engine now holds the bindings, so resolve the per-frame zoom tokens for the first time.
+        refresh_zoom_binding_tokens();
+
+        enable_hot_reload(ini);
 
         // Apply the start-of-session auto-enable flags (read once here; disabled by default). The view
         // gate (should_apply_view) still suppresses the offset under menus/loading, so an auto-enabled
@@ -549,6 +553,8 @@ namespace TPVCamera
         const RetireStatus hooks = s_hooks.retire();
         if (hooks == RetireStatus::Retired)
         {
+            // No detour runs any more, so the zoom tokens the frustum detour read can go.
+            release_zoom_binding_tokens();
             logger.info("Shutdown: teardown complete");
         }
         return hooks;

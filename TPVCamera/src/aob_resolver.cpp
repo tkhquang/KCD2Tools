@@ -423,9 +423,9 @@ namespace TPVCamera
             AnchorId::MenuClose,      AnchorId::PhysEntMovement,
         };
 
-        // Room after the startup pass for the function-scoped anchors resolve_turn_decision_layout() (eight) and
+        // Room after the startup pass for the function-scoped anchors resolve_turn_decision_layout() (six) and
         // resolve_movement_type_offset() (one) append.
-        constexpr std::size_t k_max_scoped_report = 9;
+        constexpr std::size_t k_max_scoped_report = 7;
         constexpr std::size_t k_max_report = k_anchor_count + k_max_scoped_report;
 
         // Resolved absolute addresses, indexed by AnchorId. 0 means unresolved or a scalar anchor. Zero-initialized
@@ -822,25 +822,6 @@ namespace TPVCamera
             }
             return entry->value;
         }
-
-        /**
-         * @brief Finds the instruction after the turn path's fragment-type choice (see k_turnKindCandidates) in
-         *        @p body.
-         * @details The instruction must read the installed-turn state at @p installed_state, which ties the choice to
-         *          the same action.
-         * @return The instruction's address, or 0 when either does not hold.
-         */
-        [[nodiscard]] std::uintptr_t resolve_turn_kind_site(const DMK::Region &body, std::int64_t installed_state)
-        {
-            const std::uintptr_t site =
-                scoped_address(code_ladder("TurnKind", Aob::k_turnKindCandidates, Role::Site), body);
-            const std::optional<std::int64_t> state_read =
-                site != 0 ? scoped_value(code_operand("TurnKind.StateRead", Aob::k_turnKindCandidates,
-                                                      OperandKind::MemoryDisplacement, 1, k_dword_field_range),
-                                         body)
-                          : std::nullopt;
-            return state_read == installed_state ? site : 0;
-        }
     } // namespace
 
     void resolve_all_anchors(std::uintptr_t module_base, std::size_t module_size)
@@ -1021,22 +1002,13 @@ namespace TPVCamera
             return refuse("the movement action's spin-latch fields");
         }
 
-        const std::uintptr_t kind_site = resolve_turn_kind_site(body, *installed_state);
-        if (kind_site == 0)
-        {
-            logger.warning("Turn decision: the turn path's fragment-type choice did not resolve");
-        }
-
-        logger.debug(
-            "Turn decision: site {}, spin latch +{:#x}, installed state +{:#x}, last sign +{:#x}, kind site {}",
-            DMK::format::format_address(site), *spin_latch, *installed_state, *last_sign,
-            DMK::format::format_address(kind_site));
+        logger.debug("Turn decision: site {}, spin latch +{:#x}, installed state +{:#x}, last sign +{:#x}",
+                     DMK::format::format_address(site), *spin_latch, *installed_state, *last_sign);
         return TurnDecisionLayout{
             .site = site,
             .spin_latch_offset = static_cast<std::ptrdiff_t>(*spin_latch),
             .installed_state_offset = static_cast<std::ptrdiff_t>(*installed_state),
             .last_sign_offset = static_cast<std::ptrdiff_t>(*last_sign),
-            .kind_site = kind_site,
         };
     }
 

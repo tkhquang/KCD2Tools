@@ -520,22 +520,6 @@ namespace TPVCamera
             Candidate::direct("TurnOutput_P1_Store", Pattern::literal("4D 85 E4 [2-6] F3 41 0F 11 ?? 24")),
         };
 
-        // The turn path's fragment-type choice, after the spin-latch update:
-        //   test cl, cl; jz              no turn
-        //   comiss xmm4, xmm7            90 degrees against |angle|
-        //   jae                          to `mov esi, ebp` (a small turn, ebp = 1)
-        //   cmp dword [rdi+disp32], -1   the large-turn fragment id
-        //   mov esi, 2                   a large turn
-        //   jne                          over `mov esi, ebp`
-        //   mov esi, ebp                 a small turn, also for an action without a large-turn fragment
-        // The `|` is the next instruction, `mov eax, [rdi+disp32]` (the installed-turn state). esi holds the choice
-        // there on every path. The short branch distances are literal, because they prove that.
-        inline const Candidate k_turnKindCandidates[] = {
-            Candidate::direct("TurnKind_P1_ChoiceThroughStateRead",
-                              Pattern::literal("84 C9 [2-6] 0F 2F E7 73 0E 83 BF ?? ?? ?? ?? FF BE 02 00 00 00 75 02 "
-                                               "8B F5 | 8B 87 ?? ?? ?? ??")),
-        };
-
         // CAnimatedCharacter's movement request type (int32: 1 absolute, 2 impulse), inside
         // UpdatePhysicalEntityMovement, where rdi holds the CAnimatedCharacter: `mov r9d, [rdi+disp32]; cmp r9d, 2`.
         inline const Candidate k_movementTypeCandidates[] = {
@@ -837,8 +821,6 @@ namespace TPVCamera
         std::ptrdiff_t installed_state_offset = 0;
         /// The previous evaluation's gap sign (float, 0 for none).
         std::ptrdiff_t last_sign_offset = 0;
-        /// The instruction after the turn path's fragment-type choice, where esi holds the choice (0 = unresolved).
-        std::uintptr_t kind_site = 0;
     };
 
     /**
@@ -902,11 +884,8 @@ namespace TPVCamera
      *          - `mov r12, rdx` lies in the prologue and the output store in the same fragment as the trigger.
      *          - the spin latch and last sign are 2-of-2 quorums inside that fragment, and the installed state is
      *            the TurnInstalledState anchor.
-     *          - optionally, the turn path's fragment-type choice (k_turnKindCandidates) lies in the same fragment
-     *            and reads the same installed-state field. A failure leaves kind_site 0 and logs a warning, and the
-     *            layout still holds.
-     *          Each scoped anchor is appended to anchor_report(). Logs the first required proof that fails.
-     * @return The layout, or std::nullopt when any required proof fails.
+     *          Each scoped anchor is appended to anchor_report(). Logs the first proof that fails.
+     * @return The layout, or std::nullopt when any proof fails.
      * @note Setup/control-plane only. Call on the init thread after resolve_all_anchors().
      */
     [[nodiscard]] std::optional<TurnDecisionLayout> resolve_turn_decision_layout(std::uintptr_t trigger_return);

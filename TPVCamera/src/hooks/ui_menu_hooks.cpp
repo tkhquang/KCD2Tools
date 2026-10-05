@@ -20,9 +20,8 @@ namespace TPVCamera
     using MenuOpenFunc = void(__fastcall *)(void *this_ptr, char param_byte);
     using MenuCloseFunc = void(__fastcall *)(void *this_ptr);
 
-    // Hook state
-    static MenuOpenFunc s_menu_open_original = nullptr;
-    static MenuCloseFunc s_menu_close_original = nullptr;
+    static std::atomic<MenuOpenFunc> s_menu_open_original{nullptr};
+    static std::atomic<MenuCloseFunc> s_menu_close_original{nullptr};
 
     // Menu state tracking
     static std::atomic<bool> s_is_menu_open(false);
@@ -42,9 +41,9 @@ namespace TPVCamera
         (void)DMK::log().log_noexcept(DMK::LogLevel::Debug, "UIMenuHook: Game menu is opening");
         s_is_menu_open.store(true, std::memory_order_relaxed);
 
-        if (s_menu_open_original)
+        if (const MenuOpenFunc original = s_menu_open_original.load(std::memory_order_acquire))
         {
-            s_menu_open_original(this_ptr, param_byte);
+            original(this_ptr, param_byte);
         }
     }
 
@@ -60,9 +59,9 @@ namespace TPVCamera
         (void)DMK::log().log_noexcept(DMK::LogLevel::Debug, "UIMenuHook: Game menu is closing");
         s_is_menu_open.store(false, std::memory_order_relaxed);
 
-        if (s_menu_close_original)
+        if (const MenuCloseFunc original = s_menu_close_original.load(std::memory_order_acquire))
         {
-            s_menu_close_original(this_ptr);
+            original(this_ptr);
         }
     }
 
@@ -95,7 +94,7 @@ namespace TPVCamera
         }
         // Publish each trampoline and store each handle BEFORE enable() arms its patch, so the set owns a hook whose
         // arm fails with the patch live.
-        s_menu_open_original = open_result->original<MenuOpenFunc>();
+        s_menu_open_original.store(open_result->original<MenuOpenFunc>(), std::memory_order_release);
         if (auto armed = hooks.push(std::move(*open_result)).enable(); !armed.has_value())
         {
             return std::unexpected(armed.error());
@@ -107,7 +106,7 @@ namespace TPVCamera
         {
             return std::unexpected(close_result.error());
         }
-        s_menu_close_original = close_result->original<MenuCloseFunc>();
+        s_menu_close_original.store(close_result->original<MenuCloseFunc>(), std::memory_order_release);
         if (auto armed = hooks.push(std::move(*close_result)).enable(); !armed.has_value())
         {
             return std::unexpected(armed.error());
