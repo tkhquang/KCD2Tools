@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 #include "version.hpp"
 
@@ -615,6 +616,26 @@ namespace Constants
                                              0x74, 0x06,                          // jz
                                              0xF3, 0x41, 0x0F, 0x11, 0x34, 0x24}; // movss [r12], xmm6
 
+    // The turn path's fragment-type choice, right after the decision. When cl is a turn, the game sets esi to the turn
+    // kind (ComputeMoveState's return value, the move state). A gap of up to 90 degrees gives a small turn (1), and a
+    // larger gap gives a large turn (2). An action without a large-turn fragment (-1 at +0xB0) falls back to the small
+    // turn. The window below, TURN_KIND_WINDOW_AT bytes after the hook site, proves that layout before the turn-kind
+    // hook goes in. It is identical on Steam 1.5.6, GOG 1.5 and Game Pass 1.4, and a 0x100 entry marks a wildcard
+    // byte. The hook sits on its last instruction, at TURN_KIND_SITE_AT, where esi holds the choice. The short branch
+    // distances are literal, because they prove that every path of the choice ends there.
+    constexpr size_t TURN_KIND_WINDOW_AT = 0x11A;
+    constexpr size_t TURN_KIND_SITE_AT = 0x133;
+    constexpr uint16_t TURN_KIND_WINDOW[] = {
+        0x84, 0xC9, 0x74, 0x100,                   // test cl, cl; jz  (no turn)
+        0x0F, 0x2F, 0xE7,                          // comiss xmm4, xmm7  (90 degrees, |angle|)
+        0x73, 0x0E,                                // jae  (small turn)
+        0x83, 0xBF, 0xB0, 0x00,  0x00, 0x00, 0xFF, // cmp dword [rdi+0B0h], -1  (no large-turn fragment)
+        0xBE, 0x02, 0x00, 0x00,  0x00,             // mov esi, 2  (large turn)
+        0x75, 0x02,                                // jnz  (keeps it)
+        0x8B, 0xF5,                                // mov esi, ebp  (small turn, ebp = 1)
+        0x8B, 0x87, 0xD0, 0x00,  0x00, 0x00,       // mov eax, [rdi+0D0h]  (installed state)  <- hook site
+    };
+
     // CAnimatedCharacter movement request type, read by UpdatePhysicalEntityMovement (1 absolute, 2 impulse). An
     // impulse's translation is a push, not a step, and the turn-in-place detour never drops it. The read is checked at
     // its offset from the function's start before the hook goes in (identical on all three builds).
@@ -623,6 +644,56 @@ namespace Constants
     constexpr size_t PHYS_ENT_MOVEMENT_TYPE_READ_AT = 0x66C;
     constexpr uint8_t PHYS_ENT_MOVEMENT_TYPE_READ[] = {0x44, 0x8B, 0x8F, 0x98, 0x06, 0x00, 0x00, // mov r9d, [rdi+698h]
                                                        0x41, 0x83, 0xF9, 0x02};                  // cmp r9d, 2
+
+    // Crouched turn animation. The player's crouched turn fragments play CROUCHED_TURN_PLAYER_BLEND_SPACE. They are
+    // MotionTurn and MotionTurnBig with the tags stealth+player in kcd_male_database.adb. The right turns of that blend
+    // space break the pose late in the clip. The skeleton then lands up to a meter off the body for one to four
+    // frames. The first-person game never plays a turn, so the fault never shows there. Crouched NPCs play
+    // CROUCHED_TURN_NPC_BLEND_SPACE, and so does the player with a decoy in hand. It holds the same turns without that
+    // fault, and the native turn plays it instead (see detour_crouched_turn_animation). The game looks a clip's
+    // animation up by the 64-bit hash of its name in the character's CAnimationSet.
+    constexpr const char *ANIMATION_SET_RTTI_NAME = ".?AVCAnimationSet@@";
+    constexpr std::string_view CROUCHED_TURN_PLAYER_BLEND_SPACE = "1d_stealth_idle_bigturns_nw_player";
+    constexpr std::string_view CROUCHED_TURN_NPC_BLEND_SPACE = "1d_stealth_idle_bigturns_nw";
+    // CAnimationSet vtable slot 8 is GetAnimIDByCRC, which CActionScope::InstallAnimation calls with a clip's name
+    // hash (mov r8,[rcx+40h]; call r8). The slot holds a thunk to the name map lookup (add rcx,28h; jmp). The
+    // signature matches at the thunk's first byte, which checks the slot before the hook goes in.
+    constexpr size_t ANIMATION_SET_GET_ANIM_ID_BY_CRC_VTABLE_SLOT = 8;
+    constexpr uint8_t ANIMATION_SET_GET_ANIM_ID_BY_CRC_SIGNATURE[] = {0x48, 0x83, 0xC1, 0x28, 0xE9};
+    constexpr size_t ANIMATION_SET_GET_ANIM_ID_BY_CRC_SIGNATURE_WINDOW =
+        sizeof(ANIMATION_SET_GET_ANIM_ID_BY_CRC_SIGNATURE);
+    // CAnimationSet vtable slot 6 is GetAnimIDByName. It hashes the name with the game's animation-name hash (name,
+    // length), then looks the hash up in the same name map. Its code up to that call must match from its first byte,
+    // and the call is the last instruction of the match. The callee must open as ANIMATION_SET_NAME_HASH_BODY before
+    // the mod calls it for the two hashes. Both match on Steam 1.5.6, GOG 1.5 and Game Pass 1.4.
+    constexpr size_t ANIMATION_SET_GET_ANIM_ID_BY_NAME_VTABLE_SLOT = 6;
+    constexpr uint8_t ANIMATION_SET_GET_ANIM_ID_BY_NAME_HEAD[] = {
+        0x40, 0x53,             // push rbx
+        0x48, 0x83, 0xEC, 0x20, // sub rsp, 20h
+        0x48, 0x8B, 0x41, 0x08, // mov rax, [rcx+8]
+        0x4C, 0x8B, 0xC2,       // mov r8, rdx  (name)
+        0x48, 0x8B, 0xD9,       // mov rbx, rcx
+        0x83, 0x78, 0xFC, 0x00, // cmp dword [rax-4], 0  (no animations)
+        0x74, 0x2D,             // jz
+        0x48, 0x85, 0xD2,       // test rdx, rdx
+        0x74, 0x28,             // jz
+        0x48, 0x83, 0xC8, 0xFF, // or rax, -1
+        0x48, 0xFF, 0xC0,       // inc rax
+        0x80, 0x3C, 0x02, 0x00, // cmp byte [rdx+rax], 0  (the name's length)
+        0x75, 0xF7,             // jnz
+        0x8B, 0xD0,             // mov edx, eax  (length)
+        0x49, 0x8B, 0xC8,       // mov rcx, r8  (name)
+        0xE8,                   // call  (the name hash)
+    };
+    constexpr uint8_t ANIMATION_SET_NAME_HASH_BODY[] = {
+        0x48, 0x89, 0x5C, 0x24, 0x08,                                     // mov [rsp+8], rbx
+        0x89, 0x54, 0x24, 0x10,                                           // mov [rsp+10h], edx
+        0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, // push rbp, rsi, rdi, r12-r15
+        0x48, 0x83, 0xEC, 0x60,                                           // sub rsp, 60h
+        0x8B, 0xFA,                                                       // mov edi, edx  (length)
+        0x48, 0x8B, 0xE9,                                                 // mov rbp, rcx  (name)
+        0x83, 0xFA, 0x20,                                                 // cmp edx, 20h  (length tiers)
+    };
 
     // LockBodyTurn reference count on C_Player (C_Player vtable slot 135 adds or removes one; mounting, pickups and
     // scripted interactions hold references too). While it is 0 the body follows the look, as in first person. Read

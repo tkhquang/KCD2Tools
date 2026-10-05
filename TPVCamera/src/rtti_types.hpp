@@ -55,6 +55,8 @@ namespace TPVCamera
         Timer,
         /// SGameObjectEvent, the event the mod sends the player when it starts or stops the native turn animation.
         GameObjectEvent,
+        /// CAnimationSet, where the game looks a clip's animation up by name hash (the crouched turn swap).
+        AnimationSet,
         /// Enumerator count. Not a class.
         Count,
     };

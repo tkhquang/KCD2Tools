@@ -245,7 +245,11 @@ namespace TPVCamera
     // starts a turn past 35 degrees and stops it as soon as the gap is back under 35, so the body always rests about 35
     // degrees short of the look. The hook starts a turn past s_turn_start_angle (NativeTurnAngle, radians), or past
     // k_turn_settle_angle once the look has rested for s_turn_settle_delay (NativeTurnSettleDelay). It then keeps the
-    // turn going until the body is within k_turn_finish_angle of the look, or until the gap changes sign (he faces it).
+    // turn on until the body is within k_turn_finish_angle of the look, or until the gap changes sign within
+    // k_turn_wrap_angle (he faces the look, or the look came back across his facing). A sign change past
+    // k_turn_wrap_angle means the look went on past his back. There the gap wraps through 180 degrees, and its sign
+    // flips between frames while he turns. The turn keeps its direction through the wrap, so s_turn_last_sign holds
+    // the turn's direction while the turn lasts.
     // s_turn_continuing, s_turn_last_sign and the rest state carry the decision from frame to frame. Only the hook
     // updates them, on whichever job worker updates the player that frame, one frame after another; a feature switch
     // in update_native_turn only resets them. The hook runs on every idle frame with a gap, so a player frame without
@@ -255,11 +259,15 @@ namespace TPVCamera
     // k_turn_decision_break_ms since s_turn_decision_tick.
     // The look counts as resting while the gap stays within k_turn_rest_drift of its value when the rest began. While
     // he is not turning only the look changes the gap, and a cumulative bound (not a per-frame rate) keeps a slow pan
-    // from counting as rest. A turn that sets the game's spin latch is refused for that frame (see
-    // MOVEMENT_ACTION_SPIN_LATCH_OFFSET): one frame later the game has taken the new sign and the turn can start.
-    constexpr float k_turn_finish_angle = 0.07f; // rad (4 deg)
-    constexpr float k_turn_settle_angle = 0.21f; // rad (12 deg)
-    constexpr float k_turn_rest_drift = 0.0175f; // rad (1 deg)
+    // from counting as rest. The game's spin latch holds a turn's old direction when the gap's sign changes under it.
+    // The latch therefore keeps a wrapped turn in its direction. Any other turn that sets the latch is refused for that
+    // frame (see MOVEMENT_ACTION_SPIN_LATCH_OFFSET). One frame later the game holds the new sign, and the turn can
+    // start. A frame without a turn clears the latch (see release_spin_latch), so the next turn starts on the gap's
+    // own sign.
+    constexpr float k_turn_finish_angle = 0.07f;    // rad (4 deg)
+    constexpr float k_turn_wrap_angle = 1.5707964f; // rad (90 deg)
+    constexpr float k_turn_settle_angle = 0.21f;    // rad (12 deg)
+    constexpr float k_turn_rest_drift = 0.0175f;    // rad (1 deg)
     constexpr uint64_t k_turn_decision_break_ms = 150;
     static std::atomic<float> s_turn_start_angle{0.61086524f};
     static std::atomic<float> s_turn_settle_delay{0.8f}; // seconds, 0 = no settle turns
@@ -289,6 +297,13 @@ namespace TPVCamera
     static std::atomic<uint64_t> s_turn_decided_tick{0};
     static std::atomic<uintptr_t> s_player_animchar{0};
     static UpdatePhysEntMovementFunc s_phys_ent_movement_original = nullptr;
+
+    // Crouched turn animation (see Constants::CROUCHED_TURN_PLAYER_BLEND_SPACE). The game looks a clip's animation up
+    // by the 64-bit hash of its name. The hook on that lookup (detour_crouched_turn_animation) swaps the hash of the
+    // player's crouched turn blend space for the NPC hash while the native turn is on. Both hashes come from the
+    // game's own name hash at install, and the install writes them before the hook arms.
+    static std::uint64_t s_crouched_turn_player_hash = 0;
+    static std::uint64_t s_crouched_turn_npc_hash = 0;
 
     // The first-person eye position of the last game-view frame that rendered the third-person offset, published by the
     // frustum detour for the camera-observer detour. The components are separate atomics: a reader racing a writer can
@@ -3360,10 +3375,25 @@ namespace TPVCamera
         return *latched == 0 && (*state == 1 || *state == 2) && *last_sign != 0.0f && *last_sign != sign;
     }
 
+    /**
+     * @brief Clears the game's spin latch on @p action when it is set, so the next turn takes the gap's own sign.
+     * @details The game derives the latch on every evaluation from its current value, so a cleared latch stays clear
+     *          until a turn sets it. A latch left set holds at least until the gap is back under 20 degrees, which
+     *          can outlast the turn that set it.
+     */
+    static void release_spin_latch(uintptr_t action) noexcept
+    {
+        const Address latch{action + Constants::MOVEMENT_ACTION_SPIN_LATCH_OFFSET};
+        if (mem::read<uint8_t>(latch).value_or(0) != 0)
+        {
+            (void)mem::write_in_place<uint8_t>(latch, 0);
+        }
+    }
+
     /** @brief True when the bytes at @p address are exactly @p code. */
     static bool code_matches(uintptr_t address, std::span<const uint8_t> code)
     {
-        std::array<std::uint8_t, 16> bytes{};
+        std::array<std::uint8_t, 32> bytes{};
         if (code.size() > bytes.size())
         {
             return false;
@@ -3371,6 +3401,18 @@ namespace TPVCamera
         const auto read = std::span{bytes}.first(code.size());
         return mem::read_into(Address{address}, std::as_writable_bytes(read)).has_value() &&
                std::equal(read.begin(), read.end(), code.begin());
+    }
+
+    /** @brief True when the bytes at @p address match @p window, where an entry above 0xFF is a wildcard byte. */
+    template <size_t N> static bool window_matches(uintptr_t address, const uint16_t (&window)[N])
+    {
+        std::array<std::uint8_t, N> bytes{};
+        if (!mem::read_into(Address{address}, std::as_writable_bytes(std::span{bytes})).has_value())
+        {
+            return false;
+        }
+        return std::equal(bytes.begin(), bytes.end(), std::begin(window),
+                          [](std::uint8_t actual, uint16_t expected) { return expected > 0xFF || actual == expected; });
     }
 
     /**
@@ -3426,16 +3468,23 @@ namespace TPVCamera
         const uint64_t rest_ms = now - s_turn_rest_since.load(std::memory_order_relaxed);
         const bool rested = settle_delay > 0.0f && static_cast<float>(rest_ms) >= settle_delay * 1000.0f;
 
-        // A started turn continues until he faces the look; otherwise one starts past the start angle, or past the
-        // settle angle once the look has rested.
-        const bool wants_turn =
-            s_turn_continuing.load(std::memory_order_relaxed)
-                ? gap_abs > k_turn_finish_angle && sign == s_turn_last_sign.load(std::memory_order_relaxed)
-                : gap_abs > s_turn_start_angle.load(std::memory_order_relaxed) ||
-                      (gap_abs > k_turn_settle_angle && rested);
-        const bool turn = wants_turn && !would_set_spin_latch(DMK::hook::gpr(ctx, DMK::hook::Gpr::Rdi), sign);
+        // A started turn continues until he faces the look, in its own direction through a wrap of the gap (see
+        // k_turn_wrap_angle). Otherwise a turn starts past the start angle, or past the settle angle after the look
+        // rested. Only a wrapped turn can set the game's spin latch, which holds the turn's direction.
+        const uintptr_t action = DMK::hook::gpr(ctx, DMK::hook::Gpr::Rdi);
+        const bool continuing = s_turn_continuing.load(std::memory_order_relaxed);
+        const float direction = s_turn_last_sign.load(std::memory_order_relaxed);
+        const bool wrapped = continuing && sign != direction && gap_abs > k_turn_wrap_angle;
+        const bool wants_turn = continuing ? gap_abs > k_turn_finish_angle && (sign == direction || wrapped)
+                                           : gap_abs > s_turn_start_angle.load(std::memory_order_relaxed) ||
+                                                 (gap_abs > k_turn_settle_angle && rested);
+        const bool turn = wants_turn && (wrapped || !would_set_spin_latch(action, sign));
+        if (!turn)
+        {
+            release_spin_latch(action);
+        }
         s_turn_continuing.store(turn, std::memory_order_relaxed);
-        s_turn_last_sign.store(sign, std::memory_order_relaxed);
+        s_turn_last_sign.store(wrapped ? direction : sign, std::memory_order_relaxed);
         if (turn)
         {
             s_turn_decided_tick.store(now, std::memory_order_relaxed);
@@ -3452,33 +3501,96 @@ namespace TPVCamera
         cpu_flags = turn ? (cpu_flags & ~(k_carry_flag | k_zero_flag)) : (cpu_flags | k_zero_flag);
     }
 
+    // The game's move states for an installed turn (ComputeMoveState's return value, held in esi on the turn path).
+    constexpr uintptr_t k_turn_kind_small = 1;
+    constexpr uintptr_t k_turn_kind_large = 2;
+
+    /**
+     * @brief Turn-kind mid hook: keeps the player's native turns on the game's small-turn fragment.
+     * @details Runs on the game's turn path right after the game picks the turn fragment type into esi (see
+     *          TURN_KIND_WINDOW). A gap of at most 90 degrees picks a small turn, and a larger gap picks a large turn.
+     *          An action without a large-turn fragment picks a small turn at any angle. The game picks again every
+     *          frame with no hysteresis. A change of type installs the other fragment, and its clip starts over. A
+     *          turn whose gap crosses 90 degrees therefore restarts its animation midway, and a gap near 90 degrees
+     *          restarts it again and again. The first-person game never plays either fragment. The hook turns a
+     *          large turn into a small one, which is the game's own path for an action without a large-turn
+     *          fragment. Each native turn therefore plays one fragment from start to finish. Any other actor is left
+     *          to the game.
+     */
+    static void detour_turn_kind(DMK::hook::MidContext &ctx) noexcept
+    {
+        const uintptr_t actor = DMK::hook::gpr(ctx, DMK::hook::Gpr::Rbx);
+        if (actor == 0 || actor != s_native_turn_actor.load(std::memory_order_relaxed))
+        {
+            return;
+        }
+        uintptr_t &kind = DMK::hook::gpr(ctx, DMK::hook::Gpr::Rsi);
+        if (kind == k_turn_kind_large)
+        {
+            kind = k_turn_kind_small;
+        }
+    }
+
+    /**
+     * @brief Installs the turn-kind mid hook once TURN_KIND_WINDOW matches at its offset from the turn-decision
+     *        @p site. Best-effort: without it a turn past 90 degrees switches between the large-turn and small-turn
+     *        fragments and restarts its animation midway.
+     */
+    static void install_turn_kind_hook(uintptr_t site, DMK::hook::HookStack &hooks)
+    {
+        DMK::Logger &logger = DMK::log();
+        const uintptr_t window_start = site + Constants::TURN_KIND_WINDOW_AT;
+        if (!window_matches(window_start, Constants::TURN_KIND_WINDOW))
+        {
+            logger.warning("Camera: turn kind code at {} is not the expected one; turns past 90 degrees restart "
+                           "their animation midway",
+                           DMK::format::format_address(window_start));
+            return;
+        }
+        const uintptr_t kind_site = site + Constants::TURN_KIND_SITE_AT;
+        auto result = DMK::hook::mid_at(DMK::hook::MidRequest{.name = "TurnKind", .target = DMK::Address{kind_site}},
+                                        detour_turn_kind);
+        if (!result.has_value())
+        {
+            logger.warning("Camera: turn kind hook failed ({}); turns past 90 degrees restart their animation midway",
+                           result.error().message());
+            return;
+        }
+        const auto armed = result->enable();
+        hooks.push(std::move(*result));
+        if (!armed.has_value())
+        {
+            logger.warning("Camera: turn kind hook could not be armed ({}); turns past 90 degrees restart their "
+                           "animation midway",
+                           armed.error().message());
+            return;
+        }
+        logger.info("Camera: turn kind hooked at {} (every turn plays the small-turn fragment)",
+                    DMK::format::format_address(kind_site));
+    }
+
     /**
      * @brief Installs the turn-decision mid hook, after proving the code around the turn trigger is the expected one.
      * @details Best-effort: without it the native turn still works, with the game's own 35 degrees and the body
      *          resting about 35 degrees short of the look. Every byte of TURN_DECISION_WINDOW must match (wildcards
      *          aside), which fixes the registers the hook reads (rbx, xmm13) and the instruction it sits on. The
      *          game's reads of its spin latch fields through rdi (TURN_SPIN_LATCH_READ and the two after it) and the
-     *          code that keeps the output pointer in r12 (TURN_OUTPUT_SAVE, TURN_OUTPUT_STORE) must match too.
+     *          code that keeps the output pointer in r12 (TURN_OUTPUT_SAVE, TURN_OUTPUT_STORE) must match too. The
+     *          turn-kind hook goes in with it.
      * @return True when the hook is armed.
      */
     static bool install_turn_decision_hook(uintptr_t trigger_return, DMK::hook::HookStack &hooks)
     {
         DMK::Logger &logger = DMK::log();
-        constexpr size_t k_window = std::size(Constants::TURN_DECISION_WINDOW);
-        std::array<std::uint8_t, k_window> bytes{};
         const uintptr_t window_start = trigger_return - Constants::TURN_DECISION_WINDOW_BEFORE;
-        bool matches = mem::read_into(Address{window_start}, std::as_writable_bytes(std::span{bytes})).has_value();
-        for (size_t i = 0; matches && i < k_window; ++i)
-        {
-            const uint16_t expected = Constants::TURN_DECISION_WINDOW[i];
-            matches = expected > 0xFF || bytes[i] == static_cast<std::uint8_t>(expected);
-        }
         const uintptr_t site = trigger_return + Constants::TURN_DECISION_SITE_AFTER;
-        matches = matches && code_matches(site + Constants::TURN_SPIN_LATCH_READ_AT, Constants::TURN_SPIN_LATCH_READ) &&
-                  code_matches(site + Constants::TURN_INSTALLED_STATE_READ_AT, Constants::TURN_INSTALLED_STATE_READ) &&
-                  code_matches(site + Constants::TURN_LAST_SIGN_READ_AT, Constants::TURN_LAST_SIGN_READ) &&
-                  code_matches(site - Constants::TURN_OUTPUT_SAVE_BEFORE, Constants::TURN_OUTPUT_SAVE) &&
-                  code_matches(site + Constants::TURN_OUTPUT_STORE_AT, Constants::TURN_OUTPUT_STORE);
+        const bool matches =
+            window_matches(window_start, Constants::TURN_DECISION_WINDOW) &&
+            code_matches(site + Constants::TURN_SPIN_LATCH_READ_AT, Constants::TURN_SPIN_LATCH_READ) &&
+            code_matches(site + Constants::TURN_INSTALLED_STATE_READ_AT, Constants::TURN_INSTALLED_STATE_READ) &&
+            code_matches(site + Constants::TURN_LAST_SIGN_READ_AT, Constants::TURN_LAST_SIGN_READ) &&
+            code_matches(site - Constants::TURN_OUTPUT_SAVE_BEFORE, Constants::TURN_OUTPUT_SAVE) &&
+            code_matches(site + Constants::TURN_OUTPUT_STORE_AT, Constants::TURN_OUTPUT_STORE);
         if (!matches)
         {
             logger.warning("Camera: turn decision code at {} is not the expected one; turns rest about 35 degrees "
@@ -3505,6 +3617,7 @@ namespace TPVCamera
         }
         logger.info("Camera: turn decision hooked at {} (turns finish facing the look)",
                     DMK::format::format_address(site));
+        install_turn_kind_hook(site, hooks);
         return true;
     }
 
@@ -3590,6 +3703,112 @@ namespace TPVCamera
         s_turn_steps_hooked.store(true, std::memory_order_relaxed);
         logger.info("Camera: turn steps kept in place (UpdatePhysicalEntityMovement at {})",
                     DMK::format::format_address(target));
+    }
+
+    /**
+     * @brief Crouched-turn animation mid hook on CAnimationSet::GetAnimIDByCRC (see
+     *        Constants::CROUCHED_TURN_PLAYER_BLEND_SPACE).
+     * @details While the native turn is on, a lookup of the player's crouched turn blend space gets the NPC one. The
+     *          hook runs at the entry of the vtable slot's thunk, with the name hash in rdx. Every character's
+     *          lookups pass through it, so it only compares. Any other hash goes to the game unchanged, and so does
+     *          any lookup while the native turn is off (first person, or the feature switched off). A clip looks
+     *          its animation up when it starts, so a crouched turn started in third person keeps that animation.
+     */
+    static void detour_crouched_turn_animation(DMK::hook::MidContext &ctx) noexcept
+    {
+        if (s_native_turn_actor.load(std::memory_order_relaxed) == 0)
+        {
+            return;
+        }
+        uintptr_t &hash = DMK::hook::gpr(ctx, DMK::hook::Gpr::Rdx);
+        if (hash == s_crouched_turn_player_hash)
+        {
+            hash = s_crouched_turn_npc_hash;
+        }
+    }
+
+    /**
+     * @brief Hooks CAnimationSet::GetAnimIDByCRC for the crouched turn animation swap (see
+     *        detour_crouched_turn_animation). Best-effort: without it a crouched right turn can throw the game's broken
+     *        pose late in its clip.
+     * @details Both slots come from CAnimationSet's RTTI vtable and must lie in the game image. The lookup slot must
+     *          still be the thunk to the name map lookup (ANIMATION_SET_GET_ANIM_ID_BY_CRC_SIGNATURE). GetAnimIDByName
+     *          must still open with ANIMATION_SET_GET_ANIM_ID_BY_NAME_HEAD, which ends on its call to the name hash.
+     *          The callee must lie in the game image and open as ANIMATION_SET_NAME_HASH_BODY before the mod calls it
+     *          for the two hashes. The two hashes must be distinct and non-zero.
+     */
+    static void install_crouched_turn_animation_hook(uintptr_t module_base, size_t module_size,
+                                                     DMK::hook::HookStack &hooks)
+    {
+        DMK::Logger &logger = DMK::log();
+        const Region image{Address{module_base}, module_size};
+        const std::optional<std::uintptr_t> vtable = class_vtable(GameClass::AnimationSet);
+        const uintptr_t lookup =
+            vtable.has_value()
+                ? read_checked_vtable_slot(*vtable, Constants::ANIMATION_SET_GET_ANIM_ID_BY_CRC_VTABLE_SLOT,
+                                           std::span{Constants::ANIMATION_SET_GET_ANIM_ID_BY_CRC_SIGNATURE},
+                                           Constants::ANIMATION_SET_GET_ANIM_ID_BY_CRC_SIGNATURE_WINDOW, module_base,
+                                           module_size)
+                : 0;
+        const uintptr_t by_name =
+            vtable.has_value()
+                ? read_checked_vtable_slot(*vtable, Constants::ANIMATION_SET_GET_ANIM_ID_BY_NAME_VTABLE_SLOT,
+                                           std::span{Constants::ANIMATION_SET_GET_ANIM_ID_BY_NAME_HEAD},
+                                           sizeof(Constants::ANIMATION_SET_GET_ANIM_ID_BY_NAME_HEAD), module_base,
+                                           module_size)
+                : 0;
+        uintptr_t hash_function = 0;
+        if (by_name != 0)
+        {
+            const uintptr_t hash_call = by_name + sizeof(Constants::ANIMATION_SET_GET_ANIM_ID_BY_NAME_HEAD) - 1;
+            const auto callee = DMK::scan::resolve_rip_relative(Address{hash_call}, 1, 5);
+            hash_function = callee && image.contains(*callee) &&
+                                    code_matches(callee->raw(), Constants::ANIMATION_SET_NAME_HASH_BODY)
+                                ? callee->raw()
+                                : 0;
+        }
+        if (lookup == 0 || hash_function == 0)
+        {
+            logger.warning("Camera: crouched turn animation lookup not found; crouched right turns can show the "
+                           "game's broken pose");
+            return;
+        }
+        using NameHashFunc = std::uint64_t(__fastcall *)(const char *name, std::uint32_t length);
+        const auto name_hash = reinterpret_cast<NameHashFunc>(hash_function);
+        const auto hash_of = [name_hash](std::string_view name) -> std::uint64_t
+        { return name_hash(name.data(), static_cast<std::uint32_t>(name.size())); };
+        s_crouched_turn_player_hash = hash_of(Constants::CROUCHED_TURN_PLAYER_BLEND_SPACE);
+        s_crouched_turn_npc_hash = hash_of(Constants::CROUCHED_TURN_NPC_BLEND_SPACE);
+        if (s_crouched_turn_player_hash == 0 || s_crouched_turn_npc_hash == 0 ||
+            s_crouched_turn_player_hash == s_crouched_turn_npc_hash)
+        {
+            logger.warning("Camera: crouched turn animation hashes are not usable; crouched right turns can show the "
+                           "game's broken pose");
+            return;
+        }
+        auto result =
+            DMK::hook::mid_at(DMK::hook::MidRequest{.name = "CrouchedTurnAnimation", .target = DMK::Address{lookup}},
+                              detour_crouched_turn_animation);
+        if (!result.has_value())
+        {
+            logger.warning("Camera: crouched turn animation hook failed ({}); crouched right turns can show the game's "
+                           "broken pose",
+                           result.error().message());
+            return;
+        }
+        const auto armed = result->enable();
+        hooks.push(std::move(*result));
+        if (!armed.has_value())
+        {
+            logger.warning("Camera: crouched turn animation hook could not be armed ({}); crouched right turns can "
+                           "show the game's broken pose",
+                           armed.error().message());
+            return;
+        }
+        logger.debug("Camera: crouched turn blend space hash {:#x}, played as {:#x}", s_crouched_turn_player_hash,
+                     s_crouched_turn_npc_hash);
+        logger.info("Camera: crouched turn animation hooked at {} (crouched turns play the NPC turns)",
+                    DMK::format::format_address(lookup));
     }
 
     /**
@@ -3699,6 +3918,7 @@ namespace TPVCamera
         {
             install_turn_in_place_hook(hooks);
         }
+        install_crouched_turn_animation_hook(module_base, module_size, hooks);
     }
 
     void release_native_turn_animation() noexcept
