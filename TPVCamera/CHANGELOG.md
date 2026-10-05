@@ -2,6 +2,12 @@
 
 All notable changes to the TPVCamera mod will be documented in this file.
 
+## [1.5.2] - Smoother Turns and Better Game Update Support
+
+- Fixed a brief pose glitch and a forward-and-back slide in crouched turns in third person.
+- If a game update breaks one feature, only that feature turns off and the log names it.
+- Small stability improvements to the camera hooks and the zoom keys.
+
 ## [1.5.1] - Camera Stability
 
 - Updated the mod's support library for improved reliability.
@@ -82,6 +88,7 @@ All notable changes to the TPVCamera mod will be documented in this file.
 - Third person stays out of every minigame (lockpicking, reading, alchemy, pickpocketing, and more), and you can give any minigame its own framing
 - Configurable hotkeys, with most changes applying while you play
 
+[1.5.2]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.5.2
 [1.5.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.5.1
 [1.5.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.5.0
 [1.4.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.4.0
