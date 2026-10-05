@@ -25,8 +25,6 @@
 #include "presets/preset_store.hpp"
 #include "overlay/overlay.hpp"
 
-#include "dmk_aliases.hpp"
-
 #include <DetourModKit.hpp>
 
 #include <string>
@@ -53,10 +51,10 @@ namespace TPVCamera
     // the guards and their captures instead of destroying callables under the loader lock.
     static DMK::input::Scope *s_binding_scope = nullptr;
 
-    // Every hook the mod installs. A HookStack restores newest first, the only safe order for layered
+    // Every hook the mod installs. HookSet disables and destroys newest first, the only safe order for layered
     // patches on one target: the newer layer trampoline chains through the older jump, so the base must
-    // be restored last. shutdown() clears it while the code pages are still mapped.
-    static DMK::hook::HookStack s_hooks;
+    // be restored last. shutdown() retires it while the code pages are still mapped.
+    static HookSet s_hooks;
 
     /**
      * @brief Returns true when a menu or overlay is up; the hotkeys ignore presses then.
@@ -108,10 +106,10 @@ namespace TPVCamera
     {
         DMK::Logger &logger = DMK::log();
 
-        Region image{};
+        DMK::Region image{};
         for (int i = 0; i < 30 && image.size == 0; ++i)
         {
-            image = Region::module_named(Constants::MODULE_NAME);
+            image = DMK::Region::module_named(Constants::MODULE_NAME);
             if (image.size == 0)
                 Sleep(100);
         }
@@ -165,16 +163,20 @@ namespace TPVCamera
         const ModuleInfo &mod = module_info();
 
         // Resolve every game-image anchor in one parallel pass, confined to the WHGame.dll image range,
-        // before any module init reads its target. resolve_all_anchors() logs a per-anchor status and a
-        // quality summary; each init below reads its address via anchor_address(), and a mandatory anchor
-        // that did not resolve fails the init that needs it.
+        // before any module init reads its target. resolve_all_anchors() logs a per-anchor status, the feature
+        // gates, and a quality summary. Each init below reads its addresses through its feature's gate, and a
+        // mandatory feature whose gate failed fails the init that needs it.
         resolve_all_anchors(mod.base, mod.size);
+        if (settings().export_signatures.load(std::memory_order_relaxed))
+        {
+            export_signatures();
+        }
 
         // Build the cached class-vtable identities over the WHGame.dll image, before any detour is armed.
         // Every per-frame "is this vtable type X" test resolves through these, so the RTTI sweep happens
         // here once per type instead of on the render thread. Scoped to the game image on purpose: the DMK
         // default Region::host() is the game EXE, and every tracked type lives in WHGame.dll.
-        init_game_types(Region{Address{mod.base}, mod.size});
+        init_game_types(DMK::Region{DMK::Address{mod.base}, mod.size});
 
         // Start the self-heal scheduler and register its groups before any detour is armed, so the very first
         // frame that resolves a base can already scan. Every group is gated on a live base the render path
@@ -385,13 +387,14 @@ namespace TPVCamera
 
         const DMK::config::AutoReloadStatus status =
             DMK::config::enable_auto_reload(std::chrono::milliseconds{250},
-                                            [](bool content_changed)
+                                            [](bool setters_ran)
                                             {
                                                 DMK::Logger &reload_logger = DMK::log();
-                                                if (content_changed)
+                                                if (setters_ran)
                                                     reload_logger.info("INI auto-reload: live settings applied");
                                                 else
-                                                    reload_logger.info("INI auto-reload: no content change");
+                                                    reload_logger.info("INI auto-reload: no setter ran (file unchanged "
+                                                                       "or unreadable)");
                                             });
 
         if (status == DMK::config::AutoReloadStatus::Started)
@@ -400,26 +403,8 @@ namespace TPVCamera
             logger.warning("INI hot-reload watcher not started (status {})", static_cast<int>(status));
     }
 
-    // Teardown latch for shutdown(). At namespace scope rather than function-local so init() can RESET it.
-    // The host's detach path can enter shutdown() more than once when an explicit FreeLibrary races the dev
-    // loader's reload, and every step of the teardown is destructive, so it has to be latched. But a
-    // function-local static assumes the module is genuinely unmapped between loads. It is not always: a
-    // subsystem that cannot prove it restored its target retains its hooks AND their keepalives (counted
-    // module references), so FreeLibrary leaves the image mapped and the next LoadLibrary hands back the
-    // STALE image with its statics intact. A latch that survives that reload makes the next shutdown() a
-    // silent no-op, leaving every hook installed for the following init() to layer on - which crashes.
-    // Resetting it in init() means a stale-image reload still tears down correctly.
-    static std::atomic<bool> s_teardown_done{false};
-    static std::atomic<bool> s_prologues_restored{true};
-
     DMK::Result<void> init(DMK::Session &session, const WheelHostTable *wheel_host)
     {
-        // Re-arm the teardown latch. On a fresh image these are already default-constructed; on a stale
-        // image (see above) they still carry the previous cycle's values and must not suppress the next
-        // teardown. Written before anything is installed, so no shutdown can observe a half-armed latch.
-        s_prologues_restored.store(true, std::memory_order_relaxed);
-        s_teardown_done.store(false, std::memory_order_release);
-
         DMK::Logger &logger = session.log();
         logger.info("----------------------------------------");
         Version::log_version_info();
@@ -450,7 +435,7 @@ namespace TPVCamera
 
         // Memory cache is a hot-path accelerator; a failure is non-fatal because the
         // readability checks fall back to direct VirtualQuery calls.
-        if (mem::init_cache())
+        if (DMK::memory::init_cache())
             logger.info("Memory cache system initialized");
         else
             logger.warning("Memory cache init failed; readability checks fall back to syscalls");
@@ -515,15 +500,8 @@ namespace TPVCamera
         return {};
     }
 
-    bool shutdown()
+    RetireStatus shutdown()
     {
-        // Latched against re-entry; see s_teardown_done above for why the latch lives at namespace scope
-        // and is re-armed by init() rather than being a function-local static.
-        if (s_teardown_done.exchange(true, std::memory_order_acq_rel))
-        {
-            return s_prologues_restored.load(std::memory_order_acquire);
-        }
-
         DMK::Logger &logger = DMK::log();
         logger.info("Shutdown: starting teardown");
 
@@ -548,44 +526,32 @@ namespace TPVCamera
         // a no-op if the native turn animation was never engaged.
         release_native_turn_animation();
 
-        // Stop the INI watcher first so no reload setter runs during teardown.
+        // Join the mod's workers before any hook goes: the INI watcher, so no reload setter runs during teardown, and
+        // the overlay render thread, so no UI mutation races the preset flush.
         DMK::config::disable_auto_reload();
-
-        // Stop the overlay UI thread before touching the preset store so no UI mutation races teardown.
         Overlay::stop();
+
+        // A worker whose join failed still runs code in this image and holds its module reference. Its dependencies,
+        // the hooks included, must then stay live for the process, so the teardown stops here.
+        if (DMK::diagnostics::module_pin_count(DMK::diagnostics::ModulePinReason::Worker) != 0)
+        {
+            logger.error("Shutdown: a mod worker did not join; the hooks stay installed and the module must stay "
+                         "mapped");
+            return RetireStatus::Failed;
+        }
 
         // Persist any unsaved preset edits.
         Presets::PresetStore::instance().flush();
 
-        // Drop the hooks BEFORE clearing the config registry: a detour body must not stay reachable once
-        // the state it reads is being torn down. Hooks are caller-owned and the library removes none of
-        // them, so this is the only path that restores the patched prologues. HookStack unwinds newest
-        // first, which is what a layered patch on one target requires.
-        // A hook that cannot prove it restored its target pins its backend, and that pin holds a counted
-        // reference on the module hosting DetourModKit. Unloading past it keeps the hook installed and the
-        // old image mapped, so the next load returns the stale image. The delta in the HookManager leak
-        // count across the teardown is what reports it.
-        const std::size_t pins_before =
-            DMK::diagnostics::intentional_leak_count(DMK::diagnostics::LeakSubsystem::HookManager);
-        s_hooks.clear();
-        const bool restored =
-            DMK::diagnostics::intentional_leak_count(DMK::diagnostics::LeakSubsystem::HookManager) == pins_before;
-        s_prologues_restored.store(restored, std::memory_order_release);
-        if (!restored)
+        // Hooks are caller-owned and the library removes none of them, so this is the only path that restores the
+        // patched prologues. The set disables every hook, waits until no game thread is inside a detour, and only then
+        // destroys the handles.
+        const RetireStatus hooks = s_hooks.retire();
+        if (hooks == RetireStatus::Retired)
         {
-            logger.error("Shutdown: a hook could not restore its prologue and pinned its backend; the module "
-                         "must stay mapped");
+            logger.info("Shutdown: teardown complete");
         }
-
-        // Drop the config registry's bound setters. The input BindingGuards themselves live in the
-        // Session scope, which ~Session clears (in reverse insertion order) after this returns.
-        DMK::config::clear();
-
-        // Clear the game interface's resolved context pointer.
-        cleanup_game_interface();
-
-        logger.info("Shutdown: teardown complete");
-        return restored;
+        return hooks;
     }
 
 } // namespace TPVCamera

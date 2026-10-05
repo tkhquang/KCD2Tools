@@ -19,7 +19,7 @@
 #ifndef TPVCAMERA_RTTI_TYPES_HPP
 #define TPVCAMERA_RTTI_TYPES_HPP
 
-#include "dmk_aliases.hpp"
+#include <DetourModKit.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -72,7 +72,7 @@ namespace TPVCamera
      * @throws std::invalid_argument If the range is empty or differs from the first accepted range.
      * @note Setup only. Call from init() after the module range resolves, outside the loader lock.
      */
-    void init_game_types(Region image);
+    void init_game_types(DMK::Region image);
 
     /**
      * @brief Checks whether @p vtable is the primary vtable of @p klass.

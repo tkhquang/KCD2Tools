@@ -37,8 +37,6 @@
 #include "constants.hpp"
 #include "global_state.hpp"
 
-#include "../dmk_aliases.hpp"
-
 #include <DetourModKit.hpp>
 
 #include <windows.h>
@@ -214,6 +212,7 @@ namespace TPVCamera
                                                     int flags, uintptr_t skip_ents, unsigned __int8 n,
                                                     char mode) noexcept
         {
+            const DetourScope in_flight;
             s_calls_total.fetch_add(1, std::memory_order_relaxed);
 
             const uintptr_t ra = reinterpret_cast<uintptr_t>(_ReturnAddress());
@@ -252,24 +251,14 @@ namespace TPVCamera
         }
 
         /**
-         * @brief Detour for the on-screen reticle projection gate (sub_18093C170). While InteractFromCamera is on,
-         *        force-passes a candidate whose world interaction point (a2 = Vec3) lies along the published crosshair
-         *        ray (perpendicular distance below the configured max), writing centered 2D coords (a3) so it ranks as
-         *        the top selection; all other candidates fall through to the original projection test. This is what
-         *        lets the crosshair-pointed shrine/bed/door survive the proximity build with the offset camera.
+         * @brief Writes centered screen coords to @p a3 when the world point @p a2 lies on the crosshair ray.
+         * @details Reads the candidate's game-owned Vec3 under SEH, apart from the detour, because the detour's
+         *          DetourScope needs C++ object unwinding, which a __try frame cannot hold.
+         * @return True when the candidate was forced to the screen center.
          */
-        char __fastcall on_screen_check_detour(uintptr_t a1, uintptr_t a2, float *a3, uintptr_t a4) noexcept
+        bool force_onscreen_candidate(uintptr_t a2, float *a3, float ex, float ey, float ez, float dx, float dy,
+                                      float dz) noexcept
         {
-            s_onscreen_calls.fetch_add(1, std::memory_order_relaxed);
-
-            float ex, ey, ez, dx, dy, dz;
-            if (a2 == 0 || a3 == nullptr || !settings().interact_from_camera.load(std::memory_order_relaxed) ||
-                !interaction_aim_pose().load(ex, ey, ez, dx, dy, dz))
-            {
-                return s_onscreen_original(a1, a2, a3, a4);
-            }
-
-            bool forced = false;
             __try
             {
                 const float *p = reinterpret_cast<const float *>(a2); // candidate world interaction point
@@ -283,15 +272,36 @@ namespace TPVCamera
                     {
                         a3[0] = Constants::INTERACTION_ONSCREEN_CENTER; // centered -> ranks as top selection priority
                         a3[1] = Constants::INTERACTION_ONSCREEN_CENTER;
-                        forced = true;
+                        return true;
                     }
                 }
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
             }
+            return false;
+        }
 
-            if (forced)
+        /**
+         * @brief Detour for the on-screen reticle projection gate (sub_18093C170). While InteractFromCamera is on,
+         *        force-passes a candidate whose world interaction point (a2 = Vec3) lies along the published crosshair
+         *        ray (perpendicular distance below the configured max), writing centered 2D coords (a3) so it ranks as
+         *        the top selection; all other candidates fall through to the original projection test. This is what
+         *        lets the crosshair-pointed shrine/bed/door survive the proximity build with the offset camera.
+         */
+        char __fastcall on_screen_check_detour(uintptr_t a1, uintptr_t a2, float *a3, uintptr_t a4) noexcept
+        {
+            const DetourScope in_flight;
+            s_onscreen_calls.fetch_add(1, std::memory_order_relaxed);
+
+            float ex, ey, ez, dx, dy, dz;
+            if (a2 == 0 || a3 == nullptr || !settings().interact_from_camera.load(std::memory_order_relaxed) ||
+                !interaction_aim_pose().load(ex, ey, ez, dx, dy, dz))
+            {
+                return s_onscreen_original(a1, a2, a3, a4);
+            }
+
+            if (force_onscreen_candidate(a2, a3, ex, ey, ez, dx, dy, dz))
             {
                 s_onscreen_forced.fetch_add(1, std::memory_order_relaxed);
                 return 1;
@@ -301,7 +311,7 @@ namespace TPVCamera
 
     } // namespace
 
-    DMK::Result<void> initialize_interaction_hook(DMK::hook::HookStack &hooks)
+    DMK::Result<void> initialize_interaction_hook(HookSet &hooks)
     {
         DMK::Logger &logger = DMK::log();
 
@@ -313,7 +323,7 @@ namespace TPVCamera
         // The interactor look-ray builder entry -> the caller-range filter bound. The module-scoped
         // cascade kept the resolved entry inside the game image or returns 0, so a cross-module collision
         // can no longer yield a bogus return-address range.
-        const uintptr_t lookray = anchor_address(AnchorId::InteractorLookRay);
+        const uintptr_t lookray = gated_anchor_address(Feature::Interaction, AnchorId::InteractorLookRay);
         if (lookray == 0)
         {
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "interaction_hook/lookray_anchor"});
@@ -322,7 +332,7 @@ namespace TPVCamera
         s_lookray_hi = s_lookray_lo + Constants::INTERACTOR_LOOKRAY_SPAN;
 
         // Hook the ray-query builder.
-        const uintptr_t hook_addr = anchor_address(AnchorId::InteractionRayBuild);
+        const uintptr_t hook_addr = gated_anchor_address(Feature::Interaction, AnchorId::InteractionRayBuild);
         if (hook_addr == 0)
         {
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "interaction_hook/raybuild_anchor"});
@@ -335,19 +345,19 @@ namespace TPVCamera
         {
             return std::unexpected(result.error());
         }
-        // Publish the trampoline BEFORE enable() arms the patch.
+        // Publish the trampoline and store the handle BEFORE enable() arms the patch, so the set owns a hook whose arm
+        // fails with the patch live.
         s_original = result->original<RayQueryBuildFunc>();
-        if (auto armed = result->enable(); !armed.has_value())
+        if (auto armed = hooks.push(std::move(*result)).enable(); !armed.has_value())
         {
             return std::unexpected(armed.error());
         }
-        hooks.push(std::move(*result));
 
         // Hook the on-screen reticle projection gate - the gate that drops shrines/beds/doors when the
         // body is not turned. Best-effort WITHIN this unit (it is a second, independent feature): a failure
         // warns and leaves shrine interaction body-driven rather than failing the look-ray redirect that
         // already installed, so it is reported here instead of returned.
-        const uintptr_t onscreen = anchor_address(AnchorId::InteractionOnScreen);
+        const uintptr_t onscreen = gated_anchor_address(Feature::InteractionOnScreen, AnchorId::InteractionOnScreen);
         if (onscreen != 0)
         {
             auto onscreen_result = DMK::hook::inline_at(
@@ -362,13 +372,12 @@ namespace TPVCamera
             else
             {
                 s_onscreen_original = onscreen_result->original<OnScreenCheckFunc>();
-                if (auto armed = onscreen_result->enable(); !armed.has_value())
+                if (auto armed = hooks.push(std::move(*onscreen_result)).enable(); !armed.has_value())
                 {
                     logger.warning("InteractionHook[init]: on-screen reticle hook could not be armed ({}); "
                                    "shrine interaction stays body-driven (look-ray/loot unaffected).",
                                    armed.error().message());
                 }
-                hooks.push(std::move(*onscreen_result));
             }
         }
         else

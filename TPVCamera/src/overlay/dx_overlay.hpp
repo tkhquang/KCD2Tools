@@ -37,9 +37,11 @@ namespace TPVCamera::Overlay::Detail
     [[nodiscard]] bool dx_start();
 
     /**
-     * @brief Signals the render thread to exit and waits for it to finish.
-     * @details Tears down ImGui and the WARP device on the render thread before it
-     *          returns. Safe to call even if dx_start() was never called or failed.
+     * @brief Requests a stop of the render thread and joins it with no timeout.
+     * @details The render thread tears down ImGui, the WARP device, and the window before it
+     *          returns. Without blocking-teardown permission (the loader lock), the worker detaches
+     *          instead and keeps its module reference, which shows as a Worker module pin. Safe to
+     *          call even if dx_start() was never called or failed.
      */
     void dx_stop() noexcept;
 

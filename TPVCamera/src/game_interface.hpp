@@ -23,11 +23,6 @@ namespace TPVCamera
      */
     [[nodiscard]] DMK::Result<void> initialize_game_interface();
 
-    /**
-     * @brief Clean up game interface resources.
-     */
-    void cleanup_game_interface();
-
 } // namespace TPVCamera
 
 #endif // TPVCAMERA_GAME_INTERFACE_HPP

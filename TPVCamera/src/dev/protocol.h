@@ -2,13 +2,9 @@
  * @file protocol.h
  * @brief Fixed-width contract between the resident dev loader and one logic generation.
  *
- * The loader outlives every generation, so everything it hands across the DLL boundary must have a
- * layout both sides agree on without sharing a C++ ABI. A plain C struct with an explicit size and
- * version does that: the logic DLL validates both before touching a field, so a stale generation left
- * in the deploy directory fails loudly instead of reading through a shifted layout.
- *
- * Modelled on DetourModKit's checked-in staged_reload example, which the hot-reload guide treats as the
- * reference pair.
+ * The loader outlives every generation, so the request it hands across the DLL boundary is a plain C struct
+ * with an explicit size and version. The logic DLL validates both before it reads a field. The request layout,
+ * the export signatures and each export's result values form one versioned contract (TPVCAMERA_RELOAD_ABI_VERSION).
  */
 #ifndef KCD2_TPVCAMERA_PROTOCOL_H
 #define KCD2_TPVCAMERA_PROTOCOL_H
@@ -17,42 +13,31 @@
 
 #include <stdint.h>
 
-/// Bump whenever the request layout or the export signatures change.
-#define TPVCAMERA_RELOAD_ABI_VERSION 1u
+/** @brief ABI revision of the request, the export signatures and their result values. */
+#define TPVCAMERA_RELOAD_ABI_VERSION 2u
 
-/// Success value returned by the logic DLL's Init and Shutdown exports.
+/** @brief A live Init result, or a retired Shutdown result with no retained resources. */
 #define TPVCAMERA_RELOAD_OK 1u
 
-#ifdef __cplusplus
-extern "C"
+/** @brief A retired Shutdown result that requires the loader to keep its module reference. */
+#define TPVCAMERA_RELOAD_RETAINED 2u
+
+/**
+ * @struct TpvReloadInitRequest
+ * @brief Fixed-width request passed from the resident loader to one logic generation.
+ */
+typedef struct TpvReloadInitRequest
 {
-#endif
+    /** @brief The request size known to the loader. */
+    uint32_t struct_size;
+    /** @brief The request ABI revision known to the loader. */
+    uint32_t abi_version;
+    /** @brief The loader-assigned generation id: strictly increasing, never zero. */
+    uint64_t generation_id;
+    /** @brief The identity the logic DLL must find in wheel_host, so a foreign table is rejected. */
+    uint64_t expected_host_identity;
+    /** @brief The process-lifetime resident wheel host. */
+    const WheelHostTable *wheel_host;
+} TpvReloadInitRequest;
 
-    /**
-     * @struct TpvReloadInitRequest
-     * @brief What the loader tells a generation at startup.
-     */
-    typedef struct TpvReloadInitRequest
-    {
-        /// sizeof(TpvReloadInitRequest) as the LOADER knows it.
-        uint32_t struct_size;
-        /// TPVCAMERA_RELOAD_ABI_VERSION as the loader knows it.
-        uint32_t abi_version;
-        /// Loader-assigned, strictly increasing, never zero.
-        uint64_t generation_id;
-        /// The identity the logic DLL must find in wheel_host, so a foreign table is rejected.
-        uint64_t expected_host_identity;
-        /// Process-lifetime wheel host owned by the loader. Valid for the whole process.
-        const WheelHostTable *wheel_host;
-    } TpvReloadInitRequest;
-
-    /// Exports the loader resolves by name on every generation.
-#define TPVCAMERA_RELOAD_INIT_SYMBOL "Init"
-#define TPVCAMERA_RELOAD_SHUTDOWN_SYMBOL "Shutdown"
-#define TPVCAMERA_RELOAD_REVISION_SYMBOL "Revision"
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif // KCD2_TPVCAMERA_PROTOCOL_H
+#endif /* KCD2_TPVCAMERA_PROTOCOL_H */

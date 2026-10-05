@@ -46,9 +46,10 @@ namespace TPVCamera
      * @brief Resolves RayWorldIntersection and the p_physical_world slot.
      * @details Best-effort: on a pattern miss the raycast features simply no-op (the camera
      *          still works), so callers treat a false return as "raycast unavailable".
-     * @param g_env Resolved SSystemGlobalEnvironment base; the p_physical_world slot is taken
-     *              from g_env + PHYSICAL_WORLD_OFFSET (no second hardcoded address).
-     * @return true if the ray helper was located.
+     * @param g_env Resolved SSystemGlobalEnvironment base, or 0 when it did not resolve; the
+     *              p_physical_world slot is taken from g_env + PHYSICAL_WORLD_OFFSET (no second
+     *              hardcoded address).
+     * @return true if the ray helper and g_env were located.
      */
     [[nodiscard]] bool initialize_physics_raycast(uintptr_t module_base, size_t module_size, uintptr_t g_env);
 

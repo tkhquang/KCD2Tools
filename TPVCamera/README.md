@@ -201,7 +201,22 @@ See the full list at the [Supported Input Names](https://github.com/tkhquang/Det
 - If the camera looks wrong in a specific scene (cutscene, photo mode), toggle it off with
   `F3` and back on when normal play resumes.
 - If a game update breaks a feature, the log names which signature stopped resolving
-  (`Anchor <name> unresolved`).
+  (`Anchor <name> unresolved`) and which feature turned off (`Feature gate: <name> Fail`).
+  The rest of the mod keeps working.
+- A broken signature can be repaired without a new build of the mod:
+  1. Set `ExportSignatures = true` in `[Advanced]` and start the game once. The mod writes every
+     built-in signature to `KCD2_TPVCamera.signatures.captured.ini`.
+  2. Copy the broken `[sig.<name>]` section and its `.rung.<N>` sections into a new
+     `KCD2_TPVCamera.signatures.ini` beside the ASI, under the same `[manifest]` header.
+  3. Change the `pattern` to match the new game build and delete the `fingerprint`,
+     `image_identity` and `winning_bytes` lines of that section.
+  4. A repair of a signature the mod only calls or reads takes effect at the next start. A
+     repair of a hook target also needs its baselines: start the game once more with
+     `ExportSignatures = true`, then copy the repaired section, with its new baseline lines,
+     from the captured file into `KCD2_TPVCamera.signatures.ini`.
+
+  The log reports each repair (`Signatures: <name> uses the repair from the signature file`) and
+  refuses one that it cannot trust. A file written for another signature revision is ignored.
 
 ## Known Limitations
 
@@ -286,14 +301,32 @@ The built `KCD2_TPVCamera.asi` is placed at `build/release-msvc/KCD2_TPVCamera.a
 
 ### Developer hot-reload build (optional)
 
-A two-DLL configuration builds a thin loader ASI plus a logic DLL that the loader reloads in
-place (press Numpad 0 in game) for fast iteration.
+A two-DLL configuration builds a resident loader ASI plus a logic DLL that the loader replaces in
+the running game. It follows DetourModKit's staged-generation pattern
+([hot-reload guide](https://github.com/tkhquang/DetourModKit/blob/main/docs/guides/hot-reload/README.md)).
 
 ```bash
 # Configure and build the loader + logic DLL (point it at the game plugins dir)
 cmake --preset msvc-dev -DTPVCAMERA_GAME_DIR="<game>/Bin/Win64MasterMasterSteamPGO"
 cmake --build --preset msvc-dev
 ```
+
+The build deploys the logic DLL and its PDB to `staging/` in the game folder. Release Numpad 0
+while the game window has focus to reload:
+
+1. The live generation's `Shutdown()` joins the mod's threads, disables every hook, waits until
+   no game thread is inside a detour, restores the hooked code, and drains DetourModKit's input
+   and config callbacks. It refuses retirement when any step fails, and the old generation then
+   stays mapped.
+2. The loader promotes the staged build and maps a copy under a unique name
+   (`KCD2_TPVCamera.genNNNN.logic.dll`), so a rebuild never collides with a mapped image.
+3. A generation that retires with a retained resource stays mapped, within a budget of 32
+   images and 128 MiB. A full budget or an unproven retirement stops further reloads until the
+   game restarts.
+
+`KCD2_TPVCamera_Loader.log` beside the ASI records each generation, its build identity, and the
+retirement verdict. A change to `src/dev/protocol.h` or `src/dev/mod_loader.cpp` needs a game
+restart, because the loader itself is never reloaded.
 
 ### Code style
 
@@ -303,55 +336,6 @@ The C++ sources follow a hard 120-column baseline and DetourModKit's coding conv
 advisory `.clang-tidy`. Run the formatter over any changed sources before committing and keep it
 idempotent (`clang-format --dry-run --Werror` must be silent). Editor IntelliSense and build tasks
 are configured at the repository-root `.vscode/`, not under `TPVCamera/`.
-
-## Architecture
-
-- `src/hooks/camera_hook.cpp` - the camera: frustum-builder matrix offset, head visibility,
-  free-look orbit, collision, aim convergence, the AI camera observer, and the native turn animation
-- `src/hooks/ui_menu_hooks.cpp`, `src/hooks/ui_overlay_hooks.cpp` - menu/overlay detection used
-  to suppress the offset under UI
-- `src/hooks/hook_registry.cpp` - owns every installed hook handle, so teardown restores the patched
-  game code from one place
-- `src/game_interface.cpp` - resolves the engine's global-context pointer (the camera-manager
-  root) that the game-state detection walks
-- `src/game_state.cpp` - derives the game state (combat, dialogue, minigame, mount, menu, overlay)
-  that drives the `[StateBehavior]` auto-switching, reading the active engine camera class by RTTI
-- `src/rtti_types.cpp` - resolves each engine class vtable once at startup so those per-frame class
-  tests are a pointer compare
-- `src/physics_raycast.cpp` - the engine ray helper used by collision and aim convergence
-- `src/presets/`, `src/overlay/` - the per-state camera preset model and JSON store, plus the
-  self-hosted ImGui overlay (preset editor) that previews edits on the live camera
-- `src/config.cpp`, `src/global_state.cpp`, `src/tpv_camera.cpp` - configuration, shared state,
-  and the mod lifecycle
-
-Game addresses are located patch-resiliently. Every hooked function and read global is found
-through a multi-candidate AOB cascade (`src/aob_resolver.hpp`): each target carries several ordered
-signatures, most-specific first, and the first that resolves wins, so a game patch only has to
-leave one anchor intact for the feature to keep working. The cascades are declared as a single
-DetourModKit anchor registry (`src/aob_resolver.cpp`) and resolved in one parallel pass at startup,
-which logs a per-anchor status and an overall quality summary. The cascade is scanned only inside the
-`WHGame.dll` image, so a signature that happens to also appear in another injected mod or graphics
-overlay can never be mistaken for the game's. At least one candidate per cascade anchors past the
-function prologue, so resolution still succeeds when another mod has inline-hooked the entry; the
-hooks themselves install with a fail-closed prologue check so a mis-resolved entry is refused rather
-than patched blindly. The sweep is confined to the image's executable pages, so a signature that must
-land on an instruction cannot match an identical run of bytes in read-only data. The `gEnv` global
-resolves through the same cascade (with a static RVA fallback), and engine object types are matched by
-their MSVC RTTI names rather than hardcoded vtable addresses. Each class vtable is resolved once at
-startup and cached with its image generation, so the per-frame "which camera class is active" tests
-cost a pointer compare instead of an RTTI walk. The cascade signatures follow DetourModKit's
-[AOB signature guide](https://github.com/tkhquang/DetourModKit/blob/main/docs/misc/aob-signatures.md).
-
-The AOB cascades resolve struct base addresses; a self-healing offset layer (`src/offset_heal.hpp`)
-covers the field offsets walked inside those structs. A game patch that inserts or removes a member
-shifts every field after it, so each in-scope offset is keyed to the MSVC RTTI name of the object its
-slot points at, and DetourModKit's reverse-RTTI self-heal (`rtti_dissect.hpp`) scans a small window
-around the nominal offset for the slot that still resolves to that type. The recovery runs once per
-session the first time a live, RTTI-validated player and context resolve (never per frame); the
-per-frame chains then read the cached offset. The look controller, whose pointee has no RTTI of its
-own, is bracketed by its two RTTI-typed neighbours and only moves when both agree on one shift.
-Everything is fail-closed: an offset the heal cannot recover stays at its built-in value, so the mod
-degrades to its previous behaviour rather than reading the wrong memory.
 
 ## Credits
 

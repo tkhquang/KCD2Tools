@@ -22,17 +22,16 @@
  * build until a layout actually drifts. Healing is strictly fail-closed: an unrecoverable layout leaves the
  * nominal offset in place (degrades to current behaviour, never a guessed offset, never a crash), exactly
  * as DetourModKit's heal primitives guarantee. Each slot is an rtti::HealedSlot rather than a bare atomic,
- * so it publishes {value, generation, validity} and a consumer that AUTHORIZES A WRITE through the offset
- * can demand Confirmed (write_authorized_offset) instead of silently writing through a retained nominal.
- * Read-only navigation keeps using the retained value (offset_value), which is what preserves the
- * degrade-to-hardcoded behaviour.
+ * so it publishes {value, generation, validity}. A consumer whose offset decides where a WRITE lands demands
+ * Confirmed through HealedSlot::authorized(), because on a drifted layout a retained nominal names whatever
+ * member now occupies that slot. Read-only navigation keeps the retained value (HealedSlot::load()), which
+ * preserves the degrade-to-hardcoded behaviour: a read through a nominal reads at worst a neighbouring field.
  */
 #ifndef TPVCAMERA_OFFSET_HEAL_HPP
 #define TPVCAMERA_OFFSET_HEAL_HPP
 
 #include "constants.hpp"
 
-#include <DetourModKit/error.hpp>
 #include <DetourModKit/rtti_dissect.hpp>
 
 #include <cstddef>
@@ -75,30 +74,6 @@ namespace TPVCamera
      *          nominal.
      */
     [[nodiscard]] RuntimeOffsets &runtime_offsets() noexcept;
-
-    /**
-     * @brief Reads a healed offset for READ-ONLY chain navigation.
-     * @param slot The cache slot.
-     * @return The healed offset once a heal confirms one, otherwise the seeded nominal.
-     * @details This is the degrade-to-hardcoded path: a walk that only reads through the offset is no worse
-     *          off with the nominal than a build that never healed at all, so it takes the retained value
-     *          without demanding evidence. Use write_authorized_offset() instead whenever the offset decides
-     *          where a WRITE lands.
-     * @note Callback-safe: a bounded seqlock read, no allocation, locking, or I/O.
-     */
-    [[nodiscard]] std::ptrdiff_t offset_value(const DMK::rtti::HealedSlot &slot) noexcept;
-
-    /**
-     * @brief Reads a healed offset that is about to authorize a WRITE into a game struct.
-     * @param slot The cache slot.
-     * @return The offset when the slot is Confirmed, or ErrorCode::OffsetNotConfirmed when no heal has
-     *         established it.
-     * @details A retained nominal is safe to READ through (worst case it reads a neighbouring field) but not
-     *          to WRITE through: on a genuinely drifted layout the store lands in whatever member now
-     *          occupies that slot. Fail closed instead, and skip the write for the frame.
-     * @note Callback-safe: a bounded seqlock read, no allocation, locking, or I/O.
-     */
-    [[nodiscard]] DMK::Result<std::ptrdiff_t> write_authorized_offset(const DMK::rtti::HealedSlot &slot) noexcept;
 
     /**
      * @brief Starts the self-heal scheduler and registers every heal group.

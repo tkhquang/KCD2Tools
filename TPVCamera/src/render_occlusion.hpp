@@ -27,8 +27,9 @@ namespace TPVCamera
      *          treat a false return as "render occlusion unavailable".
      * @param module_base Base address of the scanned game module (WHGame.dll); the AOB cascade search range.
      * @param module_size Size of the scanned module image, in bytes.
-     * @param g_env Resolved SSystemGlobalEnvironment base; p3DEngine = g_env + GENV_3DENGINE_OFFSET.
-     * @return true if the query function was located.
+     * @param g_env Resolved SSystemGlobalEnvironment base, or 0 when it did not resolve; p3DEngine =
+     *              g_env + GENV_3DENGINE_OFFSET.
+     * @return true if the query function and g_env were located.
      */
     [[nodiscard]] bool initialize_render_occlusion(uintptr_t module_base, size_t module_size, uintptr_t g_env);
 

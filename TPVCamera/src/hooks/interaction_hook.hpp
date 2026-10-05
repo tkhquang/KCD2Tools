@@ -13,8 +13,9 @@
 #ifndef TPVCAMERA_HOOKS_INTERACTION_HOOK_HPP
 #define TPVCAMERA_HOOKS_INTERACTION_HOOK_HPP
 
+#include "hook_set.hpp"
+
 #include <DetourModKit/error.hpp>
-#include <DetourModKit/hook.hpp>
 
 namespace TPVCamera
 {
@@ -25,13 +26,13 @@ namespace TPVCamera
      * @details Best-effort: on a pattern miss the feature simply no-ops (interaction stays vanilla) and the
      *          rest of the mod is unaffected. The detours are also a no-op at runtime unless InteractFromCamera
      *          is enabled AND the third-person offset is engaged, so first person is never touched.
-     * @param hooks The mod's hook stack; each installed handle is pushed in install order.
+     * @param hooks The mod's hook set. Each handle is stored before its arm.
      * @return An empty value when the look-ray builder hook was installed, or the library Error that refused
      *         it (ErrorCode::NoMatch when an anchor cascade did not resolve). The companion on-screen reticle
      *         gate is best-effort within this unit and only warns.
-     * @note Call after resolve_all_anchors(); the hook targets are read via anchor_address().
+     * @note Call after resolve_all_anchors(); the hook targets are read through the Interaction gates.
      */
-    [[nodiscard]] DMK::Result<void> initialize_interaction_hook(DMK::hook::HookStack &hooks);
+    [[nodiscard]] DMK::Result<void> initialize_interaction_hook(HookSet &hooks);
 
 } // namespace TPVCamera
 

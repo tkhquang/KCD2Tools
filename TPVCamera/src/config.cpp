@@ -63,6 +63,8 @@ namespace TPVCamera
 
         // Advanced: RTTI self-heal search radius (see offset_heal.cpp). Not for normal users.
         advanced.bind<int>("SelfHealWindow", "Self Heal Window", s.self_heal_window, 0x100);
+        // Advanced: write the built-in signatures and their captured baselines beside the ASI (see aob_resolver.hpp).
+        advanced.bind<bool>("ExportSignatures", "Export Signatures", s.export_signatures, false);
 
         // Camera framing. The follow distance, offsets, eye height, aim focus, follow yaw/pitch, the orbit
         // tuning, and the per-preset collision values are all OWNED BY PRESETS (in the shipped presets JSON,

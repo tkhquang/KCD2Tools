@@ -6,8 +6,6 @@
 #include "hooks/player_onaction_hook.hpp"
 #include "aob_resolver.hpp"
 
-#include "../dmk_aliases.hpp"
-
 #include <DetourModKit.hpp>
 
 #include <windows.h>
@@ -125,12 +123,13 @@ namespace TPVCamera
      */
     static void capture_movement_input(const char **action_name, float value)
     {
-        if (action_name == nullptr || !mem::is_plausible_ptr(Address{reinterpret_cast<uintptr_t>(action_name)}))
+        if (action_name == nullptr ||
+            !DMK::memory::is_plausible_ptr(DMK::Address{reinterpret_cast<uintptr_t>(action_name)}))
         {
             return;
         }
         const char *name = *action_name;
-        if (name == nullptr || !mem::is_plausible_ptr(Address{reinterpret_cast<uintptr_t>(name)}))
+        if (name == nullptr || !DMK::memory::is_plausible_ptr(DMK::Address{reinterpret_cast<uintptr_t>(name)}))
         {
             return;
         }
@@ -155,12 +154,11 @@ namespace TPVCamera
     }
 
     /**
-     * @brief Action-dispatcher detour: latch movement intent, then always forward to the original so the
-     *        game's action handling (and Lua Player:OnAction) is untouched. A fault while reading the event
-     *        is swallowed and the original still runs.
+     * @brief Runs capture_movement_input under SEH, so a fault while reading the event is swallowed.
+     * @details Apart from the detour, because the detour's DetourScope needs C++ object unwinding, which a __try
+     *          frame cannot hold.
      */
-    static uintptr_t __fastcall detour_action_dispatch(uintptr_t self, const char **action_name,
-                                                       unsigned int activation, float value) noexcept
+    static void capture_movement_input_guarded(const char **action_name, float value) noexcept
     {
         __try
         {
@@ -169,12 +167,24 @@ namespace TPVCamera
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
         }
+    }
+
+    /**
+     * @brief Action-dispatcher detour: latch movement intent, then always forward to the original so the
+     *        game's action handling (and Lua Player:OnAction) is untouched. A fault while reading the event
+     *        is swallowed and the original still runs.
+     */
+    static uintptr_t __fastcall detour_action_dispatch(uintptr_t self, const char **action_name,
+                                                       unsigned int activation, float value) noexcept
+    {
+        const DetourScope in_flight;
+        capture_movement_input_guarded(action_name, value);
         return s_action_dispatch_original ? s_action_dispatch_original(self, action_name, activation, value) : 0;
     }
 
-    DMK::Result<void> initialize_player_onaction_hook(DMK::hook::HookStack &hooks)
+    DMK::Result<void> initialize_player_onaction_hook(HookSet &hooks)
     {
-        const uintptr_t dispatch_addr = anchor_address(AnchorId::ActionDispatch);
+        const uintptr_t dispatch_addr = gated_anchor_address(Feature::MoveIntent, AnchorId::ActionDispatch);
         if (dispatch_addr == 0)
         {
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "player_onaction_hook/anchor"});
@@ -193,13 +203,13 @@ namespace TPVCamera
             return std::unexpected(result.error());
         }
 
-        // Publish the trampoline BEFORE enable() arms the patch.
+        // Publish the trampoline and store the handle BEFORE enable() arms the patch, so the set owns a hook whose arm
+        // fails with the patch live.
         s_action_dispatch_original = result->original<ActionDispatchFunc>();
-        if (auto armed = result->enable(); !armed.has_value())
+        if (auto armed = hooks.push(std::move(*result)).enable(); !armed.has_value())
         {
             return std::unexpected(armed.error());
         }
-        hooks.push(std::move(*result));
 
         s_available.store(true, std::memory_order_relaxed);
         return {};
