@@ -105,7 +105,7 @@ namespace HenrySenses
     {
         /// The node was moved.
         Applied,
-        /// The node already carried ERF_RENDER_ALWAYS (engine-owned); nothing was changed.
+        /// The node already carried ERF_RENDER_ALWAYS from the engine or another highlight set, so nothing changed.
         AlreadyAlways,
         /// The node is not registered with the 3D engine (streamed out, hidden, or excluded); nothing was changed.
         NotRegistered,
@@ -261,24 +261,81 @@ namespace HenrySenses
     [[nodiscard]] std::optional<bool> read_render_always(std::uintptr_t node) noexcept;
 
     /**
-     * @brief Moves a render node out of the octree into the 3D engine's always-visible list.
-     * @details UnRegisterEntityDirect, set ERF_RENDER_ALWAYS, RegisterEntity. The re-registration takes the full
-     *          path (the node no longer owns an octree node), which files a node carrying the bit in the always-visible
-     *          list; that list is drawn with frustum and view-distance tests only, never the occlusion test.
-     * @param node A render node from render_node_of().
-     * @return The outcome.
+     * @brief Reads the distance past which the 3D engine stops drawing a render node.
+     * @param node A render node from render_node_of() or a brush.
+     * @return The distance in metres, or std::nullopt on a failed read.
      */
-    [[nodiscard]] RenderAlwaysResult apply_render_always(std::uintptr_t node) noexcept;
+    [[nodiscard]] std::optional<float> read_max_view_dist(std::uintptr_t node) noexcept;
 
     /**
-     * @brief Moves a render node back from the always-visible list into the octree.
-     * @details Forces the bit first so UnRegisterEntityDirect also erases the node from the always-visible list,
-     *          then restores the prior bit state and re-registers.
-     * @param node A render node from render_node_of().
-     * @param keep_bit True when the node carried ERF_RENDER_ALWAYS before the mod touched it.
-     * @return Applied on success, Failed otherwise.
+     * @brief Reads a render node's view-distance ratio (100 is the default reach, 255 the farthest).
+     * @param node A render node from render_node_of() or a brush.
+     * @return The ratio, or std::nullopt on a failed read.
      */
-    [[nodiscard]] RenderAlwaysResult remove_render_always(std::uintptr_t node, bool keep_bit) noexcept;
+    [[nodiscard]] std::optional<std::uint8_t> read_view_dist_ratio(std::uintptr_t node) noexcept;
+
+    /**
+     * @struct RenderNodeWants
+     * @brief The changes a highlight needs on its render node.
+     */
+    struct RenderNodeWants
+    {
+        /// The node moves into the always-visible list, which skips the occlusion test.
+        bool always_visible{false};
+        /// The node carries constants::VIEW_DIST_RATIO_FAR, so the engine draws it out to any highlight radius.
+        bool raise_view_distance{false};
+    };
+
+    /**
+     * @struct RenderNodeOverrides
+     * @brief The changes the mod holds on one render node, with what a restore needs.
+     */
+    struct RenderNodeOverrides
+    {
+        /// The mod moved the node into the always-visible list.
+        bool always_visible{false};
+        /**
+         * @brief The node's own view-distance ratio while the mod holds the node at constants::VIEW_DIST_RATIO_FAR,
+         *        or std::nullopt while the ratio is the node's own.
+         */
+        std::optional<std::uint8_t> own_view_dist_ratio{};
+
+        /** @brief Reports whether the mod holds a change on the node. */
+        [[nodiscard]] bool changed() const noexcept { return always_visible || own_view_dist_ratio.has_value(); }
+    };
+
+    /**
+     * @brief Brings the mod's changes on a render node to what a highlight needs.
+     * @details A silhouette shows only on a mesh that the 3D engine draws. The engine skips every node past its max
+     *          view distance, in the octree and in the always-visible list alike. A small item reaches only 5 to 25 m,
+     *          and the far ratio multiplies that reach by 100.
+     *
+     *          Each change takes effect through a re-registration of the node. A move into or out of the
+     *          always-visible list writes the ratio inside its own re-registration. A ratio that the game rewrote
+     *          during a raise becomes the node's own ratio, and the call raises the node again.
+     * @param node The node, resolved this frame.
+     * @param overrides The changes on @p node, updated to what is in place afterwards.
+     * @param wants The changes the highlight needs.
+     * @return The outcome of the always-visible move when one ran, else std::nullopt.
+     * @note Main thread only.
+     */
+    std::optional<RenderAlwaysResult> update_render_node_overrides(
+        std::uintptr_t node,
+        RenderNodeOverrides &overrides,
+        const RenderNodeWants &wants
+    ) noexcept;
+
+    /**
+     * @brief Undoes the mod's changes on a render node and empties @p overrides.
+     * @details The node moves back into the octree and gets its own view-distance ratio back. A ratio that the game
+     *          rewrote during the raise belongs to the game and stays.
+     * @param node The node that the changes were applied to, resolved this frame.
+     * @param overrides The changes on @p node.
+     * @return The outcome of the move out of the always-visible list when one ran, else std::nullopt.
+     * @note Main thread only.
+     */
+    std::optional<RenderAlwaysResult>
+    restore_render_node_overrides(std::uintptr_t node, RenderNodeOverrides &overrides) noexcept;
 
     /**
      * @class EntityLookup

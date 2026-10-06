@@ -4,8 +4,8 @@
  *
  * A loot scan replaces the set through apply_batch(), which diffs it against the
  * current set, writes or clears each render node's HUD silhouette word, invalidates the node's persistent render
- * object on every change, and optionally moves the node into the 3D engine's always-visible list, remembering what
- * to restore. clear_all_highlights() restores every node it touched; it runs before the hooks are removed, on level
+ * object on every change, and holds the node's render overrides (update_render_node_overrides()) with what a restore
+ * needs. clear_all_highlights() restores every node it touched; it runs before the hooks are removed, on level
  * change, and whenever a gate hides the highlight. Every call runs on the game main thread.
  */
 #ifndef HENRYSENSES_REGISTRY_HPP
@@ -158,7 +158,8 @@ namespace HenrySenses
         std::uint32_t color_word{0};
         /**
          * @brief Drawn as brackets: its group's Style is Box, or its own mesh cannot show a silhouette (StashCorpse, no
-         * render node, or an entity the game keeps invisible for now, re-read on every batch).
+         * render node, an entity the game keeps invisible for now, or a mesh past the engine's draw distance). Every
+         * batch reads the last two again.
          */
         bool marker_preferred{false};
     };

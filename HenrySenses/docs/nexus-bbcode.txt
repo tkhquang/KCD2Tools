@@ -113,7 +113,7 @@ Give several groups the same [b]Key[/b] to activate them together while keeping 
 
 Edit the existing sections for these common changes:
 [list]
-[*][b]See farther:[/b] increase Radius under Settings (metres; default 20). A group's own Radius takes priority.[/*]
+[*][b]See farther:[/b] increase Radius under Settings (metres; default 20, maximum 100). A group's own Radius takes priority. Highlighted objects are drawn out to the full Radius, even small items that the game normally hides after a few metres, so a large Radius costs more performance.[/*]
 [*][b]Keep a pulse visible longer:[/b] increase Duration under Settings (seconds; default 5).[/*]
 [*][b]Highlight stolen loot in red:[/b] set Enabled = true under Highlight.Stolen. The normal Loot group continues to skip stolen loot.[/*]
 [*][b]Show living people and animals:[/b] enable Highlight.Living.[/*]

@@ -164,7 +164,7 @@ Edit the existing sections for these common changes:
 
 | What you want | Where to change it |
 | --- | --- |
-| See things farther away | Increase `Radius` under `[Settings]` (metres; default 20). A group's own Radius takes priority. |
+| See things farther away | Increase `Radius` under `[Settings]` (metres; default 20, maximum 100). A group's own Radius takes priority. Highlighted objects are drawn out to the full Radius, even small items that the game normally hides after a few metres, so a large Radius costs more performance. |
 | Keep a pulse visible longer | Increase `Duration` under `[Settings]` (seconds; default 5). |
 | Highlight stolen loot in red | Set `Enabled = true` under `[Highlight.Stolen]`. The normal Loot group continues to skip stolen loot. |
 | Show living people and animals | Set `Enabled = true` under `[Highlight.Living]`. |

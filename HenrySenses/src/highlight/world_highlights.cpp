@@ -43,7 +43,8 @@ namespace HenrySenses
             std::uint32_t applied_word{0};
             // The node the state was applied to; compared, never dereferenced, after the frame it was resolved in.
             std::uintptr_t node{0};
-            bool render_always_applied{false};
+            // The always-visible move and the raised view distance on that node.
+            RenderNodeOverrides overrides{};
             bool wanted{false};
         };
 
@@ -73,22 +74,41 @@ namespace HenrySenses
         void forget(Entry &entry) noexcept
         {
             entry.applied_word = 0;
-            entry.render_always_applied = false;
+            entry.overrides = RenderNodeOverrides{};
             entry.node = 0;
         }
 
         /**
+         * @brief Hands a node that the loot set took over to the loot set.
+         * @details The word on the node belongs to the loot set now. This set undoes its always-visible move and its
+         *          raised view distance, because the loot set found them in place and restores only what it owns. The
+         *          loot set's next full apply sets both up for itself.
+         * @param entry The entry.
+         * @param node The node that the entry's overrides were applied to, resolved this frame.
+         */
+        void hand_over(Entry &entry, std::uintptr_t node) noexcept
+        {
+            restore_render_node_overrides(node, entry.overrides);
+            forget(entry);
+        }
+
+        /**
          * @brief Restores one entry's node state.
-         * @details Runs only while the object still resolves to the very node the mod changed and the loot set has not
-         *          taken that node over; a gone node took its word with it and was purged from the always-visible list
-         *          by the engine.
+         * @details The restore runs only while the object still resolves to the node that the mod changed. A gone node
+         *          took its word and view-distance ratio with it, and the engine purged it from the always-visible list.
+         *          A node that the loot set took over goes to hand_over().
          */
         void restore_entry(Entry &entry) noexcept
         {
             const std::uintptr_t node = resolve_node(entry);
-            if (node == 0 || node != entry.node || registry_owns_node(node))
+            if (node == 0 || node != entry.node)
             {
                 forget(entry);
+                return;
+            }
+            if (registry_owns_node(node))
+            {
+                hand_over(entry, node);
                 return;
             }
             if (entry.applied_word != 0)
@@ -96,17 +116,14 @@ namespace HenrySenses
                 (void)write_hud_word(node, 0);
                 (void)invalidate_render_object(node);
             }
-            if (entry.render_always_applied)
+            const std::optional<RenderAlwaysResult> result = restore_render_node_overrides(node, entry.overrides);
+            if (result.has_value() && *result != RenderAlwaysResult::Applied)
             {
-                const RenderAlwaysResult result = remove_render_always(node, false);
-                if (result != RenderAlwaysResult::Applied)
-                {
-                    (void)DMK::log().try_log(
-                        DMK::LogLevel::Warning,
-                        "WorldHighlights: 0x{:016X} could not leave the always-visible list",
-                        node
-                    );
-                }
+                (void)DMK::log().try_log(
+                    DMK::LogLevel::Warning,
+                    "WorldHighlights: 0x{:016X} could not leave the always-visible list",
+                    node
+                );
             }
             forget(entry);
         }
@@ -114,7 +131,7 @@ namespace HenrySenses
         void apply_entry(Entry &entry, const ApplyOptions &options)
         {
             const std::uintptr_t node = resolve_node(entry);
-            const bool first_time = entry.node == 0 && entry.applied_word == 0 && !entry.render_always_applied;
+            const bool first_time = entry.node == 0 && entry.applied_word == 0 && !entry.overrides.changed();
             if (node != entry.node)
             {
                 // A new proxy never carries the old one's state, and a brush that stopped matching is gone.
@@ -127,7 +144,7 @@ namespace HenrySenses
             if (registry_owns_node(node))
             {
                 // The loot set outlines this node already, in its own colour.
-                forget(entry);
+                hand_over(entry, node);
                 return;
             }
 
@@ -148,31 +165,30 @@ namespace HenrySenses
                 entry.applied_word = 0;
             }
 
-            const bool want_always = options.write_words && options.render_always;
-            RenderAlwaysResult always_result = RenderAlwaysResult::NotRegistered;
-            if (want_always && !entry.render_always_applied)
-            {
-                always_result = apply_render_always(node);
-                entry.render_always_applied = always_result == RenderAlwaysResult::Applied;
-            }
-            else if (!want_always && entry.render_always_applied)
-            {
-                (void)remove_render_always(node, false);
-                entry.render_always_applied = false;
-            }
+            // An outline shows only on a mesh that the engine draws, and a small object such as a stool or a bucket
+            // leaves the engine's draw distance well inside the radius.
+            const RenderNodeWants wants{
+                .always_visible = options.write_words && options.render_always,
+                .raise_view_distance = options.write_words,
+            };
+            update_render_node_overrides(node, entry.overrides, wants);
             entry.node = node;
 
             if (first_time)
             {
+                const std::optional<float> reach = read_max_view_dist(node);
+                const std::optional<std::uint8_t> own_ratio = entry.overrides.own_view_dist_ratio;
                 (void)DMK::log().try_log(
                     DMK::LogLevel::Debug,
-                    "WorldHighlights: + {} {} dist={:.1f} node=0x{:016X} word={:#010x} always={}",
+                    "WorldHighlights: + {} {} dist={:.1f} node=0x{:016X} word={:#010x} always={} reach={}{}",
                     entry.entity_id != 0 ? "entity" : "brush",
                     entry.entity_id != 0 ? std::format("{:#x}", entry.entity_id) : render_node_name(node),
                     entry.distance,
                     node,
                     entry.applied_word,
-                    entry.render_always_applied
+                    entry.overrides.always_visible,
+                    reach.has_value() ? std::format("{:.0f}", *reach) : std::string{"-"},
+                    own_ratio.has_value() ? std::format(" (raised from ratio {})", *own_ratio) : std::string{}
                 );
             }
         }
@@ -286,7 +302,7 @@ namespace HenrySenses
         DMK_PROFILE_FUNCTION();
         for (Entry &entry : s_entries)
         {
-            if (!entry.render_always_applied)
+            if (!entry.overrides.always_visible)
             {
                 continue;
             }
@@ -299,8 +315,7 @@ namespace HenrySenses
             const std::optional<bool> bit = read_render_always(node);
             if (bit.has_value() && !*bit)
             {
-                (void)remove_render_always(node, false);
-                entry.render_always_applied = false;
+                restore_render_node_overrides(node, entry.overrides);
                 (void)DMK::log().try_log(
                     DMK::LogLevel::Warning,
                     "WorldHighlights: 0x{:016X} lost ERF_RENDER_ALWAYS outside the mod; moved back into "
@@ -341,7 +356,7 @@ namespace HenrySenses
             for (const Entry &entry : s_entries)
             {
                 // Only a node moved to the always-visible list has left the octree; the rest is found by the query.
-                if (!entry.render_always_applied || entry.node == 0)
+                if (!entry.overrides.always_visible || entry.node == 0)
                 {
                     continue;
                 }
