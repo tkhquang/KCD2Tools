@@ -2,6 +2,12 @@
 
 All notable changes to the HenrySenses mod will be documented in this file.
 
+## [1.0.1] - Highlights Reach the Full Radius
+
+- Fixed small items such as food, tankards and dice only being highlighted up close.
+- Everything within Radius is now highlighted, even items the game normally hides at that distance.
+- In the rare case the game still will not draw an item, it shows corner brackets instead.
+
 ## [1.0.0] - Intial release
 
 - Highlight nearby loot, bodies, herbs and mushrooms with H or a controller shortcut.
@@ -13,4 +19,5 @@ All notable changes to the HenrySenses mod will be documented in this file.
 - Filter stolen, empty, locked and hostile targets using the game's own checks.
 - Add optional sparkles, glow or a tinted focus effect.
 
+[1.0.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/HenrySenses-v1.0.1
 [1.0.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/HenrySenses-v1.0.0

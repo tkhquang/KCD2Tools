@@ -1,6 +1,6 @@
 KINGDOM COME: DELIVERANCE II - HENRY'S SENSES
 Loot and Object Highlighting
-Version 1.0.0
+Version 1.0.1
 
 This mod is an .asi plugin, so it needs an ASI loader to run. The loader is NOT
 included in this download - you install it once, yourself (see Step 1). If you
