@@ -46,14 +46,17 @@ namespace HenrySenses
             std::uint32_t color_word{0};
             // The node the state was applied to; compared, never dereferenced, after the frame it was resolved in.
             std::uintptr_t node{0};
-            // The mod moved the node into the always-visible list.
-            bool render_always_applied{false};
+            // The always-visible move and the raised view distance on that node.
+            RenderNodeOverrides overrides{};
             // The distance to the player at the last apply, for logs.
             float distance{-1.0f};
             // The game keeps the entity invisible for now (entity_flags_game_hidden): nothing is drawn, so it shows
             // its marker until the game draws it again. The word and the always-visible move stay applied, so the
             // outline is back the frame the game shows it.
             bool game_hidden{false};
+            // The node's mesh is past the engine's draw distance, so the entry shows its marker. A raised node never
+            // gets here, so this covers a node that the raise does not reach.
+            bool beyond_reach{false};
         };
 
         // The main thread owns the entries. Setup runs before the frame hook arms.
@@ -73,6 +76,10 @@ namespace HenrySenses
         std::vector<HighlightRequest> s_wanted;
         std::unordered_set<EntityId> s_wanted_ids;
         std::unordered_map<EntityId, std::size_t> s_entry_slots;
+
+        // The engine measures a node's draw distance from the camera, which sits behind the player in third person. The
+        // marker starts this many metres early, so a camera up to that far back never shows a culled mesh without it.
+        constexpr float REACH_MARGIN = 5.0f;
 
         // Number of fade steps; a word changes (and a persistent render object is invalidated) only on a step change.
         constexpr float FADE_STEPS = 8.0f;
@@ -265,8 +272,8 @@ namespace HenrySenses
             const std::uintptr_t node = entity != 0 ? render_node_of(entity) : 0;
             if (node == 0 || node != entry.node)
             {
-                // The entity or its proxy is gone; a destroyed node takes its word with it, and a node that carried
-                // ERF_RENDER_ALWAYS is purged from the always-visible list by the engine's own unregister.
+                // The entity or its proxy is gone. A destroyed node takes its word and view-distance ratio with it, and
+                // the engine's own unregister purges a flagged node from the always-visible list.
                 entry = Entry{
                     .id = entry.id,
                 };
@@ -277,22 +284,80 @@ namespace HenrySenses
                 (void)write_hud_word(node, 0);
                 (void)invalidate_render_object(node);
             }
-            if (entry.render_always_applied && node == entry.node)
+            const std::optional<RenderAlwaysResult> result = restore_render_node_overrides(node, entry.overrides);
+            if (result.has_value() && *result != RenderAlwaysResult::Applied)
             {
-                const RenderAlwaysResult result = remove_render_always(node, false);
-                if (result != RenderAlwaysResult::Applied)
-                {
-                    (void)DMK::log().try_log(
-                        DMK::LogLevel::Warning,
-                        "Registry: id={:#x} could not leave the always-visible list ({})",
-                        entry.id,
-                        render_always_name(result)
-                    );
-                }
+                (void)DMK::log().try_log(
+                    DMK::LogLevel::Warning,
+                    "Registry: id={:#x} could not leave the always-visible list ({})",
+                    entry.id,
+                    render_always_name(*result)
+                );
             }
             entry.applied_word = 0;
-            entry.render_always_applied = false;
             entry.node = 0;
+        }
+
+        /**
+         * @brief Returns the player's distance to an entity.
+         * @return The distance in metres, negative when the player position or the entity position is unknown.
+         */
+        [[nodiscard]] float player_distance(std::uintptr_t entity, const ApplyOptions &options) noexcept
+        {
+            if (!options.player_position.has_value())
+            {
+                return -1.0f;
+            }
+            const std::optional<game_structures::Vec3f> position = entity_world_position(entity);
+            return position.has_value() ? distance_between(*options.player_position, *position) : -1.0f;
+        }
+
+        /**
+         * @brief Reads again whether an entry's mesh is past the engine's draw distance, and logs a change.
+         * @details A silhouette shows only on a mesh that the engine draws, and update_render_node_overrides() raises
+         *          the draw distance of every outlined node past any radius. The check catches a node that the raise
+         *          does not reach, such as a node that the engine keeps in its own always-visible list. Such an entry
+         *          shows its marker. The engine measures from the camera to the node's box, scaled by the zoom. The
+         *          player's distance to the entity plus REACH_MARGIN stands in for that measure.
+         * @param entry The entry.
+         * @param node Its node, resolved this tick (0: none).
+         * @param distance The player's distance to the entity, negative when unknown.
+         * @param outlined The entry shows a silhouette: words are written and its group's Style is not Box.
+         * @note Main thread only.
+         */
+        void note_reach(Entry &entry, std::uintptr_t node, float distance, bool outlined)
+        {
+            const std::optional<float> reach =
+                outlined && node != 0 && distance >= 0.0f ? read_max_view_dist(node) : std::nullopt;
+            if (!reach.has_value())
+            {
+                // Nothing to measure (no silhouette, no node, no distance): the other marker reasons decide.
+                entry.beyond_reach = false;
+                return;
+            }
+            // A reach that is not a number is never compared true, so it shows the marker too.
+            const bool beyond = !(distance + REACH_MARGIN <= *reach);
+            if (beyond == entry.beyond_reach)
+            {
+                return;
+            }
+            entry.beyond_reach = beyond;
+            if (!DMK::log().is_enabled(DMK::LogLevel::Debug))
+            {
+                return;
+            }
+            const std::uintptr_t entity = entity_from_id(entry.id);
+            (void)DMK::log().try_log(
+                DMK::LogLevel::Debug,
+                "Registry: id={:#x} {} '{}' {} the engine's draw distance ({:.1f} m reach at {:.1f} m) -> {}",
+                entry.id,
+                loot_category_name(entry.category),
+                entity != 0 ? entity_name(entity) : std::string{"-"},
+                beyond ? "past" : "back within",
+                *reach,
+                distance,
+                beyond ? "marker" : "outline"
+            );
         }
 
         /**
@@ -358,30 +423,24 @@ namespace HenrySenses
             {
                 entry.node = 0;
                 entry.applied_word = 0;
-                entry.render_always_applied = false;
+                entry.overrides = RenderNodeOverrides{};
                 entry.game_hidden = false;
+                entry.beyond_reach = false;
                 return;
             }
             const std::uintptr_t node = render_node_of(entity);
             note_game_hidden(entry, entity);
 
-            entry.distance = -1.0f;
-            if (options.player_position.has_value())
-            {
-                if (const auto position = entity_world_position(entity); position.has_value())
-                {
-                    entry.distance = distance_between(*options.player_position, *position);
-                }
-            }
+            entry.distance = player_distance(entity, options);
             entry.color_word = intensity_scaled(entry.color, entry.marker_intensity);
-            // A Box group draws brackets only: no word, and no move out of the octree.
+            // A Box group draws brackets only: no word and no render overrides.
             const bool words = options.write_words && entry.style != GroupStyle::Box;
 
             if (node != entry.node)
             {
                 // A new proxy never carries the old one's state.
                 entry.applied_word = 0;
-                entry.render_always_applied = false;
+                entry.overrides = RenderNodeOverrides{};
             }
 
             if (node != 0 && words)
@@ -403,19 +462,24 @@ namespace HenrySenses
                 entry.applied_word = 0;
             }
 
-            const bool want_always = node != 0 && words && options.render_always;
-            RenderAlwaysResult always_result = RenderAlwaysResult::NotRegistered;
+            // Every silhouette needs the raised view distance, since the outline shows only on a mesh that the engine
+            // draws.
+            const RenderNodeWants wants{
+                .always_visible = words && options.render_always,
+                .raise_view_distance = words,
+            };
+            std::optional<RenderAlwaysResult> always_result{};
             // A node whose ERF_RENDER_ALWAYS bit someone else cleared while it sits in the always-visible list would
             // leave a dangling list entry when the engine later unregisters it, so it is moved back into the octree at
             // once; the next full apply moves it out again.
             bool corrected = false;
-            if (entry.render_always_applied && node != 0)
+            if (entry.overrides.always_visible && node != 0)
             {
                 const std::optional<bool> bit = read_render_always(node);
                 if (bit.has_value() && !*bit)
                 {
-                    const RenderAlwaysResult result = remove_render_always(node, false);
-                    entry.render_always_applied = false;
+                    const std::optional<RenderAlwaysResult> result =
+                        restore_render_node_overrides(node, entry.overrides);
                     corrected = true;
                     s_applied_signature = 0;
                     (void)DMK::log().try_log(
@@ -423,27 +487,26 @@ namespace HenrySenses
                         "Registry: id={:#x} lost ERF_RENDER_ALWAYS outside the mod; moved back into "
                         "the octree ({})",
                         entry.id,
-                        render_always_name(result)
+                        render_always_name(result.value_or(RenderAlwaysResult::Failed))
                     );
                 }
             }
-            if (want_always && !entry.render_always_applied && !corrected)
+            if (node != 0 && !corrected)
             {
-                always_result = apply_render_always(node);
-                entry.render_always_applied = always_result == RenderAlwaysResult::Applied;
-            }
-            else if (!want_always && entry.render_always_applied && node != 0)
-            {
-                (void)remove_render_always(node, false);
-                entry.render_always_applied = false;
+                always_result = update_render_node_overrides(node, entry.overrides, wants);
             }
             entry.node = node;
+            note_reach(entry, node, entry.distance, words);
 
             if (created)
             {
+                // A new entry holds no overrides, so a node that wants the always-visible move always reports one here.
+                const std::optional<float> reach = node != 0 ? read_max_view_dist(node) : std::nullopt;
+                const std::optional<std::uint8_t> own_ratio = entry.overrides.own_view_dist_ratio;
                 (void)DMK::log().try_log(
                     DMK::LogLevel::Debug,
-                    "Registry: + id={:#x} {} flags={:#x} class={} dist={:.1f} node=0x{:016X} word={:#010x} always={}",
+                    "Registry: + id={:#x} {} flags={:#x} class={} dist={:.1f} node=0x{:016X} word={:#010x} always={} "
+                    "reach={}{}",
                     entry.id,
                     loot_category_name(entry.category),
                     entry.flags,
@@ -451,7 +514,9 @@ namespace HenrySenses
                     entry.distance,
                     node,
                     entry.applied_word,
-                    want_always ? render_always_name(always_result) : "off"
+                    always_result.has_value() ? render_always_name(*always_result) : "off",
+                    reach.has_value() ? std::format("{:.0f}", *reach) : std::string{"-"},
+                    own_ratio.has_value() ? std::format(" (raised from ratio {})", *own_ratio) : std::string{}
                 );
             }
         }
@@ -525,13 +590,20 @@ namespace HenrySenses
             const std::int64_t now = steady_ms();
             if (signature == s_applied_signature && s_full_apply_ms != 0 && now - s_full_apply_ms < REVALIDATE_MS)
             {
-                // The game hides and shows entities without any change to the batch, so their flag is read on every
-                // batch: a skipped apply must not hold a marker back (or keep one up) until the next full apply.
+                // The game hides and shows entities without a change to the batch, and the player walks across a node's
+                // draw distance. Every batch reads both again, so a skipped apply never holds a marker back or keeps
+                // one up until the next full apply.
                 for (Entry &entry : s_entries)
                 {
                     if (const std::uintptr_t entity = entity_from_id(entry.id); entity != 0)
                     {
                         note_game_hidden(entry, entity);
+                        note_reach(
+                            entry,
+                            render_node_of(entity),
+                            player_distance(entity, options),
+                            options.write_words && entry.style != GroupStyle::Box
+                        );
                     }
                 }
                 ++s_apply_stats.skipped;
@@ -564,6 +636,7 @@ namespace HenrySenses
 
             std::size_t words = 0;
             std::size_t always = 0;
+            std::size_t raised = 0;
             std::size_t added = 0;
             for (const HighlightRequest &request : s_wanted)
             {
@@ -587,19 +660,22 @@ namespace HenrySenses
                 entry.style = request.style;
                 apply_entry(entry, options, created);
                 words += entry.applied_word != 0 ? 1 : 0;
-                always += entry.render_always_applied ? 1 : 0;
+                always += entry.overrides.always_visible ? 1 : 0;
+                raised += entry.overrides.own_view_dist_ratio.has_value() ? 1 : 0;
             }
             s_count.store(s_entries.size(), std::memory_order_relaxed);
 
             (void)DMK::log().try_log(
                 added != 0 || removed != 0 ? DMK::LogLevel::Debug : DMK::LogLevel::Trace,
-                "Registry: batch of {} -> {} tracked ({} added, {} removed), {} words, {} always-visible",
+                "Registry: batch of {} -> {} tracked ({} added, {} removed), {} words, {} always-visible, {} view "
+                "distance raised",
                 batch.size(),
                 s_entries.size(),
                 added,
                 removed,
                 words,
-                always
+                always,
+                raised
             );
         }
         catch (...)
@@ -637,7 +713,7 @@ namespace HenrySenses
         }
         for (Entry &entry : s_entries)
         {
-            if (!entry.render_always_applied)
+            if (!entry.overrides.always_visible)
             {
                 continue;
             }
@@ -647,7 +723,7 @@ namespace HenrySenses
             {
                 // The node the state was applied to is gone; the engine purged it from the list on destruction. The
                 // next batch applies in full (a new node gets its word).
-                entry.render_always_applied = false;
+                entry.overrides = RenderNodeOverrides{};
                 entry.applied_word = 0;
                 entry.node = node;
                 s_applied_signature = 0;
@@ -656,15 +732,14 @@ namespace HenrySenses
             const std::optional<bool> bit = read_render_always(node);
             if (bit.has_value() && !*bit)
             {
-                const RenderAlwaysResult result = remove_render_always(node, false);
-                entry.render_always_applied = false;
+                const std::optional<RenderAlwaysResult> result = restore_render_node_overrides(node, entry.overrides);
                 s_applied_signature = 0;
                 (void)DMK::log().try_log(
                     DMK::LogLevel::Warning,
                     "Registry: id={:#x} lost ERF_RENDER_ALWAYS outside the mod; moved back into "
                     "the octree ({})",
                     entry.id,
-                    render_always_name(result)
+                    render_always_name(result.value_or(RenderAlwaysResult::Failed))
                 );
             }
         }
@@ -707,9 +782,10 @@ namespace HenrySenses
         out.reserve(s_entries.size());
         for (const Entry &entry : s_entries)
         {
-            // An entity the game keeps invisible is not drawn, so its outline cannot show until the game draws it.
+            // The engine does not draw a mesh that the game keeps invisible or that lies past its draw distance, so the
+            // outline of such an entity cannot show.
             const bool preferred = entry.style == GroupStyle::Box || has_flag(entry.flags, LootFlag::StashCorpse) ||
-                                   entry.node == 0 || entry.game_hidden;
+                                   entry.node == 0 || entry.game_hidden || entry.beyond_reach;
             out.push_back(MarkerTarget{entry.id, entry.color_word, preferred});
         }
     }
@@ -724,9 +800,11 @@ namespace HenrySenses
             const std::uintptr_t node = entity != 0 ? render_node_of(entity) : 0;
             const std::optional<std::uint32_t> live_word = node != 0 ? read_hud_word(node) : std::nullopt;
             const std::optional<bool> always = node != 0 ? read_render_always(node) : std::nullopt;
+            const std::optional<float> reach = node != 0 ? read_max_view_dist(node) : std::nullopt;
+            const std::optional<std::uint8_t> ratio = node != 0 ? read_view_dist_ratio(node) : std::nullopt;
             logger.info(
                 "  id={:#x} {} flags={:#x} class={} name={} dist={:.1f} entity={} node={}{} word={:#010x} "
-                "live={} always(mod={}, bit={}){}",
+                "live={} always(mod={}, bit={}) reach={} ratio(own={}, live={}){}{}",
                 entry.id,
                 loot_category_name(entry.category),
                 entry.flags,
@@ -738,9 +816,15 @@ namespace HenrySenses
                 node != entry.node ? " (changed)" : "",
                 entry.applied_word,
                 live_word.has_value() ? std::format("{:#010x}", *live_word) : std::string{"-"},
-                entry.render_always_applied,
+                entry.overrides.always_visible,
                 always.has_value() ? (*always ? "1" : "0") : "-",
-                entry.game_hidden ? " hidden by the game (marker)" : ""
+                reach.has_value() ? std::format("{:.1f}", *reach) : std::string{"-"},
+                entry.overrides.own_view_dist_ratio.has_value()
+                    ? std::format("{}", *entry.overrides.own_view_dist_ratio)
+                    : std::string{"-"},
+                ratio.has_value() ? std::format("{}", *ratio) : std::string{"-"},
+                entry.game_hidden ? " hidden by the game (marker)" : "",
+                entry.beyond_reach ? " past the engine's draw distance (marker)" : ""
             );
         }
     }
@@ -773,7 +857,7 @@ namespace HenrySenses
             s_entries.begin(),
             s_entries.end(),
             [node](const Entry &entry)
-            { return entry.node == node && (entry.applied_word != 0 || entry.render_always_applied); }
+            { return entry.node == node && (entry.applied_word != 0 || entry.overrides.changed()); }
         );
     }
 

@@ -465,6 +465,174 @@ namespace HenrySenses
         }
 
         /**
+         * @brief Writes a render node's view-distance ratio: exactly one byte, the bytes around it are the engine's.
+         * @return True when the write landed.
+         */
+        [[nodiscard]] bool write_view_dist_ratio(std::uintptr_t node, std::uint8_t ratio) noexcept
+        {
+            return DMK::memory::write_in_place(DMK::Address{node + constants::RENDERNODE_VIEW_DIST_RATIO_OFFSET}, ratio)
+                .has_value();
+        }
+
+        /**
+         * @brief Reads a render node's octree node, which is null while the node is not filed in the octree.
+         * @return The octree node, or std::nullopt on a failed read.
+         */
+        [[nodiscard]] std::optional<std::uintptr_t> read_octree_node(std::uintptr_t node) noexcept
+        {
+            const auto octree_node =
+                DMK::memory::read<std::uintptr_t>(DMK::Address{node + constants::RENDERNODE_OCTREE_NODE_OFFSET});
+            if (!octree_node)
+            {
+                return std::nullopt;
+            }
+            return *octree_node;
+        }
+
+        /**
+         * @brief Moves a render node out of the octree into the 3D engine's always-visible list.
+         * @details The call unregisters the node, sets ERF_RENDER_ALWAYS, and registers the node again. The node no
+         *          longer owns an octree node, so the registration takes the full path, which files a flagged node in
+         *          the always-visible list. That list skips the occlusion test and keeps the frustum and view-distance
+         *          tests.
+         * @param node The render node.
+         * @param view_dist_ratio A ratio to write while the node is unregistered, so the registration computes the
+         *        node's reach from it. std::nullopt keeps the node's ratio.
+         * @return The outcome of the move. The ratio write is best-effort, and the callers read the ratio back.
+         */
+        [[nodiscard]] RenderAlwaysResult
+        apply_render_always(std::uintptr_t node, std::optional<std::uint8_t> view_dist_ratio) noexcept
+        {
+            const std::optional<std::uint64_t> flags = read_render_flags(node);
+            if (!flags)
+            {
+                return RenderAlwaysResult::Failed;
+            }
+            if ((*flags & constants::ERF_NO_3DENGINE_REGISTRATION) != 0)
+            {
+                return RenderAlwaysResult::NotRegistered;
+            }
+            if ((*flags & constants::ERF_RENDER_ALWAYS) != 0)
+            {
+                return RenderAlwaysResult::AlreadyAlways;
+            }
+            // A node without an octree node is not registered (streamed out or hidden). Registering it makes the mod
+            // the owner of its registration, so the node stays untouched.
+            const std::optional<std::uintptr_t> octree_node = read_octree_node(node);
+            if (!octree_node || *octree_node == 0)
+            {
+                return RenderAlwaysResult::NotRegistered;
+            }
+            const RegistrationCalls calls = registration_calls();
+            if (calls.engine == 0)
+            {
+                return RenderAlwaysResult::Failed;
+            }
+            if (!call_node_fn(calls.unregister_fn, calls.engine, node))
+            {
+                return RenderAlwaysResult::Failed;
+            }
+            const bool flagged = guarded_update_flags(node, constants::ERF_RENDER_ALWAYS, true);
+            if (view_dist_ratio.has_value())
+            {
+                (void)write_view_dist_ratio(node, *view_dist_ratio);
+            }
+            // Re-register even when the flag write failed, so the node is never left unregistered.
+            const bool registered = call_node_fn(calls.register_fn, calls.engine, node);
+            return flagged && registered ? RenderAlwaysResult::Applied : RenderAlwaysResult::Failed;
+        }
+
+        /**
+         * @brief Moves a render node back from the always-visible list into the octree.
+         * @details UnRegisterEntityDirect erases the node from the always-visible list only while the node carries
+         *          ERF_RENDER_ALWAYS, so the call sets the bit first. It then unregisters the node, clears the bit, and
+         *          registers the node into the octree.
+         * @param node The render node.
+         * @param view_dist_ratio A ratio to write while the node is unregistered, or std::nullopt to keep the node's
+         *        ratio.
+         * @return Applied when the node left the list, Failed otherwise. The ratio write is best-effort.
+         */
+        [[nodiscard]] RenderAlwaysResult
+        remove_render_always(std::uintptr_t node, std::optional<std::uint8_t> view_dist_ratio) noexcept
+        {
+            const RegistrationCalls calls = registration_calls();
+            if (calls.engine == 0)
+            {
+                return RenderAlwaysResult::Failed;
+            }
+            if (!guarded_update_flags(node, constants::ERF_RENDER_ALWAYS, true))
+            {
+                return RenderAlwaysResult::Failed;
+            }
+            if (!call_node_fn(calls.unregister_fn, calls.engine, node))
+            {
+                return RenderAlwaysResult::Failed;
+            }
+            const bool cleared = guarded_update_flags(node, constants::ERF_RENDER_ALWAYS, false);
+            if (view_dist_ratio.has_value())
+            {
+                (void)write_view_dist_ratio(node, *view_dist_ratio);
+            }
+            const bool registered = call_node_fn(calls.register_fn, calls.engine, node);
+            return cleared && registered ? RenderAlwaysResult::Applied : RenderAlwaysResult::Failed;
+        }
+
+        /**
+         * @brief Writes a render node's view-distance ratio so that the 3D engine applies it at once.
+         * @details RegisterEntity recomputes the node's max view distance from the ratio. The octree insert then raises
+         *          the max view distance of each octree cell on the node's path, and a node with a long reach stays in
+         *          a large cell. The engine culls a whole cell past the cell's own max view distance, so a byte write
+         *          alone does not show a raised node. The call unregisters the node, writes the ratio, and registers
+         *          the node again, which files it where it was.
+         *
+         *          Two nodes get the byte without a registration: a node that the engine does not hold now (streamed
+         *          out or hidden), and a node that another owner keeps in the always-visible list. Registering either
+         *          node makes the mod the owner of its registration. The next registration of such a node computes
+         *          its reach from the byte. A node that the engine never registers stays untouched.
+         * @param node The render node.
+         * @param ratio The ratio to write.
+         * @param always_visible_by_mod The mod moved @p node into the always-visible list. The node is registered then,
+         *        although it owns no octree node.
+         * @note Best-effort. The callers read the ratio back to learn what is in place.
+         */
+        void set_view_dist_ratio(std::uintptr_t node, std::uint8_t ratio, bool always_visible_by_mod) noexcept
+        {
+            const std::optional<std::uint64_t> flags = read_render_flags(node);
+            if (!flags || (*flags & constants::ERF_NO_3DENGINE_REGISTRATION) != 0)
+            {
+                return;
+            }
+            const bool always_visible = (*flags & constants::ERF_RENDER_ALWAYS) != 0;
+            if (always_visible_by_mod && !always_visible)
+            {
+                // UnRegisterEntityDirect leaves a node without the bit in the always-visible list. The callers move
+                // such a node back into the octree first.
+                return;
+            }
+            if (!always_visible_by_mod)
+            {
+                const std::optional<std::uintptr_t> octree_node = read_octree_node(node);
+                if (!octree_node)
+                {
+                    return;
+                }
+                if (always_visible || *octree_node == 0)
+                {
+                    (void)write_view_dist_ratio(node, ratio);
+                    return;
+                }
+            }
+            const RegistrationCalls calls = registration_calls();
+            if (calls.engine == 0 || !call_node_fn(calls.unregister_fn, calls.engine, node))
+            {
+                return;
+            }
+            (void)write_view_dist_ratio(node, ratio);
+            // Re-register even when the write failed, so the node is never left unregistered.
+            (void)call_node_fn(calls.register_fn, calls.engine, node);
+        }
+
+        /**
          * @brief A referenced engine iterator and its validated calls.
          */
         struct IteratorCalls
@@ -875,67 +1043,110 @@ namespace HenrySenses
         return (*flags & constants::ERF_RENDER_ALWAYS) != 0;
     }
 
-    RenderAlwaysResult apply_render_always(std::uintptr_t node) noexcept
+    std::optional<float> read_max_view_dist(std::uintptr_t node) noexcept
     {
-        const std::optional<std::uint64_t> flags = read_render_flags(node);
-        if (!flags)
+        const auto distance = DMK::memory::read<float>(DMK::Address{node + constants::RENDERNODE_MAX_VIEW_DIST_OFFSET});
+        if (!distance)
         {
-            return RenderAlwaysResult::Failed;
+            return std::nullopt;
         }
-        if ((*flags & constants::ERF_NO_3DENGINE_REGISTRATION) != 0)
-        {
-            return RenderAlwaysResult::NotRegistered;
-        }
-        if ((*flags & constants::ERF_RENDER_ALWAYS) != 0)
-        {
-            return RenderAlwaysResult::AlreadyAlways;
-        }
-        // A node without an octree node is not registered (streamed out or hidden); registering it would make the
-        // mod the owner of its registration, so it is left alone.
-        const auto octree_node =
-            DMK::memory::read<std::uintptr_t>(DMK::Address{node + constants::RENDERNODE_OCTREE_NODE_OFFSET});
-        if (!octree_node || *octree_node == 0)
-        {
-            return RenderAlwaysResult::NotRegistered;
-        }
-        const RegistrationCalls calls = registration_calls();
-        if (calls.engine == 0)
-        {
-            return RenderAlwaysResult::Failed;
-        }
-        if (!call_node_fn(calls.unregister_fn, calls.engine, node))
-        {
-            return RenderAlwaysResult::Failed;
-        }
-        const bool flagged = guarded_update_flags(node, constants::ERF_RENDER_ALWAYS, true);
-        // Re-register even when the flag write failed, so the node is never left unregistered.
-        const bool registered = call_node_fn(calls.register_fn, calls.engine, node);
-        return flagged && registered ? RenderAlwaysResult::Applied : RenderAlwaysResult::Failed;
+        return *distance;
     }
 
-    RenderAlwaysResult remove_render_always(std::uintptr_t node, bool keep_bit) noexcept
+    std::optional<std::uint8_t> read_view_dist_ratio(std::uintptr_t node) noexcept
     {
-        const RegistrationCalls calls = registration_calls();
-        if (calls.engine == 0)
+        const auto ratio =
+            DMK::memory::read<std::uint8_t>(DMK::Address{node + constants::RENDERNODE_VIEW_DIST_RATIO_OFFSET});
+        if (!ratio)
         {
-            return RenderAlwaysResult::Failed;
+            return std::nullopt;
         }
-        // The bit must be set while unregistering, or the node would stay in the always-visible list.
-        if (!guarded_update_flags(node, constants::ERF_RENDER_ALWAYS, true))
+        return *ratio;
+    }
+
+    std::optional<RenderAlwaysResult> update_render_node_overrides(
+        std::uintptr_t node,
+        RenderNodeOverrides &overrides,
+        const RenderNodeWants &wants
+    ) noexcept
+    {
+        constexpr std::uint8_t far_ratio = constants::VIEW_DIST_RATIO_FAR;
+        const std::optional<std::uint8_t> ratio = read_view_dist_ratio(node);
+        // A ratio that the game rewrote during a raise belongs to the game. It becomes the node's own ratio, which a
+        // restore writes back, and the raise below writes the far ratio again.
+        if (overrides.own_view_dist_ratio.has_value() && ratio.has_value() && *ratio != far_ratio)
         {
-            return RenderAlwaysResult::Failed;
+            overrides.own_view_dist_ratio.reset();
         }
-        if (!call_node_fn(calls.unregister_fn, calls.engine, node))
+        // A node that the game itself holds at the far ratio needs no raise and nothing restored.
+        const bool raise = wants.raise_view_distance && !overrides.own_view_dist_ratio.has_value() &&
+                           ratio.has_value() && *ratio != far_ratio;
+        const bool lower = !wants.raise_view_distance && overrides.own_view_dist_ratio.has_value();
+        std::optional<std::uint8_t> target{};
+        if (raise)
         {
-            return RenderAlwaysResult::Failed;
+            target = far_ratio;
         }
-        bool ok = true;
-        if (!keep_bit)
+        else if (lower)
         {
-            ok = guarded_update_flags(node, constants::ERF_RENDER_ALWAYS, false);
+            target = overrides.own_view_dist_ratio;
         }
-        ok = call_node_fn(calls.register_fn, calls.engine, node) && ok;
-        return ok ? RenderAlwaysResult::Applied : RenderAlwaysResult::Failed;
+
+        // A move into or out of the always-visible list writes the ratio inside its own re-registration.
+        std::optional<RenderAlwaysResult> moved{};
+        if (wants.always_visible && !overrides.always_visible)
+        {
+            moved = apply_render_always(node, target);
+            overrides.always_visible = *moved == RenderAlwaysResult::Applied;
+        }
+        else if (!wants.always_visible && overrides.always_visible)
+        {
+            moved = remove_render_always(node, target);
+            overrides.always_visible = false;
+        }
+        if (!target.has_value())
+        {
+            return moved;
+        }
+        // Without a move, or after a move that stopped before its write, the ratio takes a re-registration of its own.
+        std::optional<std::uint8_t> placed = read_view_dist_ratio(node);
+        if (placed.has_value() && *placed != *target)
+        {
+            set_view_dist_ratio(node, *target, overrides.always_visible);
+            placed = read_view_dist_ratio(node);
+        }
+        // The ratio read back decides the bookkeeping, so a raise that did not land leaves nothing to restore.
+        if (raise && placed == far_ratio)
+        {
+            overrides.own_view_dist_ratio = ratio;
+        }
+        else if (lower && placed.has_value() && *placed != far_ratio)
+        {
+            overrides.own_view_dist_ratio.reset();
+        }
+        return moved;
+    }
+
+    std::optional<RenderAlwaysResult>
+    restore_render_node_overrides(std::uintptr_t node, RenderNodeOverrides &overrides) noexcept
+    {
+        std::optional<std::uint8_t> own_ratio = overrides.own_view_dist_ratio;
+        // A ratio that the game rewrote during the raise belongs to the game and stays.
+        if (own_ratio.has_value() && read_view_dist_ratio(node) != constants::VIEW_DIST_RATIO_FAR)
+        {
+            own_ratio.reset();
+        }
+        std::optional<RenderAlwaysResult> moved{};
+        if (overrides.always_visible)
+        {
+            moved = remove_render_always(node, own_ratio);
+        }
+        else if (own_ratio.has_value())
+        {
+            set_view_dist_ratio(node, *own_ratio, false);
+        }
+        overrides = RenderNodeOverrides{};
+        return moved;
     }
 
     bool EntityWalk::begin() noexcept

@@ -169,6 +169,15 @@ namespace HenrySenses::constants
     inline constexpr std::ptrdiff_t RENDERNODE_INVALIDATE_STAMP_OFFSET = 0x38;
     inline constexpr std::ptrdiff_t TEMP_DATA_STAMP_SOURCE_OFFSET = 0xF8;
     inline constexpr std::ptrdiff_t TEMP_DATA_STAMP_TARGET_OFFSET = 0xFC;
+    // float m_fWSMaxViewDist: the node is not drawn past this camera distance, whether it sits in the octree or in the
+    // always-visible list (that list skips only the occlusion test). RegisterEntity sets it from GetMaxViewDist
+    // (vtable slot 45) on every registration.
+    inline constexpr std::ptrdiff_t RENDERNODE_MAX_VIEW_DIST_OFFSET = 0x48;
+    // u8 m_ucViewDistRatio. GetMaxViewDist of CRenderProxy and CBrush is max(e_ViewDistMin, size * e_ViewDistRatio *
+    // ratio / 100), except that 255 counts as 10000 %: a small item (tankard 15 m, dice 5 m at ratio 100) is then
+    // drawn out to hundreds of metres.
+    inline constexpr std::ptrdiff_t RENDERNODE_VIEW_DIST_RATIO_OFFSET = 0x4D;
+    inline constexpr std::uint8_t VIEW_DIST_RATIO_FAR = 255;
 
     // ERenderNodeFlags bits read or toggled by the mod.
     inline constexpr std::uint64_t ERF_RENDER_ALWAYS = 0x10;
