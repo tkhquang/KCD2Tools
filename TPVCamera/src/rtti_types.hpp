@@ -57,6 +57,30 @@ namespace TPVCamera
         GameObjectEvent,
         /// CAnimationSet, where the game looks a clip's animation up by name hash (the crouched turn swap).
         AnimationSet,
+        /// CD3D9Renderer (g_env->pRenderer), which hands out the aux-geometry buffer the trail and preview draw into.
+        Renderer,
+        /// CAuxGeomCB, a live aux-geometry command buffer (not CAuxGeomCB_Null, which stands in while it is off).
+        AuxGeom,
+        /// CEntity, the engine entity an arrow's collision names as what it hit, and the player's own entity.
+        Entity,
+        /// wh::entitymodule::C_ActorShootingExpansion, the actor component that runs a shot.
+        ShootingExpansion,
+        /// wh::entitymodule::C_ActorActionShootingMain, one running shot sequence.
+        ShootingMain,
+        /// wh::entitymodule::C_ActorActionShootingReloading, a bolt being spanned.
+        ShootingReloading,
+        /// wh::entitymodule::C_ActorActionShootingUnloading, a bolt being taken out.
+        ShootingUnloading,
+        /// wh::entitymodule::C_ActorActionShootingAiming, the bow held drawn or the crossbow raised.
+        ShootingAiming,
+        /// wh::entitymodule::S_AmmoItemClass, an ammo item's class data: arrow, bolt, ball or scatter shot.
+        AmmoItemClass,
+        /// CParticleEntity, the physics of an arrow, bolt or bullet in flight.
+        ParticleEntity,
+        /// wh::entitymodule::C_PlayerInput, the player's movement input as the game reads it.
+        PlayerInput,
+        /// wh::entitymodule::C_Decoy, a distraction stone held in the hand or thrown.
+        Decoy,
         /// Enumerator count. Not a class.
         Count,
     };

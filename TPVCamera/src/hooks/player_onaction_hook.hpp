@@ -2,16 +2,15 @@
  * @file player_onaction_hook.hpp
  * @brief Hooks the player OnAction / global action dispatcher and latches movement-input intent.
  *
- * Hooks the action dispatcher (sub_1808EBEE4, the C++ source of Lua Player:OnAction), which fires for
- * every action-map action with its name and post-action-map value. Latching the movement-input magnitude
- * lets the orbit move-detection key on it instead of body-position speed: the input is nonzero the instant a
- * movement key is pressed and stays nonzero while a key is held even when a wall arrests the body, so the
- * camera-relative heading is not falsely released on a collision stop. Both devices, all directions: keyboard
- * digital "moveforward/moveback/moveleft/moveright" and the gamepad left-stick analog axes (xi_movey /
- * xi_movex, with movement_y / movement_x aliases).
+ * Hooks the player's action handler, C_PlayerInput::OnAction, which fires for every action-map action with its
+ * name and post-action-map value. Latching the movement-input magnitude lets the orbit move-detection key on it
+ * instead of body-position speed: the input is nonzero the instant a movement key is pressed and stays nonzero while
+ * a key is held even when a wall arrests the body, so the camera-relative heading is not falsely released on a
+ * collision stop. Both devices, all directions: keyboard digital "moveforward/moveback/moveleft/moveright" and the
+ * gamepad left-stick analog axes (xi_movey / xi_movex, with movement_y / movement_x aliases).
  *
- * Best-effort: a pattern miss leaves the feature off (player_onaction_available() returns false) and the
- * move-detection falls back to the body's horizontal speed, so the camera still works.
+ * Best-effort: a pattern miss leaves the feature off (player_onaction_available() returns false) and camera-relative
+ * movement in free-look stays off; the camera and free-look itself still work.
  */
 #ifndef TPVCAMERA_PLAYER_ONACTION_HOOK_HPP
 #define TPVCAMERA_PLAYER_ONACTION_HOOK_HPP
@@ -22,6 +21,9 @@
 
 namespace TPVCamera
 {
+
+    /// Movement magnitude above which the player counts as starting to move (the orbit move start and the press).
+    constexpr float MOVE_INPUT_START = 0.15f;
 
     /**
      * @brief Installs the player OnAction / action-dispatcher hook from the pre-resolved anchor.

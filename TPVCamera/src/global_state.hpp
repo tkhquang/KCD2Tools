@@ -83,12 +83,13 @@ namespace TPVCamera
         bool head_fallback{false};
         float head_fallback_blend{0.0f};
 
-        // Free-look "level" blend (render thread only, like the fields above): eases 0 -> 1 while
-        // orbiting and back to 0 on release. While orbiting the camera rig is built from a level
-        // reference so a steep up/down look does not tip the orbit near the overhead pole (where it
-        // spins messily); easing this in/out keeps engaging and releasing free-look smooth instead
-        // of snapping between the steep follow pose and the level orbit pose. Reset with the others.
-        float orbit_level_blend{0.0f};
+        // Free-look base (render thread only, like the fields above). While orbit_base_held the orbit turns a held
+        // base, the follow rig for the look pitch orbit_base_pitch (radians), instead of the live follow pose.
+        // orbit_base_offset is the held pitch less the look's; it decays to 0 as free-look eases back after it turns
+        // off, and the hold ends once it has. Cleared on suppression unless a situation holds free-look off.
+        bool orbit_base_held{false};
+        float orbit_base_pitch{0.0f};
+        float orbit_base_offset{0.0f};
 
         // Camera-relative movement (render thread only). orbit_moving latches whether the character was
         // moving last frame so the heading is aligned to the camera ONCE on the idle -> moving edge, not
@@ -119,6 +120,11 @@ namespace TPVCamera
         std::atomic<bool> orbit_active{false};
         std::atomic<float> orbit_yaw{0.0f};
         std::atomic<float> orbit_pitch{0.0f};
+        // The allowed range of orbit_pitch this frame (degrees), published by the render thread while free-look is on
+        // so OrbitPitchMin / OrbitPitchMax stay measured from level whatever pitch the held base has, and the camera
+        // never goes past what the rig can show.
+        std::atomic<float> orbit_pitch_lo{-90.0f};
+        std::atomic<float> orbit_pitch_hi{90.0f};
 
         // Gamepad right-stick look DEFLECTION (-1..1), latched by the input hook while orbiting. The mouse
         // posts relative deltas straight into orbit_yaw/orbit_pitch per event; the analog stick instead
@@ -151,11 +157,16 @@ namespace TPVCamera
         bool orbit_steer_valid{false};
 
         // Orbit move-detection re-arm latch (render thread only). A genuine sub-stop movement-input reading must
-        // be observed since orbit engaged before a move-start is honoured, so a stranded input latch (a held-move
-        // release swallowed on a combat action-map swap) cannot re-trip the body-turn with the keys released.
-        // Cleared when orbit disengages so re-engaging requires a fresh, observed press. Pairs with
+        // be observed since orbit engaged, or the game's own move input must show the movement too, before a
+        // move-start is honored, so a stranded input latch (a held-move release swallowed on a combat action-map
+        // swap) cannot re-trip the body-turn with the keys released. Cleared when orbit disengages, so re-engaging
+        // needs an observed release or a held key the game's own move input shows. orbit_move_armed_by_game is set
+        // when that game input armed it: such a move also ends once that input has stayed idle for
+        // orbit_move_game_idle seconds, since another latch slot can still be stranded. Pairs with
         // player_onaction_reset() (which drops the stale latch outright on the suspend/disengage edges).
         bool orbit_move_armed{false};
+        bool orbit_move_armed_by_game{false};
+        float orbit_move_game_idle{0.0f};
 
         // Dynamic eye-height sync (render thread only). When DynamicEyeSync is on, eye_sync_applied is the
         // eased effective eye height: it re-anchors to the REAL first-person eye when a low pose (kneel /
@@ -200,15 +211,51 @@ namespace TPVCamera
         // displacement the body made while turning in place. It is subtracted from the body origin so the pivot stays
         // where it was, and eased back to zero once the player moves or the native turn stops. Normally the steps are
         // kept in place and this stays near zero. turn_hold_timer keeps absorbing briefly after the rotation stops,
-        // for the step's settle. turn_track_* is the previous frame's body origin and yaw. turn_track_valid is cleared
-        // on suppression so the first engaged frame only seeds the tracker.
+        // for the step's settle. turn_track_* is the previous frame's body origin and yaw, and turn_track_step the
+        // body's horizontal move since then (meters, 0 on the frame the tracker seeds). turn_track_valid is cleared on
+        // suppression so the first engaged frame only seeds the tracker.
         float turn_hold_x{0.0f};
         float turn_hold_y{0.0f};
         float turn_hold_timer{0.0f};
         float turn_track_x{0.0f};
         float turn_track_y{0.0f};
         float turn_track_yaw{0.0f};
+        float turn_track_step{0.0f};
         bool turn_track_valid{false};
+
+        // Orbit-exclude policy and aim hand-off (render thread only, except orbit_hold_released). orbit_suspended is
+        // true while the policy holds free-look off and will restore it. orbit_hold_released is posted by the
+        // OrbitHoldKey release on the input thread before it turns free-look off, consumed by the policy's restore,
+        // and cleared by every engage (see apply_orbit_exclude_policy). aim_handoff_requested is raised by the frustum
+        // detour on the frame the policy turns free-look off in a situation where the game leaves the facing to the
+        // player. rig_last_* describe the previous frame while the orbit rig shaped it: the camera's direction from
+        // the pivot (azimuth and elevation, radians), its turn and rise off that frame's plain rig, and the look yaw
+        // and pitch that put the plain rig there. While aim_handoff_active the camera holds the direction
+        // aim_handoff_azimuth / aim_handoff_elevation, and the look and the body are written to aim_handoff_yaw /
+        // aim_handoff_pitch until the look shows that heading. aim_handoff_seconds is the unpaused time since, and
+        // aim_handoff_written is set once they have been written: the hand-off is not taken as done before that. It
+        // ends without writing when a situation that sets the facing shows up (aim_handoff_cancel), when
+        // aim_handoff_player changes or the body jumps, and when a look write fails. Cleared on suppression;
+        // orbit_suspended belongs to the policy and is not.
+        std::atomic<bool> orbit_suspended{false};
+        std::atomic<bool> orbit_hold_released{false};
+        bool aim_handoff_requested{false};
+        bool rig_last_orbited{false};
+        float rig_last_azimuth{0.0f};
+        float rig_last_elevation{0.0f};
+        float rig_last_turn{0.0f};
+        float rig_last_rise{0.0f};
+        float rig_last_yaw{0.0f};
+        float rig_last_pitch{0.0f};
+        bool aim_handoff_active{false};
+        bool aim_handoff_written{false};
+        bool aim_handoff_cancel{false};
+        std::uintptr_t aim_handoff_player{0};
+        float aim_handoff_azimuth{0.0f};
+        float aim_handoff_elevation{0.0f};
+        float aim_handoff_yaw{0.0f};
+        float aim_handoff_pitch{0.0f};
+        float aim_handoff_seconds{0.0f};
     };
 
     /**

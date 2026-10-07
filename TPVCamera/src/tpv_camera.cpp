@@ -17,6 +17,7 @@
 #include "rtti_types.hpp"
 #include "game_interface.hpp"
 #include "version.hpp"
+#include "hooks/archery_hook.hpp"
 #include "hooks/camera_hook.hpp"
 #include "hooks/ui_overlay_hooks.hpp"
 #include "hooks/ui_menu_hooks.hpp"
@@ -67,18 +68,18 @@ namespace TPVCamera
     }
 
     /**
-     * @brief Engages free-look orbit, seeding the orbit angles to the configured centre.
-     * @details Seeds yaw/pitch to 0,0 (directly behind the player - the camera's resting offset) so a
-     *          fresh engage always starts from the centred pose, then flips orbit_active on. Shared by
-     *          the orbit toggle, the momentary hold binding, and the start-of-session auto-enable so
-     *          "engage" means exactly the same thing at every entry point.
+     * @brief Engages free-look orbit from the pose on screen.
+     * @details Flips orbit_active on and keeps the orbit angles it has: centered once a return has finished, or
+     *          where an OrbitReturnSpeed of 0 or a return still under way left them. The rig takes over from the
+     *          camera where it is, so engaging never moves it. Shared by the orbit toggle, the momentary hold
+     *          binding, and the start-of-session auto-enable so "engage" means exactly the same thing at every
+     *          entry point.
      */
     static void orbit_engage()
     {
-        CameraState &cam = camera_state();
-        cam.orbit_yaw.store(0.0f);
-        cam.orbit_pitch.store(0.0f);
-        cam.orbit_active.store(true);
+        // A hold released before this engage does not concern the orbit-exclude policy.
+        camera_state().orbit_hold_released.store(false);
+        camera_state().orbit_active.store(true);
     }
 
     /**
@@ -209,6 +210,11 @@ namespace TPVCamera
                          camera.error().message());
             return camera;
         }
+
+        // Arrows to the crosshair point and the arrow trail. After the camera, whose init readies the world raycast
+        // the crosshair target is cast with. Best-effort: a miss leaves the game's own archery aim.
+        warn_if_degraded(initialize_archery_hook(gated_anchor_address(Feature::Engine, AnchorId::Genv), s_hooks),
+                         "Archery hook initialization failed - arrows keep the game's own aim in third person");
 
         return {};
     }
@@ -368,6 +374,10 @@ namespace TPVCamera
                 }
                 else if (s_engaged_by_hold)
                 {
+                    // A hold let go of while an OrbitExcludeState holds free-look off is not restored when it ends.
+                    // Posted before free-look turns off: the policy's restore checks it afterward (see
+                    // apply_orbit_exclude_policy).
+                    camera_state().orbit_hold_released.store(true);
                     orbit_disengage();
                     s_engaged_by_hold = false;
                     DMK::log().info("Orbit camera DISABLED (hold released)");
@@ -529,6 +539,8 @@ namespace TPVCamera
         // mod reported third person, and the body stays free of the look until the player's next step. Idempotent, and
         // a no-op if the native turn animation was never engaged.
         release_native_turn_animation();
+        // Stop re-aiming and tracking shots; the shot detours pass straight through until the hooks retire.
+        release_archery();
 
         // Join the mod's workers before any hook goes: the INI watcher, so no reload setter runs during teardown, and
         // the overlay render thread, so no UI mutation races the preset flush.

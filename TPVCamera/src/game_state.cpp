@@ -9,6 +9,7 @@
  */
 
 #include "game_state.hpp"
+#include "config.hpp"
 #include "rtti_types.hpp"
 #include "constants.hpp"
 #include "global_state.hpp"
@@ -17,8 +18,11 @@
 
 #include <DetourModKit.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
+#include <initializer_list>
 #include <string>
 
 namespace TPVCamera
@@ -140,26 +144,33 @@ namespace TPVCamera
             return bit;
         }
 
+        /** @brief The player's active minigame: the I_Minigame object and its vtable, or zeros when there is none. */
+        struct ActiveMinigame
+        {
+            uintptr_t object{0};
+            uintptr_t vtable{0};
+        };
+
         /**
-         * @brief Detects whether the player is in a minigame and which one, via the C_MinigameManager.
+         * @brief Finds the minigame the player is in, via the C_MinigameManager.
          * @details The minigame state is NOT readable from the active camera (only dice swaps the camera; see
          *          classify_camera_vtable), so it is read from the manager that owns every active minigame. The
          *          chain is reached from the same global context the camera manager hangs off:
          *          context -> minigame subsystem -> C_MinigameManager -> a circular intrusive list of active
          *          minigames (an empty list links its sentinel head to itself). Each node holds the I_Minigame*,
          *          and the minigame's owner is the C_Human/C_Player it belongs to. The list is walked (bounded)
-         *          for the entry the player owns; in single player the only entries are the player's, so a
-         *          c_player-owner mismatch (or c_player == 0) falls back to the first entry. Every read is
-         *          SEH-guarded, so a failed read reports "no minigame" rather than faulting.
+         *          for the entry the player owns. It falls back to the first entry only when c_player == 0; with a
+         *          live c_player and no owner match, the player is in no minigame. Every read is SEH-guarded, so a
+         *          failed read reports "no minigame" rather than faulting.
          * @param c_player Live C_Player address used to confirm ownership, or 0 to accept the first entry.
-         * @return state_bit(Minigame) | the matching child bit when in a minigame, else 0.
+         * @return The player's minigame, or zeros when the player is in none.
          */
-        [[nodiscard]] uint32_t poll_active_minigame(uintptr_t c_player) noexcept
+        [[nodiscard]] ActiveMinigame find_player_minigame(uintptr_t c_player) noexcept
         {
             const auto context_slot = g_global_context_ptr_address.load(std::memory_order_relaxed);
             if (!context_slot)
             {
-                return 0;
+                return {};
             }
             // Walk g_global_context -> minigame subsystem -> manager -> circular-list sentinel head under one
             // fault guard (each dereferenced link screened by the walk's plausibility floor). memory::walk hands
@@ -173,24 +184,24 @@ namespace TPVCamera
                 DMK::memory::walk(DMK::Address{reinterpret_cast<uintptr_t>(context_slot)}, minigame_chain);
             if (!head_slot)
             {
-                return 0;
+                return {};
             }
             const auto head = DMK::memory::read<uintptr_t>(*head_slot);
             if (!head || !DMK::memory::is_plausible_ptr(DMK::Address{*head}))
             {
-                return 0;
+                return {};
             }
             const auto begin = DMK::memory::read<uintptr_t>(DMK::Address{*head + Constants::OFFSET_MINIGAME_NODE_NEXT});
             if (!begin)
             {
-                return 0;
+                return {};
             }
 
             // Bounded walk so a corrupt list cannot spin. Prefer the player-owned entry; remember the first valid
             // minigame as the single-player fallback.
             constexpr int k_max_nodes = 16;
             uintptr_t node = *begin;
-            uintptr_t fallback_vtable = 0;
+            ActiveMinigame fallback{};
             for (int i = 0; i < k_max_nodes && node != *head && DMK::memory::is_plausible_ptr(DMK::Address{node}); ++i)
             {
                 const auto minigame =
@@ -206,15 +217,15 @@ namespace TPVCamera
                                 DMK::Address{*minigame + Constants::OFFSET_MINIGAME_OWNER});
                             if (owner && *owner == c_player)
                             {
-                                return state_bit(GameState::Minigame) | classify_minigame_vtable(*vtable);
+                                return ActiveMinigame{*minigame, *vtable};
                             }
                         }
                         // The first-entry fallback is only for the pre-resolve window (c_player == 0). When a
                         // live c_player was supplied but no entry's owner matched it, the player is NOT in a
                         // minigame, so a non-player-owned entry must not be reported via the fallback.
-                        if (c_player == 0 && fallback_vtable == 0)
+                        if (c_player == 0 && fallback.vtable == 0)
                         {
-                            fallback_vtable = *vtable;
+                            fallback = ActiveMinigame{*minigame, *vtable};
                         }
                     }
                 }
@@ -227,11 +238,135 @@ namespace TPVCamera
                 node = *next;
             }
 
-            if (fallback_vtable != 0)
+            return fallback;
+        }
+
+        /** @brief The minigame bits of the player's minigame: the umbrella Minigame bit and its child, or 0. */
+        [[nodiscard]] uint32_t poll_active_minigame(uintptr_t c_player) noexcept
+        {
+            const ActiveMinigame minigame = find_player_minigame(c_player);
+            return minigame.vtable != 0 ? state_bit(GameState::Minigame) | classify_minigame_vtable(minigame.vtable)
+                                        : 0;
+        }
+
+        /**
+         * @brief Finds the player's C_ActorShootingExpansion in the C_ActionActor component map, or 0.
+         * @details The map is a handful of nodes, walked with a bounded stack rather than by its key, so the lookup
+         *          does not depend on the component's type id; the match is the value whose vtable is the shooting
+         *          expansion's.
+         */
+        [[nodiscard]] uintptr_t find_shooting_expansion(uintptr_t c_player) noexcept
+        {
+            // C_Player -> C_ActionActor -> the map's head (sentinel) node; walk screens each hop.
+            const std::array<std::ptrdiff_t, 3> head_chain{
+                Constants::C_PLAYER_ACTION_ACTOR_OFFSET,
+                Constants::ACTION_ACTOR_COMPONENT_MAP_OFFSET,
+                0,
+            };
+            const auto head_slot = DMK::memory::walk(DMK::Address{c_player}, head_chain);
+            if (!head_slot || !DMK::memory::is_plausible_ptr(*head_slot))
             {
-                return state_bit(GameState::Minigame) | classify_minigame_vtable(fallback_vtable);
+                return 0;
+            }
+            const uintptr_t head = head_slot->raw();
+            const auto root = DMK::memory::read<uintptr_t>(DMK::Address{head + Constants::MSVC_MAP_NODE_PARENT_OFFSET});
+            if (!root)
+            {
+                return 0;
+            }
+            // The component map holds a handful of nodes: these bound the walk and its stack on a corrupt tree.
+            constexpr int k_max_nodes = 64;
+            constexpr std::size_t k_max_stack = 32;
+            std::array<uintptr_t, k_max_stack> stack{};
+            std::size_t top = 0;
+            stack[top++] = *root;
+            for (int visited = 0; top > 0 && visited < k_max_nodes; ++visited)
+            {
+                const uintptr_t node = stack[--top];
+                const auto is_nil =
+                    DMK::memory::read<uint8_t>(DMK::Address{node + Constants::MSVC_MAP_NODE_ISNIL_OFFSET});
+                if (!is_nil || *is_nil != 0)
+                {
+                    continue;
+                }
+                const auto value =
+                    DMK::memory::read<uintptr_t>(DMK::Address{node + Constants::MSVC_MAP_NODE_POINTER_VALUE_OFFSET});
+                if (value && DMK::memory::is_plausible_ptr(DMK::Address{*value}))
+                {
+                    const auto vtable = DMK::memory::read<uintptr_t>(DMK::Address{*value});
+                    if (vtable && vtable_is(GameClass::ShootingExpansion, *vtable))
+                    {
+                        return *value;
+                    }
+                }
+                for (const std::ptrdiff_t link :
+                     {Constants::MSVC_MAP_NODE_LEFT_OFFSET, Constants::MSVC_MAP_NODE_RIGHT_OFFSET})
+                {
+                    const auto child = DMK::memory::read<uintptr_t>(DMK::Address{node + link});
+                    if (child && *child != 0 && *child != head && top < stack.size())
+                    {
+                        stack[top++] = *child;
+                    }
+                }
             }
             return 0;
+        }
+
+        /**
+         * @brief The C_Item the player's shooting expansion holds at @p offset (the weapon or the ready ammo), or 0.
+         * @details The expansion is found from the live player each call: the map walk is a handful of reads, and no
+         *          pointer outlives the player that holds it.
+         */
+        [[nodiscard]] uintptr_t shooting_item(uintptr_t c_player, std::ptrdiff_t offset) noexcept
+        {
+            const uintptr_t expansion = c_player != 0 ? find_shooting_expansion(c_player) : 0;
+            if (expansion == 0)
+            {
+                return 0;
+            }
+            const auto item = DMK::memory::read<uintptr_t>(DMK::Address{expansion + offset});
+            return item && DMK::memory::is_plausible_ptr(DMK::Address{*item}) ? *item : 0;
+        }
+
+        /** @brief The vtable of the player's running shot's current phase, or 0 when no shot runs. */
+        [[nodiscard]] uintptr_t shooting_phase_vtable(uintptr_t c_player) noexcept
+        {
+            const uintptr_t expansion = find_shooting_expansion(c_player);
+            if (expansion == 0)
+            {
+                return 0;
+            }
+            const auto main =
+                DMK::memory::read<uintptr_t>(DMK::Address{expansion + Constants::SHOOTING_EXPANSION_MAIN_OFFSET});
+            if (!main || *main == 0 || !DMK::memory::is_plausible_ptr(DMK::Address{*main}))
+            {
+                return 0;
+            }
+            const auto main_vtable = DMK::memory::read<uintptr_t>(DMK::Address{*main});
+            if (!main_vtable || !vtable_is(GameClass::ShootingMain, *main_vtable))
+            {
+                return 0;
+            }
+            const auto sub =
+                DMK::memory::read<uintptr_t>(DMK::Address{*main + Constants::SHOOTING_MAIN_SUBACTION_OFFSET});
+            if (!sub || *sub == 0 || !DMK::memory::is_plausible_ptr(DMK::Address{*sub}))
+            {
+                return 0;
+            }
+            const auto sub_vtable = DMK::memory::read<uintptr_t>(DMK::Address{*sub});
+            return sub_vtable ? *sub_vtable : 0;
+        }
+
+        /**
+         * @brief True while the player's running shot is in its reload or unload phase (a bolt going in or out).
+         * @details Any miss on the chain (no shot running, a drifted layout, an unexpected class) answers false, which
+         *          keeps the game's own aim flag as the Aiming state.
+         */
+        [[nodiscard]] bool player_reloading_missile(uintptr_t c_player) noexcept
+        {
+            const uintptr_t phase = shooting_phase_vtable(c_player);
+            return phase != 0 &&
+                   (vtable_is(GameClass::ShootingReloading, phase) || vtable_is(GameClass::ShootingUnloading, phase));
         }
 
         /**
@@ -269,7 +404,21 @@ namespace TPVCamera
             // raised/aiming = 1).
             const auto aim_flag = DMK::memory::read<uint8_t>(
                 DMK::Address{c_player + missile_offset + Constants::MISSILE_CONTROLLER_AIM_FLAG_OFFSET});
-            return aim_flag && *aim_flag != 0;
+            const bool aim_requested = aim_flag && *aim_flag != 0;
+            // The flag goes up the moment a crossbow's prepare is pressed and stays up through the whole reload, so
+            // unless ReloadCountsAsAiming is on, Aiming waits until the bolt is in.
+            const bool held_off = aim_requested &&
+                                  !settings().reload_counts_as_aiming.load(std::memory_order_relaxed) &&
+                                  player_reloading_missile(c_player);
+            static bool s_was_held_off = false;
+            if (held_off != s_was_held_off)
+            {
+                s_was_held_off = held_off;
+                (void)DMK::log().try_log(DMK::LogLevel::Debug, "GameState: {}",
+                                         held_off ? "crossbow reload started, Aiming waits for the bolt"
+                                                  : (aim_requested ? "bolt in, Aiming" : "reload left unfinished"));
+            }
+            return aim_requested && !held_off;
         }
 
         /**
@@ -447,6 +596,76 @@ namespace TPVCamera
             start = comma + 1;
         }
         return mask;
+    }
+
+    bool player_missile_drawn(uintptr_t c_player) noexcept
+    {
+        const uintptr_t phase = c_player != 0 ? shooting_phase_vtable(c_player) : 0;
+        return phase != 0 && vtable_is(GameClass::ShootingAiming, phase);
+    }
+
+    uintptr_t player_missile_ammo(uintptr_t c_player) noexcept
+    {
+        return shooting_item(c_player, Constants::SHOOTING_EXPANSION_AMMO_OFFSET);
+    }
+
+    uintptr_t player_missile_weapon(uintptr_t c_player) noexcept
+    {
+        return shooting_item(c_player, Constants::SHOOTING_EXPANSION_WEAPON_OFFSET);
+    }
+
+    HeldDecoy player_held_decoy(uintptr_t c_player) noexcept
+    {
+        if (c_player == 0)
+        {
+            return {};
+        }
+        const ActiveMinigame minigame = find_player_minigame(c_player);
+        if (minigame.object == 0 ||
+            (classify_minigame_vtable(minigame.vtable) & state_bit(GameState::MinigameDistract)) == 0)
+        {
+            return {};
+        }
+        const auto decoy =
+            DMK::memory::read<uintptr_t>(DMK::Address{minigame.object + Constants::C_DISTRACT_DECOY_OFFSET});
+        if (!decoy || !DMK::memory::is_plausible_ptr(DMK::Address{*decoy}))
+        {
+            return {};
+        }
+        const auto vtable = DMK::memory::read<uintptr_t>(DMK::Address{*decoy});
+        if (!vtable || !vtable_is(GameClass::Decoy, *vtable))
+        {
+            return {};
+        }
+        const auto state =
+            DMK::memory::read<int32_t>(DMK::Address{minigame.object + Constants::C_DISTRACT_STATE_OFFSET});
+        return HeldDecoy{*decoy, state && *state == Constants::DISTRACT_STATE_HOLDING};
+    }
+
+    std::optional<float> player_move_input(uintptr_t c_player) noexcept
+    {
+        if (c_player == 0)
+        {
+            return std::nullopt;
+        }
+        const auto input =
+            DMK::memory::read<uintptr_t>(DMK::Address{c_player + runtime_offsets().c_player_input.load().value});
+        if (!input || !DMK::memory::is_plausible_ptr(DMK::Address{*input}))
+        {
+            return std::nullopt;
+        }
+        const auto vtable = DMK::memory::read<uintptr_t>(DMK::Address{*input});
+        if (!vtable || !vtable_is(GameClass::PlayerInput, *vtable))
+        {
+            return std::nullopt;
+        }
+        const auto x = DMK::memory::read<float>(DMK::Address{*input + Constants::PLAYER_INPUT_MOVE_X_OFFSET});
+        const auto y = DMK::memory::read<float>(DMK::Address{*input + Constants::PLAYER_INPUT_MOVE_Y_OFFSET});
+        if (!x || !y || !std::isfinite(*x) || !std::isfinite(*y))
+        {
+            return std::nullopt;
+        }
+        return std::max(std::fabs(*x), std::fabs(*y));
     }
 
     uint32_t poll_game_state(uintptr_t c_player) noexcept

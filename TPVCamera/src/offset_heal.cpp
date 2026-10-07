@@ -100,6 +100,11 @@ namespace TPVCamera
             // confidence-full off-by-a-subobject heal). The embedded member's nominal slot already holds the primary
             // vtable, so CompleteObject only adds the MI guard for the drift scan and never changes the nominal match.
             .indirection = DMK::rtti::Indirection::CompleteObject};
+        const DMK::rtti::Landmark k_playerinput_lm{
+            .nominal_offset = Constants::C_PLAYER_INPUT_OFFSET,
+            .expected_mangled = Constants::C_PLAYER_INPUT_RTTI_NAME,
+            .indirection = DMK::rtti::Indirection::PointerToObject,
+        };
         const DMK::rtti::Landmark k_animchar_lm{
             .nominal_offset = Constants::ANIMATED_HUMAN_ANIMCHAR_OFFSET,
             .expected_mangled = Constants::ANIMATED_CHARACTER_RTTI_NAME,
@@ -164,7 +169,7 @@ namespace TPVCamera
         // Accumulated per-landmark drift report, appended by record_drift() as each group heals. rtti::heal_report
         // is the one-base batch form of this; these landmarks span four bases that become live at different times,
         // so building the report from the results the groups already produced avoids a second full scan.
-        constexpr std::size_t k_drift_capacity = 12;
+        constexpr std::size_t k_drift_capacity = 14;
         std::array<DMK::rtti::DriftEntry, k_drift_capacity> s_drift{};
         std::atomic<std::size_t> s_drift_count{0};
 
@@ -184,6 +189,7 @@ namespace TPVCamera
             DMK::rtti::Landmark animhuman;
             DMK::rtti::Landmark actormodel;
             DMK::rtti::Landmark missile;
+            DMK::rtti::Landmark playerinput;
             DMK::rtti::Landmark animchar;
             DMK::rtti::Landmark actiongame;
             DMK::rtti::Landmark localactor;
@@ -338,6 +344,7 @@ namespace TPVCamera
         c_player_animated_human.seed_nominal(Constants::C_PLAYER_ANIMATED_HUMAN_OFFSET);
         c_player_actor_model.seed_nominal(Constants::C_PLAYER_ACTOR_MODEL_OFFSET);
         c_player_missile_controller.seed_nominal(Constants::C_PLAYER_MISSILE_CONTROLLER_OFFSET);
+        c_player_input.seed_nominal(Constants::C_PLAYER_INPUT_OFFSET);
         animated_human_animchar.seed_nominal(Constants::ANIMATED_HUMAN_ANIMCHAR_OFFSET);
         context_manager.seed_nominal(Constants::OFFSET_MANAGER_PTR_STORAGE);
         context_minigame_subsystem.seed_nominal(Constants::OFFSET_MINIGAME_SUBSYSTEM);
@@ -397,6 +404,7 @@ namespace TPVCamera
                 .animhuman = with_window(k_animhuman_lm, window),
                 .actormodel = with_window(k_actormodel_lm, window),
                 .missile = with_window(k_missile_lm, window),
+                .playerinput = with_window(k_playerinput_lm, window),
                 .animchar = with_window(k_animchar_lm, window),
                 .actiongame = with_window(k_actiongame_lm, window),
                 .localactor = with_window(k_localactor_lm, window),
@@ -477,7 +485,7 @@ namespace TPVCamera
         //
         // The latch requires the write-authorizing members: animatedHuman and the bracket's lookController.
         // A missed scan leaves writes unauthorized, so this group retries until those members resolve.
-        // Read-only actorModel and missileController do not delay the latch.
+        // Read-only actorModel, missileController and playerInput do not delay the latch.
         // A settled bracket fallback does not retry because its verdict is deterministic for a validated C_Player.
         register_group(
             "player",
@@ -494,6 +502,7 @@ namespace TPVCamera
                     c_player,
                     offsets.c_player_missile_controller
                 ));
+                (void)heal_and_record(run, "playerInput", lm.playerinput, c_player, offsets.c_player_input);
                 const bool bracket_settled = heal_player_bracket(run, c_player, offsets);
                 return animated_human_ok && bracket_settled;
             },

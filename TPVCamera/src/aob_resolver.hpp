@@ -742,6 +742,121 @@ namespace TPVCamera
                 Pattern::literal("48 8D 71 A8 48 8B D9 80 BE A0 00 00 00 00 0F 84 ?? ?? ?? ?? E8"),
                 -0x0F),
         };
+
+        // Shooting-utils FireProjectile entry (actor, dir, pos, speed -> pooled projectile -> Launch)
+        // Direct entry hook. Every player and NPC shot goes through it with the shooter in rdx. P1 is the prologue
+        // through the actor field read and `mov dl, 0C3h`. P2 drops `mov rax, rsp` and walks back 3. P3 is the
+        // xmm-save run through the first virtual call and the movzx of the stack bool, walking back 0x29.
+        inline const Candidate k_fireProjectileCandidates[] = {
+            Candidate::direct(
+                "FireProjectile_P1_Prologue",
+                Pattern::literal("48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 57 41 56 41 57 48 81 EC B0 00 00 00 "
+                                 "0F 29 70 D8 48 8B D9 48 8B 8A 68 06 00 00 4C 8B F2 0F 29 78 C8 B2 C3")),
+            Candidate::direct(
+                "FireProjectile_P2_SavesThroughActorRead",
+                Pattern::literal("48 89 58 08 48 89 68 10 48 89 70 18 57 41 56 41 57 48 81 EC ?? ?? 00 00 0F 29 70 "
+                                 "D8 48 8B D9 48 8B 8A ?? ?? 00 00 4C 8B F2 0F 29 78 C8 B2 C3 44 0F 29 40 B8 49 8B "
+                                 "E9"),
+                -0x3),
+            Candidate::direct(
+                "FireProjectile_P3_BodyXmmSavesCall",
+                Pattern::literal("4C 8B F2 0F 29 78 C8 B2 C3 44 0F 29 40 B8 49 8B E9 44 0F 29 48 A8 45 8B F8 48 8B "
+                                 "01 FF 90 ?? ?? 00 00 0F B6 94 24"),
+                -0x29),
+        };
+
+        // CProjectile::Launch entry (CArrow's Launch slot is a jmp to it)
+        // Direct entry hook. P1 is the prologue through `mov r8d, 100h`. P2 drops `mov rax, rsp`, wildcards the
+        // frame size and walks back 3. P3 anchors on the launched-flag update (`and eax, 0FFFDFBF5h; or eax, 40h`)
+        // and the IGameObject call after it, walking back 0x6C.
+        inline const Candidate k_projectileLaunchCandidates[] = {
+            Candidate::direct(
+                "ProjectileLaunch_P1_Prologue",
+                Pattern::literal("48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 4C 89 70 20 55 48 8D 68 D8 48 81 EC "
+                                 "20 01 00 00 0F 29 70 E8 48 8B D9 0F 29 78 D8 49 8B F8 44 0F 29 40 C8 48 8B F2 44 "
+                                 "0F 29 48 B8 41 B8 00 01 00 00")),
+            Candidate::direct(
+                "ProjectileLaunch_P2_SavesThroughEventMask",
+                Pattern::literal("48 89 58 08 48 89 70 10 48 89 78 18 4C 89 70 20 55 48 8D 68 ?? 48 81 EC ?? ?? 00 "
+                                 "00 0F 29 70 E8 48 8B D9 0F 29 78 D8 49 8B F8 44 0F 29 40 C8 48 8B F2 44 0F 29 48 "
+                                 "B8 41 B8 00 01 00 00 44 0F 29 50 A8 B2 01"),
+                -0x3),
+            Candidate::direct("ProjectileLaunch_P3_BodyLaunchedFlag",
+                              Pattern::literal("8B 81 A0 00 00 00 25 F5 FB FD FF 83 C8 40 89 81 A0 00 00 00 48 8B "
+                                               "49 28 48 8B 01 FF 90"),
+                              -0x6C),
+        };
+
+        // CArrow collision handler entry (vtable slot 47, fed one queued EventPhysCollision at a time)
+        // Direct entry hook. P1 is the prologue through the cookie and the pEntity[1] load. P2 drops the rbx save and
+        // walks back 5. P3 is the owner and pierceability tests (with [2-6] gaps over the short branches), walking
+        // back 0x30.
+        inline const Candidate k_arrowCollisionCandidates[] = {
+            Candidate::direct(
+                "ArrowCollision_P1_Prologue",
+                Pattern::literal("48 89 5C 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 40 FF FF FF 48 81 EC "
+                                 "C0 01 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 85 B0 00 00 00 4C 8B FA 33 F6 48 "
+                                 "8B 52 18 4C 8B F1 48 85 D2")),
+            Candidate::direct(
+                "ArrowCollision_P2_PushesThroughEventRead",
+                Pattern::literal("55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 ?? FF FF FF 48 81 EC ?? ?? 00 00 48 "
+                                 "8B 05 ?? ?? ?? ?? 48 33 C4 48 89 85 ?? ?? 00 00 4C 8B FA 33 F6 48 8B 52 18 4C 8B "
+                                 "F1"),
+                -0x5),
+            Candidate::direct(
+                "ArrowCollision_P3_BodyOwnerPierceTests",
+                Pattern::literal("4C 8B FA 33 F6 48 8B 52 18 4C 8B F1 48 85 D2 [2-6] 48 8B 0D ?? ?? ?? ?? 48 8B 01 FF "
+                                 "90 ?? ?? 00 00 [2-6] 48 8B C6 48 8B D0 49 8B CE E8 ?? ?? ?? ?? 84 C0 0F 84 ?? ?? "
+                                 "?? ?? 41 0F BF 47 7E"),
+                -0x30),
+        };
+
+        // IEntity::GetPhysics vtable slot, read from two independent call sites: Launch (`mov rcx, [rbx+38h]`, the
+        // projectile entity, then `call [rax+disp32]` and the null test) and the fire routine's launch-point ray
+        // (the shooter entity, then the skip-list store and the actor call after it). Both must decode the same slot.
+        inline const Candidate k_getPhysicsSlotLaunchCandidates[] = {
+            Candidate::direct("GetPhysicsSlotLaunch_P1_CallNullTest",
+                              Pattern::literal("48 8B 4B 38 48 8B 01 | FF 90 ?? ?? 00 00 48 85 C0 [2-6] B9 00 00 00 "
+                                               "80")),
+        };
+        inline const Candidate k_getPhysicsSlotFireRayCandidates[] = {
+            Candidate::direct("GetPhysicsSlotFireRay_P1_CallSkipStore",
+                              Pattern::literal("48 8B 4B 38 48 8B 01 | FF 90 ?? ?? 00 00 48 89 45 ?? 48 8B CB 48 8B "
+                                               "03 FF 90 ?? ?? 00 00 48 8B 0D")),
+        };
+
+        // Aux geometry, called through the renderer and CAuxGeomCB vtables. Each slot read is validated against
+        // the function these resolve before the call. GetIRenderAuxGeom and DrawLines are full functions;
+        // SetRenderFlags is a leaf without unwind data, so it is matched as a code site.
+        inline const Candidate k_getAuxGeomCandidates[] = {
+            Candidate::direct("GetAuxGeom_P1_BodyThreadCompare",
+                              Pattern::literal("48 8B D9 FF 15 ?? ?? ?? ?? 3B 87 ?? ?? ?? ?? [2-6] 3B 87 ?? ?? ?? ?? "
+                                               "[2-6] 48 8B 8B ?? ?? ?? ??"),
+                              -0x11),
+            Candidate::direct("GetAuxGeom_P2_BodyLockedBuffer",
+                              Pattern::literal("48 8B 8B 88 2F 00 00 E8 ?? ?? ?? ?? 48 8B 5C 24 30 48 83 C4 20 5F C3"),
+                              -0x2A),
+            Candidate::direct("GetAuxGeom_P3_BodyCompareCall",
+                              Pattern::literal("3B 87 ?? ?? ?? ?? [2-6] 48 8B 8B ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 8B 5C "
+                                               "24 30"),
+                              -0x22),
+        };
+        inline const Candidate k_auxSetFlagsCandidates[] = {
+            Candidate::direct("AuxSetFlags_P1_BodyStoreReturn",
+                              Pattern::literal("89 02 41 8B 00 41 89 81 ?? ?? ?? ?? 48 8B C2 C3"), -0xB),
+            Candidate::direct("AuxSetFlags_P2_Entry",
+                              Pattern::literal("4C 8B 49 ?? 41 8B 81 ?? ?? ?? ?? 89 02 41 8B 00")),
+            Candidate::direct("AuxSetFlags_P3_StoreReturn",
+                              Pattern::literal("41 89 81 ?? ?? ?? ?? 48 8B C2 C3"), -0x10),
+        };
+        inline const Candidate k_auxDrawLinesCandidates[] = {
+            Candidate::direct("AuxDrawLines_P1_BodyThicknessTest",
+                              Pattern::literal("48 8B FA 0F 2F C6 41 8B F0 4C 8B F1 [2-6] 41 8A 41 ??"), -0x34),
+            Candidate::direct("AuxDrawLines_P2_BodyConstLoad",
+                              Pattern::literal("F3 0F 10 05 ?? ?? ?? ?? 33 DB 0F 29 74 24 40 49 8B E9"), -0x19),
+            Candidate::direct("AuxDrawLines_P3_AlphaFlags",
+                              Pattern::literal("FE C8 49 89 5B D8 3C ?? 4D 8D 4B 28 49 8B 46 ??"), -0x4F),
+        };
     } // namespace Aob
 
     /**
@@ -750,7 +865,7 @@ namespace TPVCamera
      *          accessors read. The enumerator order IS the table order. Count is the element count and is not a valid
      *          anchor. The ids up to PhysEntMovement are addresses. The ids from IsThirdPersonSlot to AnimIdByCrcSlot
      *          are scalars decoded from game code, not addresses. AnimNameHashCall is a call site, and its consumer
-     *          decodes the callee.
+     *          decodes the callee. The archery ids are addresses, except GetPhysicsSlot, a scalar.
      */
     enum class AnchorId : std::size_t
     {
@@ -780,6 +895,13 @@ namespace TPVCamera
         LockBodyTurnCount,    // C_Player LockBodyTurn reference-count offset (LockBodyTurn itself; log only)
         AnimIdByCrcSlot,      // CAnimationSet GetAnimIDByCRC vtable byte offset (CActionScope::InstallAnimation)
         AnimNameHashCall,     // the call to the animation-name hash in CAnimationSet::GetAnimIDByName
+        FireProjectile,       // shooting-utils FireProjectile (the shooter filter for a player shot)
+        ProjectileLaunch,     // CProjectile::Launch (the arrow's direction and velocity are rewritten here)
+        ArrowCollision,       // CArrow collision handler (the impact point of a tracked shot)
+        GetPhysicsSlot,       // IEntity::GetPhysics vtable byte offset (quorum of Launch and the fire ray)
+        GetAuxGeom,           // renderer GetIRenderAuxGeom (vtable-slot validator)
+        AuxSetFlags,          // CAuxGeomCB::SetRenderFlags (vtable-slot validator)
+        AuxDrawLines,         // CAuxGeomCB::DrawLines (vtable-slot validator)
         Count,
     };
 
@@ -807,6 +929,8 @@ namespace TPVCamera
         TurnDecision,        // TurnInstalledState, with the function-scoped proofs: turns that finish on the look
         TurnSteps,           // PhysEntMovement: turn steps kept in place
         CrouchedAnimations,  // AnimIdByCrcSlot, AnimNameHashCall: the NPC crouched idle and turns for the player
+        ArcheryAim,          // FireProjectile, ProjectileLaunch, GetPhysicsSlot: arrows aimed at the crosshair point
+        ArcheryTrail,        // ArrowCollision and the aux-geometry calls: the trail and aim preview (needs ArcheryAim)
         Count,
     };
 

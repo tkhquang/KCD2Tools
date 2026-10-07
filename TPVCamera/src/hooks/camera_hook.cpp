@@ -35,6 +35,7 @@
 #include "math_utils.hpp"
 #include "physics_raycast.hpp"
 #include "render_occlusion.hpp"
+#include "hooks/archery_hook.hpp"
 #include "hooks/ui_menu_hooks.hpp"
 #include "hooks/player_onaction_hook.hpp"
 #include "presets/preset_runtime.hpp"
@@ -376,16 +377,15 @@ namespace TPVCamera
     // hook captures raw mouse UPSTREAM of the engine's own input freeze, so it needs this explicit gate.
     static std::atomic<bool> s_cursor_shown{false};
 
-    // Camera-relative movement (toggle orbit). The character's horizontal speed is derived from its body
-    // world position each frame (device-agnostic: no hardcoded movement keys). Crossing the START speed
-    // from idle aligns the heading to the camera once; it returns to idle only below the lower STOP speed
-    // (hysteresis, so a momentary dip cannot re-trigger the align). k_orbit_aim_level_speed eases the look
-    // pitch toward level per second while orbiting.
-    // Movement-INPUT thresholds (device-agnostic xi_move axis magnitude, ~0..1.4), used in place of the
-    // body-position speed when the action-dispatch hook resolved. The input stays nonzero while a movement
-    // key is held even if a wall arrests the body, so the heading is not falsely released on a collision stop.
-    constexpr float k_orbit_move_input_start = 0.15f;
+    // Camera-relative movement (toggle orbit). A move starts when the device-agnostic movement-input magnitude
+    // (~0..1.4) rises above MOVE_INPUT_START from idle, which aligns the heading to the camera once, and ends only
+    // below the lower k_orbit_move_input_stop (hysteresis, so a momentary dip cannot re-trigger the align). The input
+    // stays nonzero while a key is held against a wall, so the heading is not falsely released on a collision stop.
+    // k_orbit_aim_level_speed eases the look pitch toward level per second while orbiting.
     constexpr float k_orbit_move_input_stop = 0.05f;
+    // A move armed by the game's own move input (see the re-arm guard) also ends once that input has stayed idle this
+    // long, which covers the game's few frames of lag behind the keys.
+    constexpr float k_orbit_move_game_stop_delay = 0.1f; // seconds
     constexpr float k_orbit_aim_level_speed = 8.0f;
 
     // Orbit angle low-pass. The engine smooths native look DOWNSTREAM of the input dispatch the orbit
@@ -394,6 +394,25 @@ namespace TPVCamera
     // smoothing -> lower speed -> more lag (smoother); 0 disables the filter (snap to the raw target).
     constexpr float k_orbit_smooth_min_speed = 6.0f;  // strength 1.0: heavy smoothing
     constexpr float k_orbit_smooth_max_speed = 40.0f; // strength near 0: barely-there smoothing
+
+    // Aim hand-off: the least turn or rise off the plain rig worth a hand-off, and the heading gap at which the look
+    // counts as turned; how long it waits for the look; the body step between two frames that counts as a load or a
+    // teleport rather than a run or a hitch; and the bound on the look pitch it writes.
+    constexpr float k_aim_handoff_min_angle = 0.0175f; // rad (1 deg)
+    constexpr float k_aim_handoff_timeout = 0.5f;      // seconds
+    constexpr float k_aim_handoff_jump = 3.0f;         // meters per frame
+    constexpr float k_aim_handoff_max_pitch = 1.4f;    // rad (80 deg)
+    // Situations in which the game sets which way the character faces, so the aim hand-off leaves the facing alone:
+    // riding a horse or a cart, sitting, lying or kneeling, a conversation, and the minigames that put the character at
+    // a lock, a table, an anvil and the like. The throwing and shooting minigames are aimed by the player.
+    constexpr uint32_t k_game_held_facing_states =
+        state_bit(GameState::Mount) | state_bit(GameState::Cart) | state_bit(GameState::Lying) |
+        state_bit(GameState::Sitting) | state_bit(GameState::Kneel) | state_bit(GameState::Dialogue) |
+        state_bit(GameState::MinigameSharpening) | state_bit(GameState::MinigameReading) |
+        state_bit(GameState::MinigameAlchemy) | state_bit(GameState::MinigameHerbGathering) |
+        state_bit(GameState::MinigameLockpicking) | state_bit(GameState::MinigameHoleDigging) |
+        state_bit(GameState::MinigameDice) | state_bit(GameState::MinigamePickpocketing) |
+        state_bit(GameState::MinigameBlacksmithing) | state_bit(GameState::MinigameForgeBuilder);
 
     // Aim-basis low-pass (AimBasisSmoothing). Maps the 0..1 strength to a frame-rate-independent slerp
     // catch-up speed: higher strength -> lower speed -> more damping (and slightly laggier aim). The window
@@ -425,6 +444,10 @@ namespace TPVCamera
      *          input-dispatch thread (the free-look gate); every read is atomic, so the cross-thread call is
      *          safe.
      */
+    // The states read from the live UI signals rather than the debounced mask: the suppression gate and the
+    // orbit-exclude policy both react on the frame a menu or an overlay opens or closes.
+    constexpr uint32_t k_live_ui_states = state_bit(GameState::Menu) | state_bit(GameState::Overlay);
+
     [[nodiscard]] static bool should_apply_view()
     {
         const uint32_t suppress = settings().suppress_tpv_mask.load(std::memory_order_relaxed);
@@ -442,8 +465,7 @@ namespace TPVCamera
             return false;
         }
         // Any other listed state is matched against the debounced mask published each game-view frame.
-        constexpr uint32_t k_ui_bits = state_bit(GameState::Menu) | state_bit(GameState::Overlay);
-        const uint32_t gameplay = suppress & ~k_ui_bits;
+        const uint32_t gameplay = suppress & ~k_live_ui_states;
         if (gameplay != 0 && (gameplay & game_state_mask().load(std::memory_order_relaxed)) != 0)
         {
             return false;
@@ -464,6 +486,8 @@ namespace TPVCamera
         std::int64_t start_stamp;
         /// Seconds the world advanced this frame.
         float seconds;
+        /// The game clock is stopped (the pause menu) and seconds is the UI clock's.
+        bool paused;
     };
 
     /**
@@ -512,7 +536,8 @@ namespace TPVCamera
         }
         const auto get_frame_time = reinterpret_cast<TimerGetFrameTimeFunc>(*time_fn);
         float seconds = get_frame_time(*timer, Constants::ETIMER_GAME);
-        if (!(seconds > 0.0f))
+        const bool paused = !(seconds > 0.0f);
+        if (paused)
         {
             seconds = get_frame_time(*timer, Constants::ETIMER_UI);
         }
@@ -520,11 +545,41 @@ namespace TPVCamera
         {
             return std::nullopt;
         }
-        return EngineFrame{*stamp, seconds};
+        return EngineFrame{*stamp, seconds, paused};
     }
 
+    // The heading a movement press captures (radians), when it was published (GetTickCount64, 0 = none) and
+    // the thread the camera ran on, for orbit_move_pressed. A heading older than k_move_press_max_age_ms is not used.
+    static std::atomic<float> s_move_press_heading{0.0f};
+    static std::atomic<std::uint64_t> s_move_press_stamp_ms{0};
+    static std::atomic<DWORD> s_move_press_thread{0};
+    static std::atomic<float> s_move_press_body_yaw{0.0f};
+    // Set by a press that turned the body by more than k_move_press_min_turn: the next movement request of that
+    // animated character (detour_phys_ent_movement) was built along the old facing. Stamped (GetTickCount64) so a
+    // stale one is ignored; the stamp is stored before the character.
+    static std::atomic<std::uint64_t> s_move_press_turned_ms{0};
+    static std::atomic<std::uintptr_t> s_move_press_animchar{0};
+    constexpr float k_move_press_min_turn = 0.087f; // rad (5 deg)
+    constexpr std::uint64_t k_move_press_max_age_ms = 100;
+
+    /** @brief What one game-view frustum build advances by, as frame_delta reports it. */
+    struct FrameStep
+    {
+        /// Seconds the camera's per-frame integrators and easings advance on this build, clamped.
+        float seconds{0.0f};
+        /**
+         * @brief The frame's second build.
+         * @details Work that must run exactly once per engine frame (the archery step) keys on this flag, not on a
+         *          zero seconds value: the wall-clock fallback returns the small gap for the second build, not 0.
+         */
+        bool repeat_build{false};
+        /// The game clock stands still (the pause menu); false when the engine clock cannot be read.
+        bool paused{false};
+    };
+
     /**
-     * @brief Seconds the camera's per-frame integrators and easings advance on this frustum build, clamped.
+     * @brief Measures one game-view frustum build: the seconds it advances, whether it repeats the frame, and whether
+     *        the game clock is paused.
      * @details The game view's frustum is built twice per frame (the projection setup, then the final rebuild).
      *          The frame's time is spent on the first build and the second advances by 0; the engine's
      *          frame-start stamp tells the two apart.
@@ -538,15 +593,21 @@ namespace TPVCamera
      *          pan. Pacing on the engine clock keeps the camera in step with the world. The wall-clock gap is the
      *          fallback whenever the engine clock cannot be read, and it keeps running every call so that
      *          fallback always measures from the previous build.
+     * @return This build's step.
      */
-    [[nodiscard]] static float frame_delta()
+    [[nodiscard]] static FrameStep frame_delta()
     {
         static std::chrono::steady_clock::time_point s_last_time = std::chrono::steady_clock::now();
         const auto now = std::chrono::steady_clock::now();
         const float wall_delta = std::chrono::duration<float>(now - s_last_time).count();
         s_last_time = now;
+        FrameStep step{};
+        // Without the engine clock, a build within a couple of milliseconds of the previous one is the same frame's
+        // second build.
+        step.repeat_build = wall_delta < 0.002f;
 
         const std::optional<EngineFrame> frame = read_engine_frame();
+        step.paused = frame.has_value() && frame->paused;
 
         // Report which clock paces the camera once per switch, so a log shows whether the engine clock resolved.
         enum class ClockSource
@@ -568,14 +629,17 @@ namespace TPVCamera
         if (frame.has_value())
         {
             static std::int64_t s_last_stamp = 0;
-            if (frame->start_stamp == s_last_stamp)
+            step.repeat_build = frame->start_stamp == s_last_stamp;
+            if (step.repeat_build)
             {
-                return 0.0f; // second build of the same frame: the frame's time was already spent
+                return step; // second build of the same frame: the frame's time was already spent
             }
             s_last_stamp = frame->start_stamp;
-            return std::clamp(frame->seconds, 0.0f, 0.1f);
+            step.seconds = std::clamp(frame->seconds, 0.0f, 0.1f);
+            return step;
         }
-        return std::clamp(wall_delta, 0.0f, 0.1f);
+        step.seconds = std::clamp(wall_delta, 0.0f, 0.1f);
+        return step;
     }
 
     /**
@@ -584,8 +648,9 @@ namespace TPVCamera
      *          call) -> p_action_game -> C_Player, then confirms C_Player by its main vtable. Resolving
      *          FRESH every frame - rather than trusting a mirrored pointer that goes null/stale across
      *          view transitions and reloads - is what keeps the move-detection and body-turn locked onto
-     *          the CURRENT player. Always called from within an SEH frame (the frustum detour / the
-     *          body-turn wrapper), so a fault during the walk is contained.
+     *          the CURRENT player. Always called from within an SEH frame (the frustum detour, the
+     *          body-turn wrapper, or the action dispatcher's guarded capture through orbit_move_pressed), so a fault
+     *          during the walk is contained.
      */
     static uintptr_t resolve_c_player()
     {
@@ -697,32 +762,40 @@ namespace TPVCamera
     }
 
     /**
-     * @brief Resolves the player look controller and drives the real aim while orbiting: eases the PITCH
-     *        toward level and/or sets the YAW (heading).
+     * @brief Resolves the player look controller and drives the real aim: eases the PITCH toward a target (level
+     *        while orbiting) and/or sets the YAW (heading).
      * @details Walks the player look chain (g_env -> p_game -> CCryAction -> p_action_game -> C_Player ->
      *          look controller; see constants.hpp) and validates C_Player by its vtable. The look
      *          quaternion the cameras read is RE-DERIVED from the controller's scalar pitch+yaw every
      *          frame, so writing those scalars (not the derived quat, which is overwritten) is what
-     *          actually moves the eye, the character head AND the movement heading. The mod redirects the
-     *          look input while orbiting, so the writes stick; on any failure it returns without writing
-     *          and the camera-side level blend still levels the view. CCryAction is process-lifetime and
-     *          resolved once via a virtual GetIGameFramework call, then cached; the rest is a guarded walk.
-     * @param pitch_ease Per-frame fraction to move the look pitch toward level, in [0, 1] (0 = leave it).
+     *          actually moves the eye, the character head AND the movement heading. While orbiting the mod
+     *          redirects the look input, so the writes stick. Outside orbit (the aim hand-off) the game re-derives
+     *          the look yaw from the body heading while aiming, so a yaw write sticks only together with a body
+     *          turn (apply_orbit_body_turn). When the controller is unreachable nothing is written (the
+     *          camera-side held base is unaffected); a false return can also follow a partial write.
+     *          CCryAction is process-lifetime and resolved once via a virtual GetIGameFramework call, then
+     *          cached; the rest is a guarded walk.
+     * @param pitch_ease Per-frame fraction to move the look pitch toward pitch_target, in [0, 1] (0 = leave it,
+     *        1 = set it).
+     * @param pitch_target Look pitch to ease toward, in radians (0 = level, negative = down).
      * @param set_yaw When true, the look yaw is set to yaw_value to align the heading to the camera.
      * @param yaw_value Target look yaw in radians (engine convention: forward = (-sin yaw, cos yaw)).
+     * @return True when every requested write landed; false when the controller is unreachable, a value
+     *         failed its sanity check or a write was refused.
      */
-    static void apply_orbit_aim_control(float pitch_ease, bool set_yaw, float yaw_value)
+    [[nodiscard]] static bool apply_orbit_aim_control(float pitch_ease, float pitch_target, bool set_yaw,
+                                                      float yaw_value)
     {
         const ModuleInfo &mod = module_info();
         if (s_genv_runtime == 0 || mod.base == 0)
         {
-            return;
+            return false;
         }
         const uintptr_t g_env_addr = s_genv_runtime;
         const auto p_game = DMK::memory::read<uintptr_t>(DMK::Address{g_env_addr + Constants::GENV_PGAME_OFFSET});
         if (!p_game || !DMK::memory::is_plausible_ptr(DMK::Address{*p_game}))
         {
-            return;
+            return false;
         }
 
         // CCryAction is process-lifetime; resolve it once via p_game->IGame::GetIGameFramework() (a
@@ -733,20 +806,20 @@ namespace TPVCamera
             const auto vtable = DMK::memory::read<uintptr_t>(DMK::Address{*p_game});
             if (!vtable || !DMK::memory::is_plausible_ptr(DMK::Address{*vtable}))
             {
-                return;
+                return false;
             }
             const auto fn =
                 DMK::memory::read<uintptr_t>(DMK::Address{*vtable + Constants::IGAME_GET_FRAMEWORK_VTABLE_OFFSET});
             if (!fn || !DMK::memory::is_plausible_ptr(DMK::Address{*fn}))
             {
-                return;
+                return false;
             }
             using GetFrameworkFn = uintptr_t(__fastcall *)(uintptr_t);
             s_cry_action = reinterpret_cast<GetFrameworkFn>(*fn)(*p_game);
             if (!DMK::memory::is_plausible_ptr(DMK::Address{s_cry_action}))
             {
                 s_cry_action = 0;
-                return;
+                return false;
             }
         }
 
@@ -762,13 +835,13 @@ namespace TPVCamera
         const auto c_player = DMK::memory::walk(DMK::Address{s_cry_action}, actor_chain);
         if (!c_player || !DMK::memory::is_plausible_ptr(*c_player))
         {
-            return;
+            return false;
         }
         // Confirm this is really C_Player (its main vtable) before trusting the controller offset.
         const auto vt = DMK::memory::read<uintptr_t>(*c_player);
         if (!vt || !vtable_is(GameClass::Player, *vt))
         {
-            return;
+            return false;
         }
         // This offset decides where a WRITE lands, so demand a Confirmed heal rather than accepting the
         // retained nominal: on a genuinely drifted C_Player the store would land in whatever member now
@@ -776,15 +849,15 @@ namespace TPVCamera
         const auto look_controller_offset = offsets.c_player_look_controller.authorized();
         if (!look_controller_offset)
         {
-            return;
+            return false;
         }
         const auto controller = DMK::memory::read<uintptr_t>(c_player->offset(*look_controller_offset));
         if (!controller || !DMK::memory::is_plausible_ptr(DMK::Address{*controller}))
         {
-            return;
+            return false;
         }
-        // Ease the SCALAR pitch toward 0 (level). Both synchronized copies are written so any internal
-        // current/target smoothing also settles at level. A sane pitch is within about +/- 1.6 rad; a
+        // Ease the SCALAR pitch toward pitch_target. Both synchronized copies are written so any internal
+        // current/target smoothing also settles there. A sane pitch is within about +/- 1.6 rad; a
         // wild or non-finite value means the layout drifted, so that write is skipped.
         //
         // Every store below goes through memory::write_in_place, the library's per-frame data write: a guarded
@@ -795,16 +868,21 @@ namespace TPVCamera
         // a chain that drifted onto a read-only page is rejected rather than silently unprotected. It is also
         // an out-of-line library call, so the consume-once store the engine reads on its own thread cannot be
         // elided - the intent the old volatile qualifier carried.
+        bool wrote = true;
         if (pitch_ease > 0.0f)
         {
             const DMK::Address pitch_addr = DMK::Address{*controller + Constants::LOOK_CONTROLLER_PITCH_OFFSET};
             const auto pitch_value = DMK::memory::read<float>(pitch_addr);
-            if (pitch_value && *pitch_value > -3.2f && *pitch_value < 3.2f)
+            if (pitch_value && *pitch_value > -3.2f && *pitch_value < 3.2f && std::isfinite(pitch_target))
             {
-                const float levelled = *pitch_value * (1.0f - pitch_ease);
-                (void)DMK::memory::write_in_place<float>(pitch_addr, levelled);
-                (void)DMK::memory::write_in_place<float>(
-                    DMK::Address{*controller + Constants::LOOK_CONTROLLER_PITCH2_OFFSET}, levelled);
+                const float eased = *pitch_value + (pitch_target - *pitch_value) * pitch_ease;
+                wrote = DMK::memory::write_in_place<float>(pitch_addr, eased) &&
+                        DMK::memory::write_in_place<float>(
+                            DMK::Address{*controller + Constants::LOOK_CONTROLLER_PITCH2_OFFSET}, eased);
+            }
+            else
+            {
+                wrote = false;
             }
         }
 
@@ -812,13 +890,16 @@ namespace TPVCamera
         // so this is what turns the body and makes movement camera-relative on the idle -> moving edge.
         // Both synchronized copies are written. yaw_value is finite-checked first: a non-finite heading (a
         // layout drift feeding NaN through the derivation) must never be written into the engine's look state.
-        if (set_yaw && std::isfinite(yaw_value))
+        if (set_yaw)
         {
-            (void)DMK::memory::write_in_place<float>(DMK::Address{*controller + Constants::LOOK_CONTROLLER_YAW_OFFSET},
-                                                     yaw_value);
-            (void)DMK::memory::write_in_place<float>(DMK::Address{*controller + Constants::LOOK_CONTROLLER_YAW2_OFFSET},
-                                                     yaw_value);
+            const bool yaw_wrote = std::isfinite(yaw_value) &&
+                                   DMK::memory::write_in_place<float>(
+                                       DMK::Address{*controller + Constants::LOOK_CONTROLLER_YAW_OFFSET}, yaw_value) &&
+                                   DMK::memory::write_in_place<float>(
+                                       DMK::Address{*controller + Constants::LOOK_CONTROLLER_YAW2_OFFSET}, yaw_value);
+            wrote = wrote && yaw_wrote;
         }
+        return wrote;
     }
 
     /**
@@ -836,14 +917,15 @@ namespace TPVCamera
      *          validated by the animchar vtable before any write. The quat is written before the active
      *          byte so the game never observes active==1 with a torn/stale quat.
      *          See constants.hpp (ANIMCHAR_*, C_PLAYER_ANIMATED_HUMAN_OFFSET) for the offsets.
+     * @return The player's animated character the turn was written to, or 0 when nothing was written.
      */
-    static void apply_orbit_body_turn(float target_yaw)
+    static uintptr_t apply_orbit_body_turn(float target_yaw)
     {
         const ModuleInfo &mod = module_info();
         const uintptr_t c_player = resolve_c_player();
         if (mod.base == 0 || c_player == 0)
         {
-            return;
+            return 0;
         }
 
         // C_Player -> C_AnimatedHuman (+0x268) -> CAnimatedCharacter (+0x20). Both offsets decide where a
@@ -855,7 +937,7 @@ namespace TPVCamera
         const auto animchar_offset = offsets.animated_human_animchar.authorized();
         if (!animated_human_offset || !animchar_offset)
         {
-            return;
+            return 0;
         }
 
         // One guarded walk instead of a read-and-screen per hop: walk() reads each hop under the same fault
@@ -864,14 +946,14 @@ namespace TPVCamera
         const auto anim_char = DMK::memory::walk(DMK::Address{c_player}, animchar_chain);
         if (!anim_char || !DMK::memory::is_plausible_ptr(*anim_char))
         {
-            return;
+            return 0;
         }
         // Validate the animchar vtable before touching its override fields; a mismatch means the layout
         // drifted, so skip this frame.
         const auto avt = DMK::memory::read<uintptr_t>(*anim_char);
         if (!avt || !vtable_is(GameClass::AnimatedCharacter, *avt))
         {
-            return;
+            return 0;
         }
 
         // Yaw-only world quat (XYZW): rotation about +Z by target_yaw == {0, 0, sin(y/2), cos(y/2)}. The four
@@ -887,15 +969,19 @@ namespace TPVCamera
         if (!DMK::memory::write_in_place<std::array<float, 4>>(
                 anim_char->offset(Constants::ANIMCHAR_OVERRIDE_ROT_QUAT_OFFSET), quat))
         {
-            return;
+            return 0;
         }
         // Set the active byte LAST so the animated-character update (a separate consumer) never reads
         // active==1 with a half-written quat. The release fence orders the quat store before the active
         // store explicitly rather than relying on the target's store-store ordering; on x86 it lowers to a
         // compiler barrier with no runtime cost.
         std::atomic_thread_fence(std::memory_order_release);
-        (void)DMK::memory::write_in_place<unsigned char>(
-            anim_char->offset(Constants::ANIMCHAR_OVERRIDE_ROT_ACTIVE_OFFSET), 1);
+        if (!DMK::memory::write_in_place<unsigned char>(
+                anim_char->offset(Constants::ANIMCHAR_OVERRIDE_ROT_ACTIVE_OFFSET), 1))
+        {
+            return 0;
+        }
+        return anim_char->raw();
     }
 
     // Turn-in-place pivot hold tuning. A native turn step is the body rotating TOWARD the look (faster than
@@ -944,6 +1030,7 @@ namespace TPVCamera
             cam.turn_track_y = body_origin.y;
             cam.turn_track_yaw = body_yaw;
             cam.turn_track_valid = true;
+            cam.turn_track_step = 0.0f;
             cam.turn_hold_x = 0.0f;
             cam.turn_hold_y = 0.0f;
             cam.turn_hold_timer = 0.0f;
@@ -952,6 +1039,7 @@ namespace TPVCamera
         const float step_x = body_origin.x - cam.turn_track_x;
         const float step_y = body_origin.y - cam.turn_track_y;
         const float step = std::sqrt(step_x * step_x + step_y * step_y);
+        cam.turn_track_step = step;
         const float turn = std::remainder(body_yaw - cam.turn_track_yaw, 2.0f * DirectX::XM_PI);
         cam.turn_track_x = body_origin.x;
         cam.turn_track_y = body_origin.y;
@@ -1048,12 +1136,13 @@ namespace TPVCamera
      * @param camera The game view's embedded render camera (matrix at offset 0).
      * @param cview The CView embedding the camera (camera - SVIEWPARAMS_VIEWMATRIX_OFFSET).
      * @param c_player Live C_Player address for the body anchor, or 0 to fall back to the eye anchor.
-     * @param delta_time Seconds since the previous game-view frame (shared with the state poll).
+     * @param step This build's step (shared with the state poll).
      * @param view_blend Smoothstepped first-person(0) -> third-person(1) blend for the view-switch ease.
      */
-    static void offset_game_view_camera(uintptr_t camera, uintptr_t cview, uintptr_t c_player, float delta_time,
+    static void offset_game_view_camera(uintptr_t camera, uintptr_t cview, uintptr_t c_player, const FrameStep &step,
                                         float view_blend)
     {
+        const float delta_time = step.seconds;
         LiveSettings &cfg = settings();
         CameraState &cam = camera_state();
 
@@ -1198,6 +1287,9 @@ namespace TPVCamera
 
         const Vector3 right = basis_rotation.rotate(Vector3{1.0f, 0.0f, 0.0f});
         const Vector3 forward = basis_rotation.rotate(Vector3{0.0f, 1.0f, 0.0f});
+        // The look pitch and heading the rig is built from (engine convention: forward = (-sin yaw, cos yaw)).
+        const float forward_pitch = std::asin(std::clamp(forward.z, -1.0f, 1.0f));
+        const float forward_yaw = std::atan2(-forward.x, forward.y);
         const Vector3 up = basis_rotation.rotate(Vector3{0.0f, 0.0f, 1.0f});
         GameStructures::Matrix34f *matrix = reinterpret_cast<GameStructures::Matrix34f *>(camera);
         // Per-preset FOV, smoothly crossing the "off" boundary. SetFrustum (sub_1805392FC) writes the render
@@ -1371,7 +1463,6 @@ namespace TPVCamera
         // Free-look orbit angles (degrees), accumulated by the input hook while the key is
         // held. On release they ease back to center. Read here so the render reflects them.
         const bool orbit_held = cam.orbit_active.load(std::memory_order_relaxed);
-
         // Gamepad right-stick orbit: integrate the latched stick DEFLECTION by RATE into the SAME orbit
         // accumulator the mouse writes, so the stick orbits the camera (yaw) and raises/lowers it (pitch) like
         // the mouse. Done here (not in the input hook) because the stick reports a HELD position, so it needs
@@ -1394,10 +1485,12 @@ namespace TPVCamera
                 const float step_y = cfg.gamepad_orbit_speed_y.load(std::memory_order_relaxed) * delta_time;
                 cam.orbit_yaw.store(cam.orbit_yaw.load(std::memory_order_relaxed) - pad_yaw * step_x,
                                     std::memory_order_relaxed);
-                const float pitch = cam.orbit_pitch.load(std::memory_order_relaxed) - pad_pitch * step_y;
-                cam.orbit_pitch.store(std::clamp(pitch, cfg.orbit_pitch_min.load(std::memory_order_relaxed),
-                                                 cfg.orbit_pitch_max.load(std::memory_order_relaxed)),
-                                      std::memory_order_relaxed);
+                const float old_pitch = cam.orbit_pitch.load(std::memory_order_relaxed);
+                cam.orbit_pitch.store(
+                    std::clamp(old_pitch - pad_pitch * step_y,
+                               std::min(cam.orbit_pitch_lo.load(std::memory_order_relaxed), old_pitch),
+                               std::max(cam.orbit_pitch_hi.load(std::memory_order_relaxed), old_pitch)),
+                    std::memory_order_relaxed);
             }
         }
         else
@@ -1431,7 +1524,7 @@ namespace TPVCamera
         const bool move_orbit = cam.orbit_moving && cam.orbit_target_valid;
         if (move_orbit)
         {
-            const float char_forward_yaw = std::atan2(-forward.x, forward.y);
+            const float char_forward_yaw = forward_yaw;
             const float raw_user_since_deg =
                 cam.orbit_yaw.load(std::memory_order_relaxed) - cam.orbit_yaw_at_capture_deg;
             // In continuous-align (GTA) mode the user's orbit-since-capture STEERS the run: it drives
@@ -1525,19 +1618,36 @@ namespace TPVCamera
                               orbit_pitch_deg > 0.05f || render_yaw_deg < -0.05f || render_yaw_deg > 0.05f ||
                               render_pitch_deg < -0.05f || render_pitch_deg > 0.05f;
 
-        // Ease the orbit "level" blend toward 1 ONLY while the orbit key is held, and back to 0 on
-        // release. While held the orbit is built from a LEVEL reference (so a steep look does not tip it
-        // near the overhead pole); easing in/out keeps engaging and releasing smooth. Keying this on
-        // orbit_held alone (not on "orbiting") is deliberate: with OrbitReturnSpeed 0 the angles "stay"
-        // and "orbiting" latches true forever, so keying off it would pin the camera to the level
-        // reference and lock out look pitch (only the head would move, the view would not). De-leveling
-        // on release instead lets any retained orbit angle ride as a rigid offset on top of the real
-        // look (the level_blend 0 path follows pitch), so vertical control is preserved in every preset.
+        // While free-look is on, the orbit is built from a held base: the follow rig for the look pitch it had when
+        // free-look took over, so the camera stays put whatever the look pitch does meanwhile. Until the base is held
+        // its pitch follows the look, so on the frame free-look takes over the held base is the pose on screen and is
+        // taken at once; easing it in lets the live look (leveled by OrbitLevelAim meanwhile) drag the camera.
+        // When free-look turns off, the held pitch eases back onto the look by angle, riding on the look at a
+        // decaying offset, so the rig is always a real follow rig: free-look turned back on during the ease holds it
+        // where it is, and the live rig takes over once the two meet. The hold keys on orbit_held, not on
+        // "orbiting": with OrbitReturnSpeed 0 the angles stay and "orbiting" latches true, which pins the camera
+        // to the held base and lock out the look pitch. Easing back on release lets a retained orbit angle ride as a
+        // rigid offset on top of the real look, so vertical control is kept in every preset.
         {
-            constexpr float k_orbit_level_speed = 8.0f;
-            const float level_target = orbit_held ? 1.0f : 0.0f;
-            const float level_ease = 1.0f - std::exp(-k_orbit_level_speed * delta_time);
-            cam.orbit_level_blend += (level_target - cam.orbit_level_blend) * level_ease;
+            constexpr float k_orbit_base_speed = 8.0f;
+            // The ease back ends once the held pitch is this close to the look's.
+            constexpr float k_orbit_base_settled = 1e-3f; // rad
+            if (!cam.orbit_base_held)
+            {
+                cam.orbit_base_pitch = forward_pitch;
+                cam.orbit_base_offset = 0.0f;
+                cam.orbit_base_held = orbit_held;
+            }
+            else if (orbit_held)
+            {
+                cam.orbit_base_offset = cam.orbit_base_pitch - forward_pitch;
+            }
+            else
+            {
+                cam.orbit_base_offset *= std::exp(-k_orbit_base_speed * delta_time);
+                cam.orbit_base_pitch = forward_pitch + cam.orbit_base_offset;
+                cam.orbit_base_held = std::fabs(cam.orbit_base_offset) >= k_orbit_base_settled;
+            }
         }
 
         // The real aim is driven AFTER the orbit look is finalized (below), so the heading can be aligned
@@ -1607,46 +1717,80 @@ namespace TPVCamera
         // (degrees; 0,0 = directly behind and level). Positive yaw swings the camera to one side, positive
         // pitch raises it. The offset AND the converged look rotate TOGETHER (same convention as the
         // free-look orbit below), so the over-the-shoulder framing and crosshair hold while the camera
-        // circles you. The free-look orbit then rotates further on top of this resting angle.
+        // circles you. The free-look orbit then rotates further on top of this resting angle, and its held base
+        // is turned the same way.
+        const float follow_yaw = cfg.follow_yaw.load(std::memory_order_relaxed);
+        const float follow_pitch = cfg.follow_pitch.load(std::memory_order_relaxed);
+        const bool follow_turned =
+            follow_yaw < -0.05f || follow_yaw > 0.05f || follow_pitch < -0.05f || follow_pitch > 0.05f;
+        auto turn_by_follow_angle = [follow_yaw, follow_pitch](Vector3 &off, Vector3 &look) -> void
         {
-            const float follow_yaw = cfg.follow_yaw.load(std::memory_order_relaxed);
-            const float follow_pitch = cfg.follow_pitch.load(std::memory_order_relaxed);
-            if (follow_yaw < -0.05f || follow_yaw > 0.05f || follow_pitch < -0.05f || follow_pitch > 0.05f)
+            const float yaw = DMK::math::degrees_to_radians(follow_yaw);
+            const float cy = std::cos(yaw);
+            const float sy = std::sin(yaw);
+            auto yaw_about_z = [cy, sy](const Vector3 &v)
+            { return Vector3{v.x * cy - v.y * sy, v.x * sy + v.y * cy, v.z}; };
+            off = yaw_about_z(off);
+            look = yaw_about_z(look);
+
+            const float pitch = DMK::math::degrees_to_radians(follow_pitch);
+            if (pitch < -1e-5f || pitch > 1e-5f)
             {
-                Vector3 off = camera_position - pivot;
-                const float yaw = DMK::math::degrees_to_radians(follow_yaw);
-                const float cy = std::cos(yaw);
-                const float sy = std::sin(yaw);
-                auto yaw_about_z = [cy, sy](const Vector3 &v)
-                { return Vector3{v.x * cy - v.y * sy, v.x * sy + v.y * cy, v.z}; };
-                off = yaw_about_z(off);
-                look_forward = yaw_about_z(look_forward);
-
-                const float pitch = DMK::math::degrees_to_radians(follow_pitch);
-                if (pitch < -1e-5f || pitch > 1e-5f)
+                const float azimuth = std::atan2(off.y, off.x);
+                const Vector3 axis{std::sin(azimuth), -std::cos(azimuth), 0.0f};
+                const float cp = std::cos(pitch);
+                const float sp = std::sin(pitch);
+                auto rotate_about_axis = [&axis, cp, sp](const Vector3 &v)
                 {
-                    const float azimuth = std::atan2(off.y, off.x);
-                    const Vector3 axis{std::sin(azimuth), -std::cos(azimuth), 0.0f};
-                    const float cp = std::cos(pitch);
-                    const float sp = std::sin(pitch);
-                    auto rotate_about_axis = [&axis, cp, sp](const Vector3 &v)
-                    {
-                        const Vector3 cross = axis.cross(v);
-                        const float dot = axis.x * v.x + axis.y * v.y + axis.z * v.z;
-                        return v * cp + cross * sp + axis * (dot * (1.0f - cp));
-                    };
-                    off = rotate_about_axis(off);
-                    look_forward = rotate_about_axis(look_forward);
-                }
-
-                camera_position = pivot + off;
-                if (look_forward.magnitude_squared() > 1e-6f)
-                {
-                    look_forward = look_forward.normalized();
-                }
-                rebuild_basis = true;
+                    const Vector3 cross = axis.cross(v);
+                    const float dot = axis.x * v.x + axis.y * v.y + axis.z * v.z;
+                    return v * cp + cross * sp + axis * (dot * (1.0f - cp));
+                };
+                off = rotate_about_axis(off);
+                look = rotate_about_axis(look);
             }
+            if (look.magnitude_squared() > 1e-6f)
+            {
+                look = look.normalized();
+            }
+        };
+        if (follow_turned)
+        {
+            Vector3 off = camera_position - pivot;
+            turn_by_follow_angle(off, look_forward);
+            camera_position = pivot + off;
+            rebuild_basis = true;
         }
+
+        // Aim hand-off. When a situation in OrbitExcludeState (aiming, a distraction throw, a drawn weapon, a menu)
+        // turns free-look off while the camera is turned away from the look, the camera swings back behind the old
+        // look, and what starts there (a shot, a throw) starts where the character faced instead of where the
+        // camera points. So the look and the body are turned to the camera's direction (the follow-up below the orbit
+        // rig), and the orbit rig holds the camera where it was until the look shows it. The direction comes from the
+        // previous frame, the one on screen, measured against that frame's own plain rig.
+        if (cam.aim_handoff_requested && !orbit_held && !cam.aim_handoff_active && cam.rig_last_orbited &&
+            cam.orbit_suspended.load(std::memory_order_relaxed) &&
+            (std::fabs(cam.rig_last_turn) > k_aim_handoff_min_angle ||
+             std::fabs(cam.rig_last_rise) > k_aim_handoff_min_angle))
+        {
+            cam.aim_handoff_active = true;
+            cam.aim_handoff_azimuth = cam.rig_last_azimuth;
+            cam.aim_handoff_elevation = cam.rig_last_elevation;
+            cam.aim_handoff_yaw = cam.rig_last_yaw;
+            cam.aim_handoff_pitch = cam.rig_last_pitch;
+            cam.aim_handoff_seconds = 0.0f;
+            cam.aim_handoff_written = false;
+            cam.aim_handoff_player = c_player;
+            // The plain rig takes over at once; the hold keeps the camera in place across the switch.
+            cam.orbit_base_held = false;
+            (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                     "Orbit: free-look turned off by a situation; the look takes the camera "
+                                     "direction, turning {:.1f} deg, pitch {:.1f} to {:.1f} deg",
+                                     DMK::math::radians_to_degrees(cam.rig_last_turn),
+                                     DMK::math::radians_to_degrees(forward_pitch),
+                                     DMK::math::radians_to_degrees(cam.rig_last_pitch));
+        }
+        const Vector3 plain_offset = camera_position - pivot;
 
         // Free-look orbit: rigidly rotate the WHOLE non-orbit rig (the camera's offset from the pivot
         // AND the converged look direction) around the pivot - yaw about world up, then pitch about the
@@ -1657,41 +1801,44 @@ namespace TPVCamera
         // clamped away from the pole and the same clamped delta rotates the look so the two agree. At
         // zero angle the rotation is identity (continuous engage); looking at the ground still circles
         // the player (the offset's elevation is preserved) and mouse up/down raises/lowers the camera.
-        if (orbiting || cam.orbit_level_blend > 0.001f)
+        const bool orbit_rig = orbiting || cam.orbit_base_held || cam.aim_handoff_active;
+        if (orbit_rig)
         {
-            const float level_blend = cam.orbit_level_blend;
-
-            // ACTUAL base: the live follow offset and converged look - encodes the player's look pitch.
-            const Vector3 actual_offset = camera_position - pivot;
-            const Vector3 actual_look = look_forward;
-
-            // LEVEL base: as if the player looked straight ahead. A steep up/down look otherwise puts the
-            // orbit near the overhead pole where the rotation gets messy, so while orbiting the rig is
-            // blended to this level reference. The height stays in the pivot, so the level camera sits at
-            // eye level straight behind the heading with the shoulder, and the look converges on the
-            // level aim line so the crosshair stays compensated.
-            Vector3 level_fwd{forward.x, forward.y, 0.0f};
-            if (level_fwd.magnitude_squared() > 1e-6f)
+            // The base the orbit turns: the live follow pose (the player's look pitch included), or the held base. The
+            // held base is the follow rig built the same way as above for orbit_base_pitch, with this frame's heading,
+            // distance, shoulder, focus and follow angle, so a zoom or a preset blend still reshapes it. The height
+            // stays in the pivot, and the look converges on the held aim line so the crosshair stays compensated.
+            Vector3 offset0 = camera_position - pivot;
+            Vector3 base_look = look_forward;
+            if (cam.orbit_base_held)
             {
-                level_fwd = level_fwd.normalized();
+                Vector3 heading{forward.x, forward.y, 0.0f};
+                if (heading.magnitude_squared() > 1e-6f)
+                {
+                    heading = heading.normalized();
+                }
+                else
+                {
+                    heading = world_up.cross(right).normalized(); // straight down/up: recover heading from right
+                }
+                const Vector3 held_fwd =
+                    heading * std::cos(cam.orbit_base_pitch) + world_up * std::sin(cam.orbit_base_pitch);
+                const Vector3 held_right = heading.cross(world_up).normalized();
+                offset0 = held_fwd * (-distance) + held_right * cfg.offset_right.load(std::memory_order_relaxed);
+                base_look = held_fwd;
+                if (have_focus)
+                {
+                    const Vector3 to_focus = (anchor_base + held_fwd * focus_distance) - (pivot + offset0);
+                    if (to_focus.magnitude() > 1e-4f)
+                    {
+                        base_look = to_focus.normalized();
+                    }
+                }
+                if (follow_turned)
+                {
+                    turn_by_follow_angle(offset0, base_look);
+                }
             }
-            else
-            {
-                level_fwd = world_up.cross(right).normalized(); // straight down/up: recover heading from right
-            }
-            const Vector3 level_right = level_fwd.cross(world_up).normalized();
-            const Vector3 level_offset =
-                level_fwd * (-distance) + level_right * cfg.offset_right.load(std::memory_order_relaxed);
-            Vector3 level_look = have_focus ? (pivot + level_fwd * focus_distance) - (pivot + level_offset)
-                                            : level_offset * -1.0f; // no focus: look at the pivot
-            level_look = (level_look.magnitude_squared() > 1e-6f) ? level_look.normalized() : level_fwd;
-
-            // Blend actual -> level by the eased level_blend (0 = follow pose, 1 = leveled). At 0 this is
-            // exactly the non-orbit pose, so engaging/leaving free-look is continuous; the blend carries
-            // the transition smoothly instead of snapping between the steep and level poses.
-            const Vector3 offset0 = actual_offset + (level_offset - actual_offset) * level_blend;
-            Vector3 base_look = actual_look + (level_look - actual_look) * level_blend;
-            base_look = (base_look.magnitude_squared() > 1e-6f) ? base_look.normalized() : actual_look;
 
             float radius = offset0.magnitude();
             if (radius < 1e-3f)
@@ -1699,9 +1846,43 @@ namespace TPVCamera
                 radius = distance; // degenerate (camera at the pivot): nothing to rotate about
             }
             const float base_elevation = std::asin(std::clamp(offset0.z / radius, -1.0f, 1.0f));
-            const float elevation =
-                std::clamp(base_elevation + DMK::math::degrees_to_radians(render_pitch_deg), -1.45f, 1.45f);
-            const float yaw_delta = DMK::math::degrees_to_radians(render_yaw_deg);
+            // The elevation stays off the overhead pole; a held base already past that limit (a steep look) is kept
+            // but cannot go further.
+            const float elevation_min = std::min(-1.45f, base_elevation);
+            const float elevation_max = std::max(1.45f, base_elevation);
+            float elevation = std::clamp(base_elevation + DMK::math::degrees_to_radians(render_pitch_deg),
+                                         elevation_min, elevation_max);
+            // The pitch range for the next input, from level: OrbitPitchMin / OrbitPitchMax less the held base's
+            // elevation, widened to include the base itself (reachable even when it starts outside the range) and
+            // kept within the elevation the rig can show.
+            if (orbit_held && !cam.aim_handoff_active)
+            {
+                const float base_deg = DMK::math::radians_to_degrees(base_elevation);
+                const float lo =
+                    std::max(std::min(cfg.orbit_pitch_min.load(std::memory_order_relaxed) - base_deg, 0.0f),
+                             DMK::math::radians_to_degrees(elevation_min) - base_deg);
+                const float hi =
+                    std::min(std::max(cfg.orbit_pitch_max.load(std::memory_order_relaxed) - base_deg, 0.0f),
+                             DMK::math::radians_to_degrees(elevation_max) - base_deg);
+                cam.orbit_pitch_lo.store(lo, std::memory_order_relaxed);
+                cam.orbit_pitch_hi.store(hi, std::memory_order_relaxed);
+            }
+            float yaw_delta = DMK::math::degrees_to_radians(render_yaw_deg);
+            if (cam.aim_handoff_active)
+            {
+                // Aim hand-off: keep the camera in the direction it had when the situation took over, whatever the look
+                // and the basis do meanwhile, and leave the matching orbit angles behind so the ease back, or free-look
+                // turned back on before the look has turned (a paused menu closed), resumes here.
+                yaw_delta = std::remainder(cam.aim_handoff_azimuth - std::atan2(offset0.y, offset0.x), DirectX::XM_2PI);
+                elevation = std::clamp(cam.aim_handoff_elevation, elevation_min, elevation_max);
+                const float held_yaw_deg = DMK::math::radians_to_degrees(yaw_delta);
+                const float held_pitch_deg = DMK::math::radians_to_degrees(elevation - base_elevation);
+                cam.orbit_yaw.store(held_yaw_deg, std::memory_order_relaxed);
+                cam.orbit_pitch.store(held_pitch_deg, std::memory_order_relaxed);
+                cam.orbit_yaw_render = held_yaw_deg;
+                cam.orbit_pitch_render = held_pitch_deg;
+                cam.orbit_render_valid = true;
+            }
             const float pitch_delta = elevation - base_elevation;
 
             // Yaw about world up (Z): applied to both the offset and the look so they swing together.
@@ -1738,6 +1919,105 @@ namespace TPVCamera
             rebuild_basis = true;
         }
 
+        // While the orbit rig shapes the camera, its direction from the pivot and the look that puts this frame's
+        // plain rig there, for the next frame's aim hand-off. Measured within one frame, so a preset blend or the
+        // basis moving between frames is not taken for orbit. The plain rig turns rigidly with the look heading, and
+        // its azimuth off that heading is atan2(-distance * cos(pitch), shoulder), so the heading turns by the
+        // camera's azimuth off the plain rig, corrected for the pitch change. Its elevation follows the look pitch by
+        // sin(elevation) = -distance * sin(pitch) / |offset| (a look that points down puts the camera above), so the
+        // pitch moves by the difference of that inverse.
+        cam.rig_last_orbited = false;
+        if (orbit_rig)
+        {
+            const Vector3 rig_offset = camera_position - pivot;
+            const float rig_reach = rig_offset.magnitude();
+            const float plain_reach = plain_offset.magnitude();
+            if (rig_reach > 1e-3f && plain_reach > 1e-3f && distance > 1e-3f)
+            {
+                const float plain_elevation = std::asin(std::clamp(plain_offset.z / plain_reach, -1.0f, 1.0f));
+                cam.rig_last_azimuth = std::atan2(rig_offset.y, rig_offset.x);
+                cam.rig_last_elevation = std::asin(std::clamp(rig_offset.z / rig_reach, -1.0f, 1.0f));
+                cam.rig_last_turn =
+                    std::remainder(cam.rig_last_azimuth - std::atan2(plain_offset.y, plain_offset.x), DirectX::XM_2PI);
+                cam.rig_last_rise = cam.rig_last_elevation - plain_elevation;
+                const float reach = plain_reach / distance;
+                auto pitch_for = [reach](float elevation)
+                { return std::asin(std::clamp(-reach * std::sin(elevation), -1.0f, 1.0f)); };
+                const float shoulder = cfg.offset_right.load(std::memory_order_relaxed);
+                auto side_at = [distance, shoulder](float look_pitch)
+                { return std::atan2(-distance * std::cos(look_pitch), shoulder); };
+                cam.rig_last_pitch =
+                    std::clamp(forward_pitch + pitch_for(cam.rig_last_elevation) - pitch_for(plain_elevation),
+                               -k_aim_handoff_max_pitch, k_aim_handoff_max_pitch);
+                cam.rig_last_yaw = std::remainder(forward_yaw + cam.rig_last_turn + side_at(forward_pitch) -
+                                                      side_at(cam.rig_last_pitch),
+                                                  DirectX::XM_2PI);
+                cam.rig_last_orbited = true;
+            }
+        }
+
+        // Aim hand-off follow-up. While aiming the game re-derives the look heading from the body every frame (the body
+        // follows the look), so the look alone cannot be turned: the body is turned with it, as camera-relative
+        // movement does, and both are written every frame until the look shows the new heading. They are written at
+        // least once, so a hand-off that only raises or lowers the camera still sets the pitch, which sticks, and it
+        // can end only on a later frame than its first write: on the same frame's second build the eye pose does not
+        // show the write yet. Until then the next frame's basis snaps to the look, so the rig lands on the new
+        // direction at once instead of easing across the turn under AimBasisSmoothing.
+        if (cam.aim_handoff_active)
+        {
+            const bool lost = cam.aim_handoff_cancel || c_player == 0 || c_player != cam.aim_handoff_player;
+            const bool jumped = body_valid && cam.turn_track_step > k_aim_handoff_jump;
+            const Vector3 look_now = (look_valid ? look_rotation : eye_rotation).rotate(Vector3{0.0f, 1.0f, 0.0f});
+            const float yaw_gap =
+                std::remainder(std::atan2(-look_now.x, look_now.y) - cam.aim_handoff_yaw, DirectX::XM_2PI);
+            if (lost)
+            {
+                cam.aim_handoff_active = false;
+                cam.aim_handoff_cancel = false;
+                (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                         "Orbit: the hand-off ended without turning the look (the game sets the "
+                                         "facing here, or the player changed)");
+            }
+            else if (cam.aim_handoff_written && !step.repeat_build && std::fabs(yaw_gap) < k_aim_handoff_min_angle)
+            {
+                cam.aim_handoff_active = false;
+                (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                         "Orbit: the look took the camera direction after {:.2f} s",
+                                         cam.aim_handoff_seconds);
+            }
+            else if (jumped)
+            {
+                cam.aim_handoff_active = false;
+                (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                         "Orbit: the hand-off ended without turning the look (the player was moved)");
+            }
+            else if (cam.aim_handoff_seconds >= k_aim_handoff_timeout)
+            {
+                cam.aim_handoff_active = false;
+                (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                         "Orbit: the look did not take the camera direction ({:.1f} deg left after "
+                                         "{:.2f} s); the camera eases back",
+                                         DMK::math::radians_to_degrees(yaw_gap), cam.aim_handoff_seconds);
+            }
+            else if (!apply_orbit_aim_control(1.0f, cam.aim_handoff_pitch, true, cam.aim_handoff_yaw))
+            {
+                cam.aim_handoff_active = false;
+                (void)DMK::log().try_log(DMK::LogLevel::Debug, "Orbit: the look write failed; the camera eases back");
+            }
+            else
+            {
+                apply_orbit_body_turn(cam.aim_handoff_yaw);
+                cam.aim_handoff_written = true;
+                cam.basis_quat_valid = false;
+                // The pause menu stops the player update, so the look shows the new heading only once play resumes;
+                // the wait does not count paused time.
+                if (!step.paused)
+                {
+                    cam.aim_handoff_seconds += delta_time;
+                }
+            }
+        }
+
         // Camera-relative movement (toggle orbit): on the idle -> moving edge CAPTURE the camera heading, then
         // HOLD it while moving. The body turn (apply_orbit_body_turn) pins the body to that heading, which is
         // what makes locomotion camera-relative in EVERY direction (KCD2 moves relative to the body rotation):
@@ -1759,17 +2039,35 @@ namespace TPVCamera
             bool moving = cam.orbit_moving;
             const float move_magnitude = player_onaction_move_magnitude();
             // Re-arm guard: a genuine release (magnitude below the stop threshold) must be observed since orbit
-            // engaged before a move-start is honoured. A stranded latch - a held-move release swallowed on a
-            // combat action-map swap (see player_onaction_reset) - reads > 0 with the keys up; without this guard
-            // it would re-trip orbit_moving the instant orbit restores and drive the body-turn with no input (the
-            // post-combat self-rotation). Arming only on a sub-stop reading means a fresh, observed press engages it.
+            // engaged before a move-start is honored. A stranded latch (a held-move release swallowed on a
+            // combat action-map swap, see player_onaction_reset) reads > 0 with the keys up; without this guard
+            // it re-trips orbit_moving the instant orbit restores and drives the body-turn with no input (the
+            // post-combat self-rotation). Arming on a sub-stop reading means a fresh, observed press engages it.
+            // A key held while orbit restores (running on right after leaving crouch) is no stranded latch: the
+            // game's own move input shows it too, so that also arms the move. A stranded latch has the keys up and
+            // the game's input at 0, so the guard still holds it. A move armed that way also ends when the game's
+            // input goes idle, as another key's slot can still be stranded and hold the latch up.
             static bool s_stale_suppress_logged = false;
+            const std::optional<float> game_move = player_move_input(c_player);
             if (move_magnitude < k_orbit_move_input_stop)
             {
                 cam.orbit_move_armed = true;
+                cam.orbit_move_armed_by_game = false;
                 s_stale_suppress_logged = false;
             }
-            if (!moving && move_magnitude > k_orbit_move_input_start)
+            else if (!cam.orbit_move_armed && game_move && *game_move > MOVE_INPUT_START)
+            {
+                cam.orbit_move_armed = true;
+                cam.orbit_move_armed_by_game = true;
+                cam.orbit_move_game_idle = 0.0f;
+                s_stale_suppress_logged = false;
+                (void)DMK::log().try_log(DMK::LogLevel::Trace,
+                                         "Orbit: move held as orbit engaged (magnitude {:.2f}, the game's own move "
+                                         "input agrees); armed",
+                                         move_magnitude);
+            }
+            // A hand-off still turning the look and the body (free-look back on before it ends) is not interrupted.
+            if (!moving && !cam.aim_handoff_active && move_magnitude > MOVE_INPUT_START)
             {
                 if (cam.orbit_move_armed)
                 {
@@ -1815,12 +2113,32 @@ namespace TPVCamera
                                          "Orbit: move-orbit STOP (body-turn releasing) - move_magnitude={:.2f}",
                                          move_magnitude);
             }
+            else if (moving && cam.orbit_move_armed_by_game)
+            {
+                // Armed by the game's own input: it ends once that input has stayed idle, even while another latch
+                // slot is stranded. Disarmed rather than reset, so a stranded slot stays held off by the guard and a
+                // key still held re-arms through the game's input on the next frame.
+                cam.orbit_move_game_idle =
+                    (game_move && *game_move < k_orbit_move_input_stop) ? cam.orbit_move_game_idle + delta_time : 0.0f;
+                if (cam.orbit_move_game_idle >= k_orbit_move_game_stop_delay)
+                {
+                    moving = false;
+                    cam.orbit_move_armed = false;
+                    cam.orbit_move_armed_by_game = false;
+                    cam.orbit_yaw.store(orbit_yaw_deg, std::memory_order_relaxed);
+                    (void)DMK::log().try_log(DMK::LogLevel::Trace,
+                                             "Orbit: move-orbit STOP (the game's own move input is idle; magnitude "
+                                             "{:.2f} is a stranded latch)",
+                                             move_magnitude);
+                }
+            }
             cam.orbit_moving = moving;
         }
         else
         {
             cam.orbit_moving = false;
-            cam.orbit_move_armed = false; // require a fresh observed release after re-engaging orbit
+            cam.orbit_move_armed = false; // re-armed by a release, or by a held move the game's input shows
+            cam.orbit_move_armed_by_game = false;
         }
 
         // Capture the heading on move-start. Use the camera's POSITIONAL world yaw - the eye-look yaw plus
@@ -1833,17 +2151,35 @@ namespace TPVCamera
         // camera rather than toed-in toward the crosshair).
         if (do_align)
         {
-            const float eye_forward_yaw = std::atan2(-forward.x, forward.y);
-            cam.orbit_target_yaw = eye_forward_yaw + DMK::math::degrees_to_radians(orbit_yaw_deg);
+            cam.orbit_target_yaw = forward_yaw + DMK::math::degrees_to_radians(cam.orbit_yaw_render);
             cam.orbit_target_valid = true;
             // Snapshot the orbit input so further orbiting while moving is measured from here. We do NOT
             // reset the orbit to 0: the world-stable derivation above holds the camera in place while the
             // body turns to this heading, so there is no snap-behind pop.
             cam.orbit_yaw_at_capture_deg = cam.orbit_yaw.load(std::memory_order_relaxed);
+            // The look is turned to this heading below, so the next frame's basis snaps to it instead of easing
+            // across the turn (see orbit_move_pressed).
+            cam.basis_quat_valid = false;
         }
         if (!cam.orbit_moving)
         {
             cam.orbit_target_valid = false;
+        }
+        // The heading a move press captures, for orbit_move_pressed: the camera's yaw on screen (with the
+        // orbit as rendered, so a smoothed angle still catching up does not snap), published only while a press
+        // starts a camera-relative move with the body turn, and stamped so a stale one is never used.
+        if (orbit_held && body_valid && player_onaction_available() && !cam.orbit_moving && cam.orbit_move_armed &&
+            !cam.aim_handoff_active && cfg.orbit_body_turn.load(std::memory_order_relaxed))
+        {
+            s_move_press_heading.store(forward_yaw + DMK::math::degrees_to_radians(cam.orbit_yaw_render),
+                                       std::memory_order_relaxed);
+            s_move_press_thread.store(GetCurrentThreadId(), std::memory_order_relaxed);
+            s_move_press_body_yaw.store(body_yaw, std::memory_order_relaxed);
+            s_move_press_stamp_ms.store(GetTickCount64(), std::memory_order_release);
+        }
+        else
+        {
+            s_move_press_stamp_ms.store(0, std::memory_order_release);
         }
 
         const float pitch_ease = (orbit_held && cfg.orbit_level_aim.load(std::memory_order_relaxed))
@@ -1874,9 +2210,10 @@ namespace TPVCamera
                     : (cam.orbit_yaw.load(std::memory_order_relaxed) - cam.orbit_yaw_at_capture_deg);
             body_target_yaw = cam.orbit_target_yaw + DMK::math::degrees_to_radians(user_orbit_since_deg);
         }
-        if (orbit_held && (pitch_ease > 0.0f || hold_yaw))
+        // The hand-off writes the look itself while it runs.
+        if (orbit_held && !cam.aim_handoff_active && (pitch_ease > 0.0f || hold_yaw))
         {
-            apply_orbit_aim_control(pitch_ease, hold_yaw, body_target_yaw);
+            (void)apply_orbit_aim_control(pitch_ease, 0.0f, hold_yaw, body_target_yaw);
         }
         // Pin the BODY to the camera heading while moving so the character runs camera-relative in EVERY
         // direction. KCD2 moves the player relative to the ENTITY (body) rotation, NOT the look, so this body
@@ -2542,27 +2879,35 @@ namespace TPVCamera
      *          state begins and re-enabled when it ends, so a state that interrupts free-look (a
      *          dialogue, a minigame) does not permanently cancel it. It only re-enables if the policy
      *          was the one that turned it off (free-look was on at entry). Render-thread only.
+     *
+     *          orbit_active is also written by the input thread (the toggle and OrbitHoldKey). The policy turns it off
+     *          and on only by compare-exchange, and an OrbitHoldKey release posts orbit_hold_released before it clears
+     *          orbit_active. The exit branch restores free-look, then consumes the flag and turns free-look back off
+     *          when a release was posted, so every interleaving with a release ends with free-look off. These steps
+     *          stay sequentially consistent because the protocol spans two variables.
      * @param cam Camera state whose orbit_active flag is suspended and restored.
-     * @param state Current debounced GameState mask.
+     * @param state Current GameState mask: debounced, except Menu and Overlay, which come from the live UI signals.
      * @param orbit_exclude_mask States in which free-look is disabled.
+     * @return True on the frame it turns free-look off.
      */
-    static void apply_orbit_exclude_policy(CameraState &cam, uint32_t state, uint32_t orbit_exclude_mask)
+    [[nodiscard]] static bool apply_orbit_exclude_policy(CameraState &cam, uint32_t state, uint32_t orbit_exclude_mask)
     {
         const bool excluded = (state & orbit_exclude_mask) != 0;
         static bool s_prev_excluded = false;
-        static bool s_suspended_orbit = false; // the policy turned free-look off and will restore it
 
         if (excluded == s_prev_excluded)
         {
             // Still in the same state. If the policy suspended free-look on entry but the player has since
             // turned it back on by hand, release the suspension so the exit branch does not later re-assert
             // it against a manual choice (symmetric to apply_forced_view_policy's ownership release).
-            if (excluded && s_suspended_orbit && cam.orbit_active.load(std::memory_order_relaxed))
+            if (excluded && cam.orbit_suspended.load(std::memory_order_relaxed) &&
+                cam.orbit_active.load(std::memory_order_relaxed))
             {
-                s_suspended_orbit = false;
+                cam.orbit_suspended.store(false, std::memory_order_relaxed);
             }
-            return;
+            return false;
         }
+        bool suspended_now = false;
         if (excluded)
         {
             // Entering an excluded state (combat, dialogue, minigame) swaps the action map, which can swallow a
@@ -2574,23 +2919,26 @@ namespace TPVCamera
                                      "Orbit: exclude-state entered; cleared move-latch (had magnitude {:.2f}{})",
                                      stranded, stranded > k_orbit_move_input_stop ? ", WAS STRANDED" : "");
             // If free-look was on, turn it off and remember to restore it.
-            s_suspended_orbit = cam.orbit_active.load(std::memory_order_relaxed);
-            if (s_suspended_orbit)
+            bool on = true;
+            const bool suspend = cam.orbit_active.compare_exchange_strong(on, false);
+            cam.orbit_suspended.store(suspend, std::memory_order_relaxed);
+            suspended_now = suspend;
+        }
+        else if (cam.orbit_suspended.load(std::memory_order_relaxed))
+        {
+            // Leaving the excluded state: re-enable free-look. Like a toggle-on, it takes over from the pose on
+            // screen with the orbit angles it has, so the camera does not move. An OrbitHoldKey let go of meanwhile
+            // keeps it off.
+            cam.orbit_suspended.store(false, std::memory_order_relaxed);
+            bool off = false;
+            const bool restored = cam.orbit_active.compare_exchange_strong(off, true);
+            if (cam.orbit_hold_released.exchange(false) && restored)
             {
-                cam.orbit_active.store(false, std::memory_order_relaxed);
+                cam.orbit_active.store(false);
             }
         }
-        else if (s_suspended_orbit)
-        {
-            // Leaving the excluded state: re-enable free-look and re-seed its angles to the configured
-            // centre, matching a fresh toggle-on (the camera moved during the excluded state, so
-            // resuming the old orbit angle would be meaningless).
-            cam.orbit_yaw.store(0.0f, std::memory_order_relaxed);
-            cam.orbit_pitch.store(0.0f, std::memory_order_relaxed);
-            cam.orbit_active.store(true, std::memory_order_relaxed);
-            s_suspended_orbit = false;
-        }
         s_prev_excluded = excluded;
+        return suspended_now;
     }
 
     /**
@@ -2825,6 +3173,22 @@ namespace TPVCamera
     }
 
     /**
+     * @brief Runs the archery step once per engine frame (the first of the frame's two builds).
+     * @param cview The game view, whose pose holds the first-person eye the crosshair target ray starts beside.
+     * @param c_player The live C_Player, or 0.
+     * @param repeat_build True on the frame's second build, which skips the step.
+     */
+    static void run_archery_frame(uintptr_t cview, uintptr_t c_player, bool repeat_build)
+    {
+        if (repeat_build)
+        {
+            return;
+        }
+        const auto eye = DMK::memory::read<Vector3>(DMK::Address{cview + Constants::SVIEWPARAMS_POSITION_OFFSET});
+        archery_frame(c_player, eye ? *eye : Vector3{}, eye.has_value());
+    }
+
+    /**
      * @brief Gate + matrix-offset body for the frustum-builder detour. Separated from the SEH wrapper
      *        so that frame can hold C++ objects that need unwinding.
      * @details Cheapest exits first: the runtime toggle, then the CView vtable identity (a single
@@ -2853,34 +3217,10 @@ namespace TPVCamera
         const uint32_t forced_fpv = state_policy ? cfg.forced_fpv_mask.load(std::memory_order_relaxed) : 0u;
         const uint32_t forced_tpv = state_policy ? cfg.forced_tpv_mask.load(std::memory_order_relaxed) : 0u;
 
-        // Fast path: nothing can drive the offset, so there is nothing to do. When any forced state is
-        // configured the policy must run every game-view frame to catch the state-change EDGES that
-        // trigger a one-time forced switch, so only skip when the player is in manual first person with
-        // no forced states configured and the head has already been restored (the head-restore branch
-        // keeps running for one frame after a toggle-off, while s_head_was_active is still set).
-        // The native turn animation must also be off (it lets the body follow the look again on the frame the view
-        // disengages).
-        if (!cam.applying.load(std::memory_order_relaxed) && (forced_fpv | forced_tpv) == 0 &&
-            !s_head_was_active.load(std::memory_order_relaxed) && cam.view_blend <= 1e-3f &&
-            s_native_turn_actor.load(std::memory_order_relaxed) == 0)
-        {
-            // Even while idle (first person, no forced state), probe for the player until the world is
-            // first seen so game_world_ready becomes true in-world REGARDLESS of the third-person view
-            // being on - the overlay waits on it. resolve_c_player sets the flag on success and returns
-            // 0 at the menu, so this costs a few guarded reads per frame only until load-in, then never.
-            if (!game_world_ready().load(std::memory_order_relaxed))
-            {
-                resolve_c_player();
-            }
-            // Offset disengaged: the orbit cannot be capturing, and the cursor flag is only refreshed on
-            // the game-view path below, so clear it here to keep it from latching true across the gap.
-            s_cursor_shown.store(false, std::memory_order_relaxed);
-            return;
-        }
-
         // The camera is embedded in its CView at SVIEWPARAMS_VIEWMATRIX_OFFSET, so the CView is that
         // far below the camera. Confirm it by checking the CView vtable: shadow/reflection/portal
-        // cameras handed to the same builder are not embedded in a CView and fail this guard.
+        // cameras handed to the same builder are not embedded in a CView and fail this guard. Checked before the
+        // fast path, so the about fifty other frustum builds of a frame pay only for this compare.
         if (!DMK::memory::is_plausible_ptr(DMK::Address{camera}))
         {
             return;
@@ -2910,16 +3250,54 @@ namespace TPVCamera
             return;
         }
 
+        // Fast path: nothing can drive the offset, so there is nothing to do. When any forced state is
+        // configured the policy must run every game-view frame to catch the state-change EDGES that
+        // trigger a one-time forced switch, so only skip when the player is in manual first person with
+        // no forced states configured and the head has already been restored (the head-restore branch
+        // keeps running for one frame after a toggle-off, while s_head_was_active is still set).
+        // The native turn animation must also be off (it lets the body follow the look again on the frame the view
+        // disengages).
+        // A pending arrow keeps the full path too, so a first-person shot is still followed and drawn, and so does a
+        // distraction stone in hand while the aim preview is on, so its landing is still shown.
+        if (!cam.applying.load(std::memory_order_relaxed) && (forced_fpv | forced_tpv) == 0 &&
+            !s_head_was_active.load(std::memory_order_relaxed) && cam.view_blend <= 1e-3f &&
+            s_native_turn_actor.load(std::memory_order_relaxed) == 0 &&
+            !archery_wants_frame(cfg.archery_show_aim_preview.load(std::memory_order_relaxed) ? resolve_c_player() : 0))
+        {
+            // Even while idle (first person, no forced state), probe for the player until the world is
+            // first seen so game_world_ready becomes true in-world REGARDLESS of the third-person view
+            // being on - the overlay waits on it. resolve_c_player sets the flag on success and returns
+            // 0 at the menu, so this costs a few guarded reads per frame only until load-in, then never.
+            if (!game_world_ready().load(std::memory_order_relaxed))
+            {
+                resolve_c_player();
+            }
+            // Offset disengaged: the orbit cannot be capturing, and the cursor flag is only refreshed on
+            // the game-view path below, so clear it here to keep it from latching true across the gap.
+            s_cursor_shown.store(false, std::memory_order_relaxed);
+            return;
+        }
+
         // Game-view camera: take the single per-frame delta and resolve the player once here, then
         // reuse both in the matrix offset below so neither is computed twice per frame. The game state
         // is derived from the discrete engine signals and published for the input-dispatch thread.
-        const float delta_time = frame_delta();
+        const FrameStep step = frame_delta();
+        const float delta_time = step.seconds;
+        const bool repeat_build = step.repeat_build;
         const uintptr_t c_player = resolve_c_player();
         // Presets are always active, so the debounced game state is always needed here (to select the
         // active preset and, when state behaviour is on, to drive the forced-view / orbit-exclude policies).
         const uint32_t raw_state = poll_game_state(c_player);
         const uint32_t state =
             debounce_game_state(raw_state, delta_time, cfg.state_switch_hold_seconds.load(std::memory_order_relaxed));
+        // The frame the orbit-exclude policy turns free-look off raises the aim hand-off (see offset_game_view_camera),
+        // unless the game sets the character's facing in that situation. The policy reads the menu and the overlays
+        // live, as should_apply_view does, so free-look comes back on the frame third person does. The raw state
+        // counts for the facing too, since such a situation can still be inside its hold delay while the policy
+        // already reacts to a screen. A same-frame rebuild reads the same state, so it is raised once.
+        const uint32_t policy_state = (state & ~k_live_ui_states) | (raw_state & k_live_ui_states);
+        const bool facing_held = ((state | raw_state) & k_game_held_facing_states) != 0u;
+        cam.aim_handoff_requested = false;
         if (state_policy)
         {
             // Both policies are edge-triggered (they act on state-change edges, not every frame) so the
@@ -2927,7 +3305,19 @@ namespace TPVCamera
             // on entry and restores it on exit; the orbit-exclude policy suspends free-look on entry and
             // restores it on exit.
             apply_forced_view_policy(cam, state, forced_fpv, forced_tpv);
-            apply_orbit_exclude_policy(cam, state, cfg.orbit_exclude_mask.load(std::memory_order_relaxed));
+            cam.aim_handoff_requested =
+                apply_orbit_exclude_policy(cam, policy_state, cfg.orbit_exclude_mask.load(std::memory_order_relaxed)) &&
+                !facing_held;
+        }
+        else
+        {
+            // No policy restores free-look while state behavior is off, so nothing stays suspended.
+            cam.orbit_suspended.store(false, std::memory_order_relaxed);
+        }
+        // One that shows up while a hand-off runs ends it after this frame's rig, and the camera eases back.
+        if (facing_held && cam.aim_handoff_active)
+        {
+            cam.aim_handoff_cancel = true;
         }
         game_state_mask().store(state, std::memory_order_relaxed);
 
@@ -2963,6 +3353,12 @@ namespace TPVCamera
         // Ease the first-person <-> third-person blend toward the desired view so toggling (and UI
         // suppression) slides instead of snapping. ViewTransitionDuration 0 makes the switch instant.
         const bool want_tpv = cam.applying.load(std::memory_order_relaxed) && should_apply_view();
+        // A situation that also leaves third person (an overlay under SuppressTPVState) does not hand the look off:
+        // the camera eases to the eye, whatever ViewTransitionDuration is.
+        if (!want_tpv)
+        {
+            cam.aim_handoff_requested = false;
+        }
         const float view_dur = cfg.view_transition_duration.load(std::memory_order_relaxed);
         const float view_target = want_tpv ? 1.0f : 0.0f;
         if (view_dur > 1e-4f)
@@ -3000,6 +3396,7 @@ namespace TPVCamera
                 // movement-input latch the game may have stranded on an action-map swap. Edge-gated so a key
                 // held in first person does not spam the reset/log every frame.
                 cam.orbit_move_armed = false;
+                cam.orbit_move_armed_by_game = false;
                 const float stranded = player_onaction_reset();
                 if (stranded > k_orbit_move_input_stop)
                 {
@@ -3018,7 +3415,12 @@ namespace TPVCamera
             interaction_aim_pose().invalidate();
             // Nor does the AI's camera observer need the eye substituted.
             s_ai_eye_valid.store(false, std::memory_order_release);
-            cam.orbit_level_blend = 0.0f;
+            // The held base outlives a first-person gap while a situation holds free-look off, so free-look comes
+            // back on the base it had.
+            if (!cam.orbit_suspended.load(std::memory_order_relaxed))
+            {
+                cam.orbit_base_held = false;
+            }
             cam.orbit_render_valid =
                 false; // next engaged frame snaps the orbit low-pass instead of easing across the gap
             cam.orbit_steer_valid = false; // and the continuous-align steer low-pass
@@ -3026,10 +3428,33 @@ namespace TPVCamera
             cam.fov_ease_valid = false;    // and the per-preset FOV override ease
             cam.basis_quat_valid = false;  // and the aim-basis low-pass
             cam.turn_track_valid = false;  // and the turn-in-place pivot hold
+            // A press in first person does not start a free-look move.
+            s_move_press_stamp_ms.store(0, std::memory_order_release);
+            s_move_press_animchar.store(0, std::memory_order_relaxed);
+            s_move_press_turned_ms.store(0, std::memory_order_relaxed);
+            // A move under way keeps the angle the camera last showed, as stopping does.
+            if (cam.orbit_moving && cam.orbit_target_valid)
+            {
+                cam.orbit_yaw.store(cam.orbit_yaw_render, std::memory_order_relaxed);
+            }
             cam.orbit_moving = false;
             cam.orbit_target_valid = false;
+            // A hand-off that turned the look left angles measured against the old look; the look takes the camera
+            // direction once play resumes, so they are centered.
+            if (cam.aim_handoff_active && cam.aim_handoff_written)
+            {
+                cam.orbit_yaw.store(0.0f, std::memory_order_relaxed);
+                cam.orbit_pitch.store(0.0f, std::memory_order_relaxed);
+                cam.orbit_yaw_render = 0.0f;
+                cam.orbit_pitch_render = 0.0f;
+            }
+            cam.aim_handoff_active = false; // and the aim hand-off, which has no camera to hold
+            cam.aim_handoff_cancel = false;
+            cam.rig_last_orbited = false;
             // Back to first person: the next engaged frame should snap the preset, not ease across the gap.
             Presets::reset_transition();
+            // Arrows loosed in first person are still followed and drawn (the pose is invalid, so none is re-aimed).
+            run_archery_frame(cview, c_player, repeat_build);
             return;
         }
         s_orbit_was_engaged = true;
@@ -3052,7 +3477,9 @@ namespace TPVCamera
         // Smoothstep the linear view blend for an ease-in/out feel, then offset with it.
         const float vb = cam.view_blend;
         const float view_s = vb * vb * (3.0f - 2.0f * vb);
-        offset_game_view_camera(camera, cview, c_player, delta_time, view_s);
+        offset_game_view_camera(camera, cview, c_player, step, view_s);
+        // After the offset, so the crosshair target is cast from the pose this frame renders.
+        run_archery_frame(cview, c_player, repeat_build);
     }
 
     /**
@@ -3191,10 +3618,14 @@ namespace TPVCamera
                 {
                     // Mouse-up raises the camera, mouse-down lowers it; a negative Y sensitivity inverts that.
                     const float sensitivity_y = settings().orbit_sensitivity_y.load(std::memory_order_relaxed);
-                    const float pitch = cam.orbit_pitch.load(std::memory_order_relaxed) + value * sensitivity_y;
-                    cam.orbit_pitch.store(std::clamp(pitch, settings().orbit_pitch_min.load(std::memory_order_relaxed),
-                                                     settings().orbit_pitch_max.load(std::memory_order_relaxed)),
-                                          std::memory_order_relaxed);
+                    // Within the range the render thread published (see CameraState::orbit_pitch_lo); a value
+                    // already outside it is kept but cannot grow.
+                    const float old_pitch = cam.orbit_pitch.load(std::memory_order_relaxed);
+                    cam.orbit_pitch.store(
+                        std::clamp(old_pitch + value * sensitivity_y,
+                                   std::min(cam.orbit_pitch_lo.load(std::memory_order_relaxed), old_pitch),
+                                   std::max(cam.orbit_pitch_hi.load(std::memory_order_relaxed), old_pitch)),
+                        std::memory_order_relaxed);
                 }
                 return true; // block ONLY the look so the player look stays put while free-looking
             }
@@ -3545,16 +3976,15 @@ namespace TPVCamera
      *          resting about 35 degrees short of the look. The layout fixes the registers the hook reads (rbx, xmm13,
      *          rdi, r12), the instruction it sits on, and the action's spin-latch field offsets, which are written
      *          before the hook arms.
-     * @return True when the hook is armed.
      */
-    static bool install_turn_decision_hook(uintptr_t trigger_return, HookSet &hooks)
+    static void install_turn_decision_hook(uintptr_t trigger_return, HookSet &hooks)
     {
         DMK::Logger &logger = DMK::log();
         const std::optional<TurnDecisionLayout> layout = resolve_turn_decision_layout(trigger_return);
         if (!layout.has_value())
         {
             logger.warning("Camera: turn decision hook skipped; turns rest about 35 degrees short of the look");
-            return false;
+            return;
         }
         const uintptr_t site = layout->site;
         s_spin_latch_offset = layout->spin_latch_offset;
@@ -3566,7 +3996,7 @@ namespace TPVCamera
         {
             logger.warning("Camera: turn decision hook failed ({}); turns rest about 35 degrees short of the look",
                            result.error().message());
-            return false;
+            return;
         }
         const auto armed = hooks.push(std::move(*result)).enable();
         if (!armed.has_value())
@@ -3574,26 +4004,74 @@ namespace TPVCamera
             logger.warning("Camera: turn decision hook could not be armed ({}); turns rest about 35 degrees short "
                            "of the look",
                            armed.error().message());
-            return false;
+            return;
         }
         logger.info("Camera: turn decision hooked at {} (turns finish facing the look)",
                     DMK::format::format_address(site));
+    }
+
+    // The movement request is a QuatT: the rotation (x, y, z, w), then the world translation (x, y, z).
+    constexpr std::size_t k_movement_translation_x = 4;
+    constexpr std::size_t k_movement_translation_y = 5;
+
+    /**
+     * @brief Drops the horizontal translation of a movement request, unless the request is an impulse.
+     * @return True when the translation was dropped.
+     */
+    static bool drop_horizontal_step(uintptr_t animchar, float *movement) noexcept
+    {
+        const auto type = DMK::memory::read<int32_t>(DMK::Address{animchar + s_movement_type_offset});
+        if (!type.has_value() || *type == Constants::ANIMATED_CHARACTER_MOVEMENT_IMPULSE)
+        {
+            return false;
+        }
+        movement[k_movement_translation_x] = 0.0f;
+        movement[k_movement_translation_y] = 0.0f;
         return true;
     }
 
     /**
-     * @brief Movement detour: keeps a native turn step on the spot, so the body pivots without moving.
+     * @brief Movement detour: keeps a native turn step on the spot, and drops the stale first step of a free-look move
+     *        started at a key press.
      * @details Drops the horizontal translation of the player's movement on a frame his movement action ran its
      *          idle/turn decision, from the first turn frame through the step tail after the last one (see
      *          s_turn_decision_seen). A frame without a decision ends the tail and marks a break for the decision hook.
      *          The rotation and the vertical part are left to the game, and so is an impulse.
-     *          Every other character, and the player on any frame the action did not decide (walking, interactions,
+     *
+     *          A free-look press that turned the body (orbit_move_pressed) arms one more drop. The game builds the
+     *          frame's travel from the entity rotation in the player's pre-physics update and applies the body
+     *          override only at the end of the animated-character update, so the first request after the press still
+     *          points along the old facing (toward the camera when the character faced it). That one request loses its
+     *          horizontal part; the next one follows the new facing.
+     *
+     *          Every other character, and the player on any frame neither case applies (walking, interactions,
      *          scripted animations), goes through untouched. Hot (every animated character each frame), so it only
      *          compares before calling the original.
      */
     static char __fastcall detour_phys_ent_movement(uintptr_t animchar, float *movement) noexcept
     {
         const DetourScope in_flight;
+        // A compare first, so the many other characters cost no locked instruction; the exchange then takes the press
+        // once even when the dispatcher arms a new one meanwhile.
+        if (std::uintptr_t pressed = animchar;
+            animchar != 0 && s_move_press_animchar.load(std::memory_order_relaxed) == animchar &&
+            s_move_press_animchar.compare_exchange_strong(pressed, 0, std::memory_order_acquire,
+                                                          std::memory_order_relaxed))
+        {
+            const std::uint64_t turned = s_move_press_turned_ms.exchange(0, std::memory_order_relaxed);
+            if (turned != 0 && movement != nullptr && GetTickCount64() - turned <= k_move_press_max_age_ms)
+            {
+                const float step_x = movement[k_movement_translation_x];
+                const float step_y = movement[k_movement_translation_y];
+                if (drop_horizontal_step(animchar, movement))
+                {
+                    (void)DMK::log().try_log(DMK::LogLevel::Trace,
+                                             "Orbit: dropped the first step after the press ({:.3f}, {:.3f}), built "
+                                             "along the old facing",
+                                             step_x, step_y);
+                }
+            }
+        }
         if (animchar != 0 && animchar == s_player_animchar.load(std::memory_order_relaxed))
         {
             if (!s_turn_decision_seen.exchange(false, std::memory_order_relaxed))
@@ -3607,12 +4085,7 @@ namespace TPVCamera
                      (s_turn_tail_frames.load(std::memory_order_relaxed) > 0 ||
                       GetTickCount64() - s_turn_decided_tick.load(std::memory_order_relaxed) < k_turn_step_tail_ms))
             {
-                const auto type = DMK::memory::read<int32_t>(DMK::Address{animchar + s_movement_type_offset});
-                if (type.has_value() && *type != Constants::ANIMATED_CHARACTER_MOVEMENT_IMPULSE)
-                {
-                    movement[4] = 0.0f; // translation x
-                    movement[5] = 0.0f; // translation y
-                }
+                (void)drop_horizontal_step(animchar, movement);
             }
         }
         const UpdatePhysEntMovementFunc original = s_phys_ent_movement_original.load(std::memory_order_acquire);
@@ -3620,12 +4093,19 @@ namespace TPVCamera
     }
 
     /**
-     * @brief Hooks CAnimatedCharacter::UpdatePhysicalEntityMovement to keep turn steps in place. Best-effort: without
-     *        it a turn step moves the body 5-20 cm, which the still camera leaves slightly off centre.
+     * @brief Hooks CAnimatedCharacter::UpdatePhysicalEntityMovement to keep turn steps in place and drop the stale
+     *        first step of a free-look move started at a press. Best-effort: without it a turn step moves the body
+     *        5-20 cm, which the still camera leaves slightly off center, and a free-look move that turns the body
+     *        starts with a short step along the old facing.
+     * @details Installed on its own: the turn-step part acts only on frames the decision hook flags, so without that
+     *          hook it never drops a step, while the press drop needs only this hook.
      */
     static void install_turn_in_place_hook(HookSet &hooks)
     {
         DMK::Logger &logger = DMK::log();
+        s_move_press_stamp_ms.store(0, std::memory_order_relaxed);
+        s_move_press_animchar.store(0, std::memory_order_relaxed);
+        s_move_press_turned_ms.store(0, std::memory_order_relaxed);
         const uintptr_t target = gated_anchor_address(Feature::TurnSteps, AnchorId::PhysEntMovement);
         if (target == 0)
         {
@@ -3903,13 +4383,55 @@ namespace TPVCamera
                     DMK::format::format_address(trigger_return), DMK::format::format_address(lock_sync_return),
                     s_camera_changed_event_id, handle_event_slot);
 
-        // Lets turns finish facing the look instead of resting 35 degrees short, and keeps their steps on the spot.
-        // The step hook keys on the decision hook's per-frame flag, so it goes in only with it. Best-effort.
-        if (install_turn_decision_hook(trigger_return, hooks))
-        {
-            install_turn_in_place_hook(hooks);
-        }
+        // Lets turns finish facing the look instead of resting 35 degrees short. Best-effort.
+        install_turn_decision_hook(trigger_return, hooks);
         install_crouched_animation_hook(module_base, module_size, hooks);
+    }
+
+    void orbit_move_pressed() noexcept
+    {
+        // Taken once: the camera publishes again on its next frame only while no move is under way. The move state
+        // below belongs to the camera's thread, so the press acts only when it arrives there. Acquire pairs with the
+        // publish's release, so the heading and the thread read below are that frame's.
+        const std::uint64_t stamp = s_move_press_stamp_ms.exchange(0, std::memory_order_acquire);
+        if (stamp == 0 || GetTickCount64() - stamp > k_move_press_max_age_ms ||
+            GetCurrentThreadId() != s_move_press_thread.load(std::memory_order_relaxed))
+        {
+            return;
+        }
+        // Third person and free-look must still be on: a view switch or a released hold key since the publish
+        // leaves the heading unused.
+        CameraState &cam = camera_state();
+        if (!cam.applying.load(std::memory_order_relaxed) || !cam.orbit_active.load(std::memory_order_relaxed) ||
+            !s_offset_active.load(std::memory_order_relaxed))
+        {
+            return;
+        }
+        const float heading = s_move_press_heading.load(std::memory_order_relaxed);
+        // The move starts here as the camera starts it, so this frame's rig already holds the camera's world yaw
+        // while the look turns under it. The look and the body both turn at the press: the body override sets the
+        // facing at the end of the animated-character update, and the look-driven release of the walk start
+        // (LockBodyTurn) copies the look into the body one frame later, so an old look turns the body back.
+        cam.orbit_target_yaw = heading;
+        cam.orbit_target_valid = true;
+        cam.orbit_yaw_at_capture_deg = cam.orbit_yaw.load(std::memory_order_relaxed);
+        cam.orbit_moving = true;
+        // The look jumps to the new heading, so the basis snaps to it rather than easing across the turn. A short
+        // press then ends with the rig already on the new heading, and the angle baked on release stays put.
+        cam.basis_quat_valid = false;
+        (void)apply_orbit_aim_control(0.0f, 0.0f, true, heading);
+        const std::uintptr_t anim_char = apply_orbit_body_turn(heading);
+        const float turn =
+            std::remainder(heading - s_move_press_body_yaw.load(std::memory_order_relaxed), DirectX::XM_2PI);
+        if (anim_char != 0 && std::fabs(turn) > k_move_press_min_turn)
+        {
+            s_move_press_turned_ms.store(GetTickCount64(), std::memory_order_relaxed);
+            s_move_press_animchar.store(anim_char, std::memory_order_release);
+        }
+        (void)DMK::log().try_log(DMK::LogLevel::Trace,
+                                 "Orbit: move-orbit START at the press (the body and the look turn to the camera "
+                                 "heading {:.1f} deg)",
+                                 DMK::math::radians_to_degrees(heading));
     }
 
     void release_native_turn_animation() noexcept
@@ -4091,6 +4613,10 @@ namespace TPVCamera
         // Let the body play the game's own turn-in-place animations while the third-person view is engaged.
         // Best-effort, like the hooks above.
         install_native_turn_hook(module_base, module_size, hooks);
+        // Keeps native turn steps on the spot (with the decision hook above) and drops the stale first step of a
+        // free-look move started at the press. After the native turn hook, which resets the state this one sets.
+        // Best-effort.
+        install_turn_in_place_hook(hooks);
 
         logger.info("Camera: Third-person camera hooks installed");
         return {};

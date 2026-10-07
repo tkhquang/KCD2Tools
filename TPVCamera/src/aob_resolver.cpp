@@ -323,6 +323,14 @@ namespace TPVCamera
                          OperandKind::MemoryDisplacement, 0, k_dword_field_range);
         const Anchor *const k_turn_state_votes[] = {&k_turn_state_trigger, &k_turn_state_on_event};
 
+        const Anchor k_get_physics_slot_launch =
+            code_operand("GetPhysicsSlot.Launch", Aob::k_getPhysicsSlotLaunchCandidates,
+                         OperandKind::MemoryDisplacement, 0, k_vtable_offset_range);
+        const Anchor k_get_physics_slot_fire_ray =
+            code_operand("GetPhysicsSlot.FireRay", Aob::k_getPhysicsSlotFireRayCandidates,
+                         OperandKind::MemoryDisplacement, 0, k_vtable_offset_range);
+        const Anchor *const k_get_physics_slot_votes[] = {&k_get_physics_slot_launch, &k_get_physics_slot_fire_ray};
+
         // The registry, indexed by AnchorId. The enumerator order IS this order.
         const Anchor k_anchors[] = {
             root_quorum("GlobalContextPtr", k_context_vote_ptrs),
@@ -355,6 +363,13 @@ namespace TPVCamera
             code_operand("AnimIdByCrcSlot", Aob::k_animIdByCrcCallCandidates, OperandKind::MemoryDisplacement, 1,
                          k_vtable_offset_range),
             code_ladder("AnimNameHashCall", Aob::k_animNameHashCallCandidates, Role::CallSite),
+            code_ladder("FireProjectile", Aob::k_fireProjectileCandidates, Role::Entry),
+            code_ladder("ProjectileLaunch", Aob::k_projectileLaunchCandidates, Role::Entry),
+            code_ladder("ArrowCollision", Aob::k_arrowCollisionCandidates, Role::Entry),
+            quorum("GetPhysicsSlot", k_get_physics_slot_votes, 0, k_vtable_offset_range),
+            code_ladder("GetAuxGeom", Aob::k_getAuxGeomCandidates, Role::Entry),
+            code_ladder("AuxSetFlags", Aob::k_auxSetFlagsCandidates, Role::Site),
+            code_ladder("AuxDrawLines", Aob::k_auxDrawLinesCandidates, Role::Entry),
         };
         static_assert(std::size(k_anchors) == k_anchor_count, "k_anchors must hold one entry per AnchorId.");
 
@@ -378,6 +393,11 @@ namespace TPVCamera
         constexpr AnchorId k_turn_decision_anchors[] = {AnchorId::TurnInstalledState};
         constexpr AnchorId k_turn_steps_anchors[] = {AnchorId::PhysEntMovement};
         constexpr AnchorId k_crouched_animation_anchors[] = {AnchorId::AnimIdByCrcSlot, AnchorId::AnimNameHashCall};
+        constexpr AnchorId k_archery_aim_anchors[] = {AnchorId::FireProjectile, AnchorId::ProjectileLaunch,
+                                                      AnchorId::GetPhysicsSlot};
+        // The trail also follows the shots the ArcheryAim hooks record, so a trail needs both gates.
+        constexpr AnchorId k_archery_trail_anchors[] = {AnchorId::ArrowCollision, AnchorId::GetAuxGeom,
+                                                        AnchorId::AuxSetFlags, AnchorId::AuxDrawLines};
 
         /// One feature gate: its log name and the anchors it depends on.
         struct FeatureSpec
@@ -404,6 +424,8 @@ namespace TPVCamera
             {"TurnDecision", k_turn_decision_anchors},
             {"TurnSteps", k_turn_steps_anchors},
             {"CrouchedAnimations", k_crouched_animation_anchors},
+            {"ArcheryAim", k_archery_aim_anchors},
+            {"ArcheryTrail", k_archery_trail_anchors},
         }};
 
         constexpr std::size_t k_max_feature_anchors = 6;
@@ -417,10 +439,11 @@ namespace TPVCamera
 
         // The hooked anchors: a repaired signature for one of them authorizes a code write.
         constexpr AnchorId k_hooked_anchors[] = {
-            AnchorId::Frustum,        AnchorId::HeadVisibility,      AnchorId::InputDispatch,
-            AnchorId::ActionDispatch, AnchorId::InteractionRayBuild, AnchorId::InteractionOnScreen,
-            AnchorId::OverlayHide,    AnchorId::OverlayShow,         AnchorId::MenuOpen,
-            AnchorId::MenuClose,      AnchorId::PhysEntMovement,
+            AnchorId::Frustum,          AnchorId::HeadVisibility,      AnchorId::InputDispatch,
+            AnchorId::ActionDispatch,   AnchorId::InteractionRayBuild, AnchorId::InteractionOnScreen,
+            AnchorId::OverlayHide,      AnchorId::OverlayShow,         AnchorId::MenuOpen,
+            AnchorId::MenuClose,        AnchorId::PhysEntMovement,     AnchorId::FireProjectile,
+            AnchorId::ProjectileLaunch, AnchorId::ArrowCollision,
         };
 
         // Room after the startup pass for the function-scoped anchors resolve_turn_decision_layout() (six) and

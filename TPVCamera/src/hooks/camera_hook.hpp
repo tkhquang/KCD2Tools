@@ -73,6 +73,18 @@ namespace TPVCamera
      */
     void release_native_turn_animation() noexcept;
 
+    /**
+     * @brief Starts a camera-relative free-look move on the press of a movement key: the look and the body turn to the
+     *        camera heading at the press.
+     * @details The input dispatch runs at the start of the frame on the game thread, before the job-system movement
+     *          update; the camera detour that captures the camera heading runs after it. Turning the look and the body
+     *          from the dispatch saves the frame the camera-side start loses. The game still builds that frame's
+     *          travel from the old facing, so the movement detour drops that one request. Uses the heading the last
+     *          game-view frame published, and only while it is current and third person and free-look are on.
+     * @note Callable from any thread; it acts only on the thread the camera detour ran on.
+     */
+    void orbit_move_pressed() noexcept;
+
 } // namespace TPVCamera
 
 #endif // TPVCAMERA_CAMERA_HOOK_HPP

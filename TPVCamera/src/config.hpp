@@ -140,6 +140,11 @@ namespace TPVCamera
         // minigames, aiming, and the scripted stances).
         std::atomic<uint32_t> native_turn_exclude_mask{0};
 
+        // Whether reloading a crossbow (spanning a bolt) already counts as the Aiming state. The game raises its aim
+        // flag the moment prepare is pressed, so with this off the Aiming state (the AIMING preset and every rule keyed
+        // on Aiming) waits until the reload is done; on keeps the game's own timing.
+        std::atomic<bool> reload_counts_as_aiming{false};
+
         // Preset manager (see presets/). Presets are always active: the render-thread resolver selects a
         // camera preset by the debounced game state (DEFAULT/COMBAT/AIMING/MOUNT/STEALTH) - or by the
         // overlay's editing pin - and eases the preset-owned framing fields above toward it each active
@@ -184,6 +189,34 @@ namespace TPVCamera
         // Seconds the camera must rest before the body also turns to face a smaller lead (more than 12 degrees but less
         // than native_turn_angle). 0 = only turn past native_turn_angle.
         std::atomic<float> native_turn_settle_delay{0.8f};
+
+        // Archery (always-live, NOT preset-owned). The player's arrow leaves the bow along the bow's own axis, so in
+        // third person it misses the screen center by the shoulder parallax. archery_aim_at_crosshair launches it
+        // instead toward the point the crosshair ray hits (third person only, never while free-looking); it drops on
+        // the way by its gravity and comes down straight below that point, as in first person. archery_max_correction
+        // (degrees) leaves a shot untouched when the direction from the bow to the crosshair point is further than that
+        // from the bow's own aim, and also limits the sideways turn that brings the landing below the crosshair.
+        // archery_show_trail draws each player arrow's flight path, the crosshair point and the impact for
+        // archery_trail_seconds.
+        std::atomic<bool> archery_aim_at_crosshair{true};
+        std::atomic<float> archery_max_correction{30.0f};
+        std::atomic<bool> archery_show_trail{false};
+        std::atomic<float> archery_trail_seconds{8.0f};
+        // Drop of the player's own shots per weapon, in either view, as a multiple of the game's gravity (the same for
+        // every ammo): 1 keeps the game's arc, 0 flies straight. Bow arrows, crossbow bolts, the handgonne's ball and
+        // scatter shot. A third-person shot comes down straight below the crosshair point by its weapon's drop.
+        std::atomic<float> archery_gravity_bow{1.0f};
+        std::atomic<float> archery_gravity_crossbow{1.0f};
+        std::atomic<float> archery_gravity_firearm{1.0f};
+        // The aim preview: where the shot or throw will come down while a bow is held drawn (or a crossbow raised) in
+        // third person, or a distraction stone is held ready in first or third person, as a ring on that spot and
+        // (archery_aim_preview_arc) a dashed arc from the bow or hand, in archery_aim_preview_color (0xRRGGBB) at
+        // archery_aim_preview_opacity, drawn over walls unless archery_aim_preview_through_walls is off.
+        std::atomic<bool> archery_show_aim_preview{false};
+        std::atomic<bool> archery_aim_preview_arc{true};
+        std::atomic<float> archery_aim_preview_opacity{0.6f};
+        std::atomic<bool> archery_aim_preview_through_walls{true};
+        std::atomic<uint32_t> archery_aim_preview_color{0xFFE196u};
 
         // Start-of-session auto-enable flags, read ONCE during init(). Disabled by default.
         std::atomic<bool> auto_enable_tpv{false};   // enter third-person automatically on game start
