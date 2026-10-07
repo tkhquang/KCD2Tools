@@ -17,8 +17,61 @@
 
 #include <DetourModKit.hpp>
 
+#include <charconv>
+#include <system_error>
+
 namespace TPVCamera
 {
+    namespace
+    {
+        // The aim preview's default color, pale gold: as the INI spells it, and as 0xRRGGBB.
+        constexpr std::string_view k_aim_preview_color_text = "255,225,150";
+        constexpr uint32_t k_aim_preview_color = 0xFFE196u;
+        constexpr uint32_t k_max_color_channel = 255;
+
+        /** @brief The default pale gold, with a warning for a value that was given but is not "r,g,b". */
+        [[nodiscard]] uint32_t rgb_default(std::string_view text)
+        {
+            if (!text.empty())
+            {
+                DMK::log().warning("Config: AimPreviewColor '{}' is not r,g,b (each 0 to 255); using {}",
+                                   std::string(text), k_aim_preview_color_text);
+            }
+            return k_aim_preview_color;
+        }
+
+        /**
+         * @brief "r,g,b" (each 0..255, spaces allowed around each value) to 0xRRGGBB.
+         * @details Parsed with std::from_chars, so the result does not depend on the locale. Anything else gives the
+         *          default pale gold with a warning.
+         */
+        [[nodiscard]] uint32_t parse_rgb(std::string_view text)
+        {
+            uint32_t rgb = 0;
+            std::string_view rest = text;
+            for (int channel = 0; channel < 3; ++channel)
+            {
+                const std::size_t comma = rest.find(',');
+                const bool last = channel == 2;
+                // Exactly two commas: none after the last channel, one after each other.
+                if (last != (comma == std::string_view::npos))
+                {
+                    return rgb_default(text);
+                }
+                const std::string field = DMK::string::trim(rest.substr(0, comma));
+                uint32_t value = 0;
+                const auto [end, error] = std::from_chars(field.data(), field.data() + field.size(), value);
+                if (field.empty() || error != std::errc{} || end != field.data() + field.size() ||
+                    value > k_max_color_channel)
+                {
+                    return rgb_default(text);
+                }
+                rgb = (rgb << 8) | value;
+                rest = last ? std::string_view{} : rest.substr(comma + 1);
+            }
+            return rgb;
+        }
+    } // namespace
 
     LiveSettings &settings() noexcept
     {
@@ -52,6 +105,7 @@ namespace TPVCamera
         const DMK::config::SectionBinder collision = DMK::config::section("Collision");
         const DMK::config::SectionBinder state_behavior = DMK::config::section("StateBehavior");
         const DMK::config::SectionBinder presets = DMK::config::section("Presets");
+        const DMK::config::SectionBinder archery = DMK::config::section("Archery");
 
         // Log level drives Logger verbosity directly on load() and reload().
         settings_section.bind_log_level("LogLevel", Constants::DEFAULT_LOG_LEVEL);
@@ -82,6 +136,23 @@ namespace TPVCamera
         camera.bind<float>("NativeTurnAngle", "Native Turn Angle", s.native_turn_angle, 35.0f);
         camera.bind<float>("NativeTurnSettleDelay", "Native Turn Settle Delay", s.native_turn_settle_delay, 0.8f);
 
+        // Archery (non-preset, always-live): third-person shots and distraction stones aimed at the crosshair point,
+        // the flight trail, the aim preview and the per-weapon drop.
+        archery.bind<bool>("AimAtCrosshair", "Aim At Crosshair", s.archery_aim_at_crosshair, true);
+        archery.bind<float>("MaxAimCorrection", "Max Aim Correction", s.archery_max_correction, 30.0f);
+        archery.bind<bool>("ShowArrowTrail", "Show Arrow Trail", s.archery_show_trail, false);
+        archery.bind<float>("ArrowTrailSeconds", "Arrow Trail Seconds", s.archery_trail_seconds, 8.0f);
+        archery.bind<bool>("ShowAimPreview", "Show Aim Preview", s.archery_show_aim_preview, false);
+        archery.bind<bool>("AimPreviewArc", "Aim Preview Arc", s.archery_aim_preview_arc, true);
+        archery.bind<float>("AimPreviewOpacity", "Aim Preview Opacity", s.archery_aim_preview_opacity, 0.6f);
+        archery.bind<bool>("AimPreviewThroughWalls", "Aim Preview Through Walls", s.archery_aim_preview_through_walls,
+                           true);
+        archery.bind_parsed("AimPreviewColor", "Aim Preview Color", s.archery_aim_preview_color, parse_rgb,
+                            k_aim_preview_color_text);
+        archery.bind<float>("BowGravity", "Bow Gravity", s.archery_gravity_bow, 1.0f);
+        archery.bind<float>("CrossbowGravity", "Crossbow Gravity", s.archery_gravity_crossbow, 1.0f);
+        archery.bind<float>("FirearmGravity", "Firearm Gravity", s.archery_gravity_firearm, 1.0f);
+
         // Free-look orbit (non-preset, always-live; the orbit feel values are per-preset).
         orbit.bind<bool>("FreezeOrbitOnCursor", "Freeze Orbit On Cursor", s.freeze_orbit_on_cursor, true);
 
@@ -105,12 +176,15 @@ namespace TPVCamera
         state_behavior.bind<bool>("EnableStateBehavior", "Enable State Behavior", s.enable_state_behavior, true);
         state_behavior.bind_parsed(
             "ForcedFPVState", "Forced FPV State", s.forced_fpv_mask, parse_state_mask,
-            "Aiming,Cart,Dice,Reading,Alchemy,Blacksmithing,ForgeBuilder,Sharpening,StoneThrowing,BattleArchery");
+            "Cart,Dice,Reading,Alchemy,Blacksmithing,ForgeBuilder,Sharpening,StoneThrowing,BattleArchery");
         state_behavior.bind_parsed("ForcedTPVState", "Forced TPV State", s.forced_tpv_mask, parse_state_mask, "");
         state_behavior.bind_parsed("OrbitExcludeState", "Orbit Exclude State", s.orbit_exclude_mask, parse_state_mask,
-                                   "Menu,Overlay,Cart,Combat,Mount,Minigame");
+                                   "Overlay,Aiming,Cart,Combat,Mount,Minigame");
         state_behavior.bind<float>("StateSwitchHoldSeconds", "State Switch Hold Seconds", s.state_switch_hold_seconds,
                                    0.2f);
+        // Whether a crossbow reload already counts as Aiming (see LiveSettings). Not gated by EnableStateBehavior: it
+        // shapes the detected state itself.
+        state_behavior.bind<bool>("ReloadCountsAsAiming", "Reload Counts As Aiming", s.reload_counts_as_aiming, false);
         // SuppressTPVState is the always-on HARD gate (read in should_apply_view): in any listed state the
         // TPV offset is suppressed and cannot be toggled back on. Separate from the edge-triggered Forced*
         // masks above and NOT gated by EnableStateBehavior. All states are honored (Menu/Overlay instant,

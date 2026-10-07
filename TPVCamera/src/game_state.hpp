@@ -15,6 +15,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string_view>
 
 namespace TPVCamera
@@ -171,6 +172,37 @@ namespace TPVCamera
      * @return The raw (un-debounced) GameState bit mask.
      */
     [[nodiscard]] uint32_t poll_game_state(uintptr_t c_player) noexcept;
+
+    /** @brief True while the player holds a bow fully drawn or a crossbow raised: the running shot's Aiming phase. */
+    [[nodiscard]] bool player_missile_drawn(uintptr_t c_player) noexcept;
+
+    /** @brief The ammo item the player's missile weapon holds ready (the nocked arrow or the loaded bolt), or 0. */
+    [[nodiscard]] uintptr_t player_missile_ammo(uintptr_t c_player) noexcept;
+
+    /** @brief The player's drawn missile weapon (a C_Item), or 0. */
+    [[nodiscard]] uintptr_t player_missile_weapon(uintptr_t c_player) noexcept;
+
+    /** @brief The distraction stone in the player's hand: the C_Decoy projectile, and whether it is held ready. */
+    struct HeldDecoy
+    {
+        uintptr_t decoy{0};
+        bool ready{false};
+    };
+
+    /**
+     * @brief The distraction stone in the player's hand while the distraction minigame runs, or a zero decoy.
+     * @details ready is set only in the held-ready state, not while the stone is being taken, thrown or put back.
+     *          Render thread only, like poll_game_state.
+     */
+    [[nodiscard]] HeldDecoy player_held_decoy(uintptr_t c_player) noexcept;
+
+    /**
+     * @brief The movement the game itself reads from the keys: the larger of the strafe and forward components of the
+     *        player's C_PlayerInput move vector, about 1 while a key is held and 0 when none is.
+     * @return The magnitude, or nullopt when the input cannot be read, so an unreadable input never counts as
+     *         released.
+     */
+    [[nodiscard]] std::optional<float> player_move_input(uintptr_t c_player) noexcept;
 
     /**
      * @brief Applies per-bit hysteresis to a raw state mask so brief flicker does not pop the camera.

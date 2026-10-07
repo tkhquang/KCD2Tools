@@ -649,6 +649,140 @@ namespace Constants
     // RTTI type-descriptor name of the embedded controller, used to validate the layout before the
     // flag read (a drift in the offset then yields "not aiming" rather than a garbage read).
     constexpr const char *C_MISSILE_CONTROLLER_RTTI_NAME = ".?AVC_MissileWeaponPlayerController@entitymodule@wh@@";
+    // The "weapon in hand" byte next to the aim flag: 1 whenever a missile weapon is drawn, aiming or not.
+    constexpr ptrdiff_t MISSILE_CONTROLLER_IN_HAND_FLAG_OFFSET = 0x22;
+
+    // The distraction minigame (crouch, then hold the distract key): C_Distract holds a stone ready in the hand as a
+    // C_Decoy projectile and launches it on release from where it sits, along the look turned about the vertical by
+    // atan(DISTRACT_HAND_OFFSET / range), so a stone thrown from beside the eye comes down on the look line at the
+    // range the throw covers back down to the feet. DISTRACT_HAND_OFFSET is the game's wh_pl_DistractHandOffset
+    // default.
+    constexpr ptrdiff_t C_DISTRACT_STATE_OFFSET = 0x78; // E_State: 2 taking the stone, 3 held ready, 6 putting it back
+    constexpr int DISTRACT_STATE_HOLDING = 3;
+    constexpr ptrdiff_t C_DISTRACT_DECOY_OFFSET = 0xA0; // C_Decoy* in the hand, 0 when none
+    constexpr float DISTRACT_HAND_OFFSET = 0.25f;
+    constexpr const char *C_DECOY_RTTI_NAME = ".?AVC_Decoy@entitymodule@wh@@";
+
+    // The player's C_PlayerInput, a pointer on C_Player, holds the game's own record of the movement the keys ask for:
+    // a body-relative vector, x strafe (left negative) and y forward, 1 while a key is held and 0 once it is released.
+    constexpr ptrdiff_t C_PLAYER_INPUT_OFFSET = 0xB88;
+    constexpr ptrdiff_t PLAYER_INPUT_MOVE_X_OFFSET = 0x58;
+    constexpr ptrdiff_t PLAYER_INPUT_MOVE_Y_OFFSET = 0x5C;
+    constexpr const char *C_PLAYER_INPUT_RTTI_NAME = ".?AVC_PlayerInput@entitymodule@wh@@";
+
+    // The aim flag is the shoot request: crossbow prepare raises it at once, so it is also set through the whole
+    // reload (spanning a bolt) before the weapon comes up. The running shooting sequence tells the phases apart:
+    // C_Player -> C_ActionActor (C_PLAYER_ACTION_ACTOR_OFFSET) -> its component map (ACTION_ACTOR_COMPONENT_MAP_OFFSET,
+    // an MSVC std::map<uint8, component*>) -> C_ActorShootingExpansion -> the running C_ActorActionShootingMain
+    // (SHOOTING_EXPANSION_MAIN_OFFSET, null when idle) -> its current sub-action (SHOOTING_MAIN_SUBACTION_OFFSET),
+    // which is C_ActorActionShootingReloading or ...Unloading while a bolt goes in or out. The game's own shooting code
+    // reads the same offsets. The shooting expansion, the running main action and its sub-action are each checked by
+    // RTTI; the C_ActionActor and the map header are plausibility-checked pointers.
+    constexpr ptrdiff_t C_PLAYER_ACTION_ACTOR_OFFSET = 0x280;
+    constexpr ptrdiff_t ACTION_ACTOR_COMPONENT_MAP_OFFSET = 0x38; // std::map header: the head (sentinel) node pointer
+    constexpr ptrdiff_t SHOOTING_EXPANSION_MAIN_OFFSET = 0x50;
+    // The weapon and the ammo the shooting expansion holds ready (the nocked arrow or the loaded bolt), C_Items.
+    constexpr ptrdiff_t SHOOTING_EXPANSION_WEAPON_OFFSET = 0x40;
+    constexpr ptrdiff_t SHOOTING_EXPANSION_AMMO_OFFSET = 0x48;
+    constexpr ptrdiff_t SHOOTING_MAIN_SUBACTION_OFFSET = 0x98;
+    // MSVC std::map node: left, parent and right links, the sentinel byte, then the stored pair (a one-byte key, so a
+    // pointer value lands at +0x28).
+    constexpr ptrdiff_t MSVC_MAP_NODE_LEFT_OFFSET = 0x00;
+    constexpr ptrdiff_t MSVC_MAP_NODE_PARENT_OFFSET = 0x08;
+    constexpr ptrdiff_t MSVC_MAP_NODE_RIGHT_OFFSET = 0x10;
+    constexpr ptrdiff_t MSVC_MAP_NODE_ISNIL_OFFSET = 0x19;
+    constexpr ptrdiff_t MSVC_MAP_NODE_POINTER_VALUE_OFFSET = 0x28;
+    constexpr const char *C_SHOOTING_EXPANSION_RTTI_NAME = ".?AVC_ActorShootingExpansion@entitymodule@wh@@";
+    constexpr const char *C_SHOOTING_MAIN_RTTI_NAME = ".?AVC_ActorActionShootingMain@entitymodule@wh@@";
+    constexpr const char *C_SHOOTING_RELOADING_RTTI_NAME = ".?AVC_ActorActionShootingReloading@entitymodule@wh@@";
+    constexpr const char *C_SHOOTING_UNLOADING_RTTI_NAME = ".?AVC_ActorActionShootingUnloading@entitymodule@wh@@";
+    // The shot's phase while the bow is held fully drawn or the crossbow raised, ready to loose.
+    constexpr const char *C_SHOOTING_AIMING_RTTI_NAME = ".?AVC_ActorActionShootingAiming@entitymodule@wh@@";
+
+    // Archery. The player's arrow launches from the bow's "arrow" joint along that joint's axis, never along the
+    // camera, so in third person it misses the screen center by the shoulder parallax. The archery hook re-aims
+    // the shot at the point the crosshair ray hits. CProjectile::Launch(this, pos, dir, velocity, speedScale)
+    // orients the entity from dir but flies it on velocity * speedScale (a pe_params_particle with gravity and
+    // no drag for arrows), so both are rewritten. Field offsets match stock GameSDK CProjectile.
+    // An actor's (and a projectile's) own EntityId, the game object extension's entity id. FireProjectile reads the
+    // shooter's here for the projectile owner; the local player's is the stock LOCAL_PLAYER_ENTITY_ID 0x7777.
+    constexpr ptrdiff_t ACTOR_ENTITY_ID_OFFSET = 0x30;
+    constexpr ptrdiff_t PROJECTILE_ENTITY_OFFSET = 0x38;      // IEntity* (a CEntity)
+    constexpr ptrdiff_t PROJECTILE_AMMO_PARAMS_OFFSET = 0x68; // const SAmmoParams*
+    constexpr ptrdiff_t PROJECTILE_FLAGS_OFFSET = 0xA0;       // uint32 ePFlag_* bits
+    constexpr ptrdiff_t PROJECTILE_POSITION_OFFSET = 0xA4;    // Vec3, where the projectile sits now
+    constexpr ptrdiff_t PROJECTILE_INITIAL_POS_OFFSET = 0xB0; // Vec3 m_initial_pos, written by Launch
+    constexpr ptrdiff_t PROJECTILE_FLIGHT_TIME_OFFSET = 0xE0; // float seconds since Launch
+    constexpr std::uint32_t PROJECTILE_FLAG_COLLIDED = 0x1;   // ePFlag_collided: the flight has ended
+    constexpr std::uint32_t PROJECTILE_FLAG_DESTROYING = 0x8; // ePFlag_destroying
+    constexpr std::uint32_t PROJECTILE_FLAG_HIDDEN = 0x400;   // ePFlag_needDestruction: hidden, awaiting the pool
+    // SAmmoParams launch speed (m/s), the speed a thrown distraction stone leaves the hand at.
+    constexpr ptrdiff_t AMMO_SPEED_OFFSET = 0x58;
+    // SAmmoParams -> pe_params_particle template (physinterface.h layout) the arrow's physics is created from.
+    constexpr ptrdiff_t AMMO_PARTICLE_PARAMS_OFFSET = 0x88;
+    constexpr ptrdiff_t PARTICLE_PARAMS_AIR_RESISTANCE_OFFSET = 0x24; // float kAirResistance
+    constexpr ptrdiff_t PARTICLE_PARAMS_GRAVITY_OFFSET = 0x44;        // Vec3 gravity
+    constexpr ptrdiff_t PARTICLE_PARAMS_PIERCEABILITY_OFFSET = 0x98;  // int iPierceability
+    // Used when the ammo template leaves a field unset (the physics "unused" NaN marker) or reads implausibly: a
+    // particle then keeps the world gravity, and 13 is the pierceability the arrow's collision handler starts from.
+    constexpr float PARTICLE_DEFAULT_GRAVITY = 9.81f;
+    constexpr int ARROW_DEFAULT_PIERCEABILITY = 13;
+    // The projectile's own physics, the CParticleEntity whose velocity Launch sets. Its gravity is changed the way
+    // Launch changes the velocity: IPhysicalEntity::SetParams(pe_params_particle*, bThreadSafe) with every other field
+    // left at the physics "unused" marker (a float's bit pattern, an int's value), so only the gravity is written.
+    constexpr ptrdiff_t PROJECTILE_PHYSICS_OFFSET = 0x70;
+    constexpr ptrdiff_t PHYS_ENTITY_VTABLE_SET_PARAMS_OFFSET = 4 * 8;
+    constexpr int PE_PARAMS_PARTICLE_TYPE = 3; // ePE_params_particle
+    constexpr std::uint32_t PHYS_UNUSED_FLOAT_BITS = 0xFFBFFFFFu;
+    constexpr std::uint32_t PHYS_UNUSED_INT = 0x80000000u;
+    constexpr const char *C_PARTICLE_ENTITY_RTTI_NAME = ".?AVCParticleEntity@@";
+    // What a shot is: FireProjectile's ammo item (a C_Item) -> its class data (the game's own item class lookup) -> the
+    // S_AmmoItemClass ammo class, the item table's Ammo Type. Every bow takes arrows, every crossbow bolts, and the
+    // handgonne a ball or scatter shot.
+    constexpr ptrdiff_t ITEM_CLASS_OFFSET = 0x48;
+    constexpr ptrdiff_t AMMO_ITEM_CLASS_TYPE_OFFSET = 0xF0;
+    constexpr std::uint32_t AMMO_CLASS_ARROW = 1;
+    constexpr std::uint32_t AMMO_CLASS_BOLT = 2;
+    constexpr std::uint32_t AMMO_CLASS_BALL = 3;
+    constexpr std::uint32_t AMMO_CLASS_SCATTER_SHOT = 4;
+    constexpr const char *S_AMMO_ITEM_CLASS_RTTI_NAME = ".?AUS_AmmoItemClass@entitymodule@wh@@";
+    // EventPhysCollision fields the impact hook reads: the stock CryEngine layout, the one the arrow's own collision
+    // handler reads.
+    constexpr ptrdiff_t PHYS_COLLISION_FOREIGN_DATA_OFFSET = 0x20; // void* pForeignData[2] (an IEntity* for an entity)
+    constexpr ptrdiff_t PHYS_COLLISION_FOREIGN_ID_OFFSET = 0x30;   // int iForeignData[2]
+    constexpr ptrdiff_t PHYS_COLLISION_POINT_OFFSET = 0x3C;        // Vec3 pt
+    // CEntity's name (const char*), logged for what an arrow hit.
+    constexpr ptrdiff_t ENTITY_NAME_OFFSET = 0xE0;
+    // The crosshair target ray mirrors the arrow particle's own collision ray (CParticleEntity::Step): every entity
+    // class but water, the arrow's pierceability (a surface MORE pierceable than it is flown through), and the ray and
+    // foliage-proxy collide types, with non-colliding geometry and solid back faces passed through.
+    constexpr int RWI_OBJTYPES_ARROW = 0x11F;                               // ent_all (static|rigid|living|terrain...)
+    constexpr unsigned int RWI_ARROW_COLLTYPES = (0x8000u | 0x2000u) << 16; // geom_colltype_ray | geom_colltype13
+    constexpr unsigned int RWI_IGNORE_SOLID_BACK_FACES = 0x100;
+    constexpr unsigned int RWI_FORCE_PIERCEABLE_NONCOLL = 0x1000;
+    constexpr unsigned int RWI_FLAGS_ARROW_BASE =
+        RWI_ARROW_COLLTYPES | RWI_COLLTYPE_ANY | RWI_FORCE_PIERCEABLE_NONCOLL | RWI_IGNORE_SOLID_BACK_FACES;
+    constexpr int RWI_OBJTYPE_LIVING = 0x8; // ent_living (actor and animal capsules)
+    // How far the crosshair target ray and the landing trace reach. On a miss the shot is aimed from the bow at the
+    // point this far along the crosshair ray, then turned to come down below the crosshair.
+    constexpr float ARCHERY_TARGET_RANGE = 300.0f;
+    // While mounted, a living body the crosshair ray hits within this many meters of the rider's eye, with the rider
+    // inside its world box, is the rider's own horse: the ray skips it and looks on behind it.
+    constexpr float ARCHERY_MOUNT_CLEARANCE = 3.5f;
+
+    // Aux geometry (IRenderAuxGeom), used to draw the arrow flight trail. g_env->pRenderer is at GENV_RENDERER_OFFSET;
+    // its GetIRenderAuxGeom slot returns the calling thread's CAuxGeomCB. Each slot is validated against the function
+    // its AOB anchor resolved before it is called. The trail flags are 3D, alpha blended, depth write off and depth
+    // test off, so the trail shows through walls (the vendored IRenderAuxGeom.h bit layout).
+    constexpr ptrdiff_t GENV_RENDERER_OFFSET = 0x108;
+    constexpr ptrdiff_t RENDERER_VTABLE_GET_AUX_GEOM_OFFSET = 199 * 8;
+    constexpr ptrdiff_t AUX_VTABLE_SET_RENDER_FLAGS_OFFSET = 1 * 8; // returns the flags it replaced
+    constexpr ptrdiff_t AUX_VTABLE_DRAW_LINES_OFFSET = 13 * 8;
+    constexpr std::uint32_t AUX_TRAIL_RENDER_FLAGS = 0x20600000;
+    // The aim preview's flags: the same with the depth test on, so the scene hides it behind walls like real geometry.
+    constexpr std::uint32_t AUX_PREVIEW_RENDER_FLAGS = 0x20400000;
+    constexpr const char *C_RENDERER_RTTI_NAME = ".?AVCD3D9Renderer@@";
+    constexpr const char *C_AUX_GEOM_RTTI_NAME = ".?AVCAuxGeomCB@@";
 
     // Crouch/sneak AND mount BOTH come from the player's STANCE enum. C_ActorModel is a POINTER on
     // C_Player, dereferenced then validated by its RTTI. The 4-byte CURRENT STANCE enum lives at +0x80 -

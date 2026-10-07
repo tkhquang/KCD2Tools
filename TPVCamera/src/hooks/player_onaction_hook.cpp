@@ -5,6 +5,7 @@
 
 #include "hooks/player_onaction_hook.hpp"
 #include "aob_resolver.hpp"
+#include "hooks/camera_hook.hpp"
 
 #include <DetourModKit.hpp>
 
@@ -21,10 +22,11 @@
 namespace TPVCamera
 {
 
-    // Global action dispatcher: sub_1808EBEE4(this /*rcx*/, const char** action_name /*rdx*/,
-    // uint activation /*r8d*/, float value /*xmm3*/). Fires once per action-map action (the C++ source of
-    // Lua Player:OnAction) and returns a pointer we forward unchanged. action_name points to a ref-counted
-    // C-string (the action name, e.g. "xi_movey"); value is the post-action-map axis magnitude.
+    // The player's action handler, C_PlayerInput::OnAction (vtable slot 1, resolved by the ActionDispatch AOB):
+    // (this /*rcx*/, const char** action_name /*rdx*/, uint activation /*r8d*/, float value /*xmm3*/). Fires once
+    // per action-map action on the main thread, in the input update at the start of the frame, before the frame's
+    // movement update, and returns a pointer we forward unchanged. action_name points to a ref-counted C-string (the
+    // action name, e.g. "xi_movey"); value is the post-action-map axis magnitude.
     using ActionDispatchFunc = uintptr_t(__fastcall *)(uintptr_t self, const char **action_name,
                                                        unsigned int activation, float value);
 
@@ -147,7 +149,17 @@ namespace TPVCamera
         {
             if (k_move_actions[i] == name_view)
             {
-                s_move_values[i].store(std::fabs(value), std::memory_order_relaxed);
+                const float before = player_onaction_move_magnitude();
+                const float magnitude = std::fabs(value);
+                s_move_values[i].store(magnitude, std::memory_order_relaxed);
+                // The press that starts a move: free-look turns the look and the body to the camera heading at the
+                // press, before the frame's movement update reads them.
+                if (before <= MOVE_INPUT_START && magnitude > MOVE_INPUT_START)
+                {
+                    (void)DMK::log().try_log(DMK::LogLevel::Trace, "PlayerOnAction: move '{}' pressed ({:.2f})", name,
+                                             value);
+                    orbit_move_pressed();
+                }
                 break;
             }
         }

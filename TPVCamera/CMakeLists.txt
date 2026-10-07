@@ -133,6 +133,7 @@ set(COMMON_SOURCES
   src/rtti_types.cpp
   src/tpv_camera.cpp
   src/version.cpp
+  src/hooks/archery_hook.cpp
   src/hooks/camera_hook.cpp
   src/hooks/hook_set.cpp
   src/hooks/ui_menu_hooks.cpp

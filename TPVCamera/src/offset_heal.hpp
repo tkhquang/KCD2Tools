@@ -62,6 +62,7 @@ namespace TPVCamera
         DMK::rtti::HealedSlot c_player_animated_human;
         DMK::rtti::HealedSlot c_player_actor_model;
         DMK::rtti::HealedSlot c_player_missile_controller;
+        DMK::rtti::HealedSlot c_player_input;
         DMK::rtti::HealedSlot animated_human_animchar;
         DMK::rtti::HealedSlot context_manager;
         DMK::rtti::HealedSlot context_minigame_subsystem;
