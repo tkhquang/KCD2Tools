@@ -26,6 +26,7 @@
 #include "camera_hook.hpp"
 #include "../rtti_types.hpp"
 #include "aob_resolver.hpp"
+#include "character_attachments.hpp"
 #include "constants.hpp"
 #include "config.hpp"
 #include "global_state.hpp"
@@ -37,6 +38,7 @@
 #include "render_occlusion.hpp"
 #include "hooks/archery_hook.hpp"
 #include "hooks/character_fade.hpp"
+#include "hooks/shader_twins.hpp"
 #include "hooks/ui_menu_hooks.hpp"
 #include "hooks/player_onaction_hook.hpp"
 #include "presets/preset_runtime.hpp"
@@ -53,6 +55,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string_view>
 #include <array>
 
@@ -119,7 +122,8 @@ namespace TPVCamera
         cam.collision_speed = speed_next;
     }
 
-    // The close-up fade: the band (meters of arm above HeadClearance) over which the character fades out.
+    // The close-up fade: the band (meters of arm above HeadClearance) over which the character fades out. What it
+    // carries fades with it, found by its attachment link (see s_character_nodes).
     constexpr float k_close_fade_band = 0.4f;
     // The stock eye, hair and eye-film shaders ignore the dissolve, so the eyes, eyelashes, hair, beard and the wet
     // film over the eyes would stay solid in the dithered face. Once the character is this far faded the head is hidden
@@ -127,6 +131,16 @@ namespace TPVCamera
     // below the lower mark.
     constexpr float k_close_fade_head_hide_on = 0.6f;
     constexpr float k_close_fade_head_hide_off = 0.45f;
+    // The shader twins fade the eyes (Eye), the eyelashes, beard and hair (Hair) and the eye film (a transparent Illum)
+    // with the character. They warm up in third person ahead of the first close-up (the engine compiles their fade
+    // permutations in the background and writes them to the user shader cache). The marks above apply while any twin
+    // the character shows is still warming up, while an Eye twin was given up (eye_fade_ready false), or without the
+    // twins. With every twin warm (character_fade_ready) the head is never hidden. With the Eye twins warm but a Hair
+    // or transparent Illum twin given up, whose items stay solid, it is hidden only at the top of the fade, where the
+    // dithered face is already gone: 1.0 is dissolve byte 254, and the 4x4 dither discards every pixel from byte 240
+    // (above its largest threshold, 15/16), which an amount of 0.95 passes.
+    constexpr float k_close_fade_faded_head_hide_on = 0.95f;
+    constexpr float k_close_fade_faded_head_hide_off = 0.9f;
 
     // Fraction (0..1) of the character that the hit collider hides, with a per-collider cache so a solid the
     // camera moves along is not re-measured every frame. Pipeline: a cheap footprint pre-check (a building-scale
@@ -416,10 +430,73 @@ namespace TPVCamera
     // (the arm is shorter than HeadClearance) and sits at the eye, so the head must be hidden like in first person or
     // the view would be inside it. Read by the head re-assert and the head-visibility detour.
     static std::atomic<bool> s_head_fallback{false};
-    // Set while the close-up fade has the character mostly dithered out (see k_close_fade_head_hide_on): the head is
-    // hidden like in first person. Read with s_head_fallback by the head re-assert and the head-visibility detour;
-    // unlike it, it leaves the camera where it is.
+    // Set while the close-up fade has the character mostly dithered out and the eye fade is not ready, since the stock
+    // Eye shader ignores the dissolve, or with it ready once his face is gone, since the eyelashes and the eye film
+    // ignore it too: the head is hidden like in first person. Read with s_head_fallback by the head re-assert and the
+    // head-visibility detour; unlike it, it leaves the camera where it is.
     static std::atomic<bool> s_head_close_fade{false};
+
+    // The render nodes of the character and of what it carries (what is bound to its attachments, a bow's nocked
+    // arrow included), walked every third-person frame while CloseUpFade is on, before the character starts to fade,
+    // and empty otherwise. The close-up fade dissolves the carried ones with the character. Main thread only (the
+    // camera detour).
+    static CharacterNodes s_character_nodes{};
+
+    /**
+     * @brief The character's own render node for the shader twins: the one the character fade's detour last saw draw
+     *        in the main view, the node his temporary render objects name, or else the attachment walk's.
+     * @details Both are his CRenderProxy: the walk reads it from his entity's proxy map, the detour is handed it by the
+     *          engine. They differ only for a frame or two after a load, until the new proxy draws. A difference that
+     *          lasts means the walk's layout does not fit this build, so the carried nodes it lists match no draw
+     *          either and what he carries stays solid while he fades; that is logged once as a warning. Main thread
+     *          only.
+     */
+    static std::uintptr_t character_own_node()
+    {
+        // Camera frames the two may differ for before the warning.
+        constexpr int k_mismatch_frames = 30;
+        static int s_mismatch_frames = 0;
+        static bool s_mismatch_logged = false;
+        const std::uintptr_t drawn = character_render_node();
+        const std::uintptr_t walked = s_character_nodes.root();
+        if (drawn == 0 || walked == 0 || drawn == walked)
+        {
+            s_mismatch_frames = 0;
+        }
+        else if (++s_mismatch_frames >= k_mismatch_frames && !s_mismatch_logged)
+        {
+            s_mismatch_logged = true;
+            (void)DMK::log().try_log(DMK::LogLevel::Warning,
+                                     "CloseUpFade: the attachment walk found the character's render node at {:#x}, "
+                                     "but the character fade sees it draw at {:#x}; what it carries may stay solid",
+                                     walked, drawn);
+        }
+        return drawn != 0 ? drawn : walked;
+    }
+
+    /**
+     * @brief Advances the shader twins by one third-person camera frame.
+     * @details The twins fade the character's eyes, eyelashes, hair, beard and eye film with him in the close-up fade
+     *          (see eye_fade_ready()). While it can run they run on his render nodes: his own (character_own_node()),
+     *          then the carried ones s_character_nodes walked this frame. Main thread only, once per frame (not on the
+     *          frame's second build).
+     * @param close_fade Whether the close-up fade can run this frame: CloseUpFade on, with the character fade hook.
+     */
+    static void run_character_twins(bool close_fade)
+    {
+        static_assert(std::tuple_size_v<decltype(CharacterNodes::nodes)> == Constants::CHARACTER_TWIN_MAX_NODES,
+                      "The swap set names the character's own node and every carried one.");
+        std::array<std::uintptr_t, Constants::CHARACTER_TWIN_MAX_NODES> nodes{};
+        std::size_t count = 0;
+        if (const std::uintptr_t own = close_fade ? character_own_node() : 0; own != 0)
+        {
+            const std::span<const std::uintptr_t> carried = s_character_nodes.carried();
+            nodes[0] = own;
+            std::ranges::copy(carried, nodes.begin() + 1);
+            count = 1 + carried.size();
+        }
+        update_shader_twins(std::span<const std::uintptr_t>(nodes.data(), count));
+    }
 
     // Published by the frustum detour each game-view frame: true while the game is showing the OS cursor
     // (a UI is up). The free-look input gate reads it to FREEZE the orbit - hold its angles and ignore
@@ -2690,13 +2767,13 @@ namespace TPVCamera
         // the camera under it), a wall right behind - collision pulls the camera onto the pivot, inside the head, and
         // the view shows the head's inside until the player moves. With CloseUpFade the camera stays where the
         // collision put it and the character dithers out instead, as far as CloseUpFadeMinOpacity lets him from
-        // HeadClearance of arm and starting k_close_fade_band before it, so the view never jumps; once he is mostly
-        // faded his head is hidden like in first person (s_head_close_fade). Otherwise (or without the character fade
-        // hook), below HeadClearance the camera eases onto the real eye and the head is hidden by the game's own
-        // first-person rig (s_head_fallback, read by the head re-assert and the head-visibility detour), so the view
-        // is plain first person until there is room again. The arm is measured after collision, so a close zoom
-        // counts too. The margin keeps a doorway from switching the first-person view on and off as the arm hovers
-        // around the threshold.
+        // HeadClearance of arm and starting k_close_fade_band before it, so the view never jumps; when his eyes and
+        // hair cannot fade with him, his head is hidden like in first person once he is mostly faded
+        // (s_head_close_fade). Otherwise (or without the character fade hook), below HeadClearance the camera eases
+        // onto the real eye and the head is hidden by the game's own first-person rig (s_head_fallback, read by the
+        // head re-assert and the head-visibility detour), so the view is plain first person until there is room again.
+        // The arm is measured after collision, so a close zoom counts too. The margin keeps a doorway from switching
+        // the first-person view on and off as the arm hovers around the threshold.
         {
             constexpr float k_head_fallback_margin = 0.15f; // meters of extra room before third person resumes
             constexpr float k_head_fallback_rate = 12.0f;   // ease rate, 1/sec (frame-rate independent below)
@@ -2713,11 +2790,56 @@ namespace TPVCamera
                     (close_fade && clearance > 0.0f)
                         ? std::clamp((clearance + k_close_fade_band - arm) / k_close_fade_band, 0.0f, close_most)
                         : 0.0f;
-                set_character_fade(entity_addr, close_amount);
-                const bool head_was_hidden = s_head_close_fade.load(std::memory_order_relaxed);
-                s_head_close_fade.store(close_amount >= k_close_fade_head_hide_on ||
-                                            (head_was_hidden && close_amount >= k_close_fade_head_hide_off),
-                                        std::memory_order_relaxed);
+                // What the character carries (the weapons, the quiver, a shield, a bow and the arrow nocked on it) are
+                // entities of their own, bound to the character's attachments. They fade with the character, exactly as
+                // far as it does, through the character fade's render proxy hook, which set_character_fade hands the
+                // list: a static item's slot passes the raised byte on to the engine's persistent render objects. The
+                // walk runs whenever the close-up fade is on, not only while the character fades, so the list is ready
+                // the frame it starts.
+                if (close_fade && entity_addr != 0)
+                {
+                    (void)collect_character_nodes(entity_addr, s_character_nodes);
+                }
+                else if (s_character_nodes.entity != 0)
+                {
+                    clear_character_nodes(s_character_nodes);
+                }
+                run_character_twins(close_fade);
+                set_character_fade(entity_addr, close_amount, &s_character_nodes);
+                // With the eye fade ready (the shader twins) the face and the eyes dither out with the body and the
+                // head is hidden only once the face is gone; with the eyelashes, hair, beard and eye film ready too
+                // nothing of the head stays solid and it is never hidden; otherwise it is hidden most of the way along.
+                const bool eyes_fade = eye_fade_ready();
+                const bool all_fade = eyes_fade && character_fade_ready();
+                // The path last logged: -1 none yet, 0 head hidden most of the way, 1 hidden once the face is gone, 2
+                // never hidden.
+                static int s_logged_head_path = -1;
+                const int head_path = all_fade ? 2 : (eyes_fade ? 1 : 0);
+                if (close_fade && head_path != s_logged_head_path)
+                {
+                    s_logged_head_path = head_path;
+                    static constexpr std::array<const char *, 3> k_head_paths{
+                        "hides the head once the character is mostly faded (the eye fade is not ready)",
+                        "dithers the eyes out with the character and hides the head once the face is gone (a twin of "
+                        "the eyelashes, hair or eye film was given up)",
+                        "dithers the whole character out, eyes, eyelashes, hair and eye film included, and keeps the "
+                        "head shown",
+                    };
+                    (void)DMK::log().try_log(DMK::LogLevel::Info, "Camera: the close-up fade {} (close amount {:.2f})",
+                                             k_head_paths[static_cast<std::size_t>(head_path)], close_amount);
+                }
+                if (all_fade)
+                {
+                    s_head_close_fade.store(false, std::memory_order_relaxed);
+                }
+                else
+                {
+                    const float hide_on = eyes_fade ? k_close_fade_faded_head_hide_on : k_close_fade_head_hide_on;
+                    const float hide_off = eyes_fade ? k_close_fade_faded_head_hide_off : k_close_fade_head_hide_off;
+                    const bool head_was_hidden = s_head_close_fade.load(std::memory_order_relaxed);
+                    s_head_close_fade.store(close_amount >= hide_on || (head_was_hidden && close_amount >= hide_off),
+                                            std::memory_order_relaxed);
+                }
             }
             if (clearance <= 0.0f || close_fade)
             {
@@ -3518,6 +3640,16 @@ namespace TPVCamera
             s_head_close_fade.store(false, std::memory_order_relaxed);
             // The character draws solid again at once: in first person its body is in view.
             set_character_fade(0, 0.0f);
+            // The carried list goes too, and the next third-person walk logs its set afresh.
+            if (s_character_nodes.entity != 0)
+            {
+                clear_character_nodes(s_character_nodes);
+            }
+            // First person has no close-up fade, so the twins do not run; their sets for the fade keep warming up.
+            if (!repeat_build)
+            {
+                update_shader_twins({});
+            }
             // First person (or suppressed): the camera is the eye, so the interaction hook must NOT redirect.
             interaction_aim_pose().invalidate();
             // Nor does the AI's camera observer need the eye substituted.
@@ -4620,6 +4752,10 @@ namespace TPVCamera
         // (tent / awning canopy cloth) that carry no ray-collidable physics. Best-effort: a miss no-ops the
         // roof render clamp, so the result is intentionally discarded.
         (void)initialize_render_occlusion(module_base, module_size, s_genv_runtime);
+
+        // What the character carries fades with it, found through the entity system g_env holds. Handed over before
+        // any hook below is armed, so no camera frame walks the attachments without it.
+        initialize_character_attachments(s_genv_runtime);
 
         // The default hook::Options prologue policy is Fail, which is what this mod wants: refuse the
         // install when the resolved entry leads with a call or breakpoint byte, the shape a cascade

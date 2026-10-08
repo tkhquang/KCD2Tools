@@ -873,6 +873,164 @@ namespace TPVCamera
                               Pattern::literal("8B 57 ?? 48 8B 01 48 C1 EA ?? 83 E2 ?? FF 90 ?? ?? ?? ?? 45 33 E4"),
                               -0x35),
         };
+
+        // The shader twins' anchors (hooks/shader_twins.cpp). Each rung below matched exactly once in the executable
+        // sections of Steam 1.5.6, GOG 1.5 and Game Pass 1.4, at the same function on each.
+
+        // CRenderView::AddRenderObject entry (sub_1804A50A4; GOG 0x1804A35A4)
+        // Direct entry hook. P1 is the null-element test and the pushes through `mov rax, [r8]; mov rdi, r9` (the
+        // item's shader and the render object). P2 drops the test and walks back 9. P3 is the engine's own invalidation
+        // of a persistent object whose item is not ready (`cmp dword [r8+14h], -1`, the persistent flag at +0x26, the
+        // node at +0x30, its temp data at +0x30 and the +0xF8 stamp), walking back 0x3E.
+        inline const Candidate k_addRenderObjectCandidates[] = {
+            Candidate::direct("AddRenderObject_P1_Prologue",
+                              Pattern::literal("48 85 D2 0F 84 ?? ?? ?? ?? 55 53 56 57 41 54 41 56 41 57 48 8B EC 48 "
+                                               "81 EC 80 00 00 00 49 8B 00 49 8B F9")),
+            Candidate::direct("AddRenderObject_P2_PushesArgs",
+                              Pattern::literal("55 53 56 57 41 54 41 56 41 57 48 8B EC 48 81 EC ?? ?? ?? ?? 49 8B 00 "
+                                               "49 8B F9 48 8B 75 ?? 4D 8B F0"),
+                              -9),
+            Candidate::direct("AddRenderObject_P3_NotReadyInvalidate",
+                              Pattern::literal("41 83 78 14 FF [2-6] 41 80 79 26 00 0F 84 ?? ?? ?? ?? 4D 8B 41 30 4D "
+                                               "85 C0 0F 84 ?? ?? ?? ?? 49 8B 48 30 48 85 C9 0F 84 ?? ?? ?? ?? 48 81 "
+                                               "C1 F8 00 00 00"),
+                              -0x3E),
+        };
+
+        // The shader .ext loader entry (sub_1806A1340: shader manager, SShaderGen** out, name; GOG 0x1806C6840)
+        // Direct entry hook. It formats "%s%s.ext" and caches the result by name. P1 is the prologue through the frame.
+        // P2 drops the rbx save and runs through the cookie into `lea rdi, [rcx+708h]` (the cache lock), walking back
+        // 5. P3 is the lock and argument moves (`mov rsi, rcx`, `mov r14, r8` the name, `mov r13, rdx` the out
+        // pointer), walking back 0x30.
+        inline const Candidate k_shaderGenLoadCandidates[] = {
+            Candidate::direct("ShaderGenLoad_P1_Prologue",
+                              Pattern::literal("48 89 5C 24 20 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 E0 FB FF "
+                                               "FF 48 81 EC 20 05 00 00")),
+            Candidate::direct("ShaderGenLoad_P2_PushesThroughLock",
+                              Pattern::literal("55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 ?? ?? FF FF 48 81 EC ?? "
+                                               "?? 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 85 ?? ?? 00 00 48 8D B9 "
+                                               "?? ?? 00 00"),
+                              -5),
+            Candidate::direct("ShaderGenLoad_P3_LockArgsBody",
+                              Pattern::literal("48 8D B9 ?? ?? 00 00 48 89 4C 24 ?? 48 8B F1 48 89 55 ?? 48 8B CF 4D "
+                                               "8B F0 4C 8B EA E8"),
+                              -0x30),
+        };
+
+        // CShaderMan::mfForName (sub_1807E8FE4; GOG 0x18080E174), called, not hooked. The rungs are HenrySenses'
+        // ShaderForName ladder: the argument shuffle (walk back 0x17), the result reference test (0x38) and the
+        // reference add before the parse request (0x4F).
+        inline const Candidate k_shaderForNameCandidates[] = {
+            Candidate::direct("ShaderForName_P1_ArgShuffle",
+                              Pattern::literal("48 8D 45 30 41 8B F0 49 89 43 B0 48 8B F9 4D 89 4B A8 45 8B C8 4C 8B "
+                                               "C2 48 8D 55 C0"),
+                              -0x17),
+            Candidate::direct("ShaderForName_P2_ResultRefs",
+                              Pattern::literal("80 7D D0 00 48 8B 5D C0 ?? ?? 48 89 7D D8 48 89 5D E0 48 85 DB"),
+                              -0x38),
+            Candidate::direct("ShaderForName_P3_ParseRequest",
+                              Pattern::literal("F0 FF 43 5C 48 8B 45 C8 48 8D 55 D8 48 89 45 E8 48 8B 45 30 48 89 45 "
+                                               "F0 89 75 F8"),
+                              -0x4F),
+        };
+
+        // CCryPak::AdjustFileName (sub_180461DFC; GOG 0x18046161C), the validator of the CCryPak vtable slot the user
+        // shader directory is resolved through. HenrySenses' ladder: the alias test (walk back 0x53), the slash join
+        // (0xA0) and the real-path retry (0xC4).
+        inline const Candidate k_adjustFileNameCandidates[] = {
+            Candidate::direct("AdjustFileName_P1_AliasArgs",
+                              Pattern::literal("80 3A 25 ?? ?? 48 3B 9F ?? ?? ?? ?? ?? ?? 44 8B CD 4D 8B C7 49 8B D6 "
+                                               "48 8B CF"),
+                              -0x53),
+            Candidate::direct("AdjustFileName_P2_SlashJoin",
+                              Pattern::literal("41 B0 2F 48 8D 4C 24 40 BA 01 00 00 00 E8 ?? ?? ?? ?? 49 8B D6 48 8D "
+                                               "4C 24 40"),
+                              -0xA0),
+            Candidate::direct("AdjustFileName_P3_RealPathRetry",
+                              Pattern::literal("44 8B CD 41 0F BA E9 10 4D 8B C7 48 8B CF E8 ?? ?? ?? ?? 48 8B 8F ?? "
+                                               "?? ?? ?? 48 8B F0"),
+                              -0xC4),
+        };
+
+        // ICryPak FOpen, FReadRaw and FClose vtable byte offsets, each a quorum of the shader-binary loader
+        // (sub_1809183EC) and the .ext loader (sub_1806A1340), which call them on g_env->pCryPak. FOpen: the binary
+        // loader's open with the user-directory flags 0x10010004 (its reopen for the parse as a second rung), and the
+        // .ext loader's open with flags 2. FReadRaw: the 28-byte header read (`mov r9d, 1Ch`, then `mov r10,
+        // [rcx+disp32]`), and the .ext loader's whole-file read. FClose: the close after the header read, ahead of the
+        // version test (`cmp word, 3`), and the .ext loader's close.
+        inline const Candidate k_pakOpenSlotBinCandidates[] = {
+            Candidate::direct("PakOpenSlotBin_P1_UserFlags",
+                              Pattern::literal("41 BE 04 00 01 10 48 8B D7 45 0F 45 F5 48 8B 01 45 8B CE | FF 90 ?? ?? "
+                                               "?? ?? 48 8B F0")),
+            Candidate::direct("PakOpenSlotBin_P2_Reopen",
+                              Pattern::literal("4C 8D 05 ?? ?? ?? ?? 45 8B CE 48 8B D7 48 8B 01 | FF 90 ?? ?? ?? ?? 4C "
+                                               "8B C0 49 8B D7")),
+        };
+        inline const Candidate k_pakOpenSlotExtCandidates[] = {
+            Candidate::direct("PakOpenSlotExt_P1_ExtFlags",
+                              Pattern::literal("4C 8D 05 ?? ?? ?? ?? 48 8B 55 ?? 41 BC 02 00 00 00 45 8B CC 48 8B 01 | "
+                                               "FF 90 ?? ?? ?? ?? 48 89 44 24 ?? 48 8B F8")),
+        };
+        inline const Candidate k_pakReadSlotBinCandidates[] = {
+            Candidate::direct("PakReadSlotBin_P1_HeaderRead",
+                              Pattern::literal("41 B9 1C 00 00 00 48 89 44 24 20 49 8B 0B 45 8D 41 E5 | 4C 8B 91 ?? ?? "
+                                               "?? ?? 49 8B CB 41 FF D2")),
+        };
+        inline const Candidate k_pakReadSlotExtCandidates[] = {
+            Candidate::direct("PakReadSlotExt_P1_FileRead",
+                              Pattern::literal("41 B8 01 00 00 00 48 89 54 24 20 49 8B D4 48 8B 01 | FF 90 ?? ?? ?? ?? "
+                                               "4D 8B CC")),
+        };
+        inline const Candidate k_pakCloseSlotBinCandidates[] = {
+            Candidate::direct("PakCloseSlotBin_P1_BeforeVersionTest",
+                              Pattern::literal("48 8B D6 48 8B 01 | FF 90 ?? ?? ?? ?? 66 83 7D ?? 03")),
+        };
+        inline const Candidate k_pakCloseSlotExtCandidates[] = {
+            Candidate::direct("PakCloseSlotExt_P1_AfterRead",
+                              Pattern::literal("48 8B 0D ?? ?? ?? ?? 48 8B 54 24 ?? 48 8B 01 | FF 90 ?? ?? ?? ?? 48 85 "
+                                               "DB")),
+        };
+
+        // CreatePipelineStates entry (sub_18071D8B4; GOG 0x180742D0C, Game Pass 0x1806E4680)
+        // Direct entry hook (pipeline rcx, the compiled object's PSO array rdx, the description r8, the resources'
+        // local PSO cache r9, the shadow flag on the stack); its only caller is CCompiledRenderObject::Compile. P1 is
+        // the prologue through the cookie and the argument moves. P2 is `mov r15d, 1` and the argument moves through
+        // the shadow-flag test (`cmp [rsp+0E0h], r15d`), walking back 0x22. P3 is that test and the shadow path's
+        // object-flag mask (`and ebx, 3C240017h`), walking back 0x3E.
+        inline const Candidate k_createPipelineStatesCandidates[] = {
+            Candidate::direct("CreatePipelineStates_P1_Prologue",
+                              Pattern::literal("40 53 56 57 41 54 41 55 41 56 41 57 48 81 EC 80 00 00 00 48 8B 05 ?? "
+                                               "?? ?? ?? 48 33 C4 48 89 44 24 78 41 BF 01 00 00 00 48 89 4C 24 38 49 "
+                                               "8B D9 49 8B F0 4C 8B EA")),
+            Candidate::direct("CreatePipelineStates_P2_ArgsShadowTest",
+                              Pattern::literal("41 BF 01 00 00 00 48 89 4C 24 38 49 8B D9 49 8B F0 4C 8B EA 48 89 5C "
+                                               "24 28 48 8B F9 44 39 BC 24 E0 00 00 00 0F 85"),
+                              -0x22),
+            Candidate::direct("CreatePipelineStates_P3_ShadowMask",
+                              Pattern::literal("44 39 BC 24 E0 00 00 00 0F 85 ?? ?? ?? ?? 49 8B 40 28 45 33 F6 48 8B "
+                                               "D8 48 89 44 24 38 66 45 89 78 30 81 E3 17 00 24 3C"),
+                              -0x3E),
+        };
+
+        // The RT-mask bit of the dissolve (qword_1850D9538, 0x10 live; GOG 0x1850C42A8, Game Pass 0x18519A628), a
+        // global the renderer fills at startup. Rip-relative on the `or` that reads it after the FOB_DISSOLVE bit test
+        // (`bt reg, 1Ch; jnb`). P1 is AddRenderObject's RT-mask build, where the next test is bit 0x32 (0x1804A52C5).
+        // P2 is the stages' common PSO setup (sub_1807C6214), which ORs it for the description's flags, with the bit-33
+        // load after it (0x1807C638A). P3 is the same in sub_180FF3B98 with a local RT mask (0x180FF3DA6). Each matched
+        // once in the executable sections of Steam 1.5.6, GOG 1.5 and Game Pass 1.4, all three naming the same global
+        // on each.
+        inline const Candidate k_dissolveRtBitCandidates[] = {
+            Candidate::rip_relative("DissolveRtBit_P1_AddRenderObject",
+                                    Pattern::literal("48 0F BA E2 1C 73 06 | 0B 05 ?? ?? ?? ?? 48 0F BA E2 32"), 2, 6),
+            Candidate::rip_relative("DissolveRtBit_P2_StageFlags",
+                                    Pattern::literal("48 0F BA E5 1C 73 0B | 48 0B 05 ?? ?? ?? ?? 48 89 43 10 48 B9 00 "
+                                                     "00 00 00 02 00 00 00"),
+                                    3, 7),
+            Candidate::rip_relative("DissolveRtBit_P3_StageFlagsLocal",
+                                    Pattern::literal("48 0F BA E6 1C 73 0B | 48 0B 0D ?? ?? ?? ?? 48 89 4D ?? 48 B8 00 "
+                                                     "00 00 00 02 00 00 00"),
+                                    3, 7),
+        };
     } // namespace Aob
 
     /**
@@ -882,7 +1040,8 @@ namespace TPVCamera
      *          anchor. The ids up to PhysEntMovement are addresses. The ids from IsThirdPersonSlot to AnimIdByCrcSlot
      *          are scalars decoded from game code, not addresses. AnimNameHashCall is a call site, and its consumer
      *          decodes the callee. The archery ids are addresses, except GetPhysicsSlot, a scalar. ProxyRender is an
-     *          address.
+     *          address. The shader twin ids are addresses (DissolveRtBit a global), except the three CryPak slots,
+     *          scalars.
      */
     enum class AnchorId : std::size_t
     {
@@ -920,6 +1079,15 @@ namespace TPVCamera
         AuxSetFlags,          // CAuxGeomCB::SetRenderFlags (vtable-slot validator)
         AuxDrawLines,         // CAuxGeomCB::DrawLines (vtable-slot validator)
         ProxyRender,          // CRenderProxy::Render (the character fade's dissolve byte)
+        AddRenderObject,      // CRenderView::AddRenderObject (a character item swaps to its twin)
+        ShaderGenLoad,        // the shader .ext loader (a twin gets its stock shader's gen flags)
+        ShaderForName,        // CShaderMan::mfForName (creates the twin instances; called, not hooked)
+        AdjustFileName,       // CCryPak::AdjustFileName (vtable-slot validator; the user shader directory)
+        PakOpenSlot,          // ICryPak FOpen vtable byte offset (quorum of the two shader loaders)
+        PakReadSlot,          // ICryPak FReadRaw vtable byte offset (quorum of the two shader loaders)
+        PakCloseSlot,         // ICryPak FClose vtable byte offset (quorum of the two shader loaders)
+        CreatePsos,           // CreatePipelineStates (a character item keeps its stock PSOs until the twin's are built)
+        DissolveRtBit,        // the dissolve's RT-mask bit (the character twins' fading sets are built ahead with it)
         Count,
     };
 
@@ -950,6 +1118,10 @@ namespace TPVCamera
         ArcheryAim,          // FireProjectile, ProjectileLaunch, GetPhysicsSlot: arrows aimed at the crosshair point
         ArcheryTrail,        // ArrowCollision and the aux-geometry calls: the trail and aim preview (needs ArcheryAim)
         CharacterFade,       // ProxyRender: the character dithers out when the camera is too close to it
+        ShaderTwins,         // Genv, the AddRenderObject, .ext, shader-loader and PSO anchors, the CryPak slots: the
+                             // character's eyes, hair and eye film fade with him
+        FadeWarmupRtBit,     // DissolveRtBit: the RT mask of the fading sets the character twins build ahead (needs
+                             // ShaderTwins; without it those sets carry the dissolve in their flags only)
         Count,
     };
 
