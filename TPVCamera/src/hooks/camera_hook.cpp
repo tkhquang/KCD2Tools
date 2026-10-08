@@ -36,6 +36,7 @@
 #include "physics_raycast.hpp"
 #include "render_occlusion.hpp"
 #include "hooks/archery_hook.hpp"
+#include "hooks/character_fade.hpp"
 #include "hooks/ui_menu_hooks.hpp"
 #include "hooks/player_onaction_hook.hpp"
 #include "presets/preset_runtime.hpp"
@@ -63,23 +64,69 @@ namespace TPVCamera
     // here, before the cull planes are computed, moves the rendered view AND its culling together.
     using FrustumBuildFunc = uintptr_t(__fastcall *)(uintptr_t camera);
 
-    // Eases the camera collision distance toward @p target: a fast pull-IN (so a wall is never clipped) and the
-    // slower configured return-OUT, which stops the camera pumping when an edge-grazing ray hit alternates
-    // near/far frame to frame. Snaps to the target on the first valid frame. Shared by the per-frame easing and
-    // the static-world throttle bypass so the two cannot drift.
-    static void ease_collision_toward(CameraState &cam, float target, float delta_time, float return_speed)
+    // The least gap kept between the camera and the surface that stopped it while the camera pulls in (meters): the
+    // game's own near clip distance. A pull-in that lags its target never puts the lens on or past that surface.
+    constexpr float k_lens_near_margin = 0.05f;
+
+    // Eases the camera collision distance toward @p target. Pulling in follows at k_pull_in_speed (1/s), close to
+    // instant so a wall is never clipped, and never trails the target by more than @p pull_slack, so the lens never
+    // comes nearer to the surface that stopped it than k_lens_near_margin. Easing back out is critically damped at
+    // twice @p return_speed and starts from rest, so a release begins gently and settles on the target without a
+    // jolt; a return_speed of 0 snaps out. Snaps to the target on the first valid frame. Shared by the per-frame
+    // easing and the static-world throttle bypass so the two cannot drift; with a delta_time of 0 (the frame's second
+    // build) only the pull-in limit can move the camera.
+    static void ease_collision_toward(CameraState &cam, float target, float delta_time, float return_speed,
+                                      float pull_slack)
     {
         if (!cam.collision_valid)
         {
             cam.collision_distance = target;
+            cam.collision_speed = 0.0f;
             cam.collision_valid = true;
             return;
         }
         constexpr float k_pull_in_speed = 25.0f; // near-instant but still smooth
-        const float speed = (target < cam.collision_distance) ? k_pull_in_speed : return_speed;
-        const float blend = (speed > 0.0f) ? (1.0f - std::exp(-speed * delta_time)) : 1.0f;
-        cam.collision_distance += (target - cam.collision_distance) * blend;
+        const float from = cam.collision_distance;
+        if (target < from)
+        {
+            const float eased = from + (target - from) * (1.0f - std::exp(-k_pull_in_speed * delta_time));
+            cam.collision_distance = std::min(eased, target + pull_slack);
+            cam.collision_speed = 0.0f;
+            return;
+        }
+        if (return_speed <= 0.0f)
+        {
+            cam.collision_distance = target;
+            cam.collision_speed = 0.0f;
+            return;
+        }
+        // Critically damped toward the target: behind is how far short of it the camera is (<= 0), the speed its
+        // rate outward. A target nearer than where the camera's speed would carry it (a farther surface met on the
+        // way out) lowers the speed first, so the camera slows into it instead of stopping dead at it.
+        const float rate = 2.0f * return_speed;
+        const float behind = from - target;
+        const float speed = std::min(cam.collision_speed, -rate * behind);
+        const float c = speed + rate * behind;
+        const float decay = std::exp(-rate * delta_time);
+        float behind_next = (behind + c * delta_time) * decay;
+        float speed_next = (speed - rate * c * delta_time) * decay;
+        if (behind_next > 0.0f)
+        {
+            behind_next = 0.0f;
+            speed_next = 0.0f;
+        }
+        cam.collision_distance = target + behind_next;
+        cam.collision_speed = speed_next;
     }
+
+    // The close-up fade: the band (meters of arm above HeadClearance) over which the character fades out.
+    constexpr float k_close_fade_band = 0.4f;
+    // The stock eye, hair and eye-film shaders ignore the dissolve, so the eyes, eyelashes, hair, beard and the wet
+    // film over the eyes would stay solid in the dithered face. Once the character is this far faded the head is hidden
+    // like in first person (the game's FirstPersonView hiding group, which keeps its shadow), and it is shown again
+    // below the lower mark.
+    constexpr float k_close_fade_head_hide_on = 0.6f;
+    constexpr float k_close_fade_head_hide_off = 0.45f;
 
     // Fraction (0..1) of the character that the hit collider hides, with a per-collider cache so a solid the
     // camera moves along is not re-measured every frame. Pipeline: a cheap footprint pre-check (a building-scale
@@ -369,6 +416,10 @@ namespace TPVCamera
     // (the arm is shorter than HeadClearance) and sits at the eye, so the head must be hidden like in first person or
     // the view would be inside it. Read by the head re-assert and the head-visibility detour.
     static std::atomic<bool> s_head_fallback{false};
+    // Set while the close-up fade has the character mostly dithered out (see k_close_fade_head_hide_on): the head is
+    // hidden like in first person. Read with s_head_fallback by the head re-assert and the head-visibility detour;
+    // unlike it, it leaves the camera where it is.
+    static std::atomic<bool> s_head_close_fade{false};
 
     // Published by the frustum detour each game-view frame: true while the game is showing the OS cursor
     // (a UI is up). The free-look input gate reads it to FREEZE the orbit - hold its angles and ignore
@@ -2266,7 +2317,7 @@ namespace TPVCamera
                 // in dense scenes such as a doorway). The threshold is a MOVEMENT distance, so fast motion still
                 // recomputes every frame (responsive) while slow motion reuses for a few frames; the reused target
                 // is at most one threshold of camera travel stale, which the easing and the collision standoff
-                // (CollisionRadius) absorb, so the camera never visibly clips.
+                // (CollisionSkin) absorb, so the camera never visibly clips.
                 constexpr float k_collision_recompute_dist = 0.06f;
                 const float recompute_d2 = k_collision_recompute_dist * k_collision_recompute_dist;
                 const Vector3 throttle_cam = camera_position; // desired (pre-collision); the block overwrites it
@@ -2277,22 +2328,34 @@ namespace TPVCamera
                 const bool recompute = !s_collision_throttle_valid ||
                                        (pivot - s_throttle_pivot).magnitude_squared() > recompute_d2 ||
                                        (throttle_cam - s_throttle_cam).magnitude_squared() > recompute_d2;
+                // CollisionSkin is the gap the camera keeps from whatever surface the probes found. A pull-in may lag
+                // its target by the skin less the lens margin.
+                const float skin = cfg.collision_skin.load(std::memory_order_relaxed);
+                const float pull_slack = std::max(0.0f, skin - k_lens_near_margin);
                 if (!recompute && cam.collision_valid)
                 {
                     // Reuse last frame's allowed distance (the shared easing), then skip the whole walk / sphere /
                     // render-occlusion / lateral-probe computation below.
                     const float return_speed = cfg.collision_return_speed.load(std::memory_order_relaxed);
-                    ease_collision_toward(cam, s_cached_allowed, delta_time, return_speed);
+                    ease_collision_toward(cam, s_cached_allowed, delta_time, return_speed, pull_slack);
                     camera_position = pivot + ray_dir * cam.collision_distance;
+                    // The hold drains here too; when it runs out the next frame recomputes, so the release starts.
+                    if (cam.collision_hold_timer > 0.0f)
+                    {
+                        cam.collision_hold_timer -= delta_time;
+                        if (cam.collision_hold_timer <= 0.0f)
+                        {
+                            s_collision_throttle_valid = false;
+                        }
+                    }
                     goto collision_done;
                 }
 
                 // Prefer the swept SPHERE (PrimitiveWorldIntersection): its contact distance is continuous
                 // as the sweep grazes edges, so the camera does not pump in dense geometry the way a single
-                // thin ray does (the root cause of the orbit position-jump). The sphere radius is the
-                // standoff, so no skin is subtracted on this path. Fall back to the thin ray (with skin)
-                // when the sphere is disabled, unavailable, or faults, so collision always works and never
-                // regresses.
+                // thin ray does (the root cause of the orbit position-jump). Whichever probe finds the surface,
+                // the camera keeps the same CollisionSkin from it. Fall back to the ray fan alone when the sphere
+                // is disabled, unavailable, or faults, so collision always works and never regresses.
                 // Camera collision = swept SPHERE (smooth) cross-checked against an RWI multi-ray FAN (correct).
                 // The PrimitiveWorldIntersection sphere may not honour our object types: the fork SPWIParams keeps
                 // a FLAGS field at +0x98 and the real entTypes at +0x9C, and +0x9C is a static-RE inference (the
@@ -2401,28 +2464,38 @@ namespace TPVCamera
                     // the fan finds NO world (open space), there is NO collision - any actor the sphere saw (an
                     // NPC at the camera, your own shield) is ignored = transparent, like non-physicalized grass.
                     // This drops actor collisions UNIFORMLY with no skip-list / probe and no per-entity guessing.
+                    // The sphere's surface (its contact plus the radius) must also lie nearer than the fan's hit: a
+                    // farther one would put the camera past a wall the fan's rays met.
                     if (fan.has_value() && sphere.has_value() &&
                         sphere->m_distance >= fan->m_distance - collision_radius - 0.10f &&
-                        sphere->m_distance <= fan->m_distance + 0.05f)
+                        sphere->m_distance <= fan->m_distance + 0.05f &&
+                        sphere->m_distance + collision_radius < fan->m_distance)
                     {
                         hit = sphere; // sphere agrees with the fan's world surface -> use it (continuous, no pump)
                         from_sphere = true;
                     }
                 }
 
-                constexpr float k_collision_hold_seconds = 0.3f; // hold the pull-in across edge hit/miss gaps
+                // After a recompute met a surface the camera does not ease back out at all for this long (seconds,
+                // drained on every frame): a probe that grazes an edge and misses it the next frame, or an arm swung
+                // fast through clutter, keeps the camera in instead of letting it ease out and snap back in.
+                constexpr float k_collision_hold_seconds = 0.3f;
 
-                // Nearest SOLID-world block, skin-adjusted. Sphere path insets by the radius already, so it
-                // subtracts no extra skin; thin-ray path subtracts the configured skin.
+                // Where the nearest solid surface is along the arm: the fan's ray hit, or the sphere's contact plus its
+                // radius (the sphere's centre stops CollisionRadius short of the surface). The coverage walk above
+                // already decided this hit COVERS the body (or the gate is off and the nearest solid blocks). The
+                // camera keeps the same CollisionSkin from it whichever probe found it, so a frame that switches
+                // between the fan and the sphere does not move the camera.
+                float surface = desired_distance;
+                if (hit.has_value())
+                {
+                    surface = hit->m_distance + (from_sphere ? collision_radius : 0.0f);
+                }
                 float blocking_distance = desired_distance;
                 bool blocked = false;
-                if (hit.has_value() && hit->m_distance < desired_distance)
+                if (surface < desired_distance)
                 {
-                    // The coverage walk above already decided this hit COVERS the body (or the gate is off and the
-                    // nearest solid blocks), so pull the camera to it. The sphere path already inset by the radius
-                    // (no extra skin); the thin-ray path subtracts the configured skin before the surface.
-                    const float skin = from_sphere ? 0.0f : cfg.collision_skin.load(std::memory_order_relaxed);
-                    blocking_distance = std::max(0.0f, hit->m_distance - skin);
+                    blocking_distance = std::max(0.0f, surface - skin);
                     blocked = true;
                 }
 
@@ -2434,7 +2507,7 @@ namespace TPVCamera
                 {
                     static bool s_phys_blocked = false;
                     static float s_phys_dist = -1.0f;
-                    const float dd = blocked ? (hit->m_distance - s_phys_dist) : 0.0f;
+                    const float dd = blocked ? (surface - s_phys_dist) : 0.0f;
                     const bool moved = (dd > 0.1f) || (dd < -0.1f);
                     // The trace below identifies the hit object via a render-octree query (render_hit_info); gate it
                     // on trace logging being ENABLED so that diagnostic octree + per-node vertex scan never runs on
@@ -2467,7 +2540,7 @@ namespace TPVCamera
                             "PhysicsCollision HIT: src={} bTerrain={} dist={} of {} cov={} kind={} obj=\"{}\" "
                             "ext=({}, {}, {}) collider={:#x} node={:#x} point=({}, {}, {}) normal=({}, {}, {}) "
                             "cam=({}, {}, {}) pivot=({}, {}, {})",
-                            from_sphere ? "sphere" : "fan", hit_terrain, hit->m_distance, desired_distance, blocked_cov,
+                            from_sphere ? "sphere" : "fan", hit_terrain, surface, desired_distance, blocked_cov,
                             kind_str, obj_name, obj_ext[0], obj_ext[1], obj_ext[2], collider,
                             reinterpret_cast<uintptr_t>(node), hp.x, hp.y, hp.z, hn.x, hn.y, hn.z, camera_position.x,
                             camera_position.y, camera_position.z, pivot.x, pivot.y, pivot.z);
@@ -2475,17 +2548,18 @@ namespace TPVCamera
                     s_phys_blocked = blocked;
                     if (blocked)
                     {
-                        s_phys_dist = hit->m_distance;
+                        s_phys_dist = surface;
                     }
                 }
 
                 // Render-only overhead roofs (tent / awning canopy cloth) carry no ray-collidable physics, so the
                 // fan and sphere glide through them and the cloth buries the camera on a look-down. Query the
-                // render octree along the same arm and clamp below an overhead brush. The radius is the standoff
-                // (already applied by render_occlusion_limit), so no skin is subtracted. Gated by UseRenderOcclusion
-                // alone - it is INDEPENDENT of UseCoverageCollision (it handles non-physical cloth, not a coverage
-                // heuristic). A thin overhead beam is rejected inside render_occlusion_limit by the sightline
-                // vertex-count test, not a body-coverage gate (an overhead canopy covers ~0 of the body silhouette).
+                // render octree along the same arm and clamp below an overhead brush. The clamp keeps its own standoff,
+                // the sightline tube radius (RENDER_OCCLUSION_COLUMN_RADIUS), so no skin is subtracted. Gated by
+                // UseRenderOcclusion alone - it is INDEPENDENT of UseCoverageCollision (it handles non-physical cloth,
+                // not a coverage heuristic). A thin overhead beam is rejected inside render_occlusion_limit by the
+                // sightline vertex-count test, not a body-coverage gate (an overhead canopy covers ~0 of the body
+                // silhouette).
                 if (cfg.use_render_occlusion.load(std::memory_order_relaxed))
                 {
                     // Query the render octree only out to where the physics collision already stops the camera: a
@@ -2501,22 +2575,22 @@ namespace TPVCamera
                     }
                 }
 
-                float allowed_distance;
-                if (blocked && blocking_distance < desired_distance)
+                // The target: the blocking distance, or the desired one when the arm is clear. For
+                // k_collision_hold_seconds after a recompute met a surface (drained on every frame, the throttled ones
+                // too) the camera does not ease back out at all; a pull-in is never held back. A hold that runs out on
+                // this frame releases at once: the throttled frames after it reuse this target and drain nothing.
+                float allowed_distance = blocked ? blocking_distance : desired_distance;
+                if (blocked)
                 {
-                    allowed_distance = blocking_distance;
-                    cam.collision_hold_timer = k_collision_hold_seconds; // latch on a blocking hit
+                    cam.collision_hold_timer = k_collision_hold_seconds;
                 }
                 else if (cam.collision_valid && cam.collision_hold_timer > 0.0f)
                 {
-                    // Recently blocked but clear this frame: HOLD the pulled-in distance through the
-                    // gap so an edge-grazing hit/miss alternation cannot pump the camera (sawtooth).
                     cam.collision_hold_timer -= delta_time;
-                    allowed_distance = cam.collision_distance;
-                }
-                else
-                {
-                    allowed_distance = desired_distance; // truly clear: ease back out
+                    if (cam.collision_hold_timer > 0.0f)
+                    {
+                        allowed_distance = std::min(allowed_distance, cam.collision_distance);
+                    }
                 }
 
                 // Lateral / frustum clearance. The pivot->camera probe only sees obstacles ALONG the arm, so a
@@ -2588,10 +2662,10 @@ namespace TPVCamera
                     }
                 }
 
-                // Ease toward the allowed distance (fast pull-IN so a wall is never clipped, slower return-OUT),
-                // via the shared helper the throttle bypass also uses.
+                // Ease toward the allowed distance (fast pull-IN so a wall is never clipped, a critically damped
+                // return-OUT), via the shared helper the throttle bypass also uses.
                 const float return_speed = cfg.collision_return_speed.load(std::memory_order_relaxed);
-                ease_collision_toward(cam, allowed_distance, delta_time, return_speed);
+                ease_collision_toward(cam, allowed_distance, delta_time, return_speed, pull_slack);
 
                 camera_position = pivot + ray_dir * cam.collision_distance;
 
@@ -2603,14 +2677,26 @@ namespace TPVCamera
             }
         collision_done:;
         }
+        else
+        {
+            // No collision in this preset: the camera goes wherever the rig puts it. The collision state is dropped,
+            // so turning collision back on starts afresh.
+            cam.collision_valid = false;
+            cam.collision_speed = 0.0f;
+            cam.collision_hold_timer = 0.0f;
+        }
 
-        // First-person fallback. With no room behind the player - a low lintel in a doorway (the roof clamp holds the
-        // camera under it), a wall right behind - collision pulls the camera onto the pivot, inside the head, and the
-        // view shows the head's inside until the player moves. Below HeadClearance of arm the camera eases onto the
-        // real eye instead and the head is hidden by the game's own first-person rig (s_head_fallback, read by the
-        // head re-assert and the head-visibility detour), so the view is plain first person until there is room
-        // again. The arm is measured after collision, so a close zoom counts too. The margin keeps a doorway from
-        // switching it on and off as the arm hovers around the threshold.
+        // Too close to the character. With no room behind the player - a low lintel in a doorway (the roof clamp holds
+        // the camera under it), a wall right behind - collision pulls the camera onto the pivot, inside the head, and
+        // the view shows the head's inside until the player moves. With CloseUpFade the camera stays where the
+        // collision put it and the character dithers out instead, as far as CloseUpFadeMinOpacity lets him from
+        // HeadClearance of arm and starting k_close_fade_band before it, so the view never jumps; once he is mostly
+        // faded his head is hidden like in first person (s_head_close_fade). Otherwise (or without the character fade
+        // hook), below HeadClearance the camera eases onto the real eye and the head is hidden by the game's own
+        // first-person rig (s_head_fallback, read by the head re-assert and the head-visibility detour), so the view
+        // is plain first person until there is room again. The arm is measured after collision, so a close zoom
+        // counts too. The margin keeps a doorway from switching the first-person view on and off as the arm hovers
+        // around the threshold.
         {
             constexpr float k_head_fallback_margin = 0.15f; // meters of extra room before third person resumes
             constexpr float k_head_fallback_rate = 12.0f;   // ease rate, 1/sec (frame-rate independent below)
@@ -2618,7 +2704,22 @@ namespace TPVCamera
             // Measured from the head where it really is: the pivot plus the turn hold, which keeps the pivot off the
             // body while it steps through a turn.
             const float arm = (camera_position - (pivot + turn_hold)).magnitude();
-            if (clearance <= 0.0f)
+            const bool close_fade = cfg.close_up_fade.load(std::memory_order_relaxed) && character_fade_available();
+            if (!step.repeat_build)
+            {
+                const float close_most =
+                    1.0f - std::clamp(cfg.close_up_fade_min_opacity.load(std::memory_order_relaxed), 0.0f, 1.0f);
+                const float close_amount =
+                    (close_fade && clearance > 0.0f)
+                        ? std::clamp((clearance + k_close_fade_band - arm) / k_close_fade_band, 0.0f, close_most)
+                        : 0.0f;
+                set_character_fade(entity_addr, close_amount);
+                const bool head_was_hidden = s_head_close_fade.load(std::memory_order_relaxed);
+                s_head_close_fade.store(close_amount >= k_close_fade_head_hide_on ||
+                                            (head_was_hidden && close_amount >= k_close_fade_head_hide_off),
+                                        std::memory_order_relaxed);
+            }
+            if (clearance <= 0.0f || close_fade)
             {
                 cam.head_fallback = false;
             }
@@ -2763,11 +2864,12 @@ namespace TPVCamera
     /**
      * @brief Keeps the player head in sync with the offset state once per frame.
      * @details While the offset is active the head must stay shown (hidden only during the
-     *          first-person fallback, when the camera sits at the eye), but the engine only
-     *          sets head visibility on its own transitions, so re-call the setter whenever
-     *          the live hide flag disagrees. When the offset has just turned
-     *          off, restore the game's intended hide value exactly once so the first-person
-     *          rig hides the head again. The hide flag is re-read rather than cached so this
+     *          first-person fallback, when the camera sits at the eye, and once the close-up fade
+     *          has the character mostly dithered out, since the stock eyes, hair and eye film
+     *          ignore the dither), but the engine only sets head visibility on its own
+     *          transitions, so re-call the setter whenever the live hide flag disagrees. When the
+     *          offset has just turned off, restore the game's intended hide value exactly once so
+     *          the first-person rig hides the head again. The hide flag is re-read rather than cached so this
      *          self-heals regardless of who last changed it, and a call is issued only on a
      *          mismatch so the engine is not driven every frame.
      *          The player is the live C_Player resolved this frame when there is one, else the
@@ -2787,7 +2889,8 @@ namespace TPVCamera
             const uint8_t flags = s_head_flags.load(std::memory_order_relaxed);
             if (active)
             {
-                const bool want_hidden = s_head_fallback.load(std::memory_order_relaxed);
+                const bool want_hidden = s_head_fallback.load(std::memory_order_relaxed) ||
+                                         s_head_close_fade.load(std::memory_order_relaxed);
                 const auto hide_flag =
                     DMK::memory::read<uint8_t>(DMK::Address{entity + Constants::OFFSET_ENTITY_HIDE_HEAD_FLAG});
                 if (hide_flag && (*hide_flag != 0) != want_hidden)
@@ -3407,10 +3510,14 @@ namespace TPVCamera
                 s_orbit_was_engaged = false;
             }
             cam.collision_valid = false;
+            cam.collision_speed = 0.0f;
             cam.collision_hold_timer = 0.0f;
             cam.head_fallback = false;
             cam.head_fallback_blend = 0.0f;
             s_head_fallback.store(false, std::memory_order_relaxed);
+            s_head_close_fade.store(false, std::memory_order_relaxed);
+            // The character draws solid again at once: in first person its body is in view.
+            set_character_fade(0, 0.0f);
             // First person (or suppressed): the camera is the eye, so the interaction hook must NOT redirect.
             interaction_aim_pose().invalidate();
             // Nor does the AI's camera observer need the eye substituted.
@@ -3534,9 +3641,12 @@ namespace TPVCamera
             // Mirror the head to the offset's effective active state (published by the frustum
             // detour) rather than the raw toggle, so a forced-FPV/TPV state shows or hides the head
             // to match the view the player actually sees. The first-person fallback (camera at the
-            // eye, no room behind) hides it like first person does.
+            // eye, no room behind) hides it like first person does, and so does a close-up fade far
+            // enough along that the eyes and hair would stay solid in the dithered face.
             const bool active = s_offset_active.load(std::memory_order_relaxed);
-            const bool final_hide_head = active ? s_head_fallback.load(std::memory_order_relaxed) : hide_head;
+            const bool final_hide_head = active ? (s_head_fallback.load(std::memory_order_relaxed) ||
+                                                   s_head_close_fade.load(std::memory_order_relaxed))
+                                                : hide_head;
             original(entity, final_hide_head, flags);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -4617,6 +4727,15 @@ namespace TPVCamera
         // free-look move started at the press. After the native turn hook, which resets the state this one sets.
         // Best-effort.
         install_turn_in_place_hook(hooks);
+
+        // Fade the character instead of switching to first person when the camera has no room behind it. Best-effort:
+        // without it the first-person switch stays.
+        if (auto character = initialize_character_fade(hooks); !character.has_value())
+        {
+            logger.warning(
+                "Camera: character fade unavailable ({}); the camera switches to first person when too close",
+                character.error().message());
+        }
 
         logger.info("Camera: Third-person camera hooks installed");
         return {};

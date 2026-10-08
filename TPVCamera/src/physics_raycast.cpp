@@ -302,9 +302,14 @@ namespace TPVCamera
         }
         const Vector3 dir = sweep / len;
 
-        // Two axes perpendicular to the sweep. Pick a seed not parallel to dir, then Gram-Schmidt.
-        const Vector3 seed = (std::fabs(dir.z) < 0.9f) ? Vector3{0.0f, 0.0f, 1.0f} : Vector3{1.0f, 0.0f, 0.0f};
-        Vector3 right = dir.cross(seed);
+        // Two axes perpendicular to the sweep: right is level (across world up), up is right x dir. One continuous
+        // basis at every pitch, so the ray pattern never turns as the camera passes a pitch (world X is the seed only
+        // straight up or down, which the camera never reaches).
+        Vector3 right = dir.cross(Vector3{0.0f, 0.0f, 1.0f});
+        if (right.magnitude() < 1e-3f)
+        {
+            right = dir.cross(Vector3{1.0f, 0.0f, 0.0f});
+        }
         const float rlen = right.magnitude();
         if (rlen < 1e-4f)
         {
