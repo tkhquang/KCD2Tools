@@ -857,6 +857,22 @@ namespace TPVCamera
             Candidate::direct("AuxDrawLines_P3_AlphaFlags",
                               Pattern::literal("FE C8 49 89 5B D8 3C ?? 4D 8D 4B 28 49 8B 46 ??"), -0x4F),
         };
+
+        // CRenderProxy::Render entry (the character fade raises the player's dissolve byte around it)
+        // Direct entry hook. P1 is the body after the frame setup (the two argument moves and the global load), walking
+        // back 0x25. P2 is the hidden-flag test before the SRendParams copy constructor, walking back 0x4B. P3 is the
+        // render-flag shift and the virtual call after it, walking back 0x35. Each matched once over the 1.5.6 image;
+        // HenrySenses hooks the same entry with the same rungs, and only the first bytes of the prologue carry its jump.
+        inline const Candidate k_proxyRenderCandidates[] = {
+            Candidate::direct("ProxyRender_P1_BodyMov",
+                              Pattern::literal("48 8B DA 48 8B F9 48 8B 0D ?? ?? ?? ?? 4D 8B F8"), -0x25),
+            Candidate::direct("ProxyRender_P2_HiddenTestCopyCtor",
+                              Pattern::literal("84 C0 [2-6] F6 87 ?? ?? ?? ?? ?? [2-6] 48 8B D3 48 8D 4C 24 50"),
+                              -0x4B),
+            Candidate::direct("ProxyRender_P3_BodyMovShrAnd",
+                              Pattern::literal("8B 57 ?? 48 8B 01 48 C1 EA ?? 83 E2 ?? FF 90 ?? ?? ?? ?? 45 33 E4"),
+                              -0x35),
+        };
     } // namespace Aob
 
     /**
@@ -865,7 +881,8 @@ namespace TPVCamera
      *          accessors read. The enumerator order IS the table order. Count is the element count and is not a valid
      *          anchor. The ids up to PhysEntMovement are addresses. The ids from IsThirdPersonSlot to AnimIdByCrcSlot
      *          are scalars decoded from game code, not addresses. AnimNameHashCall is a call site, and its consumer
-     *          decodes the callee. The archery ids are addresses, except GetPhysicsSlot, a scalar.
+     *          decodes the callee. The archery ids are addresses, except GetPhysicsSlot, a scalar. ProxyRender is an
+     *          address.
      */
     enum class AnchorId : std::size_t
     {
@@ -902,6 +919,7 @@ namespace TPVCamera
         GetAuxGeom,           // renderer GetIRenderAuxGeom (vtable-slot validator)
         AuxSetFlags,          // CAuxGeomCB::SetRenderFlags (vtable-slot validator)
         AuxDrawLines,         // CAuxGeomCB::DrawLines (vtable-slot validator)
+        ProxyRender,          // CRenderProxy::Render (the character fade's dissolve byte)
         Count,
     };
 
@@ -931,6 +949,7 @@ namespace TPVCamera
         CrouchedAnimations,  // AnimIdByCrcSlot, AnimNameHashCall: the NPC crouched idle and turns for the player
         ArcheryAim,          // FireProjectile, ProjectileLaunch, GetPhysicsSlot: arrows aimed at the crosshair point
         ArcheryTrail,        // ArrowCollision and the aux-geometry calls: the trail and aim preview (needs ArcheryAim)
+        CharacterFade,       // ProxyRender: the character dithers out when the camera is too close to it
         Count,
     };
 

@@ -135,6 +135,7 @@ set(COMMON_SOURCES
   src/version.cpp
   src/hooks/archery_hook.cpp
   src/hooks/camera_hook.cpp
+  src/hooks/character_fade.cpp
   src/hooks/hook_set.cpp
   src/hooks/ui_menu_hooks.cpp
   src/hooks/ui_overlay_hooks.cpp

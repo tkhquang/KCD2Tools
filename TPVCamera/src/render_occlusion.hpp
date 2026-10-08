@@ -44,7 +44,9 @@ namespace TPVCamera
      *          body-silhouette coverage test is applied: an overhead canopy projects ABOVE the character body, so
      *          such a test reads ~0 and would reject exactly the cloth meant to clamp. Returns the nearest
      *          qualifying limit, or std::nullopt when the renderer is unavailable or nothing on the sightline
-     *          occludes the view. SEH-guarded; a fault returns std::nullopt.
+     *          occludes the view. The query re-runs once the camera has moved RENDER_OCCLUSION_REQUERY_DIST; in
+     *          between, the limit is where the current arm reaches the height of the last query's stop point.
+     *          SEH-guarded; a fault returns std::nullopt.
      * @param pivot Camera arm start (inside the player), world space.
      * @param to_camera Pivot->camera vector; its length is the desired follow distance (not normalized).
      * @param radius Standoff kept below the roof underside (the collision radius), meters.

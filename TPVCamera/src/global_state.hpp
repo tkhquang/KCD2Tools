@@ -73,9 +73,12 @@ namespace TPVCamera
         // switch) so the next applied frame snaps instead of easing across a suppression gap.
         float collision_distance{0.0f};
         bool collision_valid{false};
-        // Seconds remaining to HOLD the pulled-in collision distance after the last blocking
-        // hit. A thin ray grazing an edge alternates hit/miss each frame; holding through the
-        // gap stops the camera pumping (sawtooth) instead of easing out and snapping back in.
+        // How fast the collision distance is easing back out (m/s, outward positive); any pull-in zeroes it, so
+        // every release starts from rest.
+        float collision_speed{0.0f};
+        // Seconds the pulled-in distance is still held after the last recompute that met a surface (drained on
+        // every frame): a probe that grazes an edge and misses it the next frame, or an arm swung fast through
+        // clutter, keeps the camera in instead of letting it ease out and snap back in.
         float collision_hold_timer{0.0f};
         // First-person fallback (render thread only): set while the camera arm is shorter than HeadClearance, so the
         // camera would sit inside the player's head; head_fallback_blend eases the camera from the collided position

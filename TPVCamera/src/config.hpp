@@ -73,20 +73,19 @@ namespace TPVCamera
         // above); UseCoverageCollision, UseSphereCollision, CollisionRadius and the gates below are always-live
         // INI settings, so they keep their registered defaults.
         std::atomic<bool> enable_collision{};        // keep the view out of walls
-        std::atomic<float> collision_skin{};         // gap kept before a hit surface, meters (thin-ray path only)
-        std::atomic<float> collision_return_speed{}; // ease-out speed once an obstruction clears
+        std::atomic<float> collision_skin{};         // gap kept from the surface the rays or sphere found, meters
+        std::atomic<float> collision_return_speed{}; // ease-out speed once an obstruction clears (0 = instant)
         // Master switch for the COVERAGE-based collision heuristics: the coverage gate (CoverageThreshold) that
         // only collides when something hides the character, and the lateral frustum-clearance probe
         // (CameraProbeSize). OFF by default (opt-in): the camera then collides plainly on the nearest solid world
         // surface (no coverage measurement, no lateral probe); turn it ON for the see-through behaviour. Render
         // occlusion is INDEPENDENT of this (its own use_render_occlusion toggle below).
         std::atomic<bool> use_coverage_collision{false};
-        // Swept-sphere collision via PrimitiveWorldIntersection: the sphere's contact distance is
-        // continuous as the sweep grazes edges, so the camera does not pump in dense geometry the way a
-        // single thin ray does. The radius IS the standoff (collision_skin is not applied on this path).
-        // Falls back to the thin ray automatically when the engine sweep is unavailable or faults.
-        std::atomic<bool> use_sphere_collision{true}; // swept sphere (PWI) vs single thin ray (RWI)
-        std::atomic<float> collision_radius{0.15f};   // swept-sphere radius = standoff from surfaces, meters
+        // Swept-sphere collision via PrimitiveWorldIntersection, added to the ray fan: the sphere's contact
+        // distance is continuous where the fan's rays graze an edge. Falls back to the fan alone when the engine
+        // sweep is unavailable or faults.
+        std::atomic<bool> use_sphere_collision{true};
+        std::atomic<float> collision_radius{0.15f}; // the probes' half-width (fan ray offset, sphere radius), meters
         // Coverage gate: only collide when an obstruction actually HIDES the character. At a candidate hit the
         // camera samples the character silhouette and casts to each sample; if the occluded fraction is below
         // this threshold (0..1) the obstruction is ignored, so thin poles / rails that leave most of the
@@ -112,6 +111,12 @@ namespace TPVCamera
         // real eye and the head is hidden by the game's own first-person rig, until the camera has this much room
         // plus a small margin again. 0 = OFF. Live-editable.
         std::atomic<float> head_clearance{0.35f};
+        // Close-up fade: instead of the first-person switch above, the character dithers out as the camera closes in on
+        // it (from HeadClearance plus a band down to HeadClearance), so the view never jumps to the eye. Needs the
+        // character fade hook; without it the first-person switch stays.
+        std::atomic<bool> close_up_fade{true};
+        // How much of the character always stays in the close-up fade: 0 (he can vanish) .. 1 (he stays solid).
+        std::atomic<float> close_up_fade_min_opacity{0.25f};
 
         // State-driven camera policy (see game_state.hpp). Each mask is a GameState bit set parsed
         // from a comma-separated INI token list, read on the per-frame detour and the input thread.
