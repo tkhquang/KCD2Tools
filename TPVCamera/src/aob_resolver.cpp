@@ -372,6 +372,7 @@ namespace TPVCamera
             code_ladder("GetAuxGeom", Aob::k_getAuxGeomCandidates, Role::Entry),
             code_ladder("AuxSetFlags", Aob::k_auxSetFlagsCandidates, Role::Site),
             code_ladder("AuxDrawLines", Aob::k_auxDrawLinesCandidates, Role::Entry),
+            code_ladder("CRenderProxyRender", Aob::k_proxyRenderCandidates, Role::Entry),
         };
         static_assert(std::size(k_anchors) == k_anchor_count, "k_anchors must hold one entry per AnchorId.");
 
@@ -401,6 +402,7 @@ namespace TPVCamera
         // The trail also follows the shots the RangedAim hooks record, so a trail needs both gates.
         constexpr AnchorId k_ranged_trail_anchors[] = {AnchorId::ArrowCollision, AnchorId::GetAuxGeom,
                                                        AnchorId::AuxSetFlags, AnchorId::AuxDrawLines};
+        constexpr AnchorId k_character_fade_anchors[] = {AnchorId::ProxyRender};
 
         /// One feature gate: its log name and the anchors it depends on.
         struct FeatureSpec
@@ -430,6 +432,7 @@ namespace TPVCamera
             {"CrouchedAnimations", k_crouched_animation_anchors},
             {"RangedAim", k_ranged_aim_anchors},
             {"RangedTrail", k_ranged_trail_anchors},
+            {"CharacterFade", k_character_fade_anchors},
         }};
 
         constexpr std::size_t k_max_feature_anchors = 6;
@@ -448,6 +451,7 @@ namespace TPVCamera
             AnchorId::OverlayHide,      AnchorId::OverlayShow,         AnchorId::MenuOpen,
             AnchorId::MenuClose,        AnchorId::PhysEntMovement,     AnchorId::FireProjectile,
             AnchorId::ProjectileLaunch, AnchorId::ArrowCollision,      AnchorId::SegmentBoxPoint,
+            AnchorId::ProxyRender,
         };
 
         // Room after the startup pass for the function-scoped anchors resolve_turn_decision_layout() (six) and

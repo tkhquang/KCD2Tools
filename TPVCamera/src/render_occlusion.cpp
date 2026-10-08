@@ -1208,12 +1208,16 @@ namespace TPVCamera
         }
 
         // Throttle: the cloth is a STATIC brush, so the octree query + sightline ray-march is re-run only when
-        // the camera has moved more than RENDER_OCCLUSION_REQUERY_DIST from the last query; otherwise the cached
-        // clear distance is reused (the collision easing still runs smoothly). This collapses the per-frame
-        // cost to ~nothing while standing still. Single render-thread caller, so plain statics are race-free.
+        // the camera has moved more than RENDER_OCCLUSION_REQUERY_DIST from the last query. This collapses the
+        // per-frame cost to ~nothing while standing still. In between, the clamp follows the arm: the query's stop
+        // point is kept as a world height, and the clear distance is where the current arm, which rises toward the
+        // camera here, reaches that height. A cached distance would hold the camera at a stale distance while the
+        // arm swings up or down under a canopy and then step it at the next query. Single main-thread caller, so
+        // plain statics are race-free.
         static bool s_cache_valid = false;
         static Vector3 s_cache_cam{};
-        static float s_cache_block = k_cloth_unavailable;
+        static bool s_cache_roof = false;   // the last query found cloth on the sightline
+        static float s_cache_roof_z = 0.0f; // world height of the point where that cloth stopped the camera
 
         const float requery_d2 = Constants::RENDER_OCCLUSION_REQUERY_DIST * Constants::RENDER_OCCLUSION_REQUERY_DIST;
         if (!s_cache_valid || (camera - s_cache_cam).magnitude_squared() > requery_d2)
@@ -1244,7 +1248,8 @@ namespace TPVCamera
                 }
             }
 
-            s_cache_block = block;
+            s_cache_roof = block < k_cloth_unavailable;
+            s_cache_roof_z = hit.roof_z;
             s_cache_cam = camera;
             s_cache_valid = true;
 
@@ -1266,12 +1271,20 @@ namespace TPVCamera
             }
         }
 
-        // The cached clear distance IS the allowed camera distance from the pivot: cloth occludes beyond it.
-        if (s_cache_block >= desired)
+        if (!s_cache_roof)
         {
-            return std::nullopt; // no cloth on the sightline within reach
+            return std::nullopt; // no cloth on the sightline
         }
-        return s_cache_block;
+        // The camera sits above the pivot (the fast reject above), so the arm rises and meets the stop height once.
+        // The clear distance is the allowed camera distance from the pivot: cloth occludes beyond it. A stop height
+        // at or below the pivot means the character now stands in the cloth, which no pull-in helps (the same rule
+        // cloth_sightline_block_distance applies to a vertex).
+        const float block = (s_cache_roof_z - pivot.z) * desired / (camera.z - pivot.z);
+        if (block <= 0.0f || block >= desired)
+        {
+            return std::nullopt;
+        }
+        return block;
     }
 
     float render_coverage_at(const Vector3 &hit_point, const Vector3 &pivot, const Vector3 &to_camera)
