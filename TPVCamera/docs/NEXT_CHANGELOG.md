@@ -13,3 +13,5 @@
 - Running right after aiming or crouching steers with the camera again.
 - The camera no longer jiggles when you swing it up and down next to a market stall, a roof edge or a counter.
 - When the camera has no room behind Henry (a wall right behind, a low doorway), Henry fades out instead of the view jumping to first person. He never disappears completely: a quarter of him stays by default (CloseUpFadeMinOpacity). His shadow stays. CloseUpFade turns this off.
+- Everything Henry wears and holds fades out with him: the weapons in his hands and on his belt and back, a drawn bow and the arrow on it, a crossbow, the quiver and the shield.
+- His eyes, eyelashes, hair, beard and the thin wet film over his eyes fade out with him too, so his head stays shown instead of being switched off. The game prepares the shaders they fade with in the background while you play in third person, once after installing or updating (up to about a minute of play), so the first close-up normally finds them ready; a close-up before that hides his head instead.

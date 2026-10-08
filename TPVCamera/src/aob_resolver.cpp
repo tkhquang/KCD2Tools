@@ -331,6 +331,26 @@ namespace TPVCamera
                          OperandKind::MemoryDisplacement, 0, k_vtable_offset_range);
         const Anchor *const k_get_physics_slot_votes[] = {&k_get_physics_slot_launch, &k_get_physics_slot_fire_ray};
 
+        // The CryPak slots the shader twins read the stock shader headers through: the shader-binary loader and the
+        // .ext loader each call them on g_env->pCryPak, and both must decode the same slot.
+        const Anchor k_pak_open_slot_bin = code_operand("PakOpenSlot.BinLoader", Aob::k_pakOpenSlotBinCandidates,
+                                                        OperandKind::MemoryDisplacement, 0, k_vtable_offset_range);
+        const Anchor k_pak_open_slot_ext = code_operand("PakOpenSlot.ExtLoader", Aob::k_pakOpenSlotExtCandidates,
+                                                        OperandKind::MemoryDisplacement, 0, k_vtable_offset_range);
+        const Anchor *const k_pak_open_slot_votes[] = {&k_pak_open_slot_bin, &k_pak_open_slot_ext};
+
+        const Anchor k_pak_read_slot_bin = code_operand("PakReadSlot.BinLoader", Aob::k_pakReadSlotBinCandidates,
+                                                        OperandKind::MemoryDisplacement, 1, k_vtable_offset_range);
+        const Anchor k_pak_read_slot_ext = code_operand("PakReadSlot.ExtLoader", Aob::k_pakReadSlotExtCandidates,
+                                                        OperandKind::MemoryDisplacement, 0, k_vtable_offset_range);
+        const Anchor *const k_pak_read_slot_votes[] = {&k_pak_read_slot_bin, &k_pak_read_slot_ext};
+
+        const Anchor k_pak_close_slot_bin = code_operand("PakCloseSlot.BinLoader", Aob::k_pakCloseSlotBinCandidates,
+                                                         OperandKind::MemoryDisplacement, 0, k_vtable_offset_range);
+        const Anchor k_pak_close_slot_ext = code_operand("PakCloseSlot.ExtLoader", Aob::k_pakCloseSlotExtCandidates,
+                                                         OperandKind::MemoryDisplacement, 0, k_vtable_offset_range);
+        const Anchor *const k_pak_close_slot_votes[] = {&k_pak_close_slot_bin, &k_pak_close_slot_ext};
+
         // The registry, indexed by AnchorId. The enumerator order IS this order.
         const Anchor k_anchors[] = {
             root_quorum("GlobalContextPtr", k_context_vote_ptrs),
@@ -371,6 +391,15 @@ namespace TPVCamera
             code_ladder("AuxSetFlags", Aob::k_auxSetFlagsCandidates, Role::Site),
             code_ladder("AuxDrawLines", Aob::k_auxDrawLinesCandidates, Role::Entry),
             code_ladder("CRenderProxyRender", Aob::k_proxyRenderCandidates, Role::Entry),
+            code_ladder("CRenderViewAddRenderObject", Aob::k_addRenderObjectCandidates, Role::Entry),
+            code_ladder("ShaderGenLoad", Aob::k_shaderGenLoadCandidates, Role::Entry),
+            code_ladder("ShaderForName", Aob::k_shaderForNameCandidates, Role::Entry),
+            code_ladder("AdjustFileName", Aob::k_adjustFileNameCandidates, Role::Entry),
+            quorum("PakOpenSlot", k_pak_open_slot_votes, 0, k_vtable_offset_range),
+            quorum("PakReadSlot", k_pak_read_slot_votes, 0, k_vtable_offset_range),
+            quorum("PakCloseSlot", k_pak_close_slot_votes, 0, k_vtable_offset_range),
+            code_ladder("CreatePipelineStates", Aob::k_createPipelineStatesCandidates, Role::Entry),
+            code_ladder("DissolveRtBit", Aob::k_dissolveRtBitCandidates, Role::Data),
         };
         static_assert(std::size(k_anchors) == k_anchor_count, "k_anchors must hold one entry per AnchorId.");
 
@@ -400,6 +429,14 @@ namespace TPVCamera
         constexpr AnchorId k_archery_trail_anchors[] = {AnchorId::ArrowCollision, AnchorId::GetAuxGeom,
                                                         AnchorId::AuxSetFlags, AnchorId::AuxDrawLines};
         constexpr AnchorId k_character_fade_anchors[] = {AnchorId::ProxyRender};
+        constexpr AnchorId k_shader_twins_anchors[] = {
+            AnchorId::Genv,          AnchorId::AddRenderObject, AnchorId::ShaderGenLoad,
+            AnchorId::ShaderForName, AnchorId::AdjustFileName,  AnchorId::PakOpenSlot,
+            AnchorId::PakReadSlot,   AnchorId::PakCloseSlot,    AnchorId::CreatePsos,
+        };
+        // The dissolve's RT-mask bit, apart from the twins: without it the character twins' fading sets are still
+        // built ahead, with the dissolve in their flags only (the stages add the bit from the flags).
+        constexpr AnchorId k_fade_warmup_rt_bit_anchors[] = {AnchorId::DissolveRtBit};
 
         /// One feature gate: its log name and the anchors it depends on.
         struct FeatureSpec
@@ -429,9 +466,11 @@ namespace TPVCamera
             {"ArcheryAim", k_archery_aim_anchors},
             {"ArcheryTrail", k_archery_trail_anchors},
             {"CharacterFade", k_character_fade_anchors},
+            {"ShaderTwins", k_shader_twins_anchors},
+            {"FadeWarmupRtBit", k_fade_warmup_rt_bit_anchors},
         }};
 
-        constexpr std::size_t k_max_feature_anchors = 6;
+        constexpr std::size_t k_max_feature_anchors = 9;
         static_assert(std::ranges::all_of(k_features,
                                           [](const FeatureSpec &spec)
                                           {
@@ -447,6 +486,7 @@ namespace TPVCamera
             AnchorId::OverlayHide,      AnchorId::OverlayShow,         AnchorId::MenuOpen,
             AnchorId::MenuClose,        AnchorId::PhysEntMovement,     AnchorId::FireProjectile,
             AnchorId::ProjectileLaunch, AnchorId::ArrowCollision,      AnchorId::ProxyRender,
+            AnchorId::AddRenderObject,  AnchorId::ShaderGenLoad,       AnchorId::CreatePsos,
         };
 
         // Room after the startup pass for the function-scoped anchors resolve_turn_decision_layout() (six) and

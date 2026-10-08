@@ -23,6 +23,7 @@
 #include "hooks/ui_menu_hooks.hpp"
 #include "hooks/interaction_hook.hpp"
 #include "hooks/player_onaction_hook.hpp"
+#include "hooks/shader_twins.hpp"
 #include "presets/preset_store.hpp"
 #include "overlay/overlay.hpp"
 
@@ -215,6 +216,12 @@ namespace TPVCamera
         // the crosshair target is cast with. Best-effort: a miss leaves the game's own archery aim.
         warn_if_degraded(initialize_archery_hook(gated_anchor_address(Feature::Engine, AnchorId::Genv), s_hooks),
                          "Archery hook initialization failed - arrows keep the game's own aim in third person");
+
+        // The eyes, eyelashes, hair, beard and eye film that fade with the character in the close-up fade.
+        // Best-effort: without it the close-up fade hides the head instead.
+        warn_if_degraded(initialize_shader_twins(s_hooks),
+                         "Shader twin initialization failed - the close-up fade hides the head instead of fading the "
+                         "eyes and hair");
 
         return {};
     }
@@ -541,6 +548,9 @@ namespace TPVCamera
         release_native_turn_animation();
         // Stop re-aiming and tracking shots; the shot detours pass straight through until the hooks retire.
         release_archery();
+        // Unpublish the shader twins' swap set while the hooks are still installed, so the character's items go back
+        // to the stock shaders. The twin shaders stay loaded on purpose.
+        shutdown_shader_twins();
 
         // Join the mod's workers before any hook goes: the INI watcher, so no reload setter runs during teardown, and
         // the overlay render thread, so no UI mutation races the preset flush.
@@ -565,8 +575,10 @@ namespace TPVCamera
         const RetireStatus hooks = s_hooks.retire();
         if (hooks == RetireStatus::Retired)
         {
-            // No detour runs any more, so the zoom tokens the frustum detour read can go.
+            // No detour runs any more, so the zoom tokens the frustum detour read can go, and so can the sets for the
+            // fade a render thread handed the shader twins while they shut down.
             release_zoom_binding_tokens();
+            release_shader_twin_records();
             logger.info("Shutdown: teardown complete");
         }
         return hooks;

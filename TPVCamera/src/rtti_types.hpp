@@ -81,6 +81,20 @@ namespace TPVCamera
         PlayerInput,
         /// wh::entitymodule::C_Decoy, a distraction stone held in the hand or thrown.
         Decoy,
+        /// CRenderProxy, an entity's render node: the player's own and each item the player carries.
+        RenderProxy,
+        /// CCharInstance, a character model: the player's, or a carried bow or crossbow.
+        CharInstance,
+        /// CAttachmentManager, embedded in a CCharInstance, which lists its attachments.
+        AttachmentManager,
+        /// CAttachmentBONE, a socket on a bone that an item entity is bound to.
+        AttachmentBone,
+        /// CEntityAttachment, the binding of an item entity to a bone attachment (it names the item's EntityId).
+        EntityAttachment,
+        /// CEntitySystem (g_env->pEntitySystem), whose entity array resolves an EntityId.
+        EntitySystem,
+        /// CShaderResources, a material's shader resources (textures and constants such as its opacity).
+        ShaderResources,
         /// Enumerator count. Not a class.
         Count,
     };
