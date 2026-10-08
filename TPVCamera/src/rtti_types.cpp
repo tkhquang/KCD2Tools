@@ -55,6 +55,13 @@ namespace TPVCamera
             Constants::C_PARTICLE_ENTITY_RTTI_NAME,
             Constants::C_PLAYER_INPUT_RTTI_NAME,
             Constants::C_DECOY_RTTI_NAME,
+            Constants::C_RENDER_PROXY_RTTI_NAME,
+            Constants::C_CHAR_INSTANCE_RTTI_NAME,
+            Constants::C_ATTACHMENT_MANAGER_RTTI_NAME,
+            Constants::C_ATTACHMENT_BONE_RTTI_NAME,
+            Constants::C_ENTITY_ATTACHMENT_RTTI_NAME,
+            Constants::C_ENTITY_SYSTEM_RTTI_NAME,
+            Constants::CSHADER_RESOURCES_RTTI_NAME,
         }};
 
         // A TypeIdentity is pinned, so a std::vector cannot hold one: a reallocation has to move its

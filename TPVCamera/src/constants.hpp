@@ -474,7 +474,10 @@ namespace Constants
     // CLODVALUE_DISSOLVE_OFFSET to its per-frame render objects with FOB_DISSOLVE (sub_18049E210 from the slot
     // renderer sub_18049F08C). The engine's own LOD crossfade drives the same byte: with LodA set (FOB_DISSOLVE_OUT)
     // a higher byte dithers more of the object away, and for the LOD fading in (LodA -1, LodB set) a lower one does.
-    // The proxy's entity (m_pEntity) identifies the player.
+    // The proxy's entity (m_pEntity) identifies the player. A static slot hands the same parameters to
+    // CStatObj::Render (vtable slot 14, sub_18049E258), which passes their CLodValue to
+    // AddOrCreatePersistentRenderObject (and to its non-persistent path), so a carried static item (a quiver, a sword)
+    // fades through the same raise.
     constexpr ptrdiff_t SRENDPARAMS_LOD_OFFSET = 0xAC;     // CLodValue {i16 lodA, i16 lodB, u8 dissolve}
     constexpr ptrdiff_t CLODVALUE_LOD_A_OFFSET = 0x00;     // int16 current LOD (-1 = none)
     constexpr ptrdiff_t CLODVALUE_LOD_B_OFFSET = 0x02;     // int16 LOD fading in (-1 = none)
@@ -492,6 +495,322 @@ namespace Constants
     // A fade value older than this is ignored, so a faded object comes back on its own when the camera stops setting
     // it (first person, a menu, a reload).
     constexpr uint64_t FADE_STALE_MS = 250;
+
+    // Character attachments (character_attachments.cpp): what the player's character carries, which the close-up fade
+    // dithers out with it. Every carried item (a weapon in the hand or in its holster, the quiver, a shield, a tool) is
+    // an entity of its own, bound to a bone attachment of the character's CCharInstance by a CEntityAttachment that
+    // keeps the item's EntityId. Such an attachment draws nothing itself (its RenderAttachment is empty), so the item
+    // draws through its own CRenderProxy, the render node the CRenderProxy::Render detour raises the dissolve of. An
+    // item that is a character model of its own (a bow, a crossbow) has attachments too: the nocked arrow is bound to
+    // the bow's "arrow" bone and the crossbow's lever to the crossbow. Addresses are the 1.5.6 IDA database's.
+    //
+    // A CEntity's EntityId, and its proxies: an MSVC std::map<uint32 type, IEntityProxy*> whose head (sentinel) node
+    // pointer is at ENTITY_PROXY_MAP_OFFSET (CEntity::GetProxy, vtable slot 74, sub_1805D70C4). The render proxy has
+    // type 0, the smallest key, so when it exists it is the map's leftmost node, the head node's left link. A map
+    // node's uint32 key sits at MSVC_MAP_NODE_KEY_OFFSET, between the sentinel byte and the value.
+    constexpr ptrdiff_t ENTITY_ID_OFFSET = 0x0C;
+    constexpr ptrdiff_t ENTITY_PROXY_MAP_OFFSET = 0xA8;
+    constexpr ptrdiff_t MSVC_MAP_NODE_KEY_OFFSET = 0x20;
+    constexpr std::uint32_t ENTITY_PROXY_TYPE_RENDER = 0;
+    // The map holds the render proxy's IEntityRenderProxy interface, a secondary base of CRenderProxy. The render node
+    // is the primary base, which sits the interface's sub-object offset lower (the engine's own GetCharacter subtracts
+    // it, 1.5.6 sub_1806411AC). That offset is read from the complete object locator in the interface vtable's -1
+    // slot: an MSVC x64 COL has the signature 1 at +0 and the sub-object offset at +4.
+    constexpr ptrdiff_t RTTI_COL_SIGNATURE_OFFSET = 0x00;
+    constexpr ptrdiff_t RTTI_COL_SUBOBJECT_OFFSET = 0x04;
+    constexpr std::uint32_t RTTI_COL_SIGNATURE_X64 = 1;
+    // A render proxy's character, as CEntity::GetCharacter (slot 101) reads it through sub_182103EE0: slot 0 must
+    // exist (a non-null first entry in the slot vector at RENDER_PROXY_SLOTS_BEGIN_OFFSET / _END_OFFSET), then the
+    // proxy's own character at RENDER_PROXY_CHARACTER_OFFSET when it is set, else the slot's (CEntityObject +0x80).
+    // A static item's slot has none.
+    constexpr ptrdiff_t RENDER_PROXY_SLOTS_BEGIN_OFFSET = 0x88;
+    constexpr ptrdiff_t RENDER_PROXY_SLOTS_END_OFFSET = 0x90;
+    constexpr ptrdiff_t RENDER_PROXY_CHARACTER_OFFSET = 0x118;
+    constexpr ptrdiff_t ENTITY_SLOT_CHARACTER_OFFSET = 0x80;
+    // CCharInstance embeds its CAttachmentManager (constructor sub_180ABB0FC, the manager's sub_180ABB01C). The
+    // manager keeps its owner character and its attachments, a vector of IAttachment* (GetAttachmentCount, slot 13:
+    // (end - begin) >> 3).
+    constexpr ptrdiff_t CHAR_INSTANCE_ATTACHMENT_MANAGER_OFFSET = 0x08;
+    constexpr ptrdiff_t ATTACHMENT_MANAGER_OWNER_OFFSET = 0x70;
+    constexpr ptrdiff_t ATTACHMENT_MANAGER_LIST_BEGIN_OFFSET = 0x78;
+    constexpr ptrdiff_t ATTACHMENT_MANAGER_LIST_END_OFFSET = 0x80;
+    // CAttachmentBONE: its socket name (const char*, GetName, slot 2) and its bound IAttachmentObject
+    // (GetIAttachmentObject, slot 28; AddBinding sub_1809DFA14 stores it). Skin and cloth attachments never hold an
+    // entity: their meshes draw inside the owner's own render, which the fade already dissolves.
+    constexpr ptrdiff_t ATTACHMENT_BONE_NAME_OFFSET = 0x10;
+    constexpr ptrdiff_t ATTACHMENT_BONE_OBJECT_OFFSET = 0x20;
+    // CEntityAttachment (constructor sub_1809DFD44): the bound entity's EntityId.
+    constexpr ptrdiff_t ENTITY_ATTACHMENT_ID_OFFSET = 0x08;
+    // The entity system, a CEntitySystem at g_env + GENV_ENTITY_SYSTEM_OFFSET. GetEntity (slot 14, sub_1804B4F98)
+    // splits an EntityId into an index (the low ENTITY_ID_SALT_SHIFT bits, 1 to ENTITY_ID_MAX_INDEX) and a salt (the
+    // bits above), and reads the entry at ENTITY_SYSTEM_ARRAY_OFFSET + index * ENTITY_SYSTEM_ENTRY_STRIDE: a uint16
+    // salt at +0 that must equal the id's, and the CEntity* at ENTITY_SYSTEM_ENTRY_ENTITY_OFFSET, whose own EntityId
+    // must be the one asked for. The walk reads the entry itself instead of calling GetEntity, which takes a reader
+    // count on the array with an interlocked add, a write to game memory.
+    constexpr ptrdiff_t GENV_ENTITY_SYSTEM_OFFSET = 0xA0;
+    constexpr ptrdiff_t ENTITY_SYSTEM_ARRAY_OFFSET = 0x200;
+    constexpr ptrdiff_t ENTITY_SYSTEM_ENTRY_STRIDE = 0x18;
+    constexpr ptrdiff_t ENTITY_SYSTEM_ENTRY_ENTITY_OFFSET = 0x10;
+    constexpr std::uint32_t ENTITY_ID_INDEX_MASK = 0x3FFFF;
+    constexpr int ENTITY_ID_SALT_SHIFT = 18;
+    constexpr std::uint32_t ENTITY_ID_MAX_INDEX = 0x3FFFD;
+    constexpr const char *C_RENDER_PROXY_RTTI_NAME = ".?AVCRenderProxy@@";
+    constexpr const char *C_CHAR_INSTANCE_RTTI_NAME = ".?AVCCharInstance@@";
+    constexpr const char *C_ATTACHMENT_MANAGER_RTTI_NAME = ".?AVCAttachmentManager@@";
+    constexpr const char *C_ATTACHMENT_BONE_RTTI_NAME = ".?AVCAttachmentBONE@@";
+    constexpr const char *C_ENTITY_ATTACHMENT_RTTI_NAME = ".?AUCEntityAttachment@@";
+    constexpr const char *C_ENTITY_SYSTEM_RTTI_NAME = ".?AVCEntitySystem@@";
+    // The walk's limits: carried items kept (the character fade's detour compares each drawn proxy against this many),
+    // attachments read per character (the player's has about fifty), how deep carried characters are followed (the
+    // character, a bow on it, an arrow on the bow), and how many characters are walked in all.
+    constexpr int CHARACTER_FADE_MAX_CARRIED = 16;
+    constexpr int CHARACTER_ATTACHMENT_SCAN_CAP = 128;
+    constexpr int CHARACTER_ATTACHMENT_MAX_DEPTH = 3;
+    constexpr int CHARACTER_ATTACHMENT_MAX_CHARACTERS = 8;
+
+    // Shader twins (hooks/shader_twins.cpp): the character's items that draw again in a forward pass that ignores the
+    // dissolve (the eyes with the stock Eye shader; the eyelashes, beard, hair and a hood's hair cards with Hair; the
+    // wet film over the eyes, a transparent Illum item) draw with twins of those stock shaders that apply it, so they
+    // fade with him in the close-up fade. Every value below was read in the 1.5.6 IDA database (addresses are IDA's,
+    // image base 0x180000000) unless it says live, which means read with Cheat Engine in the running 1.5.6 Steam game.
+    //
+    // Distinct source shader instances with a twin, one per kind and material gen mask (the textures a material holds
+    // can split one further). The AddRenderObject detour scans the entries in use for an item's shader.
+    constexpr int SHADER_TWIN_MAX_SOURCES = 128;
+    // A published swap set older than this is ignored, so the character's items go back to the stock shaders on their
+    // own when the camera stops updating it (a menu, a reload).
+    constexpr uint64_t SHADER_TWIN_STALE_MS = 250;
+    // A twin whose parse has not finished after this long is given up for the session.
+    constexpr float SHADER_TWIN_TIMEOUT_SECONDS = 30.0f;
+    // How long the first-use preparation waits before it asks again for an engine interface that is not up yet.
+    constexpr uint64_t SHADER_TWIN_PREPARE_RETRY_MS = 1000;
+    // The stock shaders that get a twin, the twins' names and the stock binaries they were spliced from are the
+    // generated header's k_twins (scripts/build_shader_twins.py). IShader::GetName returns the name an instance was
+    // created with in lower case (live), so names are compared without case. mfForName hands the .ext loader the name
+    // it was given (sub_1807E9088 at 0x1807E91D7), so the loader detour knows a twin by its name.
+    //
+    // The Eye twin's forward pixel shaders apply the dissolve (the stock ones never do, so the eyes stayed solid in a
+    // dithered face). Its items are the character's own: the head skin attachment builds one temporary render object
+    // per frame (CAttachmentSKIN::RenderAttachment sub_1804A3C80) whose flags at +0x00 take the SRendParams flags
+    // (0x1804A3F77), where the dissolve byte the close-up fade raises set FOB_DISSOLVE (sub_18049E210), and draws every
+    // chunk of the head (the eyes included) through CRenderMesh::Render (sub_1804A4B6C, CRenderMesh vtable +0x1D0) into
+    // AddRenderObject (0x1804A501A). AddRenderObject turns FOB_DISSOLVE into the RT dissolve bit of the object's RT
+    // mask at +0x14 (qword_1850D9538 at 0x1804A52C3), which the compiled object's PSO description carries to every
+    // non-shadow stage (sub_1804279E0 reads +0x14), the forward one included: its PSO build sub_1807C5A20 strips the
+    // bit only in pass 1 (0x1807C5B50 and 0x1807C5E41), and only when the description's flags at +0x14 have 0x20000.
+    // Pass 1 is a second draw in "Scene Forward Opaque" (+0x300, like pass 0) with its own depth state: sub_1807C1BD4
+    // draws lists 0x15 and 0x14 with pass 0 for the items whose object flags lack 0x40000000 (batch flag 0x20 shifted
+    // in sub_1804A68F4), then with pass 1 for those that have it. The recursive pass is pass 2 ("Scene Recursive
+    // Forward Opaque", +0x1BC0), which keeps the bit. The eye draws with pass 0, and "Scene Forward Eye Overlays"
+    // (sub_1807C1FAC) draws with pass 1 without that flag, so the twin's EyePS and EyeOverlayPS are compiled with
+    // %_RT_DISSOLVE exactly while the character dissolves.
+    //
+    // The dissolve's flags: sub_18049E210 (called from CRenderProxy::Render's body at 0x18049F9EF with the SRendParams
+    // CLodValue) sets FOB_DISSOLVE for a non-zero dissolve byte, and FOB_DISSOLVE_OUT too when LodA (+0xAC) is not
+    // negative, which it is for the close-up fade (the byte is raised on the LOD being drawn). It clears
+    // FOB_UPDATED_RTMASK (0x10000) whenever FOB_DISSOLVE changes, so AddRenderObject computes the RT mask again.
+    constexpr ptrdiff_t RENDER_OBJECT_FLAGS_OFFSET = 0x00;
+    constexpr uint64_t RENDER_OBJECT_FLAG_DISSOLVE = 0x10000000;
+    constexpr uint64_t RENDER_OBJECT_FLAG_DISSOLVE_OUT = 0x1000000;
+
+    // CRenderView::AddRenderObject (sub_1804A50A4: view, render element, SShaderItem*, CRenderObject*, const
+    // SRenderingPassInfo*, list, after water) is called directly from CRenderMesh::Render (0x1804A501A), so it is
+    // hooked at its entry. The render object's node (m_pRenderNode) is at +0x30 and its persistent flag at +0x26 (the
+    // not-ready path invalidates only a persistent object). A temporary object's compiled object keeps only the item's
+    // shader and resources pointers (sub_1804A6104), so a stack copy of the item with another shader is safe to pass.
+    constexpr ptrdiff_t RENDER_OBJECT_NODE_OFFSET = 0x30;
+    constexpr ptrdiff_t RENDER_OBJECT_PERSISTENT_OFFSET = 0x26;
+    // CCompiledRenderObject::Compile (sub_180429534) builds a pipeline-state description from the object's shader
+    // item and hands it to CreatePipelineStates (sub_18071D8B4: pipeline, the object's PSO array, the description, the
+    // resources' local PSO cache, the shadow flag; its only call is 0x180429AC0). That fills the depth, G-buffer,
+    // forward and custom-stage slots of the 20-slot PSO array at +0x70; the object's CRenderObject is at +0x118. The
+    // description is a 0x38-byte stack copy the call rewrites as it goes: the CShader at +0x00 (the twin, for a
+    // swapped item) and the RT mask at +0x20. The PSO factory (sub_18071F508) hands back a PSO object even when a
+    // shader it needs is not compiled yet; that PSO stays invalid, its byte at +0x38 zero, until the renderer creates
+    // it again in place once the shader exists (sub_180C185C8, every frame), and the draw skips each pass whose PSO is
+    // invalid (sub_180502790 at 0x18050283C). A PSO's reference count is the dword at +0x0C (released by
+    // sub_1807C61E0). The first compile of a twin permutation can take seconds, during which the item would lose those
+    // passes, so an item keeps its stock PSOs until every pass the stock draws has a valid twin PSO.
+    constexpr ptrdiff_t COMPILED_OBJECT_PSO_OFFSET = 0x70;
+    constexpr int COMPILED_OBJECT_PSO_SLOTS = 20;
+    constexpr ptrdiff_t COMPILED_OBJECT_RENDER_OBJECT_OFFSET = 0x118;
+    //
+    // The description (sub_1804279E0 fills it, sub_180427B0C copies it for the call): the CShader at +0x00, the
+    // resources at +0x08, the technique at +0x10, the item's preprocess flags at +0x14, the RT mask at +0x20 (the
+    // render object's 32-bit mask at +0x14 plus the tessellation and instancing bits Compile adds), the render object's
+    // flags at +0x28, the stage id CreatePipelineStates writes as it goes at +0x30 (-1 on entry), and geometry bytes up
+    // to +0x37. Between a build of a character item that does not dissolve and one that does, only the flags and the RT
+    // mask differ: the flags gain FOB_DISSOLVE and FOB_DISSOLVE_OUT, and the RT mask the dissolve bit, which
+    // AddRenderObject ORs in for FOB_DISSOLVE (DISSOLVE_RT_BIT anchor; 0x10 live, read from WHGame+0x50D9538). Batch
+    // flags (sub_1804A68F4) and the description's other fields do not read FOB_DISSOLVE, Compile strips the bit only
+    // for a shadow pass (sub_1804279D0, pass type 2), and the stages read the flags again (sub_1807C6214 ORs the same
+    // dissolve bit for FOB_DISSOLVE; none reads FOB_DISSOLVE_OUT), so a description changed in those two fields asks
+    // the PSO factory for exactly the permutations the fading build asks for. CreatePipelineStates keys the resources'
+    // local PSO cache (sub_18071DD00) by the whole description, so the fading build finds that set there too.
+    constexpr std::size_t PSO_DESC_SIZE = 0x38;
+    constexpr ptrdiff_t PSO_DESC_RESOURCES_OFFSET = 0x08;
+    constexpr ptrdiff_t PSO_DESC_RT_MASK_OFFSET = 0x20;
+    constexpr ptrdiff_t PSO_DESC_OBJECT_FLAGS_OFFSET = 0x28;
+    constexpr ptrdiff_t PSO_REF_COUNT_OFFSET = 0x0C;
+    constexpr ptrdiff_t PSO_VALID_OFFSET = 0x38;
+    // A PSO's state dword at +0x08: its (re)creation (sub_1807B9754) clears bit 0 and the valid byte on entry, and sets
+    // bit 0 once its shaders exist and the D3D12 creation is queued (0x1807B9D8F); the creation (sub_18059E428) then
+    // sets the valid byte when it succeeds. So a PSO that is not valid with bit 0 set is about to draw, and one with
+    // bit 0 clear is waiting for a shader to compile or belongs to a pass that never draws. Each (re)creation also adds
+    // 4 to the dword (bits 2 and up count the attempts). The factory tries every PSO whose shaders are still compiling
+    // again each frame (sub_180C185C8: a creation that returns 1 stays on the list) and drops one whose creation fails
+    // for good (sub_181E12AD0), so a PSO that is not valid and whose count still moves is waiting for a compile.
+    constexpr ptrdiff_t PSO_STATE_OFFSET = 0x08;
+    constexpr uint32_t PSO_STATE_QUEUED = 0x1;
+    constexpr uint32_t PSO_STATE_ATTEMPTS_MASK = ~0x3u;
+    // A set for the fade still waiting for its twin's PSOs after this long is logged once: a twin permutation that
+    // failed to compile never becomes valid.
+    constexpr float SHADER_TWIN_PSO_WAIT_LOG_SECONDS = 20.0f;
+    // A skin attachment's temporary render object takes its compiled objects from a pool kept per attachment while
+    // wh_r_SemiPersistentCompiledObjectsDuration is set (sub_1804A38CC puts the pool's iterator at the render object's
+    // +0x100 for the draw), one pool per frame parity, LOD and main or shadow view (sub_181DF1530), so the shadow pass
+    // keeps compiled objects of its own. A pooled compiled object whose element, shader and resources match the item
+    // is reused without a PSO build (sub_1804A6104 marks only its constants dirty, 0x1804A6190); another shader, or a
+    // change of the object's flags under 0xDFD60000 (FOB_DISSOLVE and FOB_DISSOLVE_OUT among them, sub_181DF0F50),
+    // rebuilds it whole. A pooled object that kept its stock PSOs would keep them for as long as its item stays the
+    // same, so the character twins are warmed up before the first close-up. In third person the character's items
+    // name their twin whether or not he dissolves (the twin draws exactly like the stock shader at no dissolve), and a
+    // build of one that does not dissolve keeps the stock PSOs and builds aside, in local arrays, the twin's and the
+    // stock's sets for the same item as the close-up fade will ask for them (the description with FOB_DISSOLVE,
+    // FOB_DISSOLVE_OUT and the dissolve RT bit), which asks the engine to compile the twin's dissolving permutations.
+    // The render threads share a table of the descriptions built aside, so the same set is never built twice, and
+    // the main thread holds each set until it can draw. A twin turns warm once every set of it can draw and stays warm
+    // until a fading build turns it cold; only then do its items keep the twin while they dissolve. Until then they
+    // take the stock shader for the fade, and a dissolving build of one also builds the twin's set aside (once per
+    // description, like the others). A dissolving build of an item that names the twin is checked: one whose
+    // permutation is not compiled (an RT mask no warm-up saw, a quality change) keeps the stock PSOs and turns the twin
+    // cold, so its items go back to the stock shader for the fade, rebuild, and warm it up again. The dissolving eyes
+    // and hair are never left undrawn while a permutation compiles.
+    // The warm-up sets the main thread keeps at once, one per distinct description: the character's two Eye items,
+    // about five hood and hair items, two beard items, the eyelashes and the eye film, a multi-pass hair item once per
+    // chained technique, and room for the other RT masks and LODs his items take over a session. A warm set holds no
+    // PSO and is the first to make room.
+    constexpr int CHARACTER_WARM_MAX_ENTRIES = 128;
+    // Slots of the render threads' table of the descriptions already built aside (a power of two), and how far one
+    // lookup probes. A full table builds nothing more aside; the dissolving builds still warm up through the checked
+    // and stock paths.
+    constexpr std::size_t CHARACTER_WARM_KEY_SLOTS = 512;
+    constexpr std::size_t CHARACTER_WARM_KEY_PROBES = 32;
+    // A character twin's source counts as on the character's current items this long after a render job last saw one
+    // of them; eye_fade_ready() and character_fade_ready() need every such source warm. While no source was seen this
+    // recently (the character is not drawn), the readiness keeps its last value.
+    constexpr uint64_t CHARACTER_TWIN_RECENT_MS = 500;
+    // A twin turned cold by a fading build whose sets never reached the main thread (the hand-over queue was full)
+    // stays cold this long, after which its warm sets count again and the next fading build checks it once more.
+    constexpr uint64_t CHARACTER_TWIN_COLD_HOLD_MS = 2000;
+    // The character twins' kept sets belong to the materials of one level or save: once the character's render node
+    // is another one for this many camera frames in a row (a load made a new one), the sets of the old node are dropped
+    // and the key table is emptied. The sets built for the new node in those frames stay (his items take the twins at
+    // once, and their pooled compiled objects are not built again while he stays at rest), and their keys are taken
+    // again.
+    constexpr int CHARACTER_ROOT_SETTLE_FRAMES = 30;
+    // A character twin's set for the fade that cannot draw is given up with its twin for the session once it has not
+    // been able to for this long and over this many polls in a row (camera frames, so the time a minimised game spends
+    // without frames gives nothing up on its own): its twin build failed, or a pass its stock set draws has no twin PSO
+    // or one the PSO factory no longer creates again (not valid, not queued, its attempt count standing still). The
+    // factory takes a PSO off its list for every creation result but 1, the one for shaders still compiling
+    // (sub_181E12AD0 and sub_181E12B60, which sub_180C185C8 runs for each PSO of the list every frame), so such a
+    // permutation failed for good. A count that keeps moving still compiles and is waited for, however long the first
+    // run takes.
+    constexpr uint64_t CHARACTER_TWIN_GIVE_UP_MS = 20000;
+    constexpr int CHARACTER_TWIN_GIVE_UP_POLLS = 300;
+    // SShaderItem is 32 bytes in this build: the shader, the IRenderShaderResources, the technique (int), the
+    // preprocess flags (-1 while not set up), then eight bytes the stock EF_LoadShaderItem zeroes.
+    constexpr std::size_t SHADER_ITEM_SIZE = 0x20;
+    // Render nodes the swap set names: the character's own render proxy and the carried items' the attachment walk
+    // lists (CharacterNodes). An item of a temporary render object that names one of them at RENDER_OBJECT_NODE_OFFSET
+    // swaps to its twin; every other character keeps the stock shaders.
+    constexpr int CHARACTER_TWIN_MAX_NODES = 1 + CHARACTER_FADE_MAX_CARRIED;
+    // CShader m_Flags2 (uint32 at +0x98; the render list select sub_1804A6C00 reads it as v8[38]). EF2_HAIR sends an
+    // item to the transparent list (0x1804A6DBE), where the forward stage draws it with the hair pass state, so a Hair
+    // twin whose parse did not keep its source's bit (Hair.cfx's global script names it, and the twin keeps that
+    // script token for token) would lose its hair layers; such a twin is given up.
+    constexpr ptrdiff_t SHADER_FLAGS2_OFFSET = 0x98;
+    constexpr uint32_t SHADER_FLAG2_HAIR = 0x800000;
+    // IRenderShaderResources::GetStrengthValue(slot), CShaderResources vtable slot 7 (sub_18053FA30: a read of the
+    // material's constants, no side effects), with EFTT_OPACITY. sub_1804A6C00 makes the same call on the render job
+    // (0x1804A6F4E) and sends an item whose value is below 1 to the transparent list, so only such an Illum item (the
+    // eye film, a spectacles' glass) swaps to the IllumFade twin; an opaque one (the clothes) keeps the stock shader.
+    constexpr ptrdiff_t SHADER_RESOURCES_VTABLE_GET_STRENGTH_OFFSET = 0x38;
+    constexpr int SHADER_RESOURCES_OPACITY_SLOT = 11;
+    // A multi-pass Hair item (the beard, the hood's hair) adds one item per chained technique (HairFrontPass,
+    // HairBackPass, after General; AddRenderObject 0x1804A5384), each with a compiled object of its own whose warm-up
+    // set can arrive frames after the others. A twin turns warm only once every set of it has been able to draw for
+    // this long, so one that arrives late and still compiles holds the twin back instead of turning it cold again at
+    // its first fade.
+    constexpr uint64_t CHARACTER_TWIN_SETTLE_MS = 200;
+    // The user shader cache's folders of compiled shaders, one per stage; an entry is "<shader name>@<entry>". The mod
+    // deletes the ones of its own twins that this build does not ship (another CRC in the name) and nothing else.
+    constexpr std::string_view SHADER_COMPILED_CACHE_DIRS[] = {"cgcshaders", "cgdshaders", "cggshaders",
+                                                               "cghshaders", "cgpshaders", "cgvshaders"};
+
+    // CShader (vtable 0x183AA44B8, RTTI below, 0x148 bytes from sub_180D9FE44). IShader slot 2 AddRef increments the
+    // reference count at +0x5C and slot 1 GetID returns +0x60, the id the persistent key packs into 11 bits
+    // (sub_180D9FD98 refuses ids from 0x800 on). +0x70 is the CCryNameR resource name ("vegetation(x2)(2404800020)"
+    // live), and slot 4 GetName returns the string at +0x88, the name the instance was created with ("vegetation"
+    // live). Slot 6 GetFlags returns +0x94, where EF_NOTFOUND (0x10000) marks a shader whose binary did not load. The
+    // techniques are a TArray at +0xA8 with its count at +0xB0 (7 or 8 per live instance), the instance's final gen
+    // mask is at +0xC0 (sub_1807E9088), and +0x128 is the template every instance of the name shares. The parse runs as
+    // a render command (sub_181390424) and sets EF_LOADED (0x100) at 0x1813904D7 once it returned (a failed load sets
+    // EF_NOTFOUND first, then this too). The technique count is final before that, while the parse still writes each
+    // technique's pass links and flags (sub_1807C7900) and the texture-slot links, so only this bit says it is done.
+    constexpr ptrdiff_t SHADER_REF_COUNT_OFFSET = 0x5C;
+    constexpr ptrdiff_t SHADER_ID_OFFSET = 0x60;
+    constexpr ptrdiff_t SHADER_RESOURCE_NAME_OFFSET = 0x70;
+    constexpr ptrdiff_t SHADER_NAME_OFFSET = 0x88;
+    constexpr ptrdiff_t SHADER_FLAGS_OFFSET = 0x94;
+    constexpr uint32_t SHADER_FLAG_LOADED = 0x100;
+    constexpr uint32_t SHADER_FLAG_NOT_FOUND = 0x10000;
+    constexpr ptrdiff_t SHADER_TECHNIQUE_COUNT_OFFSET = 0xB0;
+    constexpr ptrdiff_t SHADER_GEN_MASK_OFFSET = 0xC0;
+    constexpr uint32_t SHADER_MAX_ID = 0x800;
+    // CShader's feature word (uint16 at +0x9C, vtable slot 10 returns it). The parse (sub_180883200, inside the parse
+    // command before EF_LOADED is set) fills it from the shader's own defines (sub_18091B280; sub_180919140: 0x4 for
+    // FEATURE_COUNT, 0x8 for DECAL_ATLAS_SIZE) and from its name: 0x80 when it is "illum", 0x100 when "humanskin"
+    // (sub_180919140 at 0x1809191AF). The forward stage's PSO build (sub_1807C5A20, from sub_18071D4FC in every
+    // non-shadow CreatePipelineStates) builds no forward PSO for a shader with 0x80 unless its resources ask for
+    // forward shading, so an Illum twin, whose name is not "illum", would build and compile forward permutations its
+    // source never has. A twin gets the bits its source has once its parse finished, before any item draws with it.
+    constexpr ptrdiff_t SHADER_FEATURE_FLAGS_OFFSET = 0x9C;
+    constexpr const char *CSHADER_RTTI_NAME = ".?AVCShader@@";
+    constexpr const char *CSHADER_RESOURCES_RTTI_NAME = ".?AVCShaderResources@@";
+    // CShaderMan::mfForName (sub_1807E8FE4: manager, name, flags, resources, gen mask) returns the CShader with a
+    // reference added and queues its parse. The material path (sub_1807E8B40 -> EF_LoadShaderItem sub_1807E8CCC) calls
+    // it with flags 0, the material's CShaderResources and its gen mask, which the instance creator adjusts for the
+    // textures the resources hold (sub_1807E95EC) before it stores the result at +0xC0.
+    constexpr uint32_t SHADER_LOAD_FLAGS_MATERIAL = 0;
+    // CD3D9Renderer m_cEF, the CShaderMan (EF_LoadShaderItem's thunk sub_1807E8C80 adds 0xF00), proven by its
+    // m_ShadersPath (char *) at +0x1F8, "Shaders/HWScripts/" live.
+    constexpr ptrdiff_t RENDERER_SHADER_MAN_OFFSET = 0xF00;
+    constexpr ptrdiff_t SHADER_MAN_SHADERS_PATH_OFFSET = 0x1F8;
+    constexpr std::string_view SHADER_MAN_SHADERS_PATH = "Shaders/HWScripts/";
+
+    // ICryPak (g_env + 0x50, CCryPak, RTTI below). AdjustFileName(source, char destination[0x800], flags) is vtable
+    // slot 1 (sub_180461DFC) and resolves an alias such as %USER% to the real path. FOpen(name, mode, flags),
+    // FReadRaw(data, length, count, file) and FClose(file) are read from the engine's own calls (the shader-binary
+    // loader sub_1809183EC and the .ext loader sub_1806A1340); they decode to slots 36, 38 and 55 on Steam 1.5.6, GOG
+    // 1.5 and Game Pass 1.4, and live.
+    constexpr ptrdiff_t GENV_CRY_PAK_OFFSET = 0x50;
+    constexpr const char *CRY_PAK_RTTI_NAME = ".?AVCCryPak@@";
+    constexpr ptrdiff_t CRY_PAK_VTABLE_ADJUST_FILE_NAME_OFFSET = 1 * 8;
+    constexpr std::size_t CRY_PAK_MAX_PATH = 0x800;
+    constexpr uint32_t CRY_PAK_FLAGS_PATH_REAL = 0x10000;
+    constexpr uint32_t CRY_PAK_FLAGS_FOR_WRITING = 0x800000;
+    // The tokenized shader binaries. The loader (sub_1809182A8) looks a name up in the engine copy first
+    // (%ENGINE%/Shaders/Cache/D3D12/, ShadersBin.pak, FOpen flags 0) and only then in the user directory on disk,
+    // where the mod writes its twin. A binary opens with SShaderBinHeader: 'FXB0', the token CRC the engine checks on
+    // every load at +4, the version 3 and 4 as two words at +8, 28 bytes in all.
+    constexpr const char *SHADER_ENGINE_CACHE_DIR = "%ENGINE%/Shaders/Cache/D3D12/";
+    constexpr const char *SHADER_USER_CACHE_DIR = "%USER%/Shaders/Cache/D3D12/";
+    constexpr std::size_t SHADER_BIN_HEADER_SIZE = 28;
+    constexpr uint32_t SHADER_BIN_MAGIC = 0x30425846; // 'FXB0'
+    constexpr uint16_t SHADER_BIN_VERSION_LOW = 3;
+    constexpr uint16_t SHADER_BIN_VERSION_HIGH = 4;
 
     // Camera-space interaction (door/usable look-at ray redirect)
     // The player interactor (wh::entitymodule::C_PlayerInteractor) selects the "press to use" target by
