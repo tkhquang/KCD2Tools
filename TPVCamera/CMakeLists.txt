@@ -123,7 +123,6 @@ endif()
 # --- Source Files ---
 set(COMMON_SOURCES
   src/aob_resolver.cpp
-  src/character_attachments.cpp
   src/config.cpp
   src/game_interface.cpp
   src/game_state.cpp
@@ -142,7 +141,6 @@ set(COMMON_SOURCES
   src/hooks/ui_overlay_hooks.cpp
   src/hooks/interaction_hook.cpp
   src/hooks/player_onaction_hook.cpp
-  src/hooks/shader_twins.cpp
   src/overlay/overlay.cpp
   src/overlay/dx_overlay.cpp
   src/overlay/overlay_ui.cpp
