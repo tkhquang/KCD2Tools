@@ -699,11 +699,11 @@ namespace Constants
     // The shot's phase while the bow is held fully drawn or the crossbow raised, ready to loose.
     constexpr const char *C_SHOOTING_AIMING_RTTI_NAME = ".?AVC_ActorActionShootingAiming@entitymodule@wh@@";
 
-    // Archery. The player's arrow launches from the bow's "arrow" joint along that joint's axis, never along the
-    // camera, so in third person it misses the screen center by the shoulder parallax. The archery hook re-aims
-    // the shot at the point the crosshair ray hits. CProjectile::Launch(this, pos, dir, velocity, speedScale)
-    // orients the entity from dir but flies it on velocity * speedScale (a pe_params_particle with gravity and
-    // no drag for arrows), so both are rewritten. Field offsets match stock GameSDK CProjectile.
+    // Ranged shots. The player's shot launches from the bow's "arrow" joint along that joint's axis, never along the
+    // camera, so in third person it misses the screen center by the shoulder parallax. The ranged hook re-aims the
+    // shot as the first-person shot at the point the crosshair ray hits. CProjectile::Launch(this, pos, dir,
+    // velocity, speedScale) orients the entity from dir but flies it on velocity * speedScale (a pe_params_particle
+    // with gravity and no drag for arrows), so both are rewritten. Field offsets match stock GameSDK CProjectile.
     // An actor's (and a projectile's) own EntityId, the game object extension's entity id. FireProjectile reads the
     // shooter's here for the projectile owner; the local player's is the stock LOCAL_PLAYER_ENTITY_ID 0x7777.
     constexpr ptrdiff_t ACTOR_ENTITY_ID_OFFSET = 0x30;
@@ -763,12 +763,12 @@ namespace Constants
     constexpr unsigned int RWI_FLAGS_ARROW_BASE =
         RWI_ARROW_COLLTYPES | RWI_COLLTYPE_ANY | RWI_FORCE_PIERCEABLE_NONCOLL | RWI_IGNORE_SOLID_BACK_FACES;
     constexpr int RWI_OBJTYPE_LIVING = 0x8; // ent_living (actor and animal capsules)
-    // How far the crosshair target ray and the landing trace reach. On a miss the shot is aimed from the bow at the
-    // point this far along the crosshair ray, then turned to come down below the crosshair.
-    constexpr float ARCHERY_TARGET_RANGE = 300.0f;
+    // How far the crosshair target ray and the landing trace reach. On a miss the point this far along the crosshair
+    // ray stands in for the crosshair point.
+    constexpr float RANGED_TARGET_RANGE = 300.0f;
     // While mounted, a living body the crosshair ray hits within this many meters of the rider's eye, with the rider
     // inside its world box, is the rider's own horse: the ray skips it and looks on behind it.
-    constexpr float ARCHERY_MOUNT_CLEARANCE = 3.5f;
+    constexpr float RANGED_MOUNT_CLEARANCE = 3.5f;
 
     // Aux geometry (IRenderAuxGeom), used to draw the arrow flight trail. g_env->pRenderer is at GENV_RENDERER_OFFSET;
     // its GetIRenderAuxGeom slot returns the calling thread's CAuxGeomCB. Each slot is validated against the function

@@ -35,7 +35,7 @@
 #include "math_utils.hpp"
 #include "physics_raycast.hpp"
 #include "render_occlusion.hpp"
-#include "hooks/archery_hook.hpp"
+#include "hooks/ranged_hook.hpp"
 #include "hooks/ui_menu_hooks.hpp"
 #include "hooks/player_onaction_hook.hpp"
 #include "presets/preset_runtime.hpp"
@@ -569,7 +569,7 @@ namespace TPVCamera
         float seconds{0.0f};
         /**
          * @brief The frame's second build.
-         * @details Work that must run exactly once per engine frame (the archery step) keys on this flag, not on a
+         * @details Work that must run exactly once per engine frame (the ranged step) keys on this flag, not on a
          *          zero seconds value: the wall-clock fallback returns the small gap for the second build, not 0.
          */
         bool repeat_build{false};
@@ -3173,19 +3173,19 @@ namespace TPVCamera
     }
 
     /**
-     * @brief Runs the archery step once per engine frame (the first of the frame's two builds).
+     * @brief Runs the ranged step once per engine frame (the first of the frame's two builds).
      * @param cview The game view, whose pose holds the first-person eye the crosshair target ray starts beside.
      * @param c_player The live C_Player, or 0.
      * @param repeat_build True on the frame's second build, which skips the step.
      */
-    static void run_archery_frame(uintptr_t cview, uintptr_t c_player, bool repeat_build)
+    static void run_ranged_frame(uintptr_t cview, uintptr_t c_player, bool repeat_build)
     {
         if (repeat_build)
         {
             return;
         }
         const auto eye = DMK::memory::read<Vector3>(DMK::Address{cview + Constants::SVIEWPARAMS_POSITION_OFFSET});
-        archery_frame(c_player, eye ? *eye : Vector3{}, eye.has_value());
+        ranged_frame(c_player, eye ? *eye : Vector3{}, eye.has_value());
     }
 
     /**
@@ -3262,7 +3262,7 @@ namespace TPVCamera
         if (!cam.applying.load(std::memory_order_relaxed) && (forced_fpv | forced_tpv) == 0 &&
             !s_head_was_active.load(std::memory_order_relaxed) && cam.view_blend <= 1e-3f &&
             s_native_turn_actor.load(std::memory_order_relaxed) == 0 &&
-            !archery_wants_frame(cfg.archery_show_aim_preview.load(std::memory_order_relaxed) ? resolve_c_player() : 0))
+            !ranged_wants_frame(cfg.ranged_show_aim_preview.load(std::memory_order_relaxed) ? resolve_c_player() : 0))
         {
             // Even while idle (first person, no forced state), probe for the player until the world is
             // first seen so game_world_ready becomes true in-world REGARDLESS of the third-person view
@@ -3453,8 +3453,8 @@ namespace TPVCamera
             cam.rig_last_orbited = false;
             // Back to first person: the next engaged frame should snap the preset, not ease across the gap.
             Presets::reset_transition();
-            // Arrows loosed in first person are still followed and drawn (the pose is invalid, so none is re-aimed).
-            run_archery_frame(cview, c_player, repeat_build);
+            // Shots loosed in first person are still followed and drawn (the pose is invalid, so none is re-aimed).
+            run_ranged_frame(cview, c_player, repeat_build);
             return;
         }
         s_orbit_was_engaged = true;
@@ -3479,7 +3479,7 @@ namespace TPVCamera
         const float view_s = vb * vb * (3.0f - 2.0f * vb);
         offset_game_view_camera(camera, cview, c_player, step, view_s);
         // After the offset, so the crosshair target is cast from the pose this frame renders.
-        run_archery_frame(cview, c_player, repeat_build);
+        run_ranged_frame(cview, c_player, repeat_build);
     }
 
     /**

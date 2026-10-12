@@ -393,11 +393,11 @@ namespace TPVCamera
         constexpr AnchorId k_turn_decision_anchors[] = {AnchorId::TurnInstalledState};
         constexpr AnchorId k_turn_steps_anchors[] = {AnchorId::PhysEntMovement};
         constexpr AnchorId k_crouched_animation_anchors[] = {AnchorId::AnimIdByCrcSlot, AnchorId::AnimNameHashCall};
-        constexpr AnchorId k_archery_aim_anchors[] = {AnchorId::FireProjectile, AnchorId::ProjectileLaunch,
-                                                      AnchorId::GetPhysicsSlot};
-        // The trail also follows the shots the ArcheryAim hooks record, so a trail needs both gates.
-        constexpr AnchorId k_archery_trail_anchors[] = {AnchorId::ArrowCollision, AnchorId::GetAuxGeom,
-                                                        AnchorId::AuxSetFlags, AnchorId::AuxDrawLines};
+        constexpr AnchorId k_ranged_aim_anchors[] = {AnchorId::FireProjectile, AnchorId::ProjectileLaunch,
+                                                     AnchorId::GetPhysicsSlot};
+        // The trail also follows the shots the RangedAim hooks record, so a trail needs both gates.
+        constexpr AnchorId k_ranged_trail_anchors[] = {AnchorId::ArrowCollision, AnchorId::GetAuxGeom,
+                                                       AnchorId::AuxSetFlags, AnchorId::AuxDrawLines};
 
         /// One feature gate: its log name and the anchors it depends on.
         struct FeatureSpec
@@ -424,8 +424,8 @@ namespace TPVCamera
             {"TurnDecision", k_turn_decision_anchors},
             {"TurnSteps", k_turn_steps_anchors},
             {"CrouchedAnimations", k_crouched_animation_anchors},
-            {"ArcheryAim", k_archery_aim_anchors},
-            {"ArcheryTrail", k_archery_trail_anchors},
+            {"RangedAim", k_ranged_aim_anchors},
+            {"RangedTrail", k_ranged_trail_anchors},
         }};
 
         constexpr std::size_t k_max_feature_anchors = 6;
