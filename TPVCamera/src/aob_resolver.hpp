@@ -915,7 +915,7 @@ namespace TPVCamera
     {
         Camera,              // Frustum: the third-person camera itself
         GameState,           // Context: the camera-manager reads behind menu, combat and mount detection
-        Engine,              // Genv: the engine interfaces (aim convergence, player look, collision, occlusion)
+        Engine,              // Genv: the engine interfaces (crosshair ray, player look, collision, occlusion)
         HeadVisibility,      // HeadVisibility: the player head from behind
         Orbit,               // InputDispatch: free-look orbit
         MoveIntent,          // ActionDispatch: device-agnostic movement intent for orbit move detection

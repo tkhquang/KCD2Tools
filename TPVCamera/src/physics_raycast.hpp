@@ -4,7 +4,7 @@
  *
  * Resolves the engine ray helper and the p_physical_world global once, then exposes a
  * synchronous world raycast used by the camera for collision (keep the view
- * out of geometry) and aim convergence (land the crosshair on the exact world target).
+ * out of geometry) and the ranged crosshair ray (find the world point under the crosshair).
  * Every call is SEH-guarded and degrades to "no hit" if the engine path faults or the
  * physical world is not ready, so a layout or version drift can never crash the game.
  */

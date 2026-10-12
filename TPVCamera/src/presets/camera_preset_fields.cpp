@@ -49,8 +49,8 @@ namespace TPVCamera::Presets
                         "Framing", &CameraPreset::offset_up, -2.0f, 2.0f, 0.01f),
             float_field("offset_right", "Offset Right",
                         "Over-the-shoulder shift, in meters along the camera's right axis (positive = right, 0 = "
-                        "centered behind). A bigger shift increases the crosshair-vs-shoulder parallax, which Aim "
-                        "Focus Distance compensates for.",
+                        "centered behind). The camera looks the way you look, so the crosshair sits this far beside "
+                        "your own line of sight; shots and the use prompt follow the crosshair.",
                         "Framing", &CameraPreset::offset_right, -2.0f, 2.0f, 0.01f),
             float_field("eye_height", "Eye Height",
                         "Height of the camera anchor above your feet, in meters. 0 is special: it anchors to the "
@@ -63,12 +63,6 @@ namespace TPVCamera::Presets
                        "stops floating above you. It eases in and out, and accepts a little head bob in those "
                        "poses. Only applies when Eye Height is non-zero.",
                        "Framing", &CameraPreset::dynamic_eye_sync),
-            float_field("aim_focus_distance", "Aim Focus Distance",
-                        "Affects your aim. The depth, in meters, the centered crosshair is converged to so it lines "
-                        "up with where your shot actually lands. 0 = auto (tracks the follow distance). Set it to "
-                        "your usual engagement range when using a small follow distance with a shoulder offset; a "
-                        "value that is too short or too long makes the crosshair and the real hit point diverge.",
-                        "Framing", &CameraPreset::aim_focus_distance, 0.0f, 30.0f, 0.01f),
             float_field("follow_yaw", "Follow Yaw",
                         "Affects your aim. Statically swings the resting camera left/right around you, in degrees "
                         "(0 = directly behind). This rotates the camera, and because aiming follows the camera it "

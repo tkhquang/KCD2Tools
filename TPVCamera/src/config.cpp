@@ -120,7 +120,7 @@ namespace TPVCamera
         // Advanced: write the built-in signatures and their captured baselines beside the ASI (see aob_resolver.hpp).
         advanced.bind<bool>("ExportSignatures", "Export Signatures", s.export_signatures, false);
 
-        // Camera framing. The follow distance, offsets, eye height, aim focus, follow yaw/pitch, the orbit
+        // Camera framing. The follow distance, offsets, eye height, follow yaw/pitch, the orbit
         // tuning, and the per-preset collision values are all OWNED BY PRESETS (in the shipped presets JSON,
         // applied to the live atomics each frame), so they are NOT INI settings - tune them in the overlay.
         // Only the non-preset, always-live camera options remain here:
@@ -139,7 +139,7 @@ namespace TPVCamera
         // Ranged (non-preset, always-live): third-person shots and distraction stones aimed at the crosshair point,
         // the flight trail, the aim preview and the per-weapon drop.
         ranged.bind<bool>("AimAtCrosshair", "Aim At Crosshair", s.ranged_aim_at_crosshair, true);
-        ranged.bind<float>("MaxAimCorrection", "Max Aim Correction", s.ranged_max_correction, 30.0f);
+        ranged.bind<float>("MaxAimCorrection", "Max Aim Correction", s.ranged_max_correction, 45.0f);
         ranged.bind<bool>("ShowProjectileTrail", "Show Projectile Trail", s.ranged_show_trail, false);
         ranged.bind<float>("ProjectileTrailSeconds", "Projectile Trail Seconds", s.ranged_trail_seconds, 8.0f);
         ranged.bind<bool>("ShowAimPreview", "Show Aim Preview", s.ranged_show_aim_preview, false);

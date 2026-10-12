@@ -69,9 +69,12 @@ namespace TPVCamera
         // Camera-collision carry-over, touched only by the frustum-builder detour (the game's
         // render thread), so it needs no synchronization. The allowed follow distance after the
         // collision raycast, eased so the view pulls in instantly but returns out smoothly.
+        // collision_desired is the uncollided distance that frame, so the shortfall left by an
+        // obstruction can ease out while the desired distance itself moves (a zoom).
         // collision_valid is cleared whenever the offset is suppressed (menu, overlay, view
         // switch) so the next applied frame snaps instead of easing across a suppression gap.
         float collision_distance{0.0f};
+        float collision_desired{0.0f};
         bool collision_valid{false};
         // Seconds remaining to HOLD the pulled-in collision distance after the last blocking
         // hit. A thin ray grazing an edge alternates hit/miss each frame; holding through the
@@ -228,15 +231,15 @@ namespace TPVCamera
         // OrbitHoldKey release on the input thread before it turns free-look off, consumed by the policy's restore,
         // and cleared by every engage (see apply_orbit_exclude_policy). aim_handoff_requested is raised by the frustum
         // detour on the frame the policy turns free-look off in a situation where the game leaves the facing to the
-        // player. rig_last_* describe the previous frame while the orbit rig shaped it: the camera's direction from
-        // the pivot (azimuth and elevation, radians), its turn and rise off that frame's plain rig, and the look yaw
-        // and pitch that put the plain rig there. While aim_handoff_active the camera holds the direction
-        // aim_handoff_azimuth / aim_handoff_elevation, and the look and the body are written to aim_handoff_yaw /
-        // aim_handoff_pitch until the look shows that heading. aim_handoff_seconds is the unpaused time since, and
-        // aim_handoff_written is set once they have been written: the hand-off is not taken as done before that. It
-        // ends without writing when a situation that sets the facing shows up (aim_handoff_cancel), when
-        // aim_handoff_player changes or the body jumps, and when a look write fails. Cleared on suppression;
-        // orbit_suspended belongs to the policy and is not.
+        // player. rig_last_* describe the previous frame while the orbit rig shaped it: the rig's look heading and arm
+        // elevation (the negative of its look pitch), radians, its turn and rise off that frame's plain rig, and the
+        // look yaw and pitch that put the plain rig there. While aim_handoff_active the rig holds the heading and
+        // elevation aim_handoff_azimuth / aim_handoff_elevation, and the look and the body are written to
+        // aim_handoff_yaw / aim_handoff_pitch until the look shows that heading. aim_handoff_seconds is the unpaused
+        // time since, and aim_handoff_written is set once they are written: the hand-off is not taken as done before
+        // that. It ends without a write when a situation that sets the facing shows up (aim_handoff_cancel), when
+        // aim_handoff_player changes or the body jumps, and when a look write fails. Suppression clears the hand-off
+        // state but not orbit_suspended, which belongs to the policy.
         std::atomic<bool> orbit_suspended{false};
         std::atomic<bool> orbit_hold_released{false};
         bool aim_handoff_requested{false};

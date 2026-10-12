@@ -63,22 +63,51 @@ namespace TPVCamera
     // here, before the cull planes are computed, moves the rendered view AND its culling together.
     using FrustumBuildFunc = uintptr_t(__fastcall *)(uintptr_t camera);
 
-    // Eases the camera collision distance toward @p target: a fast pull-IN (so a wall is never clipped) and the
-    // slower configured return-OUT, which stops the camera pumping when an edge-grazing ray hit alternates
-    // near/far frame to frame. Snaps to the target on the first valid frame. Shared by the per-frame easing and
-    // the static-world throttle bypass so the two cannot drift.
-    static void ease_collision_toward(CameraState &cam, float target, float delta_time, float return_speed)
+    // A collision target within this of the desired distance (meters) holds nothing in. The ease and the throttle
+    // cache both compare against it, so a reused result takes the same branch as the frame that computed it.
+    constexpr float k_collision_clear_slack = 1e-4f;
+
+    /**
+     * @brief Eases the camera collision distance toward @p target: a fast pull-in, so a wall is never clipped, and the
+     *        slower configured return-out.
+     * @details The slow return stops the camera pump when a ray that grazes an edge hits and misses on alternate
+     *          frames. The first valid frame snaps to the target. The per-frame ease and the static-world throttle
+     *          bypass share this helper, so the two cannot drift. While nothing holds the camera in (@p target reaches
+     *          @p desired), only the shortfall an earlier obstruction left eases out, measured from @p desired, so a
+     *          zoom or a preset blend moves the camera with the desired distance on the same frame. An ease of the
+     *          distance itself trails the zoom along the pivot-to-camera ray, which carries the shoulder offset, so
+     *          the camera leaves its view axis and slides back onto it.
+     * @param target Allowed distance this frame.
+     * @param desired Uncollided distance this frame.
+     */
+    static void ease_collision_toward(CameraState &cam, float target, float desired, float delta_time,
+                                      float return_speed) noexcept
     {
         if (!cam.collision_valid)
         {
             cam.collision_distance = target;
+            cam.collision_desired = desired;
             cam.collision_valid = true;
             return;
         }
         constexpr float k_pull_in_speed = 25.0f; // near-instant but still smooth
-        const float speed = (target < cam.collision_distance) ? k_pull_in_speed : return_speed;
-        const float blend = (speed > 0.0f) ? (1.0f - std::exp(-speed * delta_time)) : 1.0f;
-        cam.collision_distance += (target - cam.collision_distance) * blend;
+        if (target >= desired - k_collision_clear_slack)
+        {
+            const float shortfall = cam.collision_desired - cam.collision_distance;
+            const float speed = (shortfall > 0.0f) ? return_speed : k_pull_in_speed;
+            const float keep = (speed > 0.0f) ? std::exp(-speed * delta_time) : 0.0f;
+            // The result stays between where the camera sat and the desired distance: a zoom carries the camera no
+            // further in than it sat, and no further out than it sat or than the distance the collision checked.
+            cam.collision_distance = std::clamp(desired - shortfall * keep, std::min(cam.collision_distance, desired),
+                                                std::max(cam.collision_distance, desired));
+        }
+        else
+        {
+            const float speed = (target < cam.collision_distance) ? k_pull_in_speed : return_speed;
+            const float blend = (speed > 0.0f) ? (1.0f - std::exp(-speed * delta_time)) : 1.0f;
+            cam.collision_distance += (target - cam.collision_distance) * blend;
+        }
+        cam.collision_desired = desired;
     }
 
     // Fraction (0..1) of the character that the hit collider hides, with a per-collider cache so a solid the
@@ -420,15 +449,6 @@ namespace TPVCamera
     // closely while shedding the high-frequency view-shake.
     constexpr float k_basis_smooth_min_speed = 8.0f;  // strength 1.0: heaviest damping
     constexpr float k_basis_smooth_max_speed = 60.0f; // strength near 0: barely-there damping
-
-    // Maximum aim-convergence toe-in. The off-axis camera toes in toward the aim focus point by
-    // atan(|OffsetRight| / (focus_distance + follow_distance)); that angle is ALSO the residual crosshair
-    // error for any target past the focus. Bounding it stops a small follow distance combined with a
-    // shoulder offset from swinging the rendered look far off the aim line (the crosshair drifts left, so
-    // the real aim lands to the right). 0.14054 = tan(8 deg); 8 deg leaves typical over-the-shoulder
-    // framing unchanged (FollowDistance 5, OffsetRight 1 toes in only ~5.7 deg) and turns the pathological
-    // FollowDistance 0.5 / OffsetRight 1 case from ~45 deg down to 8 deg.
-    constexpr float k_tan_max_convergence = 0.14054f;
 
     /**
      * @brief Whether the third-person offset should be applied right now.
@@ -1126,13 +1146,68 @@ namespace TPVCamera
     }
 
     /**
+     * @brief Turns the camera rig rigidly about its pivot, the way a spring arm turns with its control rotation.
+     * @details Yaws about world up, then pitches about the horizontal axis square to the yawed look heading. A
+     *          positive pitch raises the camera and tilts the look down by exactly that angle, and the look heading
+     *          and the shoulder axis stay put. The rotation depends only on the look, never on the arm length or the
+     *          shoulder offset, so a follow rig turned this way is the follow rig of the turned look: a change of the
+     *          follow distance then slides the camera straight along its own look and does not swing it.
+     * @param offset Camera offset from the pivot, turned in place.
+     * @param look Camera look direction, turned in place and renormalized.
+     * @param rig_up Camera up direction, turned in place. It gives the heading of a look straight up or down.
+     * @param yaw Turn about world up in radians, counter-clockwise seen from above.
+     * @param pitch Raise of the camera in radians. A positive pitch raises it and tilts the look down.
+     */
+    static void turn_rig(Vector3 &offset, Vector3 &look, Vector3 &rig_up, float yaw, float pitch) noexcept
+    {
+        const float cy = std::cos(yaw);
+        const float sy = std::sin(yaw);
+        const auto yaw_about_z = [cy, sy](const Vector3 &v) noexcept -> Vector3
+        { return Vector3{v.x * cy - v.y * sy, v.x * sy + v.y * cy, v.z}; };
+        offset = yaw_about_z(offset);
+        look = yaw_about_z(look);
+        rig_up = yaw_about_z(rig_up);
+
+        if (pitch < -1e-5f || pitch > 1e-5f)
+        {
+            // A look straight up or down has no heading of its own. Its up vector then leans along the heading:
+            // forward for a look down, backward for a look up.
+            Vector3 heading{look.x, look.y, 0.0f};
+            if (heading.magnitude_squared() < 1e-6f)
+            {
+                heading = Vector3{rig_up.x, rig_up.y, 0.0f} * (look.z < 0.0f ? 1.0f : -1.0f);
+            }
+            if (heading.magnitude_squared() > 1e-6f)
+            {
+                // up x heading points to the left of the heading. A positive turn about it lifts a camera behind the
+                // pivot.
+                const Vector3 axis = Vector3{0.0f, 0.0f, 1.0f}.cross(heading.normalized());
+                const float cp = std::cos(pitch);
+                const float sp = std::sin(pitch);
+                const auto rotate_about_axis = [&axis, cp, sp](const Vector3 &v) noexcept -> Vector3
+                {
+                    const float dot = axis.x * v.x + axis.y * v.y + axis.z * v.z;
+                    return v * cp + axis.cross(v) * sp + axis * (dot * (1.0f - cp));
+                };
+                offset = rotate_about_axis(offset);
+                look = rotate_about_axis(look);
+                rig_up = rotate_about_axis(rig_up);
+            }
+        }
+        if (look.magnitude_squared() > 1e-6f)
+        {
+            look = look.normalized();
+        }
+    }
+
+    /**
      * @brief Offsets the game view camera matrix behind the player and advances zoom/smoothing.
      * @details Reads the eye anchor and orientation from the untouched CView pose (position at
      *          SVIEWPARAMS_POSITION_OFFSET, quat at SVIEWPARAMS_ROTATION_OFFSET), derives the look
      *          basis from the quat (idempotent across same-frame rebuilds), computes the
-     *          third-person pose, then writes the camera matrix translation and (on convergence/
-     *          orbit) basis. The caller is about to compute the cull planes from this matrix, so
-     *          culling matches the rendered view.
+     *          third-person pose, then writes the camera matrix translation and (when the stable basis,
+     *          follow angle or orbit shapes the look) basis. The caller is about to compute the cull
+     *          planes from this matrix, so culling matches the rendered view.
      * @param camera The game view's embedded render camera (matrix at offset 0).
      * @param cview The CView embedding the camera (camera - SVIEWPARAMS_VIEWMATRIX_OFFSET).
      * @param c_player Live C_Player address for the body anchor, or 0 to fall back to the eye anchor.
@@ -1206,7 +1281,7 @@ namespace TPVCamera
         // instead, leveled by level_look_rotation. That aim carries none of the engine view-shake and equals the eye
         // quat at rest. AimBasisSmoothing low-passes it. basis_overridden records whether the basis was shaped at
         // all. When neither feature is active the basis stays the raw eye quat, and the orientation path below is
-        // byte-identical to the convergence/orbit-only behavior (a fail-safe default).
+        // byte-identical to the follow-angle/orbit-only behavior (a fail-safe default).
         Quaternion basis_rotation = eye_rotation;
         bool basis_overridden = false;
         Quaternion look_rotation = eye_rotation;
@@ -1653,111 +1728,37 @@ namespace TPVCamera
         // The real aim is driven AFTER the orbit look is finalized (below), so the heading can be aligned
         // to the camera's forward direction on the idle -> moving edge.
 
-        // Centered base (no shoulder), straight back from the pivot. The shoulder is re-applied
-        // below. The orbit rotation is applied on top, not folded into this base, so the orbit
-        // stays instantly responsive and never accumulates into the follow position. The follow
-        // is instant: the anchor is the de-bobbed body origin, so there is no shake to smooth out.
-        const Vector3 centered_position = pivot - forward * distance;
-
-        // Final camera position with the fixed shoulder applied (the normal, non-orbit pose).
-        Vector3 camera_position = centered_position + lateral_offset;
-
-        // Aim focus point. The off-axis (shoulder/height) camera looks at a point on the aim line so the
-        // screen-centre crosshair lands on what the player points at: focus_point = anchor + forward *
-        // focus_distance, and the camera toes in toward it by ~ shoulder / focus_distance.
-        //
-        // focus_distance auto-tracks the live follow distance, deliberately NOT the per-frame scene depth.
-        // Driving the toe-in from a raycast hit distance is what made the camera rotate toward whatever sat
-        // under the crosshair - the "magnet" on hover, the shake on a swing, the orbit jitter. The toe-in
-        // is ~ shoulder / distance, so any change in the hovered depth rotates the whole view, and no filter
-        // can remove a rotation the mechanism is built to produce. Tying the focus to the follow distance
-        // (which changes only, and slowly, when the player zooms) keeps it decoupled from the scene, so it
-        // is stable by construction: the convergence scales with the zoom (closer follow -> nearer focus)
-        // and the player never has to set a second distance by hand. The focus is built from anchor_base
-        // (the de-bobbed body anchor), not the bobbing first-person eye, so head-bob and weapon-sway never
-        // reach it. The convergence moves only the RENDERED look; the game's own interaction ray is never
-        // touched.
-        // AimFocusDistance pins the convergence depth (0 = auto: track the live follow distance, as the
-        // comment above describes). Then bound the toe-in: a small follow distance with a shoulder offset
-        // would otherwise converge so steeply that the crosshair misses everything past the near focus
-        // (the ~45 deg case at FollowDistance 0.5, OffsetRight 1.0). Raise focus_distance so the toe-in
-        // atan(|offset_right| / (focus_distance + distance)) stays within k_tan_max_convergence.
-        float focus_distance = cfg.aim_focus_distance.load(std::memory_order_relaxed);
-        if (focus_distance <= 0.0f)
-        {
-            focus_distance = distance;
-        }
-        const float shoulder_abs = std::abs(cfg.offset_right.load(std::memory_order_relaxed));
-        if (shoulder_abs > 1e-4f)
-        {
-            const float min_reach = shoulder_abs / k_tan_max_convergence; // lower bound on focus_distance + distance
-            focus_distance = std::max(focus_distance, min_reach - distance);
-        }
-        const bool have_focus = focus_distance > 0.0f;
-        const Vector3 focus_point = anchor_base + forward * focus_distance;
-
-        // Converge the look on the focus point so the off-axis (shoulder/height) camera keeps the
-        // screen-centre crosshair on the aim target: the camera looks straight at the focus point, so
-        // the shoulder/height offset no longer makes the crosshair miss. The orbit below carries this
-        // converged look RIGIDLY (it rotates with the rig), so the crosshair holds its screen position
-        // while free-looking instead of re-aiming at the far focus point each frame.
+        // The follow rig is a spring arm on the look: the camera sits `distance` back from the pivot along the look and
+        // the shoulder offset to its right, and it looks along the look itself, like the first-person view carried back
+        // and to the side. The screen-centre crosshair is therefore parallel to the player's aim line, a shoulder
+        // offset beside it. A walk the way the player looks moves the camera along its own view axis, so what sits
+        // under the crosshair stays there as it does in first person, and a change of the follow distance slides the
+        // camera straight along its look. Ranged shots and the interaction ray are re-aimed onto the crosshair ray by
+        // their own hooks, so the view is not toed in toward the aim line: a toe-in turns the view as the follow
+        // distance changes and slides the crosshair off a target the player walks toward. The orbit rotation is
+        // applied on top, not folded into this base, so the orbit stays instantly responsive and never accumulates
+        // into the follow position. The follow is instant: the anchor is the de-bobbed body origin, so there is no
+        // shake to smooth out.
+        Vector3 camera_position = pivot - forward * distance + lateral_offset;
         Vector3 look_forward = forward;
+        Vector3 look_up = up;
         bool rebuild_basis = false;
-        if (have_focus)
-        {
-            const Vector3 to_focus = focus_point - camera_position;
-            if (to_focus.magnitude() > 1e-4f)
-            {
-                look_forward = to_focus.normalized();
-                rebuild_basis = true;
-            }
-        }
 
-        // Static follow angle: orbit the RESTING camera around the pivot by FollowYaw / FollowPitch
-        // (degrees; 0,0 = directly behind and level). Positive yaw swings the camera to one side, positive
-        // pitch raises it. The offset AND the converged look rotate TOGETHER (same convention as the
-        // free-look orbit below), so the over-the-shoulder framing and crosshair hold while the camera
-        // circles you. The free-look orbit then rotates further on top of this resting angle, and its held base
-        // is turned the same way.
+        // Static follow angle: turn the RESTING rig about the pivot by FollowYaw / FollowPitch (degrees, both 0 =
+        // directly behind and level) with the same spring-arm turn as the free-look orbit below. Positive yaw swings
+        // the camera to one side, positive pitch raises it and tilts the look down. The offset and the look turn
+        // together, so the over-the-shoulder framing holds while the camera circles you. The free-look orbit then turns
+        // further on top of this resting angle, and its held base is turned the same way.
         const float follow_yaw = cfg.follow_yaw.load(std::memory_order_relaxed);
         const float follow_pitch = cfg.follow_pitch.load(std::memory_order_relaxed);
         const bool follow_turned =
             follow_yaw < -0.05f || follow_yaw > 0.05f || follow_pitch < -0.05f || follow_pitch > 0.05f;
-        auto turn_by_follow_angle = [follow_yaw, follow_pitch](Vector3 &off, Vector3 &look) -> void
-        {
-            const float yaw = DMK::math::degrees_to_radians(follow_yaw);
-            const float cy = std::cos(yaw);
-            const float sy = std::sin(yaw);
-            auto yaw_about_z = [cy, sy](const Vector3 &v)
-            { return Vector3{v.x * cy - v.y * sy, v.x * sy + v.y * cy, v.z}; };
-            off = yaw_about_z(off);
-            look = yaw_about_z(look);
-
-            const float pitch = DMK::math::degrees_to_radians(follow_pitch);
-            if (pitch < -1e-5f || pitch > 1e-5f)
-            {
-                const float azimuth = std::atan2(off.y, off.x);
-                const Vector3 axis{std::sin(azimuth), -std::cos(azimuth), 0.0f};
-                const float cp = std::cos(pitch);
-                const float sp = std::sin(pitch);
-                auto rotate_about_axis = [&axis, cp, sp](const Vector3 &v)
-                {
-                    const Vector3 cross = axis.cross(v);
-                    const float dot = axis.x * v.x + axis.y * v.y + axis.z * v.z;
-                    return v * cp + cross * sp + axis * (dot * (1.0f - cp));
-                };
-                off = rotate_about_axis(off);
-                look = rotate_about_axis(look);
-            }
-            if (look.magnitude_squared() > 1e-6f)
-            {
-                look = look.normalized();
-            }
-        };
+        const float follow_yaw_rad = DMK::math::degrees_to_radians(follow_yaw);
+        const float follow_pitch_rad = DMK::math::degrees_to_radians(follow_pitch);
         if (follow_turned)
         {
             Vector3 off = camera_position - pivot;
-            turn_by_follow_angle(off, look_forward);
+            turn_rig(off, look_forward, look_up, follow_yaw_rad, follow_pitch_rad);
             camera_position = pivot + off;
             rebuild_basis = true;
         }
@@ -1790,26 +1791,26 @@ namespace TPVCamera
                                      DMK::math::radians_to_degrees(forward_pitch),
                                      DMK::math::radians_to_degrees(cam.rig_last_pitch));
         }
-        const Vector3 plain_offset = camera_position - pivot;
+        const Vector3 plain_look = look_forward;
 
-        // Free-look orbit: rigidly rotate the WHOLE non-orbit rig (the camera's offset from the pivot
-        // AND the converged look direction) around the pivot - yaw about world up, then pitch about the
-        // heading's horizontal right axis. Because the offset (shoulder + height + distance) and the
-        // aim-convergence toe-in rotate TOGETHER, the over-the-shoulder framing and the crosshair keep
-        // their screen positions while the camera circles the player, and there is no far focus anchor
-        // that blows up near the front. Yaw is unbounded so full spins work; the target elevation is
-        // clamped away from the pole and the same clamped delta rotates the look so the two agree. At
-        // zero angle the rotation is identity (continuous engage); looking at the ground still circles
-        // the player (the offset's elevation is preserved) and mouse up/down raises/lowers the camera.
+        // Free-look orbit: turn the WHOLE non-orbit rig (the camera's offset from the pivot, its look and its up)
+        // rigidly about the pivot with turn_rig - yaw about world up, then pitch about the look heading's horizontal
+        // axis. The offset (shoulder + height + distance) turns with the look, so the over-the-shoulder framing and the
+        // crosshair keep their screen positions while the camera circles the player, and the turned rig is exactly the
+        // follow rig of the turned look: a zoom while orbited still slides the camera straight along its look. Yaw is
+        // unbounded so full spins work. The pitch is tracked as the arm's elevation (how far the rig is raised: the
+        // negative of its look pitch), clamped away from the pole. At zero angle the rotation is identity, so the orbit
+        // engages without a jump. Mouse up/down raises/lowers the camera.
         const bool orbit_rig = orbiting || cam.orbit_base_held || cam.aim_handoff_active;
         if (orbit_rig)
         {
             // The base the orbit turns: the live follow pose (the player's look pitch included), or the held base. The
             // held base is the follow rig built the same way as above for orbit_base_pitch, with this frame's heading,
-            // distance, shoulder, focus and follow angle, so a zoom or a preset blend still reshapes it. The height
-            // stays in the pivot, and the look converges on the held aim line so the crosshair stays compensated.
+            // distance, shoulder and follow angle, so a zoom or a preset blend still reshapes it. The height stays in
+            // the pivot.
             Vector3 offset0 = camera_position - pivot;
             Vector3 base_look = look_forward;
+            Vector3 base_up = look_up;
             if (cam.orbit_base_held)
             {
                 Vector3 heading{forward.x, forward.y, 0.0f};
@@ -1826,26 +1827,14 @@ namespace TPVCamera
                 const Vector3 held_right = heading.cross(world_up).normalized();
                 offset0 = held_fwd * (-distance) + held_right * cfg.offset_right.load(std::memory_order_relaxed);
                 base_look = held_fwd;
-                if (have_focus)
-                {
-                    const Vector3 to_focus = (anchor_base + held_fwd * focus_distance) - (pivot + offset0);
-                    if (to_focus.magnitude() > 1e-4f)
-                    {
-                        base_look = to_focus.normalized();
-                    }
-                }
+                base_up = held_right.cross(held_fwd);
                 if (follow_turned)
                 {
-                    turn_by_follow_angle(offset0, base_look);
+                    turn_rig(offset0, base_look, base_up, follow_yaw_rad, follow_pitch_rad);
                 }
             }
 
-            float radius = offset0.magnitude();
-            if (radius < 1e-3f)
-            {
-                radius = distance; // degenerate (camera at the pivot): nothing to rotate about
-            }
-            const float base_elevation = std::asin(std::clamp(offset0.z / radius, -1.0f, 1.0f));
+            const float base_elevation = -std::asin(std::clamp(base_look.z, -1.0f, 1.0f));
             // The elevation stays off the overhead pole; a held base already past that limit (a steep look) is kept
             // but cannot go further.
             const float elevation_min = std::min(-1.45f, base_elevation);
@@ -1873,7 +1862,8 @@ namespace TPVCamera
                 // Aim hand-off: keep the camera in the direction it had when the situation took over, whatever the look
                 // and the basis do meanwhile, and leave the matching orbit angles behind so the ease back, or free-look
                 // turned back on before the look has turned (a paused menu closed), resumes here.
-                yaw_delta = std::remainder(cam.aim_handoff_azimuth - std::atan2(offset0.y, offset0.x), DirectX::XM_2PI);
+                yaw_delta =
+                    std::remainder(cam.aim_handoff_azimuth - std::atan2(-base_look.x, base_look.y), DirectX::XM_2PI);
                 elevation = std::clamp(cam.aim_handoff_elevation, elevation_min, elevation_max);
                 const float held_yaw_deg = DMK::math::radians_to_degrees(yaw_delta);
                 const float held_pitch_deg = DMK::math::radians_to_degrees(elevation - base_elevation);
@@ -1883,77 +1873,33 @@ namespace TPVCamera
                 cam.orbit_pitch_render = held_pitch_deg;
                 cam.orbit_render_valid = true;
             }
-            const float pitch_delta = elevation - base_elevation;
 
-            // Yaw about world up (Z): applied to both the offset and the look so they swing together.
-            const float cy = std::cos(yaw_delta);
-            const float sy = std::sin(yaw_delta);
-            auto yaw_about_z = [cy, sy](const Vector3 &v)
-            { return Vector3{v.x * cy - v.y * sy, v.x * sy + v.y * cy, v.z}; };
-            Vector3 new_offset = yaw_about_z(offset0);
-            Vector3 new_look = yaw_about_z(base_look);
-
-            // Pitch about the horizontal right axis of the yawed heading (Rodrigues). The axis
-            // (sin az, -cos az, 0) is the one about which a positive pitch_delta raises the camera.
-            if (pitch_delta < -1e-5f || pitch_delta > 1e-5f)
-            {
-                const float azimuth = std::atan2(new_offset.y, new_offset.x);
-                const Vector3 pitch_axis{std::sin(azimuth), -std::cos(azimuth), 0.0f};
-                const float cp = std::cos(pitch_delta);
-                const float sp = std::sin(pitch_delta);
-                auto rotate_about_axis = [&pitch_axis, cp, sp](const Vector3 &v)
-                {
-                    const Vector3 cross = pitch_axis.cross(v);
-                    const float dot = pitch_axis.x * v.x + pitch_axis.y * v.y + pitch_axis.z * v.z;
-                    return v * cp + cross * sp + pitch_axis * (dot * (1.0f - cp));
-                };
-                new_offset = rotate_about_axis(new_offset);
-                new_look = rotate_about_axis(new_look);
-            }
-
-            camera_position = pivot + new_offset;
-            if (new_look.magnitude_squared() > 1e-6f)
-            {
-                look_forward = new_look.normalized();
-            }
+            turn_rig(offset0, base_look, base_up, yaw_delta, elevation - base_elevation);
+            camera_position = pivot + offset0;
+            look_forward = base_look;
+            look_up = base_up;
             rebuild_basis = true;
         }
 
-        // While the orbit rig shapes the camera, its direction from the pivot and the look that puts this frame's
-        // plain rig there, for the next frame's aim hand-off. Measured within one frame, so a preset blend or the
-        // basis moving between frames is not taken for orbit. The plain rig turns rigidly with the look heading, and
-        // its azimuth off that heading is atan2(-distance * cos(pitch), shoulder), so the heading turns by the
-        // camera's azimuth off the plain rig, corrected for the pitch change. Its elevation follows the look pitch by
-        // sin(elevation) = -distance * sin(pitch) / |offset| (a look that points down puts the camera above), so the
-        // pitch moves by the difference of that inverse.
+        // While the orbit rig shapes the camera, record for the next frame's aim hand-off its look heading and arm
+        // elevation, its turn and rise off this frame's plain rig, and the player look that puts the plain rig on it.
+        // All are measured within one frame, so a preset blend or a basis turn between frames does not count as orbit.
+        // The orbit and the follow angle both turn the rig as a spring arm, which adds to the look's yaw and pitch, so
+        // that player look is this frame's look turned by the yaw and pitch of the orbited look off the plain look.
         cam.rig_last_orbited = false;
         if (orbit_rig)
         {
-            const Vector3 rig_offset = camera_position - pivot;
-            const float rig_reach = rig_offset.magnitude();
-            const float plain_reach = plain_offset.magnitude();
-            if (rig_reach > 1e-3f && plain_reach > 1e-3f && distance > 1e-3f)
-            {
-                const float plain_elevation = std::asin(std::clamp(plain_offset.z / plain_reach, -1.0f, 1.0f));
-                cam.rig_last_azimuth = std::atan2(rig_offset.y, rig_offset.x);
-                cam.rig_last_elevation = std::asin(std::clamp(rig_offset.z / rig_reach, -1.0f, 1.0f));
-                cam.rig_last_turn =
-                    std::remainder(cam.rig_last_azimuth - std::atan2(plain_offset.y, plain_offset.x), DirectX::XM_2PI);
-                cam.rig_last_rise = cam.rig_last_elevation - plain_elevation;
-                const float reach = plain_reach / distance;
-                auto pitch_for = [reach](float elevation)
-                { return std::asin(std::clamp(-reach * std::sin(elevation), -1.0f, 1.0f)); };
-                const float shoulder = cfg.offset_right.load(std::memory_order_relaxed);
-                auto side_at = [distance, shoulder](float look_pitch)
-                { return std::atan2(-distance * std::cos(look_pitch), shoulder); };
-                cam.rig_last_pitch =
-                    std::clamp(forward_pitch + pitch_for(cam.rig_last_elevation) - pitch_for(plain_elevation),
-                               -k_aim_handoff_max_pitch, k_aim_handoff_max_pitch);
-                cam.rig_last_yaw = std::remainder(forward_yaw + cam.rig_last_turn + side_at(forward_pitch) -
-                                                      side_at(cam.rig_last_pitch),
-                                                  DirectX::XM_2PI);
-                cam.rig_last_orbited = true;
-            }
+            const float rig_pitch = std::asin(std::clamp(look_forward.z, -1.0f, 1.0f));
+            const float plain_pitch = std::asin(std::clamp(plain_look.z, -1.0f, 1.0f));
+            cam.rig_last_azimuth = std::atan2(-look_forward.x, look_forward.y);
+            cam.rig_last_elevation = -rig_pitch;
+            cam.rig_last_turn =
+                std::remainder(cam.rig_last_azimuth - std::atan2(-plain_look.x, plain_look.y), DirectX::XM_2PI);
+            cam.rig_last_rise = plain_pitch - rig_pitch;
+            cam.rig_last_pitch =
+                std::clamp(forward_pitch + rig_pitch - plain_pitch, -k_aim_handoff_max_pitch, k_aim_handoff_max_pitch);
+            cam.rig_last_yaw = std::remainder(forward_yaw + cam.rig_last_turn, DirectX::XM_2PI);
+            cam.rig_last_orbited = true;
         }
 
         // Aim hand-off follow-up. While aiming the game re-derives the look heading from the body every frame (the body
@@ -2141,14 +2087,9 @@ namespace TPVCamera
             cam.orbit_move_armed_by_game = false;
         }
 
-        // Capture the heading on move-start. Use the camera's POSITIONAL world yaw - the eye-look yaw plus
-        // the orbit applied this frame - NOT atan2(look_forward). look_forward is the CONVERGED look: with
-        // aim-convergence on, the over-the-shoulder camera toes its look INWARD toward the aim point by a
-        // shoulder-dependent angle. Capturing that toed-in yaw would rotate the rig by the toe-in on the
-        // move transition, shifting the camera sideways toward the shoulder every time you press W. The
-        // positional yaw is exactly what the world-stable orbit derivation above renders, so the camera
-        // stays put as the body turns. It is also the more intuitive move direction (straight away from the
-        // camera rather than toed-in toward the crosshair).
+        // Capture the heading on move-start: the eye-look yaw plus the orbit applied this frame, the yaw the
+        // world-stable orbit derivation above renders, so the camera stays put as the body turns. It is built from
+        // the angles rather than atan2(look_forward), which also carries the static follow yaw.
         if (do_align)
         {
             cam.orbit_target_yaw = forward_yaw + DMK::math::degrees_to_radians(cam.orbit_yaw_render);
@@ -2248,7 +2189,8 @@ namespace TPVCamera
         // to just short of the surface. RWI_OBJTYPES_CAMERA excludes living entities so the ray
         // ignores the player and NPCs and only solid world geometry blocks the view. The camera
         // pulls in instantly (so it never ends up behind a wall) and eases back out once the
-        // obstruction clears. The follow distance is carried in collision_distance.
+        // obstruction clears. The follow distance is carried in collision_distance. With nothing in
+        // the way it follows the desired distance on the same frame, so a zoom stays on the view axis.
         if (cfg.enable_collision.load(std::memory_order_relaxed))
         {
             const Vector3 to_camera = camera_position - pivot;
@@ -2274,15 +2216,18 @@ namespace TPVCamera
                 static Vector3 s_throttle_pivot{};
                 static Vector3 s_throttle_cam{};
                 static float s_cached_allowed = 0.0f;
+                static bool s_cached_held_in = false;
                 const bool recompute = !s_collision_throttle_valid ||
                                        (pivot - s_throttle_pivot).magnitude_squared() > recompute_d2 ||
                                        (throttle_cam - s_throttle_cam).magnitude_squared() > recompute_d2;
                 if (!recompute && cam.collision_valid)
                 {
                     // Reuse last frame's allowed distance (the shared easing), then skip the whole walk / sphere /
-                    // render-occlusion / lateral-probe computation below.
+                    // render-occlusion / lateral-probe computation below. A result that held nothing in stays the
+                    // live desired distance, so a zoom between recomputes is not held to the stale one.
                     const float return_speed = cfg.collision_return_speed.load(std::memory_order_relaxed);
-                    ease_collision_toward(cam, s_cached_allowed, delta_time, return_speed);
+                    ease_collision_toward(cam, s_cached_held_in ? s_cached_allowed : desired_distance, desired_distance,
+                                          delta_time, return_speed);
                     camera_position = pivot + ray_dir * cam.collision_distance;
                     goto collision_done;
                 }
@@ -2591,7 +2536,7 @@ namespace TPVCamera
                 // Ease toward the allowed distance (fast pull-IN so a wall is never clipped, slower return-OUT),
                 // via the shared helper the throttle bypass also uses.
                 const float return_speed = cfg.collision_return_speed.load(std::memory_order_relaxed);
-                ease_collision_toward(cam, allowed_distance, delta_time, return_speed);
+                ease_collision_toward(cam, allowed_distance, desired_distance, delta_time, return_speed);
 
                 camera_position = pivot + ray_dir * cam.collision_distance;
 
@@ -2600,6 +2545,7 @@ namespace TPVCamera
                 s_throttle_pivot = pivot;
                 s_throttle_cam = throttle_cam;
                 s_cached_allowed = allowed_distance;
+                s_cached_held_in = allowed_distance < desired_distance - k_collision_clear_slack;
             }
         collision_done:;
         }
@@ -2651,7 +2597,7 @@ namespace TPVCamera
         }
 
         // Write the offset position into the camera matrix translation column. The basis columns are
-        // left as the engine built them (from the eye quat) unless convergence/orbit changed the look,
+        // left as the engine built them (from the eye quat) unless the follow angle/orbit changed the look,
         // so the camera otherwise stays parallel to the player's view. The caller computes the cull
         // planes from this matrix next, so culling follows the rendered view.
         // Blend the final pose between first person (the engine's eye matrix) and the third-person pose
@@ -2662,19 +2608,20 @@ namespace TPVCamera
         matrix->m[1][3] = final_position.y;
         matrix->m[2][3] = final_position.z;
 
-        // Orientation: only when convergence/orbit changed the look (otherwise the engine-built eye basis
+        // Orientation: only when the follow angle/orbit changed the look (otherwise the engine-built eye basis
         // is already correct at every blend value, so the camera just sits behind the player looking where
-        // they look). Ease the look from the eye forward to the converged look by view_blend, then rebuild
+        // they look). Ease the look and its up from the eye basis to the rig's by view_blend, then rebuild
         // the column basis (right = forward x up, up = right x forward; col0 = right, col1 = forward,
-        // col2 = up) so the orientation transitions smoothly too.
-        // Screen-centre forward (the crosshair direction): the converged/orbited look when we rebuilt the
+        // col2 = up) so the orientation transitions smoothly too. The rig's up turned with its look, so an
+        // orbit away from a pitched look does not roll the view.
+        // Screen-centre forward (the crosshair direction): the turned look when we rebuilt the
         // basis, else the engine eye forward. Published below for the camera-space interaction hook.
         // When the stable / smoothed basis is active, the rendered ORIENTATION must be rebuilt from it too:
         // otherwise the engine eye orientation (which carries the view-shake) would still drive the view
         // rotation even though the position is now stable, leaving the view tilting during an action. Forcing
         // the rebuild here routes the orientation through the same eye->stable blend below. When the basis was
         // NOT overridden, eye_forward == forward and eye_up == up, so this is a no-op and the path stays
-        // byte-identical to the convergence/orbit-only behaviour.
+        // byte-identical to the follow-angle/orbit-only behaviour.
         if (basis_overridden)
         {
             rebuild_basis = true;
@@ -2689,7 +2636,7 @@ namespace TPVCamera
             blended_forward =
                 (blended_forward.magnitude_squared() > 1e-6f) ? blended_forward.normalized() : look_forward;
             screen_forward = blended_forward;
-            const Vector3 ref_up = eye_up + (up - eye_up) * view_blend;
+            const Vector3 ref_up = eye_up + (look_up - eye_up) * view_blend;
             const Vector3 right_axis = blended_forward.cross(ref_up);
             if (right_axis.magnitude_squared() > 1e-6f)
             {
@@ -3716,7 +3663,7 @@ namespace TPVCamera
             return resolved;
         }
 
-        logger.warning("Camera: g_env did not resolve; collision, aim convergence, render occlusion and the "
+        logger.warning("Camera: g_env did not resolve; collision, the ranged crosshair ray, render occlusion and the "
                        "player look features are unavailable");
         return 0;
     }
@@ -4502,7 +4449,7 @@ namespace TPVCamera
         // the first game-view camera, so nothing is resolved here.
         s_genv_runtime = resolve_genv();
 
-        // Resolve the engine ray helper for collision + aim convergence. Best-effort: on a miss
+        // Resolve the engine ray helper for collision + the ranged crosshair ray. Best-effort: on a miss
         // those features no-op (the camera still renders), so the result is intentionally discarded.
         (void)initialize_physics_raycast(module_base, module_size, s_genv_runtime);
 

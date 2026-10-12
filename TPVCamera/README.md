@@ -22,7 +22,7 @@ start in first-person instead.
 - In-game preset manager: edit, add, and save camera presets from an overlay; built-in presets for normal play, combat, aiming, horseback, sneaking, and special poses (lying down, sitting, kneeling, riding a cart) apply automatically by situation, and you can bind your own presets to combinations of states (such as aiming while crouched), with the most specific match winning
 - Free-look look sensitivity is set per axis for both mouse and gamepad, so horizontal and vertical can be tuned independently; set a negative value to invert that axis. Mark any preset setting as Shared to apply its value to every preset at once
 - Camera collision with an optional see-through mode (off by default) that ignores thin posts, rails and fences you can see past and keeps out of corners, plus a cloth-roof clamp (on by default) so a look-down is not buried in tent or awning fabric, and a switch to first person when there is no room behind your character (a low doorway, a wall right behind); all tunable in the INI
-- Crosshair convergence so the screen-center reticle lines up with what you point at
+- The camera looks where you look, like first person carried back over your shoulder, so the crosshair stays on what you walk toward and zooming moves the camera straight in and out
 - Full keyboard and XInput controller support
 - Almost every setting is editable live while the game runs
 
@@ -231,6 +231,10 @@ See the full list at the [Supported Input Names](https://github.com/tkhquang/Det
 - The raycast-based crosshair fix is partial: it does not cover every interaction type, so some
   still show parallax or an offset, and in a dense area with several interactables the use-prompt
   can jump back and forth.
+- A third-person shot at a target almost touching Henry (closer than about half a meter past the
+  bow) can still land beside the crosshair. Hitting it would turn the shot more than
+  `MaxAimCorrection` (45 degrees by default) away from where the bow points, so the game's own shot
+  flies instead. Raising `MaxAimCorrection` in `[Ranged]` covers closer targets.
 - Certain world interactions in third person can still be janky or buggy; toggle the camera off
   if one looks wrong.
 - The preset overlay does not hook the game's swap chain by design: it renders through a private
