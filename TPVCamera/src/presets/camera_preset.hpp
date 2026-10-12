@@ -54,7 +54,7 @@ namespace TPVCamera::Presets
         float follow_distance = 3.5f;
         float follow_distance_min = 0.8f;
         float follow_distance_max = 10.0f;
-        float zoom_step = 1.0f;
+        float zoom_step = 4.0f;
         float offset_up = 0.0f;
         float eye_height = 1.6f;
         bool dynamic_eye_sync = true; // re-anchor eye height to the real FP eye on out-of-range low poses (kneel/pray)

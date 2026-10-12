@@ -1,21 +1,20 @@
-## Third-Person Ranged Aiming and Steadier Free-Look
+## Third-Person Aiming, Switchable Presets and Steadier Free-Look
 
-- In third person, arrows, bolts and handgonne shots now land where the same shot lands in first person, never beside the crosshair.
-- Distraction stones thrown in third person now land straight below the crosshair too.
-- New optional aim preview shows where a drawn shot or a held distraction stone will land.
-- New optional trail shows the flight of each arrow, bolt or handgonne ball and where it landed.
-- New options set how much bow, crossbow and handgonne shots drop.
-- The aiming camera now waits until a crossbow is loaded before it zooms in.
-- When aiming, throwing or drawing a weapon turns free-look off, Henry now turns to face the camera instead of the camera swinging back behind him.
-- Turning free-look on, or getting it back after a menu or an action, no longer moves the camera.
-- Starting to walk in free-look now heads the right way from the first step, and a quick tap no longer swings the camera.
-- Running right after aiming or crouching steers with the camera again.
-- The camera now looks the way Henry looks, so the crosshair stays on what you walk toward instead of sliding off it with a shoulder offset.
-- Zooming in and out, or changing Follow Distance, now moves the camera in a straight line, in free-look too.
-- Removed the Aim Focus Distance preset setting. Shots and the use prompt already follow the crosshair, so it is no longer needed.
-- The built-in presets sit the camera a little closer to Henry's shoulder, so he stays where he was on screen. Reset a built-in preset in the overlay to get its new value.
-- Shots at a target right in front of Henry now hit the crosshair instead of passing beside it.
-- MaxAimCorrection now defaults to 45, so shots at targets close to Henry are aimed too. An existing INI keeps its value.
-- The aim preview no longer shows too high on the first shot after shooting at your feet, and it stays on target up close.
-- The use prompt no longer flickers between two things side by side, such as cooking at a fire and eating from the pot on it. The one under the crosshair is picked, in free-look too.
-- In free-look, the use prompt for herbs and similar items now shows at the crosshair instead of at the edge of the screen.
+- Added crosshair aiming in third person: arrows, bolts, handgonne shots and distraction stones land where they would in first person.
+- Added an optional aim preview, an optional shot trail, and options for how much each weapon's shots drop.
+- Added keys to switch between presets for the same situation (NextPresetKey and PreviousPresetKey, unbound by default).
+- Added two presets to switch to: Close Shoulder for everyday play and Aiming Wide for aiming.
+- Added a Reset all button to the preset manager that brings back the shipped presets, the new ones included, and keeps your own.
+- Improved the preset manager to show which presets share a situation and to let your own preset be an everyday (Default) camera.
+- Changed the camera to look the way Henry looks, so the crosshair stays on what you walk toward and zooming moves in a straight line.
+- Changed the built-in presets to sit the camera a little closer to Henry's shoulder.
+- Changed the aiming camera to wait until a crossbow is loaded (ReloadCountsAsAiming keeps the old timing).
+- Changed free-look to turn Henry toward the camera when aiming or drawing a weapon turns it off.
+- Changed MaxAimCorrection to default to 45, so shots at close targets are aimed too (an existing INI keeps its value).
+- Changed preset switching and Reset zoom to ease the zoom out smoothly.
+- Removed the Aim Focus Distance preset setting, no longer needed with crosshair aiming.
+- Fixed free-look moving the camera when it turns on or comes back.
+- Fixed free-look heading the wrong way on the first step, swinging on a quick tap, and not steering after aiming or crouching.
+- Fixed the use prompt flickering between things side by side, and showing away from the crosshair for herbs in free-look.
+- Fixed Reset to factory overwriting settings marked as Shared in every preset.
+- Fixed the camera distance jumping when a preset's Min Follow Distance is above its Max.

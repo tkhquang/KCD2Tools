@@ -3,10 +3,9 @@
  * @brief Preset-manager panel: the body of TPVCamera::Overlay::draw_ui().
  *
  * @details Renders the "TPV Camera - Presets" window using Dear ImGui called
- *          DIRECTLY (no ReShade function-table indirection). It is invoked by the
- *          overlay render loop inside an already-active ImGui frame, so it only
- *          issues widget calls - it never begins/ends the ImGui frame, creates the
- *          context, or touches the device.
+ *          directly. It is invoked by the overlay render loop inside an already-active
+ *          ImGui frame, so it only issues widget calls - it never begins/ends the ImGui
+ *          frame, creates the context, or touches the device.
  *
  *          The panel drives PresetStore CRUD (list selection, rename, new/duplicate/
  *          remove/reset-to-factory, save) and the per-preset field editors generated
@@ -15,6 +14,11 @@
  *          edit previews on the third-person camera in real time. The overlay never
  *          sets any menu/overlay GameState bit, so the camera keeps rendering live
  *          while the panel is open.
+ *
+ *          Presets bound to exactly the same states form a cycle group. The panel
+ *          tags each member in the list, lists every group with the member it uses,
+ *          and sets that member on a click through the same published pick the
+ *          cycle keys change.
  */
 
 #include "overlay.hpp"
@@ -38,6 +42,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -66,6 +71,116 @@ namespace TPVCamera::Overlay
 
         /// Green tint marking the preset currently driving the camera (name text + "[active]" tag).
         constexpr ImVec4 k_active_preset{0.40f, 0.90f, 0.45f, 1.0f};
+
+        /// Amber tint marking cycle groups: presets bound to exactly the same states, which the cycle keys switch.
+        constexpr ImVec4 k_cycle_group{0.95f, 0.75f, 0.30f, 1.0f};
+
+        /// Label of the umbrella minigame binding, which matches whichever minigame is on screen.
+        constexpr const char *k_any_minigame_label = "Any minigame";
+
+        /// Tooltip of the cycle tag a preset list row carries when other presets share its exact states.
+        constexpr const char *k_cycle_tag_tooltip =
+            "Presets bound to exactly the same states form a cycle group, and * marks the one used for them.\n"
+            "NextPresetKey / PreviousPresetKey (INI) switch it while those states are active,\n"
+            "or pick one under Cycle groups.";
+
+        /// The framing states a user preset can auto-bind to, with their display label and GameState bit.
+        struct BindOption
+        {
+            const char *label;
+            GameState bit;
+        };
+        constexpr BindOption k_bind_options[] = {
+            {"Aiming (bow / crossbow)", GameState::Aiming},
+            {"Crouch / Stealth", GameState::Crouch},
+            {"Combat (weapon drawn)", GameState::Combat},
+            {"Mount (horseback)", GameState::Mount},
+            {"Lying down (sleeping in bed)", GameState::Lying},
+            {"Sitting (bench / chair)", GameState::Sitting},
+            {"Kneeling", GameState::Kneel},
+            {"Cart (riding / driving)", GameState::Cart},
+        };
+
+        /**
+         * @struct CycleGroup
+         * @brief Two or more presets bound to exactly the same states, which the cycle keys switch between.
+         */
+        struct CycleGroup
+        {
+            /// The bind mask every member shares.
+            std::uint32_t mask = 0;
+            /// Member names in cycle order, which is the publish order (built-ins first).
+            std::vector<std::string> members;
+            /// Index into @ref members of the member the group uses.
+            int in_use = 0;
+        };
+
+        /**
+         * @struct PanelFrame
+         * @brief This frame's reading of the published snapshot, shared by the preset list, the cycle panel and the
+         *        bind editor so they agree with each other and with the render thread.
+         */
+        struct PanelFrame
+        {
+            /// Store row of the preset driving the camera (the editing row while pinned), or -1.
+            int active_row = -1;
+            /// Mask of the group the current state resolves to, or empty before the store's first publish.
+            std::optional<std::uint32_t> state_mask;
+            /// Every cycle group, in the order of its first member.
+            std::vector<CycleGroup> groups;
+        };
+
+        /**
+         * @struct CycleSlot
+         * @brief Where a preset sits in its cycle group.
+         */
+        struct CycleSlot
+        {
+            /// The preset's group, or nullptr when no other preset shares its states.
+            const CycleGroup *group = nullptr;
+            /// Index of the preset in group->members.
+            int position = 0;
+        };
+
+        /**
+         * @brief Display label for the states a bind mask applies on: the bind editor's labels joined by " + ".
+         * @param mask A bind mask. The empty mask is the DEFAULT floor.
+         */
+        [[nodiscard]] std::string describe_states(std::uint32_t mask)
+        {
+            if (mask == 0)
+            {
+                return "Default (no other state)";
+            }
+            std::string label;
+            const auto append = [&label](std::string_view part)
+            {
+                if (!label.empty())
+                {
+                    label += " + ";
+                }
+                label += part;
+            };
+            for (const BindOption &option : k_bind_options)
+            {
+                if ((mask & state_bit(option.bit)) != 0)
+                {
+                    append(option.label);
+                }
+            }
+            // A per-minigame bind also carries the umbrella bit, so it is named by its child alone.
+            const auto child = std::find_if(k_minigames.begin(), k_minigames.end(), [mask](const MinigameInfo &minigame)
+                                            { return (mask & state_bit(minigame.bit)) != 0; });
+            if (child != k_minigames.end())
+            {
+                append(child->label);
+            }
+            else if ((mask & state_bit(GameState::Minigame)) != 0)
+            {
+                append(k_any_minigame_label);
+            }
+            return label;
+        }
 
         /**
          * @brief Shows @p text as a hovered tooltip if the previous item is hovered and text is non-empty.
@@ -147,6 +262,25 @@ namespace TPVCamera::Overlay
         }
 
         /**
+         * @brief Begins the confirmation modal @p id centered over the preset window.
+         * @details Call it inside the preset window, in the ID scope that opened the popup. The centering is queued
+         *          only while the popup is open, so the next-window position cannot leak onto another window, and it
+         *          targets the preset window rather than the display, so the modal appears where the user is working.
+         * @return True while the modal is open: draw its contents, then call ImGui::EndPopup.
+         */
+        [[nodiscard]] bool begin_confirm_modal(const char *id)
+        {
+            if (ImGui::IsPopupOpen(id))
+            {
+                const ImVec2 win_pos = ImGui::GetWindowPos();
+                const ImVec2 win_size = ImGui::GetWindowSize();
+                ImGui::SetNextWindowPos(ImVec2(win_pos.x + win_size.x * 0.5f, win_pos.y + win_size.y * 0.5f),
+                                        ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+            }
+            return ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+        }
+
+        /**
          * @brief Begins inline rename of preset row @p index, seeding the scratch buffer with its name.
          * @param name  Current preset name to pre-fill into the edit buffer.
          * @param index Row index entering rename mode.
@@ -165,51 +299,97 @@ namespace TPVCamera::Overlay
         }
 
         /**
-         * @brief Index of the preset currently driving the live camera (mirrors the render-thread resolver).
-         * @details Calls the SAME resolver as preset_runtime (parse_bind_mask + resolve_active_binding) so the
-         *          highlight can never drift from the live selection: an active editing pin wins, otherwise the
-         *          most-specific bound preset for the debounced game state (most matching states win; ties break
-         *          by Aiming > Crouch > Combat > Mount). Returns -1 only if no preset is bound (DEFAULT always is).
+         * @brief Reads the published snapshot for this frame.
+         * @details Resolves with the render thread's own snapshot and functions (resolve_active_entry,
+         *          cycle_group_entry), so the highlight and the groups cannot drift from the live camera. The pin
+         *          overrides the state for the camera only, so it moves the active row but not the state's group.
+         *          The snapshot names its presets, so a row is found by name, which the store keeps unique.
          * @param store The process-wide preset store.
          */
-        [[nodiscard]] int active_preset_index(PresetStore &store)
+        [[nodiscard]] PanelFrame read_panel_frame(PresetStore &store)
         {
+            PanelFrame frame;
+            const std::shared_ptr<const Presets::StateBindingTable> table = Presets::published_table();
+            if (!table)
+            {
+                return frame;
+            }
+            const std::vector<std::uint32_t> &masks = table->masks;
+            const std::vector<CameraPreset> &entries = table->presets;
+            const std::size_t entry_count = std::min(masks.size(), entries.size());
+
+            const std::uint32_t state = game_state_mask().load(std::memory_order_relaxed);
+            const int active_entry = Presets::resolve_active_entry(*table, state);
+            if (active_entry >= 0)
+            {
+                const std::string &active_name = entries[static_cast<std::size_t>(active_entry)].name;
+                const auto &presets = store.presets();
+                const auto row = std::find_if(presets.begin(), presets.end(), [&active_name](const CameraPreset &preset)
+                                              { return preset.name == active_name; });
+                frame.active_row = (row != presets.end()) ? static_cast<int>(row - presets.begin()) : -1;
+                frame.state_mask = masks[static_cast<std::size_t>(active_entry)];
+            }
             if (store.editing_pinned())
             {
-                return store.editing_index();
+                frame.active_row = store.editing_index();
             }
 
-            const uint32_t state = game_state_mask().load(std::memory_order_relaxed);
-            const auto &presets = store.presets();
-
-            // Build the bindable-preset candidate list (parallel masks + their store indices) and resolve with
-            // the shared scorer; map the winner back to its row. Unbound ("none") presets are skipped.
-            std::vector<std::uint32_t> masks;
-            std::vector<int> indices;
-            masks.reserve(presets.size());
-            indices.reserve(presets.size());
-            for (int i = 0; i < static_cast<int>(presets.size()); ++i)
+            for (std::size_t i = 0; i < entry_count; ++i)
             {
-                const std::optional<std::uint32_t> mask =
-                    Presets::parse_bind_mask(presets[static_cast<std::size_t>(i)].bind_state);
-                if (!mask)
+                // Gather each group at its first entry. A later entry of the same mask already belongs to it.
+                const auto first = masks.begin() + static_cast<std::ptrdiff_t>(i);
+                if (std::find(masks.begin(), first, masks[i]) != first)
                 {
                     continue;
                 }
-                masks.push_back(*mask);
-                indices.push_back(i);
+                const std::vector<std::size_t> members = Presets::cycle_group_members(*table, masks[i]);
+                if (members.size() < 2)
+                {
+                    continue;
+                }
+                CycleGroup group;
+                group.mask = masks[i];
+                const int in_use = Presets::cycle_group_entry(*table, masks[i]);
+                for (std::size_t j = 0; j < members.size(); ++j)
+                {
+                    if (static_cast<int>(members[j]) == in_use)
+                    {
+                        group.in_use = static_cast<int>(j);
+                    }
+                    group.members.push_back(entries[members[j]].name);
+                }
+                frame.groups.push_back(std::move(group));
             }
+            return frame;
+        }
 
-            const int winner = Presets::resolve_active_binding(state, masks);
-            return (winner >= 0) ? indices[static_cast<std::size_t>(winner)] : -1;
+        /** @brief Where the preset named @p name sits in its cycle group, or an empty slot when it is in none. */
+        [[nodiscard]] CycleSlot find_cycle_slot(const PanelFrame &frame, std::string_view name) noexcept
+        {
+            for (const CycleGroup &group : frame.groups)
+            {
+                for (std::size_t i = 0; i < group.members.size(); ++i)
+                {
+                    if (group.members[i] == name)
+                    {
+                        return CycleSlot{
+                            .group = &group,
+                            .position = static_cast<int>(i),
+                        };
+                    }
+                }
+            }
+            return {};
         }
 
         /**
-         * @brief Renders the CollapsingHeader preset list with selection, inline rename, and an active-preset
-         *        highlight (green name + "[active]" tag) marking the preset currently driving the camera.
+         * @brief Renders the CollapsingHeader preset list with selection, inline rename, an active-preset
+         *        highlight (green name + "[active]" tag) marking the preset currently driving the camera, and a
+         *        cycle tag on every preset that shares its exact states with others.
          * @param store The process-wide preset store (already validated to be non-empty).
+         * @param frame This frame's reading of the published snapshot.
          */
-        void draw_preset_list(PresetStore &store)
+        void draw_preset_list(PresetStore &store, const PanelFrame &frame)
         {
             if (!ImGui::CollapsingHeader("Presets", ImGuiTreeNodeFlags_DefaultOpen))
             {
@@ -219,7 +399,7 @@ namespace TPVCamera::Overlay
             auto &presets = store.presets();
             const int count = static_cast<int>(presets.size());
             const int selected = store.editing_index();
-            const int active = active_preset_index(store);
+            const int active = frame.active_row;
 
             for (int i = 0; i < count; ++i)
             {
@@ -290,10 +470,94 @@ namespace TPVCamera::Overlay
                         ImGui::SameLine();
                         ImGui::TextDisabled("(built-in)");
                     }
+
+                    if (const CycleSlot slot = find_cycle_slot(frame, preset.name); slot.group != nullptr)
+                    {
+                        const int position = slot.position + 1;
+                        const int members = static_cast<int>(slot.group->members.size());
+                        ImGui::SameLine();
+                        if (slot.position == slot.group->in_use)
+                        {
+                            ImGui::TextColored(k_cycle_group, "[cycle %d/%d *]", position, members);
+                        }
+                        else
+                        {
+                            ImGui::TextColored(k_cycle_group, "[cycle %d/%d]", position, members);
+                        }
+                        hover_tooltip(k_cycle_tag_tooltip);
+                    }
                 }
 
                 ImGui::PopID();
             }
+        }
+
+        /**
+         * @brief Renders every cycle group: the states it shares, its members, and the member it uses.
+         * @details A click on a member makes the group use it, as the cycle keys do while its states are active, so
+         *          the player can choose without stepping through the group in game. The group the current state
+         *          resolves to is tagged, since only its states respond to the keys right now.
+         * @param frame This frame's reading of the published snapshot.
+         */
+        void draw_cycle_groups(const PanelFrame &frame)
+        {
+            if (!ImGui::CollapsingHeader("Cycle groups", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                return;
+            }
+            if (frame.groups.empty())
+            {
+                ImGui::TextDisabled("None. Bind two or more presets to exactly the same states to cycle them.");
+                return;
+            }
+            ImGui::TextDisabled("NextPresetKey / PreviousPresetKey (INI) switch the one the current state uses.");
+
+            for (std::size_t i = 0; i < frame.groups.size(); ++i)
+            {
+                const CycleGroup &group = frame.groups[i];
+                ImGui::PushID(static_cast<int>(i));
+                ImGui::TextColored(k_cycle_group, "%s", describe_states(group.mask).c_str());
+                if (frame.state_mask == group.mask)
+                {
+                    ImGui::SameLine();
+                    ImGui::TextColored(k_active_preset, "[current state]");
+                    hover_tooltip("The game is in these states now, so the cycle keys switch this group.");
+                }
+                ImGui::Indent();
+                for (std::size_t j = 0; j < group.members.size(); ++j)
+                {
+                    const bool in_use = static_cast<int>(j) == group.in_use;
+                    if (ImGui::RadioButton(group.members[j].c_str(), in_use) && !in_use)
+                    {
+                        Presets::set_cycle_pick(group.mask, group.members[j]);
+                        // A pick for the current state switches the camera now, so it eases the zoom out as a cycle
+                        // key does.
+                        if (frame.state_mask == group.mask)
+                        {
+                            camera_state().zoom_reset_requested.store(true, std::memory_order_relaxed);
+                        }
+                    }
+                }
+                ImGui::Unindent();
+                ImGui::PopID();
+            }
+        }
+
+        /**
+         * @brief Notes under the bind editor that the edited preset shares its exact states with other presets.
+         * @param frame This frame's reading of the published snapshot.
+         * @param name The edited preset's name.
+         */
+        void draw_cycle_note(const PanelFrame &frame, std::string_view name)
+        {
+            const CycleSlot slot = find_cycle_slot(frame, name);
+            if (slot.group == nullptr)
+            {
+                return;
+            }
+            const int others = static_cast<int>(slot.group->members.size()) - 1;
+            ImGui::TextColored(k_cycle_group, "Shares these states with %d other preset%s (see Cycle groups).", others,
+                               (others == 1) ? "" : "s");
         }
 
         /**
@@ -312,17 +576,18 @@ namespace TPVCamera::Overlay
         }
 
         /**
-         * @brief Renders the New / Duplicate / Remove / Reset / Save button row.
+         * @brief Renders the New / Duplicate / Remove / Reset to factory / Reset all / Save button row.
          * @param store    The process-wide preset store.
          * @param selected The currently selected (and edited) preset.
          */
         void draw_button_row(PresetStore &store, const CameraPreset &selected)
         {
             const int editing = store.editing_index();
-            // Read the only field needed from `selected` up front: New/Duplicate/Remove mutate the presets
-            // vector (push_back/erase can reallocate), which would dangle `selected`. After the captured copy,
+            // Read what is needed from `selected` up front: New/Duplicate/Remove mutate the presets vector
+            // (push_back/erase can reallocate), which would dangle `selected`. After the captured copies,
             // `selected` is never dereferenced again in this function.
             const bool is_builtin = selected.builtin;
+            const bool has_factory = Presets::factory_preset(selected.name).has_value();
 
             if (ImGui::Button("New"))
             {
@@ -349,15 +614,52 @@ namespace TPVCamera::Overlay
             ImGui::EndDisabled();
             hover_tooltip(is_builtin ? "Built-in presets cannot be removed." : "Delete the selected user preset.");
 
-            // Reset to factory is meaningful only for the four protected built-ins.
-            if (is_builtin)
+            // Reset to factory exists for the built-ins and the factory starting points beside them.
+            if (has_factory)
             {
                 ImGui::SameLine();
                 if (ImGui::Button("Reset to factory"))
                 {
                     store.reset_to_factory(editing);
                 }
-                hover_tooltip("Restore this built-in to its hard-coded factory values.");
+                hover_tooltip(is_builtin
+                                  ? "Restore this built-in to its factory values, and add back any factory preset\n"
+                                    "for the same states that is missing. Shared settings keep their value."
+                                  : "Restore this preset to its factory values. Shared settings keep their value.");
+            }
+
+            // Reset all overwrites the tuning of every factory preset at once, so it asks before it applies.
+            ImGui::SameLine();
+            if (ImGui::Button("Reset all"))
+            {
+                ImGui::OpenPopup("##resetallconfirm");
+            }
+            hover_tooltip("Restore every built-in and shipped preset to its factory values (asks first).\n"
+                          "Your own presets are kept.");
+            if (begin_confirm_modal("##resetallconfirm"))
+            {
+                ImGui::Text("Reset all factory presets?");
+                ImGui::Spacing();
+                // A fixed wrap width sizes the auto-resizing modal. TextWrapped alone wraps at the width of the short
+                // title line.
+                ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+                ImGui::TextUnformatted("Every built-in preset, Close Shoulder and Aiming Wide go back to their factory "
+                                       "values and states, and any of them you deleted comes back. DEFAULT and AIMING "
+                                       "become the presets in use again. Your own presets and Shared settings are "
+                                       "kept.");
+                ImGui::PopTextWrapPos();
+                ImGui::Spacing();
+                if (ImGui::Button("Reset all"))
+                {
+                    store.reset_all_to_factory();
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel"))
+                {
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndPopup();
             }
 
             ImGui::SameLine();
@@ -487,36 +789,22 @@ namespace TPVCamera::Overlay
             return changed;
         }
 
-        /// The framing states a user preset can auto-bind to, with their display label and GameState bit.
-        struct BindOption
-        {
-            const char *label;
-            GameState bit;
-        };
-        constexpr BindOption k_bind_options[] = {
-            {"Aiming (bow / crossbow)", GameState::Aiming},
-            {"Crouch / Stealth", GameState::Crouch},
-            {"Combat (weapon drawn)", GameState::Combat},
-            {"Mount (horseback)", GameState::Mount},
-            {"Lying down (sleeping in bed)", GameState::Lying},
-            {"Sitting (bench / chair)", GameState::Sitting},
-            {"Kneeling", GameState::Kneel},
-            {"Cart (riding / driving)", GameState::Cart},
-        };
-
         /**
          * @brief Renders the "Applies to states" editor: which game states the selected preset auto-applies on.
          * @details Built-ins show their fixed binding read-only. For a user preset, a checkbox per framing state
          *          plus a combo for the (mutually exclusive) minigame rebuild its bind_state token list via
          *          set_bind_state; the resolver then auto-applies the most-specific match, so binding more states
          *          (e.g. Aiming + Crouch, or a specific minigame) makes a preset that wins over the single-state
-         *          built-ins when they all apply. With nothing selected the preset is unbound and only previews
-         *          via Pin.
+         *          built-ins when they all apply. Default binds it to the empty-mask floor beside the built-in
+         *          DEFAULT. With nothing selected the preset is unbound and only previews via Pin. A preset bound to
+         *          exactly the states of another one joins its cycle group, which a note under either kind of binding
+         *          points out.
          * @param store   The process-wide preset store.
          * @param edited  The selected preset.
          * @param editing The selected preset's row index (target for set_bind_state).
+         * @param frame   This frame's reading of the published snapshot.
          */
-        void draw_bind_editor(PresetStore &store, const CameraPreset &edited, int editing)
+        void draw_bind_editor(PresetStore &store, const CameraPreset &edited, int editing, const PanelFrame &frame)
         {
             if (!ImGui::CollapsingHeader("Applies to states", ImGuiTreeNodeFlags_DefaultOpen))
             {
@@ -534,29 +822,28 @@ namespace TPVCamera::Overlay
                 }
                 else
                 {
-                    std::string applies;
-                    for (const BindOption &option : k_bind_options)
-                    {
-                        if ((*bound & state_bit(option.bit)) != 0)
-                        {
-                            if (!applies.empty())
-                            {
-                                applies += " + ";
-                            }
-                            applies += option.label;
-                        }
-                    }
-                    ImGui::Text("Auto-applies on: %s", applies.c_str());
+                    ImGui::Text("Auto-applies on: %s", describe_states(*bound).c_str());
                 }
                 hover_tooltip("Built-in bindings are fixed. Edit the values above, or make a user preset to "
                               "bind a combination of states.");
+                draw_cycle_note(frame, edited.name);
                 return;
             }
 
-            // User preset: editable checkboxes for the framing states, plus a single combo for minigames (which
-            // are mutually exclusive, with an "any minigame" option). Rebuild the token list on any change.
+            // User preset: a Default checkbox, editable checkboxes for the framing states, plus a single combo for
+            // minigames (which are mutually exclusive, with an "any minigame" option). Rebuild the token list on any
+            // change. Default is the empty mask, which an unbound preset has too, so it is tracked on its own: ticking
+            // it clears every state, and binding any state leaves it.
             std::uint32_t mask = bound.value_or(0u);
+            bool binds_default = bound.has_value() && *bound == 0;
             bool changed = false;
+            if (ImGui::Checkbox("Default (when no other state applies)", &binds_default))
+            {
+                mask = 0;
+                changed = true;
+            }
+            hover_tooltip("Applies wherever DEFAULT does and joins its cycle group, so the cycle keys can switch\n"
+                          "your everyday camera. Binding a state below moves the preset to that state instead.");
             for (const BindOption &option : k_bind_options)
             {
                 bool on = (mask & state_bit(option.bit)) != 0;
@@ -570,6 +857,7 @@ namespace TPVCamera::Overlay
                     {
                         mask &= ~state_bit(option.bit);
                     }
+                    binds_default = false;
                     changed = true;
                 }
             }
@@ -590,7 +878,7 @@ namespace TPVCamera::Overlay
             }
             const char *minigame_preview = (minigame_sel == 0) ? "None"
                                            : (minigame_sel == 1)
-                                               ? "Any minigame"
+                                               ? k_any_minigame_label
                                                : k_minigames[static_cast<std::size_t>(minigame_sel - 2)].label;
             if (ImGui::BeginCombo("Minigame", minigame_preview))
             {
@@ -600,6 +888,7 @@ namespace TPVCamera::Overlay
                     if (ImGui::Selectable(label, selected))
                     {
                         minigame_sel = value;
+                        binds_default = binds_default && value == 0;
                         changed = true;
                     }
                     if (selected)
@@ -608,7 +897,7 @@ namespace TPVCamera::Overlay
                     }
                 };
                 item(0, "None");
-                item(1, "Any minigame");
+                item(1, k_any_minigame_label);
                 for (std::size_t i = 0; i < k_minigames.size(); ++i)
                 {
                     item(static_cast<int>(i) + 2, k_minigames[i].label);
@@ -636,10 +925,17 @@ namespace TPVCamera::Overlay
 
             if (changed)
             {
-                store.set_bind_state(editing, Presets::bind_mask_to_tokens(mask));
+                // The empty mask means either the DEFAULT floor or unbound. cycle_group_tokens(0) spells the floor
+                // ("default"), and bind_mask_to_tokens spells an empty mask as unbound ("none").
+                store.set_bind_state(editing, binds_default ? Presets::cycle_group_tokens(0)
+                                                            : Presets::bind_mask_to_tokens(mask));
             }
 
-            if (mask == 0)
+            if (binds_default)
+            {
+                ImGui::TextDisabled("Auto-applies when no other preset matches, as DEFAULT does.");
+            }
+            else if (mask == 0)
             {
                 ImGui::TextDisabled("Not bound to any state; it only previews while pinned.");
             }
@@ -647,6 +943,7 @@ namespace TPVCamera::Overlay
             {
                 ImGui::TextDisabled("Auto-applies when ALL selected states are active; more states win over fewer.");
             }
+            draw_cycle_note(frame, edited.name);
         }
 
         /**
@@ -657,11 +954,9 @@ namespace TPVCamera::Overlay
          *          value alone does not reveal where the camera actually sits after zooming. This reads the same
          *          live atomics the detour uses (settings().follow_distance + camera_state().zoom_offset, clamped
          *          to the live Min/Max) so the number is the true rendered distance, updating in real time as the
-         *          zoom keys are held. The button clears the zoom offset (camera_state().zoom_offset), which is
-         *          exactly what the detour reads each frame, so the camera snaps back to the configured Follow
-         *          Distance; it is disabled when there is no zoom to clear. Reading/clearing the relaxed atomic
-         *          from the overlay thread races only the render thread's own relaxed writes - a stale-by-a-frame
-         *          readout or a one-frame-late reset is harmless.
+         *          zoom keys are held. The button asks the detour to drop the zoom (zoom_reset_requested), which
+         *          eases the camera back to the configured Follow Distance. It is disabled when there is no zoom to
+         *          clear. A readout that is one frame stale is harmless.
          */
         void draw_applied_follow_distance(int decimals)
         {
@@ -683,7 +978,7 @@ namespace TPVCamera::Overlay
             ImGui::BeginDisabled(!zoomed);
             if (ImGui::SmallButton("Reset zoom"))
             {
-                cam.zoom_offset.store(0.0f, std::memory_order_relaxed);
+                cam.zoom_reset_requested.store(true, std::memory_order_relaxed);
             }
             ImGui::EndDisabled();
             hover_tooltip(
@@ -702,7 +997,7 @@ namespace TPVCamera::Overlay
             CameraState &cam = camera_state();
             const float real_eye_height = cam.real_eye_height.load(std::memory_order_relaxed);
             ImGui::TextDisabled("Current eye height (real): %.*f m", decimals, real_eye_height);
-            hover_tooltip("Your character's actual first-person eye height above the feet right now -- it drops when\n"
+            hover_tooltip("Your character's actual first-person eye height above the feet right now. It drops when\n"
                           "you kneel, pray, sit, etc. With Dynamic Eye Sync on, the camera re-anchors to this when it\n"
                           "falls well below Eye Height. Updates live as your pose changes.");
 
@@ -722,7 +1017,7 @@ namespace TPVCamera::Overlay
                 else
                 {
                     ImGui::TextDisabled("  -> Dynamic Eye Sync idle: using Eye Height (pose in range)");
-                    hover_tooltip("Dynamic Eye Sync is on, but your pose is within range -- the steady configured\n"
+                    hover_tooltip("Dynamic Eye Sync is on, but your pose is within range, so the steady configured\n"
                                   "Eye Height is in effect (no bob).");
                 }
             }
@@ -761,18 +1056,8 @@ namespace TPVCamera::Overlay
             hover_tooltip("Shared: keep this value the same across ALL presets. Ticking it copies the selected\n"
                           "preset's value to every preset; editing it afterwards updates them all at once.");
 
-            // Confirmation modal for the destructive enable. Queue the centering position (see below) only while
-            // the popup is actually open, so the next-window position cannot leak onto another window.
-            if (ImGui::IsPopupOpen("##shareconfirm"))
-            {
-                // Center the modal over the preset window (we are still inside it here), not the whole screen, so
-                // it appears where the user is working instead of being flung to the display centre.
-                const ImVec2 win_pos = ImGui::GetWindowPos();
-                const ImVec2 win_size = ImGui::GetWindowSize();
-                ImGui::SetNextWindowPos(ImVec2(win_pos.x + win_size.x * 0.5f, win_pos.y + win_size.y * 0.5f),
-                                        ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-            }
-            if (ImGui::BeginPopupModal("##shareconfirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            // Confirmation modal for the destructive enable.
+            if (begin_confirm_modal("##shareconfirm"))
             {
                 ImGui::Text("Share \"%s\" across all presets?", field.label);
                 ImGui::Spacing();
@@ -804,9 +1089,9 @@ namespace TPVCamera::Overlay
         {
             const int decimals = store.value_compact() ? 2 : 3;
 
-            // Per-field reset target: a built-in resets to its embedded factory values, a user preset to the
-            // struct defaults (factory_preset returns the latter for any non-built-in name).
-            const CameraPreset defaults = Presets::factory_preset(edited.name);
+            // Per-field reset target: a built-in or a factory starting point resets to its embedded factory values,
+            // any other preset to the struct defaults, which equal the DEFAULT preset.
+            const CameraPreset defaults = Presets::factory_preset(edited.name).value_or(CameraPreset{});
 
             // Fields are pre-ordered by group in fields(); open a header per group as it
             // changes, and remember whether the current group's header is expanded.
@@ -902,7 +1187,7 @@ namespace TPVCamera::Overlay
             {
                 return;
             }
-            // UI Scale as a dropdown of fixed steps (matches Live Transmog), not a free slider.
+            // UI Scale as a dropdown of fixed steps, not a free slider.
             static constexpr float k_scales[] = {0.5f, 0.75f, 0.85f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f};
             static constexpr const char *k_scale_labels[] = {"0.5x", "0.75x", "0.85x", "1.0x", "1.25x",
                                                              "1.5x", "1.75x", "2.0x",  "2.5x", "3.0x"};
@@ -938,9 +1223,9 @@ namespace TPVCamera::Overlay
     /**
      * @brief Renders the preset-manager window contents inside the active ImGui frame.
      * @details Begins the "TPV Camera - Presets" window, draws the preset list, pin toggle,
-     *          CRUD/save button row and the grouped field editors, then ends the window.
-     *          Guards against an empty list / an out-of-range editing index so a transient
-     *          store state cannot dereference an invalid preset.
+     *          CRUD/save button row, the cycle groups, the state binding and the grouped field
+     *          editors, then ends the window. Guards against an empty list / an out-of-range
+     *          editing index so a transient store state cannot dereference an invalid preset.
      */
     void draw_ui()
     {
@@ -952,7 +1237,7 @@ namespace TPVCamera::Overlay
         // AlwaysAutoResize makes the window hug its content every frame, so it expands to fit the widest
         // row (long preset names, the field rows) instead of cropping or leaving dead space. Value widgets
         // set an explicit width (see edit_float) so they stay readable under auto-resize.
-        if (!ImGui::Begin("TPV Camera -- Presets", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        if (!ImGui::Begin("TPV Camera - Presets", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
         {
             ImGui::End();
             return;
@@ -967,7 +1252,11 @@ namespace TPVCamera::Overlay
             return;
         }
 
-        draw_preset_list(store);
+        // Read once, before any widget can publish: the sections below then show one consistent snapshot, and
+        // a change made this frame shows from the next one.
+        const PanelFrame frame = read_panel_frame(store);
+
+        draw_preset_list(store, frame);
 
         // Clamp the editing index defensively: a removal elsewhere could have shrunk the
         // list since the row loop captured it. set_editing_index clamps in-store, but the
@@ -999,7 +1288,10 @@ namespace TPVCamera::Overlay
         CameraPreset &edited = presets[static_cast<std::size_t>(editing)];
 
         ImGui::Separator();
-        draw_bind_editor(store, edited, editing);
+        draw_cycle_groups(frame);
+
+        ImGui::Separator();
+        draw_bind_editor(store, edited, editing, frame);
 
         ImGui::Separator();
         draw_field_editors(store, edited);

@@ -23,6 +23,7 @@
 #include "hooks/ui_menu_hooks.hpp"
 #include "hooks/interaction_hook.hpp"
 #include "hooks/player_onaction_hook.hpp"
+#include "presets/preset_runtime.hpp"
 #include "presets/preset_store.hpp"
 #include "overlay/overlay.hpp"
 
@@ -94,6 +95,35 @@ namespace TPVCamera
         camera_state().orbit_active.store(false);
         const float stranded = player_onaction_reset();
         DMK::log().trace("Orbit: disengaged; cleared move-latch (had magnitude {:.2f})", stranded);
+    }
+
+    /**
+     * @brief Switches the current state to the next or previous preset bound to exactly the same states.
+     * @details The state is the debounced mask the render thread publishes every game-view frame, first person
+     *          included, so a press in first person picks the preset that third person then uses. The pick goes
+     *          to the render thread directly: the preset store is single-threaded and runs on the overlay thread.
+     *          The store writes the pick to the presets file on its next save or at shutdown. A switch also eases
+     *          the zoom out: the zoom keys offset whichever preset is in use, and a carried-over offset hides the
+     *          difference between the presets the player cycles through.
+     * @param step +1 for the next preset, -1 for the previous one.
+     */
+    static void cycle_preset(int step)
+    {
+        if (is_ui_blocking_input())
+            return;
+        const std::optional<Presets::CycleStep> cycled =
+            Presets::step_cycle(step, game_state_mask().load(std::memory_order_relaxed));
+        if (!cycled)
+            return;
+        const std::string states = Presets::cycle_group_tokens(cycled->mask);
+        if (cycled->count < 2)
+        {
+            DMK::log().info("Preset cycle: '{}' is the only preset for {}", cycled->preset, states);
+            return;
+        }
+        camera_state().zoom_reset_requested.store(true, std::memory_order_relaxed);
+        DMK::log().info("Preset cycle: '{}' ({}/{}) now used for {}", cycled->preset, cycled->position, cycled->count,
+                        states);
     }
 
     /**
@@ -234,12 +264,14 @@ namespace TPVCamera
         // Section binders, so each INI section name appears once here as well as in register_config_items().
         const DMK::config::SectionBinder settings_section = DMK::config::section("Settings");
         const DMK::config::SectionBinder orbit = DMK::config::section("Orbit");
+        const DMK::config::SectionBinder presets = DMK::config::section("Presets");
 
         auto add_press = [](const DMK::config::SectionBinder &section, std::string_view ini_key,
                             std::string_view log_name, std::string_view binding, std::function<void()> on_press,
-                            std::string_view default_combo)
+                            std::string_view default_combo, std::optional<bool> consume = std::nullopt)
         {
-            s_binding_scope->add(section.press_combo(ini_key, log_name, binding, std::move(on_press), default_combo));
+            s_binding_scope->add(
+                section.press_combo(ini_key, log_name, binding, std::move(on_press), default_combo, consume));
         };
 
         // Enter/exit third-person at runtime. Default: F3, or hold LB + press RB on a controller.
@@ -306,6 +338,15 @@ namespace TPVCamera
         add_press(
             settings_section, "ToggleOverlayKey", "Toggle Overlay Key", "toggle_overlay", [] { Overlay::toggle(); },
             "Home");
+
+        // Switch the preset the current state uses among the presets bound to exactly its states. Unbound by
+        // default, so they collide with no game key until the player picks one. Consume is on by default for the
+        // same reason as on the zoom keys: a gamepad combo such as LB + D-pad left/right then hides the D-pad
+        // button from the game while the combo is held, so the press does not also reach the game's own D-pad
+        // shortcut.
+        add_press(presets, "NextPresetKey", "Next Preset Key", "preset_next", [] { cycle_preset(1); }, "", true);
+        add_press(
+            presets, "PreviousPresetKey", "Previous Preset Key", "preset_previous", [] { cycle_preset(-1); }, "", true);
     }
 
     /**

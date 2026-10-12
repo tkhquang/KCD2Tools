@@ -2,9 +2,7 @@
  * @file dx_overlay.cpp
  * @brief WARP + GDI ImGui host implementation (private overlay backend).
  *
- * @details Swap-chain-free transparent overlay, ported from
- *          CrimsonDesertLiveTransmog with the ReShade function-table layer
- *          removed. The pipeline is:
+ * @details Swap-chain-free transparent overlay. The pipeline is:
  *            1. D3D11 WARP device (CreateDevice only, no swap chain)
  *            2. Offscreen Texture2D render target (BGRA for GDI)
  *            3. ImGui renders to the texture via ImGui_ImplDX11
@@ -340,7 +338,7 @@ namespace TPVCamera::Overlay::Detail
         /**
          * @brief Finds this process's top-level game window.
          * @details Skips windows owned by other processes, hidden windows, sub-640x480
-         *          surfaces and the launcher's "SplashWindow", matching CDLT's filter.
+         *          surfaces and the launcher's "SplashWindow".
          * @return The game HWND, or nullptr if none matched.
          */
         HWND find_game_hwnd()
@@ -512,7 +510,7 @@ namespace TPVCamera::Overlay::Detail
                 return;
             }
 
-            // ImGui (direct, no ReShade function table).
+            // ImGui context and backends, linked statically and called directly.
             IMGUI_CHECKVERSION();
             ImGui::CreateContext();
             ImGuiIO &io = ImGui::GetIO();

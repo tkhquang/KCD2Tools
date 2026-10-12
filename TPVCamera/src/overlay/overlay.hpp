@@ -4,10 +4,9 @@
  *
  * @details The overlay renders ImGui through a private WARP D3D11 device into an
  *          offscreen surface that is composited over the game window with GDI, on its
- *          own thread (ported from CrimsonDesertLiveTransmog's dx_overlay). It does NOT
- *          hook the game's swapchain, so it is independent of the game's DX11/DX12
- *          pipeline and cannot crash the render thread. Input is captured via a WndProc
- *          subclass + GetAsyncKeyState bridge while visible.
+ *          own thread. It does NOT hook the game's swapchain, so it is independent of
+ *          the game's DX11/DX12 pipeline and cannot crash the render thread. Input is
+ *          captured via a WndProc subclass + GetAsyncKeyState bridge while visible.
  *
  *          Lifecycle: start() once after the game module is resolved; toggle()/set_visible()
  *          from the bound hotkey; stop() on shutdown. The render loop calls draw_ui()
@@ -46,7 +45,8 @@ namespace TPVCamera::Overlay
     /**
      * @brief Renders the preset-manager window contents.
      * @details Implemented in overlay_ui.cpp; called by the overlay render loop inside an
-     *          active ImGui frame. Drives PresetStore CRUD and the field editors.
+     *          active ImGui frame. Drives PresetStore CRUD, the field editors and the cycle
+     *          group picks.
      */
     void draw_ui();
 

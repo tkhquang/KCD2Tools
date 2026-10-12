@@ -20,6 +20,7 @@ start in first-person instead.
 - Henry turns on the spot with the game's own turn-in-place animations when you look around while standing still, and the camera stays put; switched off automatically in combat, aiming, riding, conversations and minigames
 - Automatic view switching by situation: switch to first or third person when you enter combat, aiming a bow, dialogue, minigames, riding, or menus (you can still toggle manually during it), with your previous view restored when the situation ends
 - In-game preset manager: edit, add, and save camera presets from an overlay; built-in presets for normal play, combat, aiming, horseback, sneaking, and special poses (lying down, sitting, kneeling, riding a cart) apply automatically by situation, and you can bind your own presets to combinations of states (such as aiming while crouched), with the most specific match winning
+- Several presets per situation, switched in game with a key; Close Shoulder (a tight over-the-shoulder camera) and Aiming Wide (the everyday framing while aiming) ship ready to use
 - Free-look look sensitivity is set per axis for both mouse and gamepad, so horizontal and vertical can be tuned independently; set a negative value to invert that axis. Mark any preset setting as Shared to apply its value to every preset at once
 - Camera collision with an optional see-through mode (off by default) that ignores thin posts, rails and fences you can see past and keeps out of corners, plus a cloth-roof clamp (on by default) so a look-down is not buried in tent or awning fabric, and a switch to first person when there is no room behind your character (a low doorway, a wall right behind); all tunable in the INI
 - The camera looks where you look, like first person carried back over your shoulder, so the crosshair stays on what you walk toward and zooming moves the camera straight in and out
@@ -118,10 +119,18 @@ All keys are rebindable in `KCD2_TPVCamera.ini`. Defaults:
 | Open preset manager        | `Home`              | (unbound)              |
 | Zoom in                    | `LShift + PageUp`   | hold `LB` + D-pad up   |
 | Zoom out                   | `LShift + PageDown` | hold `LB` + D-pad down |
+| Cycle to next preset       | (unbound)           | (unbound)              |
+| Cycle to previous preset   | (unbound)           | (unbound)              |
 
 Free-look orbit has two styles: `OrbitToggleKey` (default `F4`) latches it on and off, while
 `OrbitHoldKey` (unbound by default) is a momentary "freelook" you hold to look around and release
 to snap straight back to the aim camera. Bind `OrbitHoldKey` in the INI to use it.
+
+Presets bound to exactly the same situations form a cycle group, such as DEFAULT with the shipped
+Close Shoulder, or AIMING with Aiming Wide. `NextPresetKey` / `PreviousPresetKey` switch between
+them, for example `Numpad6,Gamepad_LB+Gamepad_DpadRight` / `Numpad4,Gamepad_LB+Gamepad_DpadLeft`.
+The overlay shows each group and lets you pick one with a click. In an existing setup, press
+Reset all in the overlay to get the shipped presets. Your own presets are kept.
 
 On a controller the zoom shares the D-pad with the game's inventory/map shortcut, so the mod hides
 that D-pad button from the game while you zoom (the `ZoomInKey.Consume` / `ZoomOutKey.Consume` keys,
@@ -153,7 +162,7 @@ Edit `KCD2_TPVCamera.ini`. It is grouped into:
 - `[Collision]` - the collision probe and radius, `UseCoverageCollision` (only pull in for things that hide your character) with its coverage / side-wall options, the independent `UseRenderOcclusion` cloth-roof clamp (enable, skin, and return speed are per-preset), and `HeadClearance`, the room the camera needs behind your character before it switches to first person
 - `[StateBehavior]` - switch first/third person on entering a situation (combat, aiming, dialogue, minigame, mount, menu, overlay), restore the prior view on exit (manual toggles during it stick), suspend/restore free-look in chosen situations, choose where the native turn animation is switched off (`NativeTurnExcludeState`), and whether loading a crossbow already counts as aiming (`ReloadCountsAsAiming`)
 - `[Ranged]` - aim third-person shots (arrows, bolts, handgonne balls) and distraction stones at the crosshair (`AimAtCrosshair`), the largest correction allowed (`MaxAimCorrection`), the flight trail (`ShowProjectileTrail`, `ProjectileTrailSeconds`), a live preview of where a drawn shot or a held distraction stone will land (`ShowAimPreview`, `AimPreviewArc`, `AimPreviewOpacity`, `AimPreviewColor`, `AimPreviewThroughWalls`), and how much your shots drop per weapon (`BowGravity`, `CrossbowGravity`, `FirearmGravity`)
-- `[Presets]` - the preset blend speed; the camera framing lives in the in-game preset manager (open with `ToggleOverlayKey`) and is stored in `KCD2_TPVCamera_presets.json` next to the INI. That file is created automatically from the built-in defaults on first run; it is not shipped, so updating the mod never overwrites presets you have tuned
+- `[Presets]` - the preset blend speed and the keys that cycle presets bound to the same situation (`NextPresetKey`, `PreviousPresetKey`); the camera framing lives in the in-game preset manager (open with `ToggleOverlayKey`) and is stored in `KCD2_TPVCamera_presets.json` next to the INI. That file is created automatically from the built-in defaults on first run; it is not shipped, so updating the mod never overwrites presets you have tuned
 
 Most values apply the next frame after you save the file. Every option is documented in the INI.
 
