@@ -105,7 +105,7 @@ namespace TPVCamera
         const DMK::config::SectionBinder collision = DMK::config::section("Collision");
         const DMK::config::SectionBinder state_behavior = DMK::config::section("StateBehavior");
         const DMK::config::SectionBinder presets = DMK::config::section("Presets");
-        const DMK::config::SectionBinder archery = DMK::config::section("Archery");
+        const DMK::config::SectionBinder ranged = DMK::config::section("Ranged");
 
         // Log level drives Logger verbosity directly on load() and reload().
         settings_section.bind_log_level("LogLevel", Constants::DEFAULT_LOG_LEVEL);
@@ -136,22 +136,22 @@ namespace TPVCamera
         camera.bind<float>("NativeTurnAngle", "Native Turn Angle", s.native_turn_angle, 35.0f);
         camera.bind<float>("NativeTurnSettleDelay", "Native Turn Settle Delay", s.native_turn_settle_delay, 0.8f);
 
-        // Archery (non-preset, always-live): third-person shots and distraction stones aimed at the crosshair point,
+        // Ranged (non-preset, always-live): third-person shots and distraction stones aimed at the crosshair point,
         // the flight trail, the aim preview and the per-weapon drop.
-        archery.bind<bool>("AimAtCrosshair", "Aim At Crosshair", s.archery_aim_at_crosshair, true);
-        archery.bind<float>("MaxAimCorrection", "Max Aim Correction", s.archery_max_correction, 30.0f);
-        archery.bind<bool>("ShowArrowTrail", "Show Arrow Trail", s.archery_show_trail, false);
-        archery.bind<float>("ArrowTrailSeconds", "Arrow Trail Seconds", s.archery_trail_seconds, 8.0f);
-        archery.bind<bool>("ShowAimPreview", "Show Aim Preview", s.archery_show_aim_preview, false);
-        archery.bind<bool>("AimPreviewArc", "Aim Preview Arc", s.archery_aim_preview_arc, true);
-        archery.bind<float>("AimPreviewOpacity", "Aim Preview Opacity", s.archery_aim_preview_opacity, 0.6f);
-        archery.bind<bool>("AimPreviewThroughWalls", "Aim Preview Through Walls", s.archery_aim_preview_through_walls,
-                           true);
-        archery.bind_parsed("AimPreviewColor", "Aim Preview Color", s.archery_aim_preview_color, parse_rgb,
-                            k_aim_preview_color_text);
-        archery.bind<float>("BowGravity", "Bow Gravity", s.archery_gravity_bow, 1.0f);
-        archery.bind<float>("CrossbowGravity", "Crossbow Gravity", s.archery_gravity_crossbow, 1.0f);
-        archery.bind<float>("FirearmGravity", "Firearm Gravity", s.archery_gravity_firearm, 1.0f);
+        ranged.bind<bool>("AimAtCrosshair", "Aim At Crosshair", s.ranged_aim_at_crosshair, true);
+        ranged.bind<float>("MaxAimCorrection", "Max Aim Correction", s.ranged_max_correction, 30.0f);
+        ranged.bind<bool>("ShowProjectileTrail", "Show Projectile Trail", s.ranged_show_trail, false);
+        ranged.bind<float>("ProjectileTrailSeconds", "Projectile Trail Seconds", s.ranged_trail_seconds, 8.0f);
+        ranged.bind<bool>("ShowAimPreview", "Show Aim Preview", s.ranged_show_aim_preview, false);
+        ranged.bind<bool>("AimPreviewArc", "Aim Preview Arc", s.ranged_aim_preview_arc, true);
+        ranged.bind<float>("AimPreviewOpacity", "Aim Preview Opacity", s.ranged_aim_preview_opacity, 0.6f);
+        ranged.bind<bool>("AimPreviewThroughWalls", "Aim Preview Through Walls", s.ranged_aim_preview_through_walls,
+                          true);
+        ranged.bind_parsed("AimPreviewColor", "Aim Preview Color", s.ranged_aim_preview_color, parse_rgb,
+                           k_aim_preview_color_text);
+        ranged.bind<float>("BowGravity", "Bow Gravity", s.ranged_gravity_bow, 1.0f);
+        ranged.bind<float>("CrossbowGravity", "Crossbow Gravity", s.ranged_gravity_crossbow, 1.0f);
+        ranged.bind<float>("FirearmGravity", "Firearm Gravity", s.ranged_gravity_firearm, 1.0f);
 
         // Free-look orbit (non-preset, always-live; the orbit feel values are per-preset).
         orbit.bind<bool>("FreezeOrbitOnCursor", "Freeze Orbit On Cursor", s.freeze_orbit_on_cursor, true);

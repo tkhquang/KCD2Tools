@@ -17,7 +17,7 @@
 #include "rtti_types.hpp"
 #include "game_interface.hpp"
 #include "version.hpp"
-#include "hooks/archery_hook.hpp"
+#include "hooks/ranged_hook.hpp"
 #include "hooks/camera_hook.hpp"
 #include "hooks/ui_overlay_hooks.hpp"
 #include "hooks/ui_menu_hooks.hpp"
@@ -211,10 +211,11 @@ namespace TPVCamera
             return camera;
         }
 
-        // Arrows to the crosshair point and the arrow trail. After the camera, whose init readies the world raycast
-        // the crosshair target is cast with. Best-effort: a miss leaves the game's own archery aim.
-        warn_if_degraded(initialize_archery_hook(gated_anchor_address(Feature::Engine, AnchorId::Genv), s_hooks),
-                         "Archery hook initialization failed - arrows keep the game's own aim in third person");
+        // Ranged shots re-aimed for the crosshair point and the projectile trail. After the camera, whose init readies
+        // the world raycast the crosshair target is cast with. Best-effort: a miss leaves ranged shots the game's own
+        // aim.
+        warn_if_degraded(initialize_ranged_hook(gated_anchor_address(Feature::Engine, AnchorId::Genv), s_hooks),
+                         "Ranged hook initialization failed - shots keep the game's own aim in third person");
 
         return {};
     }
@@ -540,7 +541,7 @@ namespace TPVCamera
         // a no-op if the native turn animation was never engaged.
         release_native_turn_animation();
         // Stop re-aiming and tracking shots; the shot detours pass straight through until the hooks retire.
-        release_archery();
+        release_ranged();
 
         // Join the mod's workers before any hook goes: the INI watcher, so no reload setter runs during teardown, and
         // the overlay render thread, so no UI mutation races the preset flush.

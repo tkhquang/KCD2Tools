@@ -865,7 +865,7 @@ namespace TPVCamera
      *          accessors read. The enumerator order IS the table order. Count is the element count and is not a valid
      *          anchor. The ids up to PhysEntMovement are addresses. The ids from IsThirdPersonSlot to AnimIdByCrcSlot
      *          are scalars decoded from game code, not addresses. AnimNameHashCall is a call site, and its consumer
-     *          decodes the callee. The archery ids are addresses, except GetPhysicsSlot, a scalar.
+     *          decodes the callee. The ranged ids are addresses, except GetPhysicsSlot, a scalar.
      */
     enum class AnchorId : std::size_t
     {
@@ -929,8 +929,8 @@ namespace TPVCamera
         TurnDecision,        // TurnInstalledState, with the function-scoped proofs: turns that finish on the look
         TurnSteps,           // PhysEntMovement: turn steps kept in place
         CrouchedAnimations,  // AnimIdByCrcSlot, AnimNameHashCall: the NPC crouched idle and turns for the player
-        ArcheryAim,          // FireProjectile, ProjectileLaunch, GetPhysicsSlot: arrows aimed at the crosshair point
-        ArcheryTrail,        // ArrowCollision and the aux-geometry calls: the trail and aim preview (needs ArcheryAim)
+        RangedAim,           // FireProjectile, ProjectileLaunch, GetPhysicsSlot: shots re-aimed for the crosshair point
+        RangedTrail,         // ArrowCollision and the aux-geometry calls: the trail and aim preview (needs RangedAim)
         Count,
     };
 
