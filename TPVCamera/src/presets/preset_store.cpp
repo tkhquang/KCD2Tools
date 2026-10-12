@@ -20,6 +20,8 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
+#include <vector>
 
 namespace TPVCamera::Presets
 {
@@ -65,6 +67,15 @@ namespace TPVCamera::Presets
                     return &field;
             }
             return nullptr;
+        }
+
+        /// Copies the value of @p field from @p source into @p target.
+        void copy_field_value(const PresetField &field, const CameraPreset &source, CameraPreset &target) noexcept
+        {
+            if (field.type == FieldType::Float)
+                target.*(field.f) = source.*(field.f);
+            else
+                target.*(field.b) = source.*(field.b);
         }
 
         json preset_to_json(const CameraPreset &preset)
@@ -136,41 +147,85 @@ namespace TPVCamera::Presets
             return preset;
         }
 
-        /// Parses the embedded factory JSON once into the canonical built-in preset list.
-        const std::vector<CameraPreset> &factory_presets()
+        /**
+         * @brief Reads the "cycle_picks" object of a presets document root.
+         * @details Keys are group token lists (see cycle_group_tokens), values preset names. Keys that name no
+         *          group and non-string values are skipped. Liveness is not checked here: publish() drops a pick
+         *          whose preset is missing or bound elsewhere.
+         */
+        [[nodiscard]] std::vector<CyclePick> cycle_picks_from_json(const json &root)
         {
-            static const std::vector<CameraPreset> presets = []
+            std::vector<CyclePick> picks;
+            if (!root.contains("cycle_picks") || !root["cycle_picks"].is_object())
+                return picks;
+            for (const auto &entry : root["cycle_picks"].items())
             {
-                std::vector<CameraPreset> out;
+                const std::optional<std::uint32_t> mask = parse_bind_mask(entry.key());
+                if (!mask || !entry.value().is_string())
+                    continue;
+                // Two keys can name one group, such as "crouch" and "stealth". The first one read wins.
+                const bool known = std::any_of(picks.begin(), picks.end(),
+                                               [&mask](const CyclePick &pick) { return pick.mask == *mask; });
+                if (!known)
+                {
+                    picks.push_back(CyclePick{
+                        .mask = *mask,
+                        .preset = entry.value().get<std::string>(),
+                    });
+                }
+            }
+            return picks;
+        }
+
+        /**
+         * @struct FactoryData
+         * @brief The embedded factory document: the built-ins and their starting points, and the picks that keep
+         *        each built-in in use in its group.
+         */
+        struct FactoryData
+        {
+            /// Built-ins in canonical order, then the factory starting points.
+            std::vector<CameraPreset> presets;
+            /// The member each factory cycle group uses on a fresh install.
+            std::vector<CyclePick> cycle_picks;
+        };
+
+        /// Parses the embedded factory JSON once.
+        const FactoryData &factory_data()
+        {
+            static const FactoryData data = []
+            {
+                FactoryData out;
                 try
                 {
                     const json root = json::parse(k_default_presets_json);
                     if (root.contains("presets") && root["presets"].is_array())
                     {
                         for (const json &entry : root["presets"])
-                            out.push_back(preset_from_json(entry));
+                            out.presets.push_back(preset_from_json(entry));
                     }
+                    out.cycle_picks = cycle_picks_from_json(root);
                 }
                 catch (const json::exception &)
                 {
                     // The literal is authored in-repo; a throw here is a build-time authoring error. Leaving the
-                    // list empty makes factory_preset() fall back to struct defaults rather than crashing.
+                    // data empty makes the built-ins fall back to struct defaults rather than crashing.
                 }
                 return out;
             }();
-            return presets;
+            return data;
         }
 
     } // namespace
 
-    CameraPreset factory_preset(const std::string &name)
+    std::optional<CameraPreset> factory_preset(const std::string &name)
     {
-        for (const CameraPreset &p : factory_presets())
+        for (const CameraPreset &p : factory_data().presets)
         {
             if (p.name == name)
                 return p;
         }
-        return CameraPreset{};
+        return std::nullopt;
     }
 
     PresetStore &PresetStore::instance()
@@ -228,9 +283,9 @@ namespace TPVCamera::Presets
             if (find_by_name(spec.name) < 0)
             {
                 // Set identity explicitly so the entry is locatable even if the embedded factory entry is
-                // absent (factory_preset() then returns a nameless struct default); the reorder loop below
-                // relies on find_by_name() resolving it.
-                CameraPreset preset = factory_preset(spec.name);
+                // absent (the struct default then stands in). The reorder loop below relies on find_by_name()
+                // resolving it.
+                CameraPreset preset = factory_preset(spec.name).value_or(CameraPreset{});
                 preset.name = spec.name;
                 preset.builtin = true;
                 preset.bind_state = spec.bind_state;
@@ -280,8 +335,10 @@ namespace TPVCamera::Presets
         m_shared_fields.clear();
         m_saved_presets.clear();
         m_saved_shared_fields.clear();
+        m_saved_cycle_picks.clear();
 
         std::string editing_name = k_builtin_default;
+        std::vector<CyclePick> loaded_picks;
 
         // Presets are user-owned customization, not a shipped asset (see default_presets.hpp). The file is
         // OPTIONAL: a missing one is created from the embedded factory defaults on first run, and a corrupt
@@ -316,6 +373,7 @@ namespace TPVCamera::Presets
                             m_shared_fields.push_back(key);
                     }
                 }
+                loaded_picks = cycle_picks_from_json(root);
                 if (root.contains("presets") && root["presets"].is_array())
                 {
                     for (const json &entry : root["presets"])
@@ -336,14 +394,18 @@ namespace TPVCamera::Presets
                                file_path, e.what());
                 m_presets.clear();
                 m_shared_fields.clear();
+                loaded_picks.clear();
             }
         }
 
-        // Missing or corrupt file, or a valid file that lost all its presets: seed the canonical built-ins
-        // from the embedded factory defaults.
+        // Missing or corrupt file, or a valid file that lost all its presets: seed the canonical built-ins, their
+        // starting points and the picks that keep the built-ins in use from the embedded factory defaults.
         const bool seeded = m_presets.empty();
         if (seeded)
-            m_presets = factory_presets();
+        {
+            m_presets = factory_data().presets;
+            loaded_picks = factory_data().cycle_picks;
+        }
 
         // Ensure every built-in exists and order them first; a valid file missing a newer built-in (e.g.
         // AIMING introduced by an update) has it re-added here without disturbing the user's own presets.
@@ -355,6 +417,10 @@ namespace TPVCamera::Presets
         m_editing_index = (editing_idx >= 0) ? editing_idx : 0;
         m_editing_pinned = false;
 
+        // Seed the cycle picks from the file, replacing any a previous load published. publish() drops the ones
+        // whose preset is gone or bound elsewhere.
+        publish([&loaded_picks](std::vector<CyclePick> &picks) { picks = loaded_picks; });
+
         // Create-if-missing, and persist a repaired set (a newly-added built-in, or a valid file recovered
         // from having lost its presets) so the next launch is clean. A corrupt file (file_usable == false)
         // is deliberately left untouched on disk.
@@ -364,12 +430,11 @@ namespace TPVCamera::Presets
             m_dirty = false;
 
         // Baseline for the content-aware Save indicator = the data as just loaded/repaired. The save() path above
-        // already captured it; this covers the no-save path so a later edit-then-revert can clear the flag.
-        capture_saved_baseline();
+        // already captured it; this covers the no-save path so a later edit-then-revert can clear the flag. The
+        // input engine is not running yet, so no cycle hotkey can change the picks in between.
+        capture_saved_baseline(persistable_cycle_picks());
 
         logger.info("Presets ready ({} entries) at {}", m_presets.size(), file_path);
-
-        publish();
     }
 
     void PresetStore::save()
@@ -386,6 +451,12 @@ namespace TPVCamera::Presets
         root["ui_scale"] = m_ui_scale;
         root["value_compact"] = m_value_compact;
         root["shared_fields"] = m_shared_fields;
+        // Keyed by the group's token list so a hand-edited file reads like the presets' own bind_state values.
+        std::vector<CyclePick> cycle_picks = persistable_cycle_picks();
+        json picks = json::object();
+        for (const CyclePick &pick : cycle_picks)
+            picks[cycle_group_tokens(pick.mask)] = pick.preset;
+        root["cycle_picks"] = std::move(picks);
         root["editing"] = (m_editing_index >= 0 && m_editing_index < static_cast<int>(m_presets.size()))
                               ? m_presets[static_cast<std::size_t>(m_editing_index)].name
                               : std::string{k_builtin_default};
@@ -438,13 +509,15 @@ namespace TPVCamera::Presets
 
         m_dirty = false;
         m_prefs_dirty = false;
-        capture_saved_baseline(); // the file now matches the live data: this is the new revert baseline
+        // The file now matches the live data: this is the new revert baseline. The picks are the ones written, not a
+        // fresh read, so a hotkey that cycles during the write still differs from the baseline and flushes later.
+        capture_saved_baseline(std::move(cycle_picks));
         logger.info("Presets saved to {}", m_file_path);
     }
 
     void PresetStore::flush()
     {
-        if (m_dirty || m_prefs_dirty)
+        if (m_dirty || m_prefs_dirty || persistable_cycle_picks() != m_saved_cycle_picks)
             save();
     }
 
@@ -526,11 +599,15 @@ namespace TPVCamera::Presets
         // preset untouched, so a shared value stays identical everywhere.
         const CameraPreset &source = m_presets[static_cast<std::size_t>(m_editing_index)];
         for (CameraPreset &preset : m_presets)
+            copy_field_value(field, source, preset);
+    }
+
+    void PresetStore::copy_shared_fields(const CameraPreset &source, CameraPreset &target) const noexcept
+    {
+        for (const std::string &key : m_shared_fields)
         {
-            if (field.type == FieldType::Float)
-                preset.*(field.f) = source.*(field.f);
-            else
-                preset.*(field.b) = source.*(field.b);
+            if (const PresetField *field = find_field(key))
+                copy_field_value(*field, source, target);
         }
     }
 
@@ -553,8 +630,8 @@ namespace TPVCamera::Presets
         preset.bind_state = "none";
         m_presets.push_back(std::move(preset));
         m_editing_index = static_cast<int>(m_presets.size()) - 1;
-        save();
         publish();
+        save();
         return m_editing_index;
     }
 
@@ -568,8 +645,8 @@ namespace TPVCamera::Presets
         preset.bind_state = "none";
         m_presets.push_back(std::move(preset));
         m_editing_index = static_cast<int>(m_presets.size()) - 1;
-        save();
         publish();
+        save();
         return m_editing_index;
     }
 
@@ -581,9 +658,18 @@ namespace TPVCamera::Presets
             return false;
         if (name.empty() || name_in_use(name, index))
             return false;
-        m_presets[static_cast<std::size_t>(index)].name = name;
+        const std::string previous = std::exchange(m_presets[static_cast<std::size_t>(index)].name, name);
+        // A pick names its preset, so it follows the rename and the group keeps the member it uses.
+        publish(
+            [&previous, &name](std::vector<CyclePick> &picks)
+            {
+                for (CyclePick &pick : picks)
+                {
+                    if (pick.preset == previous)
+                        pick.preset = name;
+                }
+            });
         save();
-        publish();
         return true;
     }
 
@@ -595,10 +681,10 @@ namespace TPVCamera::Presets
         if (m_presets[static_cast<std::size_t>(index)].builtin)
             return;
         m_presets[static_cast<std::size_t>(index)].bind_state = bind_state;
-        // A binding change alters auto-apply routing: persist it (like rename) and republish so the live
-        // resolver picks it up this frame.
-        save();
+        // A binding change alters auto-apply routing: republish so the live resolver picks it up this frame (and
+        // the preset's pick in its old group is dropped), then persist it like a rename.
         publish();
+        save();
     }
 
     bool PresetStore::remove(int index)
@@ -612,8 +698,8 @@ namespace TPVCamera::Presets
             m_editing_index = static_cast<int>(m_presets.size()) - 1;
         if (m_editing_index < 0)
             m_editing_index = 0;
-        save();
         publish();
+        save();
         return true;
     }
 
@@ -621,28 +707,104 @@ namespace TPVCamera::Presets
     {
         if (index < 0 || index >= static_cast<int>(m_presets.size()))
             return;
-        CameraPreset &p = m_presets[static_cast<std::size_t>(index)];
-        if (!p.builtin)
+        CameraPreset &preset = m_presets[static_cast<std::size_t>(index)];
+        std::optional<CameraPreset> factory = factory_preset(preset.name);
+        if (!factory)
             return;
-        // Restore the embedded factory values for this built-in, keeping its identity and state binding.
-        const std::string name = p.name;
-        const std::string bind = p.bind_state;
-        p = factory_preset(name);
-        p.name = name;
-        p.builtin = true;
-        p.bind_state = bind;
 
-        // Restoring factory values would diverge any SHARED field on this built-in from the rest. Re-broadcast
-        // every shared field from the editing preset so the "identical across all presets" invariant holds and
-        // the divergence is never written to disk by the save() below.
-        for (const std::string &key : m_shared_fields)
+        // Restore the embedded factory values but keep identity and state binding. A shared field keeps the value all
+        // presets share: the reset concerns one preset, and a factory value in a shared field must reach every other
+        // preset to keep the field shared.
+        const CameraPreset before = preset;
+        preset = std::move(*factory);
+        preset.name = before.name;
+        preset.builtin = before.builtin;
+        preset.bind_state = before.bind_state;
+        copy_shared_fields(before, preset);
+
+        // A built-in's reset also adds back each factory starting point of its states that the list lacks, deleted
+        // or never there because the file predates it. A group without a pick uses its last member, and a starting
+        // point joins at the end, so such a group is pointed at the member it used before the reset. Nothing reads
+        // `preset` past this point: the push_back can reallocate the list.
+        const std::optional<std::uint32_t> mask = parse_bind_mask(before.bind_state);
+        std::string in_use;
+        bool restored = false;
+        if (before.builtin && mask)
         {
-            if (const PresetField *field = find_field(key))
-                copy_field_from_editing(*field);
+            for (const CameraPreset &member : m_presets)
+            {
+                if (parse_bind_mask(member.bind_state) == mask)
+                    in_use = member.name;
+            }
+            for (const CameraPreset &start : factory_data().presets)
+            {
+                if (start.builtin || find_by_name(start.name) >= 0 || parse_bind_mask(start.bind_state) != mask)
+                    continue;
+                CameraPreset added = start;
+                copy_shared_fields(before, added);
+                m_presets.push_back(std::move(added));
+                restored = true;
+            }
         }
 
+        publish(
+            [restored, &mask, &in_use](std::vector<CyclePick> &picks)
+            {
+                // `restored` implies the built-in's mask was parsed.
+                if (!restored)
+                    return;
+                const std::uint32_t group = *mask;
+                const bool picked = std::any_of(picks.begin(), picks.end(),
+                                                [group](const CyclePick &pick) { return pick.mask == group; });
+                if (!picked)
+                {
+                    picks.push_back(CyclePick{
+                        .mask = group,
+                        .preset = in_use,
+                    });
+                }
+            });
         save();
-        publish();
+    }
+
+    void PresetStore::reset_all_to_factory()
+    {
+        // A shared field holds one value in every preset, so any preset carries it. The reset keeps it, as the
+        // single-preset reset does.
+        const CameraPreset shared_source = m_presets.empty() ? CameraPreset{} : m_presets.front();
+        int restored = 0;
+        int added = 0;
+        for (const CameraPreset &factory : factory_data().presets)
+        {
+            CameraPreset preset = factory;
+            copy_shared_fields(shared_source, preset);
+            const int index = find_by_name(factory.name);
+            if (index >= 0)
+            {
+                m_presets[static_cast<std::size_t>(index)] = std::move(preset);
+                ++restored;
+            }
+            else
+            {
+                m_presets.push_back(std::move(preset));
+                ++added;
+            }
+        }
+
+        // The factory picks replace the picks of the groups they name, so those groups start on their built-in
+        // again. A group the player made keeps its pick.
+        publish(
+            [](std::vector<CyclePick> &picks)
+            {
+                for (const CyclePick &factory_pick : factory_data().cycle_picks)
+                {
+                    std::erase_if(picks,
+                                  [&factory_pick](const CyclePick &pick) { return pick.mask == factory_pick.mask; });
+                    picks.push_back(factory_pick);
+                }
+            });
+        save();
+        DMK::log().info("Presets: reset {} factory presets to factory values and added back {}", restored, added);
     }
 
     void PresetStore::mark_dirty()
@@ -673,37 +835,74 @@ namespace TPVCamera::Presets
         m_dirty = (m_presets != m_saved_presets) || shared_changed;
     }
 
-    void PresetStore::capture_saved_baseline()
+    void PresetStore::capture_saved_baseline(std::vector<CyclePick> cycle_picks)
     {
         m_saved_presets = m_presets;
         m_saved_shared_fields = m_shared_fields;
+        m_saved_cycle_picks = std::move(cycle_picks);
     }
 
-    void PresetStore::publish()
+    bool PresetStore::is_live_pick(const CyclePick &pick) const
     {
-        auto table = std::make_shared<StateBindingTable>();
-        table->presets.reserve(m_presets.size());
-        table->masks.reserve(m_presets.size());
+        const int index = find_by_name(pick.preset);
+        if (index < 0)
+            return false;
+        const std::optional<std::uint32_t> mask =
+            parse_bind_mask(m_presets[static_cast<std::size_t>(index)].bind_state);
+        return mask.has_value() && *mask == pick.mask;
+    }
+
+    std::vector<CyclePick> PresetStore::persistable_cycle_picks() const
+    {
+        // The overlay sets a pick from the snapshot it read at the start of its frame, so a rename or rebind earlier
+        // in that frame can leave the pick naming a preset outside its group until the next publish drops it.
+        std::vector<CyclePick> live;
+        if (const std::shared_ptr<const StateBindingTable> table = published_table())
+        {
+            for (const CyclePick &pick : table->cycle_picks)
+            {
+                if (is_live_pick(pick))
+                    live.push_back(pick);
+            }
+        }
+        return live;
+    }
+
+    void PresetStore::publish(const std::function<void(std::vector<CyclePick> &)> &edit_picks)
+    {
+        StateBindingTable table;
+        table.presets.reserve(m_presets.size());
+        table.masks.reserve(m_presets.size());
 
         // Publish every state-bound preset (built-ins plus any user presets the player bound to a state),
-        // keeping the store order so built-ins precede user presets for the resolver's identical-mask
-        // tiebreak. Unbound presets ("none") are skipped: they are reachable only via the editing pin.
+        // keeping the store order: it is the cycle order of each group of identical masks, and a group without a
+        // pick uses its last member, so a user preset still overrides a built-in bound to the same states.
+        // Unbound presets ("none") are skipped: they are reachable only via the editing pin.
         for (const CameraPreset &preset : m_presets)
         {
             const std::optional<std::uint32_t> mask = parse_bind_mask(preset.bind_state);
             if (!mask)
                 continue;
-            table->presets.push_back(preset);
-            table->masks.push_back(*mask);
+            table.presets.push_back(preset);
+            table.masks.push_back(*mask);
         }
 
         if (m_editing_pinned && m_editing_index >= 0 && m_editing_index < static_cast<int>(m_presets.size()))
         {
-            table->has_pin = true;
-            table->pinned = m_presets[static_cast<std::size_t>(m_editing_index)];
+            table.has_pin = true;
+            table.pinned = m_presets[static_cast<std::size_t>(m_editing_index)];
         }
 
-        publish_table(std::move(table));
+        // Every publish drops a pick that no longer names a member of its group (the preset was removed, renamed away
+        // or rebound), and that group returns to its default member. The edit runs first, so a rename can re-key a
+        // pick before the liveness check sees the new name.
+        publish_table(std::move(table),
+                      [this, &edit_picks](std::vector<CyclePick> &picks)
+                      {
+                          if (edit_picks)
+                              edit_picks(picks);
+                          std::erase_if(picks, [this](const CyclePick &pick) { return !is_live_pick(pick); });
+                      });
     }
 
 } // namespace TPVCamera::Presets

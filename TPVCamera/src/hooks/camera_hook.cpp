@@ -1243,10 +1243,21 @@ namespace TPVCamera
             zoom_offset += zoom_step * delta_time;
         }
         const float base_distance = cfg.follow_distance.load(std::memory_order_relaxed);
-        const float distance =
-            std::clamp(base_distance + zoom_offset, cfg.follow_distance_min.load(std::memory_order_relaxed),
-                       cfg.follow_distance_max.load(std::memory_order_relaxed));
-        cam.zoom_offset.store(distance - base_distance, std::memory_order_relaxed);
+        // A preset can carry Min above Max, and std::clamp is undefined when its upper bound is below the lower.
+        const float distance_min = cfg.follow_distance_min.load(std::memory_order_relaxed);
+        const float distance_max = std::max(distance_min, cfg.follow_distance_max.load(std::memory_order_relaxed));
+        const float distance = std::clamp(base_distance + zoom_offset, distance_min, distance_max);
+        // A requested reset keeps this frame's distance and hands the clamped offset to the preset ease, which
+        // carries it from the next frame on and eases it out.
+        if (cam.zoom_reset_requested.exchange(false, std::memory_order_relaxed))
+        {
+            Presets::ease_out_zoom_offset(distance - base_distance);
+            cam.zoom_offset.store(0.0f, std::memory_order_relaxed);
+        }
+        else
+        {
+            cam.zoom_offset.store(distance - base_distance, std::memory_order_relaxed);
+        }
 
         // Read the eye anchor and the orientation quat from the untouched CView pose. The basis is
         // derived from the quat (CryEngine column-vector convention: right = quat * +X, forward =

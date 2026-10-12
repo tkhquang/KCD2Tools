@@ -58,8 +58,14 @@ namespace TPVCamera
         // (polled per frame in the detour). Keeping zoom as a delta from the INI
         // FollowDistance (rather than an absolute value) is what lets an INI edit apply
         // live: the base is re-read every frame and the rendered distance follows
-        // immediately, while the player's accumulated zoom is preserved on top.
+        // immediately, while the player's accumulated zoom is preserved on top. Once hooks are
+        // armed, only the frustum detour writes it, and other threads read it for display.
         std::atomic<float> zoom_offset{0.0f};
+
+        // Asks the frustum detour to drop the zoom (a preset cycle, the overlay's Reset zoom). The detour hands the
+        // offset to the preset ease, so the camera glides back instead of jumping, and zoom_offset keeps its single
+        // writer. The flag guards no other data, so relaxed order is enough on both sides.
+        std::atomic<bool> zoom_reset_requested{false};
 
         // First-person <-> third-person view-switch blend (render thread only): 0 = first person,
         // 1 = third person. Eased toward the target view each frame (smoothstepped at use) so toggling

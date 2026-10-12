@@ -9,18 +9,27 @@
  *          consumes via a single atomic shared_ptr load (no allocation). CRUD operations that change
  *          applied values call publish().
  *
+ *          The cycle picks (which member of each cycle group is in use) live in that snapshot, because
+ *          the cycle hotkeys change them on the input thread without touching the store. The store
+ *          seeds them on load, re-keys them on rename, drops the ones a change invalidates, and
+ *          persists them in the presets JSON.
+ *
  *          The built-ins (DEFAULT/COMBAT/AIMING/MOUNT/STEALTH/LYING/SITTING/KNEEL/CART) are defined by
  *          embedded factory data (default_presets.hpp), NOT shipped in a file: load() creates the presets
  *          file from them on first run and re-adds any built-in a user file lacks (so an update
  *          that introduces a built-in adds it without overwriting the player's customizations).
  *          They are kept at the front in that order and cannot be removed or renamed, but CAN be
- *          edited and reset to factory defaults. User presets follow.
+ *          edited and reset to factory defaults. User presets follow. A fresh file also gets the
+ *          factory starting points, which are ordinary user presets from then on.
  */
 #ifndef TPVCAMERA_PRESETS_PRESET_STORE_HPP
 #define TPVCAMERA_PRESETS_PRESET_STORE_HPP
 
 #include "camera_preset.hpp"
+#include "preset_runtime.hpp"
 
+#include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -31,10 +40,11 @@ namespace TPVCamera::Presets
     struct PresetField; // defined in camera_preset_fields.hpp; used here only by reference
 
     /**
-     * @brief The embedded factory copy of a built-in preset by @p name, or a struct-default CameraPreset for
-     *        any non-built-in name. Backs reset-to-factory (whole preset) and per-field reset in the overlay.
+     * @brief The embedded factory copy of the preset named @p name: a built-in or a factory starting point.
+     * @details Backs reset-to-factory (whole preset) and per-field reset in the overlay.
+     * @return The factory preset, or std::nullopt when no factory preset has that name.
      */
-    [[nodiscard]] CameraPreset factory_preset(const std::string &name);
+    [[nodiscard]] std::optional<CameraPreset> factory_preset(const std::string &name);
 
     /**
      * @class PresetStore
@@ -59,7 +69,7 @@ namespace TPVCamera::Presets
         /** @brief Writes the presets to the cached path immediately and clears the dirty flag. */
         void save();
 
-        /** @brief Writes only if there are unsaved changes (call on shutdown). */
+        /** @brief Writes only if there are unsaved changes, cycle picks included (call on shutdown). */
         void flush();
 
         /** @brief The preset list (built-ins first). UI thread only. */
@@ -138,8 +148,21 @@ namespace TPVCamera::Presets
          */
         bool remove(int index);
 
-        /** @brief Resets a built-in to its hard-coded factory values (no-op for user presets). */
+        /**
+         * @brief Resets preset @p index to its factory values, or does nothing when it has none (see factory_preset).
+         * @details Name, binding and every shared field keep their values. A built-in's reset also adds back each
+         *          factory starting point of its states that the list lacks, and keeps its cycle group on the
+         *          member it used before. Saves and republishes.
+         */
         void reset_to_factory(int index);
+
+        /**
+         * @brief Resets every factory preset (the built-ins and their starting points) to factory values and binding.
+         * @details Adds back each missing starting point, and the cycle groups the factory ships start on their
+         *          built-in again. The player's own presets, the picks of the groups they made and every shared field
+         *          keep their values. Saves and republishes.
+         */
+        void reset_all_to_factory();
 
         /**
          * @brief Marks the store dirty and republishes the binding table (live preview).
@@ -148,23 +171,39 @@ namespace TPVCamera::Presets
          */
         void mark_dirty();
 
-        /** @brief Rebuilds and publishes the StateBindingTable snapshot for the render thread. */
-        void publish();
-
     private:
         PresetStore() = default;
+
+        /**
+         * @brief Rebuilds and publishes the StateBindingTable snapshot for the render thread.
+         * @details The live cycle picks carry over, pass through @p edit_picks, and lose every pick that no longer
+         *          names a member of its group. save() reads the picks from the published snapshot, so a change
+         *          publishes before it saves.
+         * @param edit_picks Optional rewrite of the carried-over picks (see publish_table).
+         */
+        void publish(const std::function<void(std::vector<CyclePick> &)> &edit_picks = {});
 
         /** @brief Re-adds any missing built-in from factory and orders all built-ins first; true if any was added. */
         [[nodiscard]] bool arrange_builtins();
         [[nodiscard]] int find_by_name(const std::string &name) const;
         [[nodiscard]] bool name_in_use(const std::string &name, int ignore_index) const;
         [[nodiscard]] std::string make_unique_name(const std::string &base) const;
+        /** @brief Whether @p pick names a preset that is bound to exactly the pick's mask. */
+        [[nodiscard]] bool is_live_pick(const CyclePick &pick) const;
+        /** @brief The published cycle picks that name a member of their group: what save() writes. */
+        [[nodiscard]] std::vector<CyclePick> persistable_cycle_picks() const;
         /** @brief Copies field @p field's value from the editing preset into every preset (no save/publish). */
         void copy_field_from_editing(const PresetField &field) noexcept;
+        /** @brief Copies the value of every shared field from @p source into @p target. */
+        void copy_shared_fields(const CameraPreset &source, CameraPreset &target) const noexcept;
         /** @brief Recomputes m_dirty as the difference between the live presets/shared set and the saved baseline. */
         void recompute_dirty() noexcept;
-        /** @brief Snapshots the live presets/shared set as the saved baseline (after a successful load/save). */
-        void capture_saved_baseline();
+        /**
+         * @brief Snapshots the live presets/shared set and @p cycle_picks as the saved baseline (after a successful
+         *        load/save).
+         * @param cycle_picks The cycle picks the file now holds.
+         */
+        void capture_saved_baseline(std::vector<CyclePick> cycle_picks);
 
         std::vector<CameraPreset> m_presets;
         int m_editing_index = 0;
@@ -180,6 +219,9 @@ namespace TPVCamera::Presets
         // to the saved value clears it.
         std::vector<CameraPreset> m_saved_presets;
         std::vector<std::string> m_saved_shared_fields;
+        // The cycle picks the file holds. The cycle hotkeys change the live picks without the store, so flush()
+        // compares against this instead of a dirty flag. The picks never light the Save indicator.
+        std::vector<CyclePick> m_saved_cycle_picks;
         std::string m_file_path;
     };
 
