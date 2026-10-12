@@ -73,7 +73,6 @@
 #include <numbers>
 #include <optional>
 #include <span>
-#include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -3642,32 +3641,6 @@ namespace TPVCamera
             }
         }
 
-        /**
-         * @brief Installs one inline hook, stores it in @p hooks, and publishes its trampoline before it is armed.
-         * @throws std::bad_alloc If the hook name or the hook set cannot allocate.
-         */
-        template <typename Func, typename Detour>
-        [[nodiscard]] DMK::Result<void> install(HookSet &hooks, std::string_view name, std::uintptr_t target,
-                                                std::atomic<Func> &original, Detour detour)
-        {
-            auto result = DMK::hook::inline_at(
-                DMK::hook::InlineRequest{
-                    .name = std::string{name},
-                    .target = DMK::Address{target},
-                },
-                detour);
-            if (!result.has_value())
-            {
-                return std::unexpected(result.error());
-            }
-            original.store(result->template original<Func>(), std::memory_order_release);
-            if (auto armed = hooks.push(std::move(*result)).enable(); !armed.has_value())
-            {
-                return std::unexpected(armed.error());
-            }
-            return {};
-        }
-
     } // namespace
 
     DMK::Result<void> initialize_ranged_hook(std::uintptr_t g_env, HookSet &hooks)
@@ -3686,11 +3659,13 @@ namespace TPVCamera
         s_get_physics_offset = static_cast<std::ptrdiff_t>(*physics_slot);
 
         // Launch first: a shot can only be marked by FireProjectile once its Launch detour is live.
-        if (auto armed = install(hooks, "ProjectileLaunch", launch, s_launch_original, launch_detour); !armed)
+        if (auto armed = install_inline_hook(hooks, "ProjectileLaunch", launch, s_launch_original, launch_detour);
+            !armed)
         {
             return armed;
         }
-        if (auto armed = install(hooks, "FireProjectile", fire, s_fire_original, fire_projectile_detour); !armed)
+        if (auto armed = install_inline_hook(hooks, "FireProjectile", fire, s_fire_original, fire_projectile_detour);
+            !armed)
         {
             return armed;
         }
@@ -3706,7 +3681,8 @@ namespace TPVCamera
             logger.warning(
                 "Ranged: the trail gate failed, so shots are still re-aimed for the crosshair without a trail");
         }
-        else if (auto armed = install(hooks, "ArrowCollision", collision, s_collision_original, arrow_collision_detour);
+        else if (auto armed = install_inline_hook(hooks, "ArrowCollision", collision, s_collision_original,
+                                                  arrow_collision_detour);
                  !armed)
         {
             logger.warning(

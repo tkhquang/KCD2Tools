@@ -17,3 +17,5 @@
 - Shots at a target right in front of Henry now hit the crosshair instead of passing beside it.
 - MaxAimCorrection now defaults to 45, so shots at targets close to Henry are aimed too. An existing INI keeps its value.
 - The aim preview no longer shows too high on the first shot after shooting at your feet, and it stays on target up close.
+- The use prompt no longer flickers between two things side by side, such as cooking at a fire and eating from the pot on it. The one under the crosshair is picked, in free-look too.
+- In free-look, the use prompt for herbs and similar items now shows at the crosshair instead of at the edge of the screen.

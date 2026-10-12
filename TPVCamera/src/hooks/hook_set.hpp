@@ -5,12 +5,17 @@
 #ifndef TPVCAMERA_HOOK_SET_HPP
 #define TPVCAMERA_HOOK_SET_HPP
 
+#include <DetourModKit/error.hpp>
 #include <DetourModKit/hook.hpp>
 
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <memory>
+#include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace TPVCamera
@@ -47,11 +52,15 @@ namespace TPVCamera
     {
         /// Every hook restored its target and was destroyed.
         Retired,
-        /// A detour stayed busy past the drain deadline. The hooks stay disabled with their trampolines allocated, and
-        /// a later retire() can finish the work.
+        /**
+         * @brief A detour stayed busy past the drain deadline. The hooks stay disabled with their trampolines
+         *        allocated, and a later retire() can finish the work.
+         */
         Busy,
-        /// A hook failed to disable or restore its target. Its detour can stay reachable, so the image must stay mapped
-        /// for the process lifetime.
+        /**
+         * @brief A hook failed to disable or restore its target. Its detour can stay reachable, so the image must stay
+         *        mapped for the process lifetime.
+         */
         Failed,
     };
 
@@ -111,6 +120,43 @@ namespace TPVCamera
         std::vector<std::unique_ptr<DMK::hook::Hook>> m_hooks;
         bool m_failed = false;
     };
+
+    /**
+     * @brief Installs one inline hook on @p target, stores it in @p hooks, and publishes its trampoline before the
+     *        arm.
+     * @details The detour can run as soon as enable() arms the patch, so @p original holds the trampoline first. The
+     *          set stores the hook before the arm, so a hook whose arm fails with the patch live stays owned through
+     *          teardown.
+     * @param hooks The mod's hook set.
+     * @param name The hook name for DMK diagnostics.
+     * @param target The resolved function entry.
+     * @param original Receives the trampoline that calls the original function.
+     * @param detour The detour function.
+     * @return An empty value when the hook is armed, or the library Error that refused the create or the arm.
+     * @throws std::bad_alloc If the hook name or the hook set cannot allocate.
+     * @note Setup/control-plane only.
+     */
+    template <typename Func, typename Detour>
+    [[nodiscard]] DMK::Result<void> install_inline_hook(HookSet &hooks, std::string_view name, std::uintptr_t target,
+                                                        std::atomic<Func> &original, Detour detour)
+    {
+        auto result = DMK::hook::inline_at(
+            DMK::hook::InlineRequest{
+                .name = std::string{name},
+                .target = DMK::Address{target},
+            },
+            detour);
+        if (!result.has_value())
+        {
+            return std::unexpected(result.error());
+        }
+        original.store(result->template original<Func>(), std::memory_order_release);
+        if (auto armed = hooks.push(std::move(*result)).enable(); !armed.has_value())
+        {
+            return std::unexpected(armed.error());
+        }
+        return {};
+    }
 
 } // namespace TPVCamera
 

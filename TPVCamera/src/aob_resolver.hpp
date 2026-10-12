@@ -624,24 +624,79 @@ namespace TPVCamera
                 -0x21),
         };
 
-        // On-screen reticle projection gate entry
-        // Direct entry hook. P1 is the prologue through `mov rcx, [rip+cam]`. P2
-        // extends through the first two movss reads of the candidate world point.
-        // P3 drops the leading shadow-save and walks back 0x0B.
-        inline const Candidate k_interactionOnScreenCandidates[] = {
+        // Interactor candidate update (sub_1807F55FC) entry
+        // Direct entry hook. The `mov rax, rsp` save-and-push prologue is
+        // shared, so P1 runs through `lea rbx, [rcx+148h]` and `mov r14, rdx`,
+        // the pose argument. P2 extends through the xmm saves to `mov rsi, rcx`.
+        // P3 drops the prologue and walks back 0x22. Each matches exactly once
+        // on Steam 1.5.6 (0x1807F55FC), GOG 1.5 and Game Pass 1.4.
+        inline const Candidate k_interactorCandidateUpdateCandidates[] = {
             Candidate::direct(
-                "OnScreen_P1_PrologueMovGlobal",
-                Pattern::literal("4C 8B DC 49 89 5B 10 49 89 73 18 49 89 4B 08 57 48 83 EC ?? 48 8B 0D ?? ?? ?? ?? "
-                                 "49 8D 70 04")),
+                "CandidateUpdate_P1_PrologueLeaPose",
+                Pattern::literal("48 8B C4 48 89 58 08 48 89 70 10 44 89 40 18 55 57 41 56 48 8D 68 ?? 48 81 EC ?? "
+                                 "?? ?? ?? 0F 29 70 ?? 48 8D 99 ?? ?? ?? ?? 0F 29 78 ?? 4C 8B F2")),
             Candidate::direct(
-                "OnScreen_P2_PrologueThroughMovss",
-                Pattern::literal("4C 8B DC 49 89 5B 10 49 89 73 18 49 89 4B 08 57 48 83 EC ?? 48 8B 0D ?? ?? ?? ?? "
-                                 "49 8D 70 04 F3 0F 10 5A 08 49 8B F8 F3 0F 10 52 04")),
+                "CandidateUpdate_P2_PrologueThroughXmmSaves",
+                Pattern::literal("48 8B C4 48 89 58 08 48 89 70 10 44 89 40 18 55 57 41 56 48 8D 68 ?? 48 81 EC ?? "
+                                 "?? ?? ?? 0F 29 70 ?? 48 8D 99 ?? ?? ?? ?? 0F 29 78 ?? 4C 8B F2 44 0F 29 40 ?? 48 "
+                                 "8D 55 ?? 44 0F 29 48 ?? 48 8B F1 0F 57 C0")),
             Candidate::direct(
-                "OnScreen_P3_BodyMovGlobalMovss",
-                Pattern::literal("49 89 4B 08 57 48 83 EC ?? 48 8B 0D ?? ?? ?? ?? 49 8D 70 04 F3 0F 10 5A 08 49 8B "
-                                 "F8 F3 0F 10 52 04 4D 8D 43 08 F3 0F 10 0A"),
+                "CandidateUpdate_P3_LeaPoseBody",
+                Pattern::literal("48 8D 99 ?? ?? ?? ?? 0F 29 78 ?? 4C 8B F2 44 0F 29 40 ?? 48 8D 55 ?? 44 0F 29 48 "
+                                 "?? 48 8B F1 0F 57 C0 44 0F 29 50 ?? 48 8B CB"),
+                -0x22),
+        };
+
+        // Segment-to-box closest point (sub_180A867D0) entry
+        // Direct entry hook. Its nine-xmm-save prologue is shared, so P1 runs
+        // through the stack-canary store into `movss xmm14, [rip+FLT_MAX]`. P2
+        // anchors on the body from that movss through the first two calls and
+        // walks back 0x69. It crosses the `jnz` on the first call's result with
+        // a [2-6] gap, which spans its short and near encodings. P3 drops the
+        // leading `mov rax, rsp` and register saves, runs to `mov r14, r8`, and
+        // walks back 0x0B. Each matches exactly once on Steam 1.5.6
+        // (0x180A867D0), GOG 1.5 and Game Pass 1.4.
+        inline const Candidate k_segmentBoxPointCandidates[] = {
+            Candidate::direct(
+                "SegmentBox_P1_PrologueThroughCanary",
+                Pattern::literal("48 8B C4 48 89 58 10 48 89 70 20 55 57 41 54 41 56 41 57 48 8D A8 ?? ?? ?? ?? 48 "
+                                 "81 EC ?? ?? ?? ?? 0F 29 70 ?? 0F 29 78 ?? 44 0F 29 40 ?? 44 0F 29 48 ?? 44 0F 29 "
+                                 "50 ?? 44 0F 29 98 ?? ?? ?? ?? 44 0F 29 A0 ?? ?? ?? ?? 44 0F 29 A8 ?? ?? ?? ?? 44 "
+                                 "0F 29 B0 ?? ?? ?? ?? 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 85 ?? ?? ?? ?? F3 44 0F "
+                                 "10 35")),
+            Candidate::direct(
+                "SegmentBox_P2_BodyThroughCalls",
+                Pattern::literal("F3 44 0F 10 35 ?? ?? ?? ?? 4D 8B F0 4C 8D 44 24 ?? 48 8B DA 48 8B F9 E8 ?? ?? ?? "
+                                 "?? 84 C0 [2-6] 48 8B D3 48 8D 4D ?? E8"),
+                -0x69),
+            Candidate::direct(
+                "SegmentBox_P3_PushesThroughArgs",
+                Pattern::literal("55 57 41 54 41 56 41 57 48 8D A8 ?? ?? ?? ?? 48 81 EC ?? ?? ?? ?? 0F 29 70 ?? 0F "
+                                 "29 78 ?? 44 0F 29 40 ?? 44 0F 29 48 ?? 44 0F 29 50 ?? 44 0F 29 98 ?? ?? ?? ?? 44 "
+                                 "0F 29 A0 ?? ?? ?? ?? 44 0F 29 A8 ?? ?? ?? ?? 44 0F 29 B0 ?? ?? ?? ?? 48 8B 05 ?? "
+                                 "?? ?? ?? 48 33 C4 48 89 85 ?? ?? ?? ?? F3 44 0F 10 35 ?? ?? ?? ?? 4D 8B F0"),
                 -0x0B),
+        };
+
+        // Return address of the segment-to-box call in the interactor update (sub_1807F2DD4)
+        // Direct, NOT a hook target: the segment-to-box detour compares its own return address with this one and
+        // rewrites only this call's segment, whose end the update keeps as the cross-centered prompt anchor. The
+        // `|` marker sits on the instruction after the call. P1 pins the bounds virtual call and the three argument
+        // leas into the call and the prompt-flag compare. P2 pins the call through the two anchor stores, and P3
+        // keeps the flag and anchor offsets literal. P1 and P2 wildcard the vtable slot and every field offset. Each
+        // matches exactly once on Steam 1.5.6 (0x1807F3207), GOG 1.5 and Game Pass 1.4.
+        inline const Candidate k_promptSegmentReturnCandidates[] = {
+            Candidate::direct(
+                "PromptSegment_P1_BoundsThroughCall",
+                Pattern::literal("FF 90 ?? ?? ?? ?? 4C 8D 45 ?? 48 8D 55 ?? 48 8D 4D ?? E8 ?? ?? ?? ?? | 80 BB ?? ?? "
+                                 "?? ?? 00 F2 0F 10 45 ??")),
+            Candidate::direct(
+                "PromptSegment_P2_CallThroughStores",
+                Pattern::literal("E8 ?? ?? ?? ?? | 80 BB ?? ?? ?? ?? 00 F2 0F 10 45 ?? 8B 45 ?? F2 0F 11 83 ?? ?? ?? "
+                                 "?? 89 83 ?? ?? ?? ??")),
+            Candidate::direct("PromptSegment_P3_LiteralFields",
+                              Pattern::literal("48 8D 4D ?? E8 ?? ?? ?? ?? | 80 BB 04 01 00 00 00 F2 0F 10 45 ?? 8B 45 "
+                                               "?? F2 0F 11 83 84 01 00 00")),
         };
 
         // HideOverlays entry
@@ -878,7 +933,9 @@ namespace TPVCamera
         RayWorldIntersection, // IPhysicalWorld::RayWorldIntersection helper (called, not hooked)
         InteractionRayBuild,  // interaction ray-query builder
         InteractorLookRay,    // interactor look-ray builder (used as a caller-range bound, not hooked)
-        InteractionOnScreen,  // on-screen reticle projection gate
+        InteractorCandidates, // interactor candidate update (the use candidates are built from its pose)
+        SegmentBoxPoint,      // closest point of a box to a segment (the interactor's look segment tests)
+        PromptSegmentReturn,  // segment-to-box return address in the interactor update (compared, not hooked)
         OverlayHide,          // HideOverlays
         OverlayShow,          // ShowOverlays
         MenuOpen,             // UI menu-open entry
@@ -921,7 +978,8 @@ namespace TPVCamera
         MoveIntent,          // ActionDispatch: device-agnostic movement intent for orbit move detection
         Collision,           // Genv, RayWorldIntersection: camera collision
         Interaction,         // InteractionRayBuild, InteractorLookRay: camera-space interaction
-        InteractionOnScreen, // InteractionOnScreen: crosshair-picked shrines, beds and doors
+        CrosshairCandidates, // InteractorCandidates: use candidates picked along the crosshair ray
+        CrosshairPrompt,     // SegmentBoxPoint, PromptSegmentReturn: the cross-centered use prompt at the crosshair
         OverlayState,        // OverlayHide, OverlayShow: offset suppression under game UI
         MenuState,           // MenuOpen, MenuClose: offset suppression under the in-game menu
         Occlusion,           // Genv, GetObjectsInBox: render-only roof and canopy occlusion
