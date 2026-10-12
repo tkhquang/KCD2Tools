@@ -18,21 +18,20 @@
  *          record through a lock-free ring, and the arrow collision handler reports the impact the same way. The main
  *          thread follows each shot's projectile, logs the measured miss and draws the trail.
  *
- *          The arrow is a physics particle: Launch orients the entity from dir and flies it on velocity * speedScale,
- *          with the ammo's gravity and air resistance (Arrow.xml: 9.0 and 0). The bow is posed by aim IK toward the
- *          first-person eye plus 5 m along the look, and the first-person camera sits at that eye and looks along that
- *          look. The nocked arrow therefore holds a set against the first-person line of sight that the aim poses
- *          decide. The re-aimed shot keeps the game's launch point and speed, and its direction is the game's turned
- *          with the look from the eye onto the crosshair point: the first-person shot with the crosshair on that point,
- *          which lands where that shot lands. AimStraightAtCrosshair launches it on the straight line to the point
- *          instead, the Skyrim-style aim with no lift. The game applies no spread to the player's shot, and the bow
- *          sway lives in the look the camera follows, so the crosshair carries the sway and the re-aimed shot keeps it.
- *          The bow sits beside the camera, so a shot that comes down off the point (or falls from the open sky onto
- *          something nearer) is turned about the vertical until its traced arc lands in the camera's vertical plane:
- *          straight above or below the crosshair on screen, never beside it. First person, free-look, shotgun pellets
- *          and corrections past MaxAimCorrection keep the game's own shot. The player's distraction stone is re-aimed
- *          straight at the point from where it leaves the hand: the game throws it along the look from beside the eye,
- *          which in third person lands it beside the crosshair.
+ *          The arrow is a physics particle: Launch orients the entity from dir and flies it on velocity *
+ *          speedScale, with the ammo's gravity and air resistance (Arrow.xml: 9.0 and 0). The bow is posed by aim IK
+ *          toward the first-person eye plus 5 m along the look, and the first-person camera sits at that eye and looks
+ *          along that look. The nocked arrow therefore holds a set against the first-person line of sight that the aim
+ *          poses decide. The re-aimed shot keeps the game's launch point and speed, and its direction is the game's
+ *          turned with the look from the eye onto the crosshair point: the first-person shot with the crosshair on
+ *          that point, which lands where that shot lands. The game applies no spread to the player's shot, and the bow
+ *          sway lives in the look the camera follows, so the crosshair carries the sway and the re-aimed shot keeps
+ *          it. The bow sits beside the camera, so a shot that comes down off the point (or falls from the open sky
+ *          onto something nearer) is turned about the vertical until its traced arc lands in the camera's vertical
+ *          plane: straight above or below the crosshair on screen, never beside it. First person, free-look, shotgun
+ *          pellets and corrections past MaxAimCorrection keep the game's own shot. The player's distraction stone is
+ *          re-aimed straight at the point from where it leaves the hand: the game throws it along the look from beside
+ *          the eye, which in third person lands it beside the crosshair.
  *
  *          The game gives every ammo the same gravity, and only the launch speed differs. The player's shots drop more
  *          or less per weapon: FireProjectile's ammo item names the ammo class (arrow, bolt, ball or scatter shot), and
@@ -424,32 +423,6 @@ namespace TPVCamera
             }
         }
 
-        /** @brief Which direction a re-aimed shot leaves in. */
-        enum class ReAimKind : std::uint8_t
-        {
-            // The first-person shot with the crosshair on the crosshair point (sighted_direction).
-            FirstPerson,
-            // The straight line from the weapon to the crosshair point, as AimStraightAtCrosshair asks.
-            Straight,
-            // The straight line, because the look or the first-person eye was not read.
-            StraightFallback,
-        };
-
-        /** @brief The log phrase for @p kind. */
-        [[nodiscard]] const char *re_aim_text(ReAimKind kind) noexcept
-        {
-            switch (kind)
-            {
-            case ReAimKind::FirstPerson:
-                return "flown as the first-person shot at the crosshair point";
-            case ReAimKind::Straight:
-                return "flown straight at the crosshair point (AimStraightAtCrosshair)";
-            case ReAimKind::StraightFallback:
-            default:
-                return "flown straight at the crosshair point (no first-person look or eye)";
-            }
-        }
-
         /** @brief The crosshair target of one frame: the camera ray and the point it hits. */
         struct AimTarget
         {
@@ -702,8 +675,9 @@ namespace TPVCamera
             bool look_valid{false};
             AimTarget target{};
             bool target_valid{false};
-            // Which direction the re-aim chose. Meaningful only for a Redirected shot.
-            ReAimKind re_aim{ReAimKind::FirstPerson};
+            // True when the re-aim turned the game's launch with the look onto the crosshair point. False for a re-aim
+            // straight at the point, which runs without the look or the eye.
+            bool sighted{false};
             float correction_deg{0.0f};
             // Where the shot's traced arc lands, how far that was off the camera's vertical plane before and after the
             // sideways turn (meters, + to the camera's right), the turn, and whether MaxAimCorrection refused it.
@@ -1576,45 +1550,6 @@ namespace TPVCamera
             return turn_with_look(native, *look, sight.normalized());
         }
 
-        /** @brief A re-aimed shot's launch direction and the rule that chose it. */
-        struct ReAim
-        {
-            Vector3 dir{};
-            ReAimKind kind{ReAimKind::FirstPerson};
-        };
-
-        /**
-         * @brief The direction a shot from @p from is re-aimed in: the first-person shot at the target point
-         *        (sighted_direction), or the straight line from @p from to the point.
-         * @details The straight line is the Skyrim-style aim AimStraightAtCrosshair asks for: the shot starts on the
-         *          line to the point and gravity alone takes it below, with no lift. It also stands in when the
-         *          first-person shot has no look or eye to work from. The Launch detour and the aim preview both take
-         *          their direction from here, so the preview draws the shot that flies.
-         */
-        [[nodiscard]] ReAim re_aim_direction(const AimTarget &target, const std::optional<Vector3> &look,
-                                             const Vector3 &native, const Vector3 &from) noexcept
-        {
-            const Vector3 straight = (to_vector(target.point) - from).normalized();
-            if (settings().ranged_aim_straight.load(std::memory_order_relaxed))
-            {
-                return ReAim{
-                    .dir = straight,
-                    .kind = ReAimKind::Straight,
-                };
-            }
-            if (const std::optional<Vector3> sighted = sighted_direction(target, look, native); sighted)
-            {
-                return ReAim{
-                    .dir = *sighted,
-                    .kind = ReAimKind::FirstPerson,
-                };
-            }
-            return ReAim{
-                .dir = straight,
-                .kind = ReAimKind::StraightFallback,
-            };
-        }
-
         /**
          * @brief Turns the re-aimed launch @p aimed about the vertical so it lands straight above or below the
          *        crosshair, and writes the launch Launch receives.
@@ -1654,10 +1589,9 @@ namespace TPVCamera
         /**
          * @brief Builds the shot record and, when the shot is to be re-aimed, the launch to fly in place of the game's.
          * @details The game looses the arrow along the nocked arrow's axis, which the aim poses point by the look, not
-         *          along the first-person line of sight. re_aim_direction picks the re-aimed direction: the
-         *          first-person shot with the crosshair on the point the crosshair ray hits, which lands where that
-         *          shot lands, or the straight line to the point with AimStraightAtCrosshair on. It leaves the bow at
-         *          the game's speed either way.
+         *          along the first-person line of sight. A re-aimed shot is the first-person shot with the crosshair on
+         *          the point the crosshair ray hits (sighted_direction), so it lands where that shot lands. Without the
+         *          look or the eye it is aimed straight at the point. It leaves the bow at the game's speed either way.
          * @return True when @p flown replaces the game's direction and velocity.
          */
         [[nodiscard]] bool prepare_shot(std::uintptr_t projectile, const float *pos, const float *velocity,
@@ -1762,9 +1696,9 @@ namespace TPVCamera
                 shot.outcome = ShotOutcome::TooClose;
                 return false;
             }
-            const ReAim re_aim = re_aim_direction(target, look, native, start);
-            shot.re_aim = re_aim.kind;
-            const Vector3 aimed = re_aim.dir;
+            const std::optional<Vector3> sighted = sighted_direction(target, look, native);
+            shot.sighted = sighted.has_value();
+            const Vector3 aimed = sighted.value_or(to_point.normalized());
             shot.correction_deg = angle_deg(native, aimed);
             const float max_correction = max_aim_correction();
             if (shot.correction_deg > max_correction)
@@ -2616,13 +2550,17 @@ namespace TPVCamera
                 const auto [right, up] = view_axes(look);
                 const Vector3 bow = to_vector(native);
                 const float along = dot(bow, look);
-                const bool redirected = shot.outcome == ShotOutcome::Redirected;
+                const char *flown_as = "";
+                if (shot.outcome == ShotOutcome::Redirected)
+                {
+                    flown_as = shot.sighted ? " | flown as the first-person shot at the crosshair point"
+                                            : " | flown straight at the crosshair point (no first-person eye)";
+                }
                 (void)DMK::log().try_log(DMK::LogLevel::Info,
                                          "Ranged SHOT #{} bow: aimed {:+.3f} deg up and {:+.3f} deg right of the "
-                                         "look{}{}",
+                                         "look{}",
                                          flight.serial, DMK::math::radians_to_degrees(std::atan2(dot(bow, up), along)),
-                                         DMK::math::radians_to_degrees(std::atan2(dot(bow, right), along)),
-                                         redirected ? " | " : "", redirected ? re_aim_text(shot.re_aim) : "");
+                                         DMK::math::radians_to_degrees(std::atan2(dot(bow, right), along)), flown_as);
             }
         }
 
@@ -3373,7 +3311,7 @@ namespace TPVCamera
                 (point - bow).magnitude() >= k_min_target_distance)
             {
                 const float max_correction = max_aim_correction();
-                const Vector3 aimed = re_aim_direction(target, look, native, bow).dir;
+                const Vector3 aimed = sighted_direction(target, look, native).value_or((point - bow).normalized());
                 if (angle_deg(native, aimed) <= max_correction)
                 {
                     dir = predict_in_crosshair_plane(target, bow, native, aimed, max_correction, physics, skip, landing,

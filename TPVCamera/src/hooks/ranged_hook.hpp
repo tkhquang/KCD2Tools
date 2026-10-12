@@ -3,10 +3,10 @@
  * @brief Third-person ranged shots and distraction stones aimed at the crosshair, the projectile flight trail and the
  *        aim preview.
  * @details While the hooks are installed, the player's arrows, bolts and firearm shots in third person land where the
- *          first-person shot with the crosshair on the same point lands (or fly straight at that point with
- *          AimStraightAtCrosshair), thrown distraction stones fly at that point, and each of the player's shots falls
- *          by its weapon's configured gravity scale. Each frame the ranged step follows, logs and draws the player's
- *          shots and previews where the next one comes down. ranged_hook.cpp owns the mechanism.
+ *          first-person shot with the crosshair on the same point lands, thrown distraction stones fly at that point,
+ *          and each of the player's shots falls by its weapon's configured gravity scale. Each frame the ranged step
+ *          follows, logs and draws the player's shots and previews where the next one comes down. ranged_hook.cpp
+ *          owns the mechanism.
  */
 #ifndef TPVCAMERA_HOOKS_RANGED_HOOK_HPP
 #define TPVCAMERA_HOOKS_RANGED_HOOK_HPP

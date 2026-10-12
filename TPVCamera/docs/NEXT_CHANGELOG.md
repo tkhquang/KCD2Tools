@@ -1,7 +1,6 @@
 ## Third-Person Ranged Aiming and Steadier Free-Look
 
 - In third person, arrows, bolts and handgonne shots now land where the same shot lands in first person, never beside the crosshair.
-- New option aims those shots straight at the crosshair instead, Skyrim style, with no aim assist.
 - Distraction stones thrown in third person now land straight below the crosshair too.
 - New optional aim preview shows where a drawn shot or a held distraction stone will land.
 - New optional trail shows the flight of each arrow, bolt or handgonne ball and where it landed.
