@@ -193,11 +193,14 @@ namespace TPVCamera
         // Ranged (always-live, NOT preset-owned). The player's shot leaves the bow along the bow's own axis, so in
         // third person it misses the screen center by the shoulder parallax. ranged_aim_at_crosshair re-aims it as the
         // first-person shot with the crosshair on the point the crosshair ray hits, so it lands where that shot lands
-        // (third person only, never in free-look). ranged_max_correction (degrees) leaves a shot untouched when
-        // the re-aim lies further than that from the bow's own aim, and also limits the sideways turn that brings the
-        // landing in line with the crosshair. ranged_show_trail draws each player shot's flight path, the crosshair
-        // point and the impact for ranged_trail_seconds.
+        // (third person only, never in free-look). ranged_aim_straight launches the re-aimed shot on the straight line
+        // from the weapon to that point instead, so gravity alone takes it below the point, with no lift and no aim
+        // assist. ranged_max_correction (degrees) leaves a shot untouched when the re-aim lies further than that from
+        // the bow's own aim, and also limits the sideways turn that brings the landing in line with the crosshair.
+        // ranged_show_trail draws each player shot's flight path, the crosshair point and the impact for
+        // ranged_trail_seconds.
         std::atomic<bool> ranged_aim_at_crosshair{true};
+        std::atomic<bool> ranged_aim_straight{false};
         std::atomic<float> ranged_max_correction{30.0f};
         std::atomic<bool> ranged_show_trail{false};
         std::atomic<float> ranged_trail_seconds{8.0f};
