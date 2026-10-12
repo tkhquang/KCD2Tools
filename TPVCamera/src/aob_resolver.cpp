@@ -342,7 +342,9 @@ namespace TPVCamera
             code_ladder("RayWorldIntersection", Aob::k_rayWorldIntersectionCandidates, Role::Entry),
             code_ladder("InteractionRayBuild", Aob::k_interactionRayBuildCandidates, Role::Entry),
             code_ladder("InteractorLookRay", Aob::k_interactorLookRayCandidates, Role::Entry),
-            code_ladder("InteractionOnScreenCheck", Aob::k_interactionOnScreenCandidates, Role::Entry),
+            code_ladder("InteractorCandidateUpdate", Aob::k_interactorCandidateUpdateCandidates, Role::Entry),
+            code_ladder("SegmentBoxPoint", Aob::k_segmentBoxPointCandidates, Role::Entry),
+            code_ladder("PromptSegmentReturn", Aob::k_promptSegmentReturnCandidates, Role::Site),
             code_ladder("HideOverlays", Aob::k_overlayHideCandidates, Role::Entry),
             code_ladder("ShowOverlays", Aob::k_overlayShowCandidates, Role::Entry),
             code_ladder("MenuOpen", Aob::k_menuOpenCandidates, Role::Entry),
@@ -382,7 +384,8 @@ namespace TPVCamera
         constexpr AnchorId k_move_intent_anchors[] = {AnchorId::ActionDispatch};
         constexpr AnchorId k_collision_anchors[] = {AnchorId::Genv, AnchorId::RayWorldIntersection};
         constexpr AnchorId k_interaction_anchors[] = {AnchorId::InteractionRayBuild, AnchorId::InteractorLookRay};
-        constexpr AnchorId k_interaction_on_screen_anchors[] = {AnchorId::InteractionOnScreen};
+        constexpr AnchorId k_crosshair_candidates_anchors[] = {AnchorId::InteractorCandidates};
+        constexpr AnchorId k_crosshair_prompt_anchors[] = {AnchorId::SegmentBoxPoint, AnchorId::PromptSegmentReturn};
         constexpr AnchorId k_overlay_state_anchors[] = {AnchorId::OverlayHide, AnchorId::OverlayShow};
         constexpr AnchorId k_menu_state_anchors[] = {AnchorId::MenuOpen, AnchorId::MenuClose};
         constexpr AnchorId k_occlusion_anchors[] = {AnchorId::Genv, AnchorId::GetObjectsInBox};
@@ -416,7 +419,8 @@ namespace TPVCamera
             {"MoveIntent", k_move_intent_anchors},
             {"Collision", k_collision_anchors},
             {"Interaction", k_interaction_anchors},
-            {"InteractionOnScreen", k_interaction_on_screen_anchors},
+            {"CrosshairCandidates", k_crosshair_candidates_anchors},
+            {"CrosshairPrompt", k_crosshair_prompt_anchors},
             {"OverlayState", k_overlay_state_anchors},
             {"MenuState", k_menu_state_anchors},
             {"Occlusion", k_occlusion_anchors},
@@ -440,10 +444,10 @@ namespace TPVCamera
         // The hooked anchors: a repaired signature for one of them authorizes a code write.
         constexpr AnchorId k_hooked_anchors[] = {
             AnchorId::Frustum,          AnchorId::HeadVisibility,      AnchorId::InputDispatch,
-            AnchorId::ActionDispatch,   AnchorId::InteractionRayBuild, AnchorId::InteractionOnScreen,
+            AnchorId::ActionDispatch,   AnchorId::InteractionRayBuild, AnchorId::InteractorCandidates,
             AnchorId::OverlayHide,      AnchorId::OverlayShow,         AnchorId::MenuOpen,
             AnchorId::MenuClose,        AnchorId::PhysEntMovement,     AnchorId::FireProjectile,
-            AnchorId::ProjectileLaunch, AnchorId::ArrowCollision,
+            AnchorId::ProjectileLaunch, AnchorId::ArrowCollision,      AnchorId::SegmentBoxPoint,
         };
 
         // Room after the startup pass for the function-scoped anchors resolve_turn_decision_layout() (six) and

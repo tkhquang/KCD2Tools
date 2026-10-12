@@ -17,18 +17,18 @@
  *          invalid); SEH-guarded; the caller filter guarantees camera/AI/audio ray queries are never touched.
  *
  *          SCOPE: the look-ray redirect fixes ENTITY interaction (NPCs, dropped loot) that resolves through
- *          the look-ray. Beds/shrines/doors (InteractiveScene usables) are instead picked by a proximity
- *          candidate build whose on-screen reticle projection gate (sub_18093C170) drops a candidate that
- *          projects off-reticle in the gameplay camera. A second hook (on_screen_check_detour) force-passes a
- *          candidate whose world point lies along the published crosshair ray, so the crosshair-pointed usable
- *          survives the offset-camera projection too. Both are gated behind InteractFromCamera and no-op in
- *          first person.
+ *          the look-ray. Beds, shrines, doors and cooking spots (InteractiveScene usables) are instead picked by
+ *          the interactor's candidate update, and candidate_update_detour hands that update the crosshair pose in
+ *          place of the eye pose. segment_box_point_detour lays the update's prompt segment along the crosshair
+ *          ray, so a cross-centered prompt such as a herb's sits at the crosshair. All three are gated behind
+ *          InteractFromCamera and no-op in first person.
  *
  *          DIAGNOSTICS: while InteractFromCamera is on, a rate-limited trace line reports rayBuilds (all
  *          intercepted builds), interactionCalls (builds whose caller is the look-ray - if this stays 0, the
  *          look-ray does NOT use this builder / the filter missed), redirects (builds actually rewritten),
- *          onscreenForced (reticle gates force-passed for a crosshair-ray candidate), and the before/after
- *          eye->camera + dir values so the rewrite is visible in the log.
+ *          candidateUpdates and crosshairPoses (candidate updates intercepted, and those handed the crosshair
+ *          pose), promptSegments (prompt segments laid along the crosshair), and the before/after eye->camera +
+ *          dir values so the rewrite is visible in the log.
  */
 
 #include "interaction_hook.hpp"
@@ -42,10 +42,10 @@
 #include <windows.h>
 #include <intrin.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
-#include <string>
 
 namespace TPVCamera
 {
@@ -77,13 +77,28 @@ namespace TPVCamera
         bool s_dbg_valid = false;
         std::chrono::steady_clock::time_point s_last_log{};
 
-        // On-screen reticle projection gate (sub_18093C170). The gate that drops InteractiveScene usables
-        // (shrines/beds/doors) when the body is not turned: it projects the candidate through the gameplay camera and
-        // rejects it if off the reticle. We force-pass candidates whose world point lies on the crosshair ray.
-        using OnScreenCheckFunc = char(__fastcall *)(uintptr_t a1, uintptr_t a2, float *a3, uintptr_t a4);
-        std::atomic<OnScreenCheckFunc> s_onscreen_original{nullptr};
-        std::atomic<unsigned long long> s_onscreen_calls{0};  // on-screen reticle checks intercepted
-        std::atomic<unsigned long long> s_onscreen_forced{0}; // checks force-passed for a crosshair-ray candidate
+        // Interactor candidate update (see k_interactorCandidateUpdateCandidates in constants.hpp).
+        using CandidateUpdateFunc = uintptr_t(__fastcall *)(uintptr_t interactor, const float *pose, unsigned int mask);
+        std::atomic<CandidateUpdateFunc> s_candidate_update_original{nullptr};
+        std::atomic<unsigned long long> s_candidate_updates{0}; // candidate updates intercepted
+        std::atomic<unsigned long long> s_crosshair_poses{0};   // updates handed the crosshair pose
+
+        /// The pose the candidate update reads, packed as the game stores it.
+        struct InteractorPose
+        {
+            /// World position.
+            float position[3];
+            /// Rotation quaternion x, y, z, w. Its +Y axis is the look direction.
+            float rotation[4];
+        };
+        static_assert(sizeof(InteractorPose) == 7 * sizeof(float), "InteractorPose must match the game's packed pose.");
+
+        // Closest point of a box to a segment (see k_segmentBoxPointCandidates in constants.hpp).
+        using SegmentBoxPointFunc = __m128(__fastcall *)(float *segment, uintptr_t box, float *out);
+        std::atomic<SegmentBoxPointFunc> s_segment_box_point_original{nullptr};
+        // Return address of the interactor update's call, the only call whose segment the detour rewrites.
+        uintptr_t s_prompt_segment_return = 0;
+        std::atomic<unsigned long long> s_prompt_segments{0}; // prompt segments laid along the crosshair ray
 
         /**
          * @brief SEH-guarded rewrite of the interaction ray to the crosshair forward, re-origined toward the eye.
@@ -147,8 +162,8 @@ namespace TPVCamera
                 // the look-ray; they go through a separate body-proximity candidate list whose facing verdict is a Lua
                 // interaction-constraint (sub_1809D2538 -> sub_181ED69D0 -> CScriptSystem reading the real use-actor),
                 // which the render camera cannot influence (sub_18091C138 is the entity-subsystem registry, not a
-                // camera). The crosshair-driven path for those usables is instead the on-screen reticle gate
-                // (on_screen_check_detour below). See tpv_shrine_facing_lua_wall.
+                // camera). The crosshair-driven path for those usables is instead the candidate update
+                // (candidate_update_detour below).
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
@@ -184,24 +199,29 @@ namespace TPVCamera
             const unsigned long long total = s_calls_total.load(std::memory_order_relaxed);
             const unsigned long long look = s_calls_lookray.load(std::memory_order_relaxed);
             const unsigned long long red = s_redirects.load(std::memory_order_relaxed);
-            const unsigned long long ofc = s_onscreen_forced.load(std::memory_order_relaxed);
-            const unsigned long long osc = s_onscreen_calls.load(std::memory_order_relaxed);
+            const unsigned long long updates = s_candidate_updates.load(std::memory_order_relaxed);
+            const unsigned long long reposed = s_crosshair_poses.load(std::memory_order_relaxed);
+            const unsigned long long prompts = s_prompt_segments.load(std::memory_order_relaxed);
 
             if (s_dbg_valid)
             {
-                log.trace("InteractionHook[run]: rayBuilds={} interactionCalls={} redirects={} lastReason={} "
-                          "onscreenChecks={} onscreenForced={} | eye=({}, {}, {}) -> cam=({}, {}, {}) ; "
-                          "dirOld=({}, {}, {}) -> dirNew=({}, {}, {})",
-                          total, look, red, s_last_reason, osc, ofc, s_dbg_eye[0], s_dbg_eye[1], s_dbg_eye[2],
-                          s_dbg_cam[0], s_dbg_cam[1], s_dbg_cam[2], s_dbg_dir_old[0], s_dbg_dir_old[1],
-                          s_dbg_dir_old[2], s_dbg_dir_new[0], s_dbg_dir_new[1], s_dbg_dir_new[2]);
+                (void)log.try_log(DMK::LogLevel::Trace,
+                                  "InteractionHook[run]: rayBuilds={} interactionCalls={} redirects={} lastReason={} "
+                                  "candidateUpdates={} crosshairPoses={} promptSegments={} | eye=({}, {}, {}) -> "
+                                  "cam=({}, {}, {}) ; dirOld=({}, {}, {}) -> dirNew=({}, {}, {})",
+                                  total, look, red, s_last_reason, updates, reposed, prompts, s_dbg_eye[0],
+                                  s_dbg_eye[1], s_dbg_eye[2], s_dbg_cam[0], s_dbg_cam[1], s_dbg_cam[2],
+                                  s_dbg_dir_old[0], s_dbg_dir_old[1], s_dbg_dir_old[2], s_dbg_dir_new[0],
+                                  s_dbg_dir_new[1], s_dbg_dir_new[2]);
             }
             else
             {
-                log.trace("InteractionHook[run]: rayBuilds={} interactionCalls={} redirects={} lastReason={} "
-                          "onscreenChecks={} onscreenForced={} (no ray rewrite captured yet -- if interactionCalls "
-                          "stays 0, the look-ray does not use the builder)",
-                          total, look, red, s_last_reason, osc, ofc);
+                (void)log.try_log(
+                    DMK::LogLevel::Trace,
+                    "InteractionHook[run]: rayBuilds={} interactionCalls={} redirects={} lastReason={} "
+                    "candidateUpdates={} crosshairPoses={} promptSegments={} (no ray rewrite captured yet: "
+                    "if interactionCalls stays 0, the look-ray does not use the builder)",
+                    total, look, red, s_last_reason, updates, reposed, prompts);
             }
         }
 
@@ -252,63 +272,141 @@ namespace TPVCamera
         }
 
         /**
-         * @brief Writes centered screen coords to @p a3 when the world point @p a2 lies on the crosshair ray.
-         * @details Reads the candidate's game-owned Vec3 under SEH, apart from the detour, because the detour's
-         *          DetourScope needs C++ object unwinding, which a __try frame cannot hold.
-         * @return True when the candidate was forced to the screen center.
+         * @brief Reads the position of the game-owned @p pose under SEH.
+         * @details Kept apart from the detour, because the detour's DetourScope needs C++ object unwinding, which a
+         *          __try frame cannot hold.
+         * @return False when the pose could not be read.
          */
-        bool force_onscreen_candidate(uintptr_t a2, float *a3, float ex, float ey, float ez, float dx, float dy,
+        bool read_pose_position(const float *pose, float (&position)[3]) noexcept
+        {
+            __try
+            {
+                position[0] = pose[0];
+                position[1] = pose[1];
+                position[2] = pose[2];
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+
+        /**
+         * @brief Depth along the crosshair ray from the camera (@p px, @p py, @p pz) in the unit direction
+         *        (@p dx, @p dy, @p dz) of the projection of @p point onto that ray, never behind the camera.
+         */
+        float crosshair_depth(const float (&point)[3], float px, float py, float pz, float dx, float dy,
+                              float dz) noexcept
+        {
+            return std::max((point[0] - px) * dx + (point[1] - py) * dy + (point[2] - pz) * dz, 0.0f);
+        }
+
+        /**
+         * @brief Builds the pose that looks along the crosshair ray from the camera (@p px, @p py, @p pz) in the unit
+         *        direction (@p dx, @p dy, @p dz), placed at the projection of the eye @p eye onto that ray.
+         * @details The position slides along the ray to the eye's projection, as redirect_interaction_ray does, so the
+         *          update's reach and distances still measure from the eye. The rotation is RotZ(heading) *
+         *          RotX(pitch) with no roll, the first-person look form, so its +Y is the crosshair direction.
+         */
+        InteractorPose crosshair_pose(const float (&eye)[3], float px, float py, float pz, float dx, float dy,
+                                      float dz) noexcept
+        {
+            const float along = crosshair_depth(eye, px, py, pz, dx, dy, dz);
+            const float heading = std::atan2(-dx, dy);
+            const float pitch = std::asin(std::clamp(dz, -1.0f, 1.0f));
+            const float sin_heading = std::sin(heading * 0.5f);
+            const float cos_heading = std::cos(heading * 0.5f);
+            const float sin_pitch = std::sin(pitch * 0.5f);
+            const float cos_pitch = std::cos(pitch * 0.5f);
+            return InteractorPose{
+                {px + dx * along, py + dy * along, pz + dz * along},
+                {cos_heading * sin_pitch, sin_heading * sin_pitch, sin_heading * cos_pitch, cos_heading * cos_pitch}};
+        }
+
+        /**
+         * @brief Detour for the interactor candidate update. Hands the update the crosshair pose in place of the
+         *        first-person eye pose @p pose.
+         * @details The update gives each usable the point on its bounds nearest the pose's look segment, and the
+         *          game's reticle gate and ranking pick the point that the view camera projects nearest the reticle.
+         *          With the eye pose, a camera that looks away from the eye line sees those points off the crosshair,
+         *          and the idle breathing moves them, so the pick flips between usables side by side. With the
+         *          crosshair pose, the usable under the crosshair has its point on the crosshair ray and wins outright.
+         */
+        uintptr_t __fastcall candidate_update_detour(uintptr_t interactor, const float *pose,
+                                                     unsigned int mask) noexcept
+        {
+            const DetourScope in_flight;
+            s_candidate_updates.fetch_add(1, std::memory_order_relaxed);
+
+            const CandidateUpdateFunc original = s_candidate_update_original.load(std::memory_order_acquire);
+            float px, py, pz, dx, dy, dz;
+            float eye[3] = {0.0f, 0.0f, 0.0f};
+            if (pose == nullptr || !settings().interact_from_camera.load(std::memory_order_relaxed) ||
+                !interaction_aim_pose().load(px, py, pz, dx, dy, dz) || !read_pose_position(pose, eye))
+            {
+                return original(interactor, pose, mask);
+            }
+            const InteractorPose crosshair = crosshair_pose(eye, px, py, pz, dx, dy, dz);
+            s_crosshair_poses.fetch_add(1, std::memory_order_relaxed);
+            return original(interactor, reinterpret_cast<const float *>(&crosshair), mask);
+        }
+
+        /**
+         * @brief Lays the game-owned look segment @p segment ({Vec3 start; Vec3 end}) along the crosshair ray from
+         *        the camera (@p px, @p py, @p pz) in the unit direction (@p dx, @p dy, @p dz) and keeps its length.
+         * @details The start moves to its projection onto the ray, as redirect_interaction_ray does. The segment is
+         *          rewritten in place, because the caller reads its end back as the prompt anchor. Kept apart from
+         *          the detour, because the detour's DetourScope needs C++ object unwinding, which a __try frame
+         *          cannot hold.
+         * @return False when the segment could not be read or written.
+         */
+        bool lay_segment_on_crosshair(float *segment, float px, float py, float pz, float dx, float dy,
                                       float dz) noexcept
         {
             __try
             {
-                const float *p = reinterpret_cast<const float *>(a2); // candidate world interaction point
-                const float vx = p[0] - ex, vy = p[1] - ey, vz = p[2] - ez;
-                const float t = vx * dx + vy * dy + vz * dz; // projection onto the crosshair ray (unit dir)
-                if (t > 0.1f)                                // candidate must be in front of the camera
-                {
-                    const float perp2 = (vx * vx + vy * vy + vz * vz) - t * t; // squared perpendicular distance
-                    const float thr = Constants::INTERACTION_ONSCREEN_RAY_PERP_MAX;
-                    if (perp2 >= 0.0f && perp2 < thr * thr)
-                    {
-                        a3[0] = Constants::INTERACTION_ONSCREEN_CENTER; // centered -> ranks as top selection priority
-                        a3[1] = Constants::INTERACTION_ONSCREEN_CENTER;
-                        return true;
-                    }
-                }
+                const float start[3] = {segment[0], segment[1], segment[2]};
+                const float ex = segment[3] - start[0];
+                const float ey = segment[4] - start[1];
+                const float ez = segment[5] - start[2];
+                const float length = std::sqrt(ex * ex + ey * ey + ez * ez);
+                const float along = crosshair_depth(start, px, py, pz, dx, dy, dz);
+                segment[0] = px + dx * along;
+                segment[1] = py + dy * along;
+                segment[2] = pz + dz * along;
+                segment[3] = segment[0] + dx * length;
+                segment[4] = segment[1] + dy * length;
+                segment[5] = segment[2] + dz * length;
+                return true;
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
+                return false;
             }
-            return false;
         }
 
         /**
-         * @brief Detour for the on-screen reticle projection gate (sub_18093C170). While InteractFromCamera is on,
-         *        force-passes a candidate whose world interaction point (a2 = Vec3) lies along the published crosshair
-         *        ray (perpendicular distance below the configured max), writing centered 2D coords (a3) so it ranks as
-         *        the top selection; all other candidates fall through to the original projection test. This is what
-         *        lets the crosshair-pointed shrine/bed/door survive the proximity build with the offset camera.
+         * @brief Detour for the segment-to-box closest point. Lays the interactor update's look segment along the
+         *        crosshair ray before the original runs. Every other call passes through.
+         * @details The HUD places a cross-centered prompt at the end of that segment, 40 m along the eye's look. In
+         *          free-look the eye looks away from the camera's view, so that end projects off the screen and the
+         *          prompt clamps to the screen edge. Laid along the crosshair ray, the end projects onto the
+         *          crosshair, as the eye's end does in first person.
          */
-        char __fastcall on_screen_check_detour(uintptr_t a1, uintptr_t a2, float *a3, uintptr_t a4) noexcept
+        __m128 __fastcall segment_box_point_detour(float *segment, uintptr_t box, float *out) noexcept
         {
             const DetourScope in_flight;
-            s_onscreen_calls.fetch_add(1, std::memory_order_relaxed);
-
-            const OnScreenCheckFunc original = s_onscreen_original.load(std::memory_order_acquire);
-            float ex, ey, ez, dx, dy, dz;
-            if (a2 == 0 || a3 == nullptr || !settings().interact_from_camera.load(std::memory_order_relaxed) ||
-                !interaction_aim_pose().load(ex, ey, ez, dx, dy, dz))
+            float px, py, pz, dx, dy, dz;
+            if (reinterpret_cast<uintptr_t>(_ReturnAddress()) == s_prompt_segment_return && segment != nullptr &&
+                settings().interact_from_camera.load(std::memory_order_relaxed) &&
+                interaction_aim_pose().load(px, py, pz, dx, dy, dz) &&
+                lay_segment_on_crosshair(segment, px, py, pz, dx, dy, dz))
             {
-                return original(a1, a2, a3, a4);
+                s_prompt_segments.fetch_add(1, std::memory_order_relaxed);
             }
-
-            if (force_onscreen_candidate(a2, a3, ex, ey, ez, dx, dy, dz))
-            {
-                s_onscreen_forced.fetch_add(1, std::memory_order_relaxed);
-                return 1;
-            }
-            return original(a1, a2, a3, a4);
+            const SegmentBoxPointFunc original = s_segment_box_point_original.load(std::memory_order_acquire);
+            return original(segment, box, out);
         }
 
     } // namespace
@@ -340,52 +438,46 @@ namespace TPVCamera
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "interaction_hook/raybuild_anchor"});
         }
 
-        auto result = DMK::hook::inline_at(
-            DMK::hook::InlineRequest{.name = "InteractionRayBuild", .target = DMK::Address{hook_addr}},
-            ray_query_build_detour);
-        if (!result.has_value())
+        if (auto armed = install_inline_hook(hooks, "InteractionRayBuild", hook_addr, s_ray_query_build_original,
+                                             ray_query_build_detour);
+            !armed)
         {
-            return std::unexpected(result.error());
-        }
-        // Publish the trampoline and store the handle BEFORE enable() arms the patch, so the set owns a hook whose arm
-        // fails with the patch live.
-        s_ray_query_build_original.store(result->original<RayQueryBuildFunc>(), std::memory_order_release);
-        if (auto armed = hooks.push(std::move(*result)).enable(); !armed.has_value())
-        {
-            return std::unexpected(armed.error());
+            return armed;
         }
 
-        // Hook the on-screen reticle projection gate - the gate that drops shrines/beds/doors when the
-        // body is not turned. Best-effort WITHIN this unit (it is a second, independent feature): a failure
-        // warns and leaves shrine interaction body-driven rather than failing the look-ray redirect that
-        // already installed, so it is reported here instead of returned.
-        const uintptr_t onscreen = gated_anchor_address(Feature::InteractionOnScreen, AnchorId::InteractionOnScreen);
-        if (onscreen != 0)
+        // The candidate update and the prompt segment are independent features. A failure only warns and leaves that
+        // feature on the first-person look, so the look-ray redirect that already installed stays live.
+        const uintptr_t candidates = gated_anchor_address(Feature::CrosshairCandidates, AnchorId::InteractorCandidates);
+        if (candidates == 0)
         {
-            auto onscreen_result = DMK::hook::inline_at(
-                DMK::hook::InlineRequest{.name = "InteractionOnScreenCheck", .target = DMK::Address{onscreen}},
-                on_screen_check_detour);
-            if (!onscreen_result.has_value())
-            {
-                logger.warning("InteractionHook[init]: on-screen reticle hook failed ({}); shrine "
-                               "interaction stays body-driven (look-ray/loot unaffected).",
-                               onscreen_result.error().message());
-            }
-            else
-            {
-                s_onscreen_original.store(onscreen_result->original<OnScreenCheckFunc>(), std::memory_order_release);
-                if (auto armed = hooks.push(std::move(*onscreen_result)).enable(); !armed.has_value())
-                {
-                    logger.warning("InteractionHook[init]: on-screen reticle hook could not be armed ({}); "
-                                   "shrine interaction stays body-driven (look-ray/loot unaffected).",
-                                   armed.error().message());
-                }
-            }
+            logger.warning("InteractionHook[init]: the candidate update gate failed, so shrines, beds and doors stay "
+                           "picked by the first-person look");
         }
-        else
+        else if (auto armed = install_inline_hook(hooks, "InteractorCandidateUpdate", candidates,
+                                                  s_candidate_update_original, candidate_update_detour);
+                 !armed)
         {
-            logger.warning("InteractionHook[init]: on-screen reticle cascade unresolved; shrine "
-                           "interaction stays body-driven (look-ray/loot unaffected).");
+            logger.warning("InteractionHook[init]: the candidate update hook failed ({}), so shrines, beds and doors "
+                           "stay picked by the first-person look",
+                           armed.error().message());
+        }
+
+        // The detour compares its return address with this one, so the address is published before the hook arms.
+        // The gate covers both anchors, so the hook never runs without it.
+        s_prompt_segment_return = gated_anchor_address(Feature::CrosshairPrompt, AnchorId::PromptSegmentReturn);
+        const uintptr_t segment_box = gated_anchor_address(Feature::CrosshairPrompt, AnchorId::SegmentBoxPoint);
+        if (segment_box == 0)
+        {
+            logger.warning("InteractionHook[init]: the prompt segment gate failed, so cross-centered use prompts stay "
+                           "placed by the first-person look");
+        }
+        else if (auto armed = install_inline_hook(hooks, "SegmentBoxPoint", segment_box, s_segment_box_point_original,
+                                                  segment_box_point_detour);
+                 !armed)
+        {
+            logger.warning("InteractionHook[init]: the prompt segment hook failed ({}), so cross-centered use prompts "
+                           "stay placed by the first-person look",
+                           armed.error().message());
         }
 
         return {};

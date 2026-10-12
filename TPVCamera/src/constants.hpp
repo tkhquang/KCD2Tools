@@ -485,15 +485,19 @@ namespace Constants
     // that same ray to the player-eye projection (see redirect_interaction_ray), so the engine's interaction
     // range cap is measured from ~eye rather than from the camera standing FollowDistance behind.
 
-    // k_interactionOnScreenCandidates resolves the on-screen reticle gate: it projects a candidate's
-    // world interaction point through the gameplay camera and rejects it when it falls outside the
-    // on-screen reticle range. This is the single gate that drops the shrine when the body is not
-    // turned (it projects off-reticle in the gameplay camera even though centered in the offset render
-    // view). The hook force-passes ONLY candidates whose world point lies along the published crosshair
-    // ray (perp distance below the max below); all others fall through to the original. Args: a1=rcx
-    // a2=rdx(&worldPoint Vec3) a3=r8(&out 2D screen coords, written) a4=r9(config).
-    constexpr float INTERACTION_ONSCREEN_RAY_PERP_MAX = 0.85f; // m; max perp distance to the crosshair ray
-    constexpr float INTERACTION_ONSCREEN_CENTER = 50.0f;       // screen-center coord (priority = dist from it)
+    // k_interactorCandidateUpdateCandidates resolves the interactor's candidate update for one interaction mask
+    // (sub_1807F55FC: a1=rcx interactor, a2=rdx pose, r8d mask). The pose is the first-person eye, {Vec3 pos; Quat
+    // x,y,z,w} with a level look rotation. The update gathers the usables (shrines, beds, doors, cooking spots) in a
+    // box around the player and gives each the spot on its bounds nearest the pose's look segment, from the pose
+    // position along the rotation's +Y. An on-screen gate projects that spot through the view camera and keeps it
+    // only inside the reticle box, and the interactor picks the kept spot nearest the reticle.
+
+    // k_segmentBoxPointCandidates resolves the closest point of a box to a segment (sub_180A867D0: a1=rcx segment
+    // {Vec3 start; Vec3 end}, a2=rdx AABB, a3=r8 out Vec3). After the pick, the interactor update (sub_1807F2DD4)
+    // calls it with the eye's look segment, 40 m along the level look, and the selected object's bounds. The update
+    // keeps the closest point. For a cross-centered prompt (interactor flag +0x104, set for a herb) it also keeps the
+    // segment end, which it re-reads from its own segment after the call, and the HUD projects that end through the
+    // view camera to place the prompt. k_promptSegmentReturnCandidates resolves the return address of that one call.
 
     // The UI overlay hooks (k_overlayHideCandidates / k_overlayShowCandidates) bracket
     // HideOverlays / ShowOverlays. The camera reads overlay_state().active to suppress the offset

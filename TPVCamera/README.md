@@ -222,19 +222,21 @@ See the full list at the [Supported Input Names](https://github.com/tkhquang/Det
 ## Known Limitations
 
 - Free-look orbit is a raw proof-of-concept. It is fine for swinging the camera around to
-  look at the front of Henry, but it is rough for normal gameplay (interaction while orbiting
-  does not work yet).
+  look at the front of Henry, but it is rough for normal gameplay.
 - Free-look orbit conflicts with the game's own camera control on horseback and in combat, so
   it is auto-disabled in those situations.
 - The first-person body rig can still look slightly off from behind in some animations.
 - Camera collision keeps the view out of walls but has no soft-edge smoothing yet.
 - The raycast-based crosshair fix is partial: it does not cover every interaction type, so some
-  still show parallax or an offset, and in a dense area with several interactables the use-prompt
-  can jump back and forth.
+  still show parallax or an offset.
 - A third-person shot at a target almost touching Henry (closer than about half a meter past the
   bow) can still land beside the crosshair. Hitting it would turn the shot more than
   `MaxAimCorrection` (45 degrees by default) away from where the bow points, so the game's own shot
   flies instead. Raising `MaxAimCorrection` in `[Ranged]` covers closer targets.
+- A large Offset Right (above about 1 m) can put the crosshair out of Henry's reach. The game only
+  offers herbs within about 1.5 m of his eyes and doors, beds and other usables within about 1 m
+  to his side, so the use prompt does not show for what the crosshair rests on. Lower the offset,
+  or swing the crosshair back over something close to Henry.
 - Certain world interactions in third person can still be janky or buggy; toggle the camera off
   if one looks wrong.
 - The preset overlay does not hook the game's swap chain by design: it renders through a private
@@ -254,8 +256,7 @@ Planned improvements, roughly in priority order:
   cleanly.
 - Fix shadows being cut off behind the character (the shadow cascade still follows the
   first-person eye).
-- Extend the raycast-based crosshair/interaction fix to cover more interaction types and stop
-  the use-prompt jumping between nearby interactables in dense areas.
+- Extend the raycast-based crosshair/interaction fix to cover more interaction types.
 
 ## Recommended Mods
 
