@@ -176,7 +176,7 @@ namespace TPVCamera
         state_behavior.bind<bool>("EnableStateBehavior", "Enable State Behavior", s.enable_state_behavior, true);
         state_behavior.bind_parsed(
             "ForcedFPVState", "Forced FPV State", s.forced_fpv_mask, parse_state_mask,
-            "Cart,Dice,Reading,Alchemy,Blacksmithing,ForgeBuilder,Sharpening,StoneThrowing,BattleArchery");
+            "Aiming,Cart,Dice,Reading,Alchemy,Blacksmithing,ForgeBuilder,Sharpening,StoneThrowing,BattleArchery");
         state_behavior.bind_parsed("ForcedTPVState", "Forced TPV State", s.forced_tpv_mask, parse_state_mask, "");
         state_behavior.bind_parsed("OrbitExcludeState", "Orbit Exclude State", s.orbit_exclude_mask, parse_state_mask,
                                    "Overlay,Aiming,Cart,Combat,Mount,Minigame");

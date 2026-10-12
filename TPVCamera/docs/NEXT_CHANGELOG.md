@@ -5,7 +5,6 @@
 - New optional aim preview shows where a drawn shot or a held distraction stone will land.
 - New optional trail shows the flight of each arrow, bolt or handgonne ball and where it landed.
 - New options set how much bow, crossbow and handgonne shots drop.
-- Aiming a bow or crossbow no longer switches to first person by default.
 - The aiming camera now waits until a crossbow is loaded before it zooms in.
 - When aiming, throwing or drawing a weapon turns free-look off, Henry now turns to face the camera instead of the camera swinging back behind him.
 - Turning free-look on, or getting it back after a menu or an action, no longer moves the camera.
