@@ -174,7 +174,7 @@ namespace Constants
     // xi_* / movement_* / move* action maps); a trace-level probe there logs each distinct action name once so
     // the on-foot movement axis vocabulary can be confirmed at runtime.
 
-    // Physics world raycast (camera collision + aim convergence)
+    // Physics world raycast (camera collision + the ranged crosshair ray)
     // IPhysicalWorld::RayWorldIntersection inline helper (k_rayWorldIntersectionCandidates). Casts a
     // world ray and fills a ray_hit; returns the hit count. Signature (Microsoft x64):
     //   int(this /*rcx = p_physical_world*/, const Vec3* org /*rdx*/, const Vec3* dir /*r8*/,

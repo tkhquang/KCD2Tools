@@ -6,8 +6,7 @@
  * @details The player's shot runs C_ActorActionShootingFiring's "firearrow" event -> the fire routine -> the bow
  *          joint's position and axis (wh_w_AimByProjectile, on by default) -> FireProjectile(actor, dir, pos, speed)
  *          -> CProjectile::Launch(pos, dir, velocity = dir * speed, 1). The shot never reads the camera, so with the
- *          over-the-shoulder camera the arrow misses the screen center by the shoulder parallax, and by more the
- *          further the target sits from the camera's convergence depth.
+ *          over-the-shoulder camera the arrow misses the screen center by the shoulder parallax.
  *
  *          Three threads meet here. Each third-person frame with a missile weapon or a distraction stone in hand, the
  *          main-thread frame step casts the crosshair ray from the player's depth with the arrow's own collision
@@ -24,8 +23,9 @@
  *          along that look. The nocked arrow therefore holds a set against the first-person line of sight that the aim
  *          poses decide. The re-aimed shot keeps the game's launch point and speed, and its direction is the game's
  *          turned with the look from the eye onto the crosshair point: the first-person shot with the crosshair on
- *          that point, which lands where that shot lands. The game applies no spread to the player's shot, and the bow
- *          sway lives in the look the camera follows, so the crosshair carries the sway and the re-aimed shot keeps
+ *          that point, steered from the real bow onto that shot where it reaches the point's depth, so it lands where
+ *          that shot lands at any range (sighted_direction). The game applies no spread to the player's shot, and the
+ *          bow sway lives in the look the camera follows, so the crosshair carries the sway and the re-aimed shot keeps
  *          it. The bow sits beside the camera, so a shot that comes down off the point (or falls from the open sky
  *          onto something nearer) is turned about the vertical until its traced arc lands in the camera's vertical
  *          plane: straight above or below the crosshair on screen, never beside it. First person, free-look, shotgun
@@ -257,9 +257,12 @@ namespace TPVCamera
         constexpr float k_landing_tolerance = 0.01f;
         constexpr int k_landing_turns = 3;
         constexpr float k_min_trace_speed = 1.0f;
-        // A target closer to the launch point than this keeps the game's aim, and a landing turn stops when the level
-        // reach to its goal is shorter than this: the direction to either is ill-defined.
+        // A landing turn stops when the level reach to its goal is shorter than this, and a distraction stone keeps the
+        // game's throw for a point nearer the hand: the direction to either is ill-defined.
         constexpr float k_min_target_distance = 1.5f;
+        // An arrow keeps the game's aim when the crosshair point lies less than this past its launch point (meters):
+        // the line from a launch that near to the point gives no stable direction.
+        constexpr float k_min_shot_distance = 0.3f;
         // A flight is followed at most this long (Arrow.xml lifetime is 15 s).
         constexpr std::uint64_t k_max_flight_ms = 20000;
         // A new trail sample is kept only after the arrow moved this far (meters).
@@ -363,10 +366,10 @@ namespace TPVCamera
         };
         // Before the first shot with a weapon teaches the preview, where the bow sits from the first-person eye
         // (meters) and the unit direction it points in, both in the look's frame (right, up, forward), the full-draw
-        // speed per weapon family (m/s, indexed by AmmoKind), and the ammo's own gravity. The aim poses set the bow's
-        // real direction, so the default points along the look until a shot shows that direction.
-        constexpr Vec3f k_default_bow_offset{-0.2f, -0.15f, 0.55f};
-        constexpr Vec3f k_default_bow_aim{0.0f, 0.0f, 1.0f};
+        // speed per weapon family (m/s, indexed by AmmoKind), and the ammo's own gravity. The bow pose is the one a
+        // level full draw holds: 1 cm right, 4 cm below and 55 cm ahead of the eye, pointing 0.08 deg above the look.
+        constexpr Vec3f k_default_bow_offset{0.01f, -0.04f, 0.55f};
+        constexpr Vec3f k_default_bow_aim{-0.0003f, 0.0015f, 1.0f};
         constexpr std::array<float, 4> k_default_speed = {
             72.0f,
             72.0f,
@@ -896,16 +899,33 @@ namespace TPVCamera
         std::array<Vec3f, 2 * k_max_samples + 8> s_vertices{};
         bool s_aux_faulted = false;
 
-        /** @brief What the shots with one weapon family taught the aim preview (main thread only). */
-        struct AimProfile
+        /** @brief Where one shot put the bow and where it pointed, and the look pitch it was loosed at. */
+        struct AimSample
         {
             bool learned{false};
+            // Look pitch in radians, 0 = level.
+            float pitch{0.0f};
             // The launch point from the first-person eye, and the launch direction, in the look's frame: right, up,
             // forward.
             Vec3f offset{};
             Vec3f aim{};
-            // The fastest launch seen with this weapon C_Item: a full draw. A partial draw never lowers it, and
-            // another weapon starts it over.
+        };
+        // The aim poses hold the bow on the sight line near level but not at a steep look: at the feet the bow points
+        // 1.7 deg above and 0.4 deg left of the look, at level 0.08 deg above. So the preview keeps the latest full
+        // draw per band of look pitch, from straight down to straight up, and blends the samples nearest its own
+        // pitch, so a steep shot does not move the preview of a level one.
+        constexpr std::size_t k_aim_pitch_bands = 12;
+        constexpr float k_aim_pitch_band = std::numbers::pi_v<float> / static_cast<float>(k_aim_pitch_bands);
+        // A full draw flies at the weapon's fastest launch. A shot this much slower (m/s) was loosed before it.
+        constexpr float k_full_draw_speed_margin = 0.5f;
+
+        /** @brief What the shots with one weapon family taught the aim preview (main thread only). */
+        struct AimProfile
+        {
+            bool learned{false};
+            std::array<AimSample, k_aim_pitch_bands> bands{};
+            // The weapon C_Item the samples came from, and the fastest launch seen with it: a full draw. A partial
+            // draw never lowers it, a faster one starts the samples over, and another weapon starts both over.
             std::uintptr_t weapon{0};
             float speed{0.0f};
             float native_gravity{0.0f};
@@ -913,6 +933,21 @@ namespace TPVCamera
         };
         // Indexed by AmmoKind.
         std::array<AimProfile, 4> s_aim_profiles{};
+
+        /** @brief The arrow preview's last landing (main thread only), measured against the shot loosed after it. */
+        struct PreviewMark
+        {
+            bool valid{false};
+            std::uint64_t ms{0};
+            Vec3f landing{};
+            float pitch{0.0f};
+        };
+        // The last few, as the bow still reads drawn for a frame or two after the shot leaves. The newest one drawn
+        // before the Launch is the one the player released on.
+        std::array<PreviewMark, 32> s_preview_marks{};
+        std::uint32_t s_preview_next = 0;
+        // The longest a preview can precede the Launch it is measured against, which waits for the release animation.
+        constexpr std::uint64_t k_preview_match_ms = 1000;
 
         /** @brief @p v as a Vector3. */
         [[nodiscard]] Vector3 to_vector(const Vec3f &v) noexcept
@@ -1516,38 +1551,69 @@ namespace TPVCamera
         }
 
         /**
-         * @brief Turns @p dir with the look: from the frame of @p look to the frame of @p sight, both unit vectors.
+         * @brief Turns @p v with the look: from the frame of @p look to the frame of @p sight, both unit vectors. The
+         *        length of @p v is kept.
          * @details Each frame is a yaw and a pitch with no roll, as the first-person camera turns. The bow's launch
-         *          direction keeps its set against the line of sight through the turn, so the result is the
-         *          first-person shot that looks along @p sight.
+         *          direction and its place from the eye keep their set against the line of sight through the turn, so
+         *          the result is the first-person bow that looks along @p sight.
          */
-        [[nodiscard]] Vector3 turn_with_look(const Vector3 &dir, const Vector3 &look, const Vector3 &sight) noexcept
+        [[nodiscard]] Vector3 turn_with_look(const Vector3 &v, const Vector3 &look, const Vector3 &sight) noexcept
         {
             const auto [right, up] = view_axes(look);
             const auto [sight_right, sight_up] = view_axes(sight);
-            return (sight_right * dot(dir, right) + sight_up * dot(dir, up) + sight * dot(dir, look)).normalized();
+            return sight_right * dot(v, right) + sight_up * dot(v, up) + sight * dot(v, look);
         }
 
         /**
-         * @brief The first-person shot with the crosshair on the target point: the game's @p native launch direction
-         *        turned with @p look onto the line from the target's first-person eye through its point.
-         * @details The first-person camera sits at the eye and looks along the look, while the aim poses point the bow
-         *          by that look. The game's direction, measured against the look it left with, therefore carries the
-         *          bow's set against the line of sight, and the turn hands that set to the line through the point.
-         * @return Nothing without the look or the eye, or when the point lies too near the eye to give the line a
-         *         direction.
+         * @brief The first-person shot with the crosshair on the target point, loosed from @p launch: the game's
+         *        @p native launch direction turned with @p look onto the line from the target's first-person eye
+         *        through its point, and steered to cross the point's depth where that first-person arrow does.
+         * @details The first-person camera sits at the eye and looks along the look, while the aim poses place and
+         *          point the bow by that look. The game's direction, measured against the look it left with, therefore
+         *          carries the bow's set against the line of sight, and the turn hands that set to the line through
+         *          the point. In first person the bow sits turned the same way. In third person that line is turned
+         *          off the look by the shoulder offset, so the real bow sits beside it by about its 0.55 m reach times
+         *          the turn, and a shot parallel to the line passes the point by as much: with a 0.5 m shoulder
+         *          offset, 13 cm at 2 m and under a centimeter at 35 m. Both arrows fly at the same speed under the
+         *          same gravity and drag, so they sag alike, and a steer by the bow's offset over the distance flown
+         *          to the point's depth puts the real arrow on the first-person arrow there.
+         * @return Nothing without the look or the eye, when the point lies less than k_min_shot_distance past the
+         *         first-person bow, when the first-person arrow does not head into the point's depth, or when the
+         *         real bow sits at or past that depth.
          */
-        [[nodiscard]] std::optional<Vector3>
-        sighted_direction(const AimTarget &target, const std::optional<Vector3> &look, const Vector3 &native) noexcept
+        [[nodiscard]] std::optional<Vector3> sighted_direction(const AimTarget &target,
+                                                               const std::optional<Vector3> &look,
+                                                               const Vector3 &native, const Vector3 &launch) noexcept
         {
             const Vector3 eye = to_vector(target.eye);
             const Vector3 sight = to_vector(target.point) - eye;
-            // The negated comparison also rejects a non-finite point.
-            if (!look || !target.eye_valid || !is_finite(eye) || !(sight.magnitude() >= k_min_target_distance))
+            const float depth = sight.magnitude();
+            // A finite sight line proves the eye and the point finite.
+            if (!look || !target.eye_valid || !is_finite(sight) || !is_finite(launch) ||
+                !(depth >= k_min_shot_distance))
             {
                 return std::nullopt;
             }
-            return turn_with_look(native, *look, sight.normalized());
+            const Vector3 line = sight / depth;
+            const Vector3 first_person = turn_with_look(native, *look, line).normalized();
+            const Vector3 bow = launch - eye;
+            const Vector3 first_person_bow = turn_with_look(bow, *look, line);
+            // The first-person arrow reaches the point's depth after remaining / along meters of flight.
+            const float along = dot(first_person, line);
+            const float remaining = depth - dot(first_person_bow, line);
+            if (!(along > 0.1f) || !(remaining >= k_min_shot_distance))
+            {
+                return std::nullopt;
+            }
+            // dot(steered, line) = along * (depth - dot(bow, line)) / remaining: positive only while the real bow sits
+            // short of the point's depth. Past it the steer points back or has no length, and angle_deg reads a zero
+            // vector as no correction.
+            const Vector3 steered = first_person + (first_person_bow - bow) * (along / remaining);
+            if (!(dot(steered, line) > 0.0f))
+            {
+                return std::nullopt;
+            }
+            return steered.normalized();
         }
 
         /**
@@ -1691,12 +1757,12 @@ namespace TPVCamera
                 return false;
             }
             const Vector3 to_point = point - start;
-            if (to_point.magnitude() < k_min_target_distance)
+            if (to_point.magnitude() < k_min_shot_distance)
             {
                 shot.outcome = ShotOutcome::TooClose;
                 return false;
             }
-            const std::optional<Vector3> sighted = sighted_direction(target, look, native);
+            const std::optional<Vector3> sighted = sighted_direction(target, look, native, start);
             shot.sighted = sighted.has_value();
             const Vector3 aimed = sighted.value_or(to_point.normalized());
             shot.correction_deg = angle_deg(native, aimed);
@@ -2523,6 +2589,25 @@ namespace TPVCamera
                         "before the turn, {:+.3f} m after a {:.2f} deg turn",
                         flight.serial, landing.x, landing.y, landing.z, shot.landing_lateral_unturned,
                         shot.landing_lateral, shot.landing_turn_deg);
+                    const PreviewMark *released_on = nullptr;
+                    for (const PreviewMark &mark : s_preview_marks)
+                    {
+                        if (mark.valid && mark.ms <= shot.launch_ms && shot.launch_ms - mark.ms <= k_preview_match_ms &&
+                            (released_on == nullptr || mark.ms > released_on->ms))
+                        {
+                            released_on = &mark;
+                        }
+                    }
+                    if (released_on != nullptr)
+                    {
+                        (void)DMK::log().try_log(
+                            DMK::LogLevel::Debug,
+                            "Ranged SHOT #{} preview: the ring drawn {} ms before at look pitch {:+.1f} deg sat {:.3f} "
+                            "m from the traced landing",
+                            flight.serial, shot.launch_ms - released_on->ms,
+                            DMK::math::radians_to_degrees(released_on->pitch),
+                            (to_vector(released_on->landing) - to_vector(landing)).magnitude());
+                    }
                 }
                 else if (shot.landing_turn_refused)
                 {
@@ -2542,6 +2627,7 @@ namespace TPVCamera
                     shot.speed, shot.gravity, gravity_text(shot.gravity_change), shot.gravity_scale,
                     shot.native_gravity, native.x, native.y, native.z, shot.projectile, shot.thread_id);
             }
+            s_preview_marks = {};
             if (shot.look_valid)
             {
                 // The game's own aim against the line of sight, which is the first-person crosshair: how far above and
@@ -2568,8 +2654,9 @@ namespace TPVCamera
          * @brief Teaches the aim preview where the bow sat, where it pointed and how fast a full draw flew, from a
          *        single shot.
          * @details The bow's offset from the eye and the game's launch direction are learned in the frame of the
-         *          look that posed the bow, so free-look teaches as well. Pellets, a faulted shot and a shot without
-         *          its look or a crosshair target teach nothing.
+         *          look that posed the bow, so free-look teaches as well, and kept per band of that look's pitch.
+         *          Only a full draw teaches them, as the preview shows only at full draw. Pellets, a faulted shot and a
+         *          shot without its look or a crosshair target teach nothing.
          */
         void learn_aim_profile(const ShotRecord &shot) noexcept
         {
@@ -2583,23 +2670,92 @@ namespace TPVCamera
             const auto [right, up] = view_axes(look);
             const Vector3 from = to_vector(shot.launch) - to_vector(shot.target.eye);
             const Vector3 native = to_vector(shot.native_dir);
-            profile.offset = Vec3f{dot(from, right), dot(from, up), dot(from, look)};
-            profile.aim = Vec3f{dot(native, right), dot(native, up), dot(native, look)};
             if (shot.weapon != profile.weapon)
             {
+                profile.bands = {};
                 profile.weapon = shot.weapon;
                 profile.speed = 0.0f;
+            }
+            // The preview shows only at full draw, and a bow loosed early is posed otherwise (2.5 deg above and 4 deg
+            // left of the look at -58 deg, against 1 deg above for a full draw at -43 deg), so only the fastest shots
+            // seen with the weapon teach the pose. A faster one shows the samples so far came from early releases.
+            if (shot.speed > profile.speed + k_full_draw_speed_margin)
+            {
+                profile.bands = {};
             }
             profile.speed = std::max(profile.speed, shot.speed);
             profile.native_gravity = shot.native_gravity;
             profile.air_resistance = shot.air_resistance;
             profile.learned = true;
+            const float pitch = std::asin(std::clamp(look.z, -1.0f, 1.0f));
+            if (shot.speed + k_full_draw_speed_margin < profile.speed)
+            {
+                (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                         "Ranged[preview]: {} shot at look pitch {:+.1f} deg left before a full draw "
+                                         "({:.1f} of {:.1f} m/s); its pose is not learned",
+                                         ammo_text(shot.ammo), DMK::math::radians_to_degrees(pitch), shot.speed,
+                                         profile.speed);
+                return;
+            }
+            const AimSample sample{
+                .learned = true,
+                .pitch = pitch,
+                .offset = Vec3f{dot(from, right), dot(from, up), dot(from, look)},
+                .aim = Vec3f{dot(native, right), dot(native, up), dot(native, look)},
+            };
+            // shot.look comes only from player_look, a finite unit vector, so the pitch is finite and the cast defined.
+            const auto band = static_cast<std::size_t>(
+                std::clamp((sample.pitch + 0.5f * std::numbers::pi_v<float>) / k_aim_pitch_band, 0.0f,
+                           static_cast<float>(k_aim_pitch_bands - 1)));
+            profile.bands[band] = sample;
             (void)DMK::log().try_log(
                 DMK::LogLevel::Debug,
-                "Ranged[preview]: {} profile, bow at ({:+.2f}, {:+.2f}, {:+.2f}) m from the eye aiming ({:+.4f}, "
-                "{:+.4f}, {:+.4f}) (right, up, forward of the look), weapon {:#x} at {:.1f} m/s",
-                ammo_text(shot.ammo), profile.offset.x, profile.offset.y, profile.offset.z, profile.aim.x,
-                profile.aim.y, profile.aim.z, profile.weapon, profile.speed);
+                "Ranged[preview]: {} profile at look pitch {:+.1f} deg (band {}), bow at ({:+.2f}, {:+.2f}, {:+.2f}) m "
+                "from the eye aiming ({:+.4f}, {:+.4f}, {:+.4f}) (right, up, forward of the look), weapon {:#x} at "
+                "{:.1f} m/s",
+                ammo_text(shot.ammo), DMK::math::radians_to_degrees(sample.pitch), band, sample.offset.x,
+                sample.offset.y, sample.offset.z, sample.aim.x, sample.aim.y, sample.aim.z, profile.weapon,
+                profile.speed);
+        }
+
+        /**
+         * @brief Where the bow sits and points, in the look's frame, for a look at @p pitch.
+         * @details Blends the learned samples nearest below and above @p pitch by pitch, or takes the nearest one when
+         *          the pitch lies beyond them, and falls back to the defaults before any shot.
+         * @return The launch point from the first-person eye and the launch direction (not normalized).
+         */
+        [[nodiscard]] std::pair<Vec3f, Vec3f> aim_pose_at(const AimProfile &profile, float pitch) noexcept
+        {
+            const AimSample *below = nullptr;
+            const AimSample *above = nullptr;
+            for (const AimSample &sample : profile.bands)
+            {
+                if (!sample.learned)
+                {
+                    continue;
+                }
+                if (sample.pitch <= pitch && (below == nullptr || sample.pitch > below->pitch))
+                {
+                    below = &sample;
+                }
+                if (sample.pitch >= pitch && (above == nullptr || sample.pitch < above->pitch))
+                {
+                    above = &sample;
+                }
+            }
+            if (below == nullptr && above == nullptr)
+            {
+                return {k_default_bow_offset, k_default_bow_aim};
+            }
+            if (below == nullptr || above == nullptr || above->pitch - below->pitch < 1e-4f)
+            {
+                const AimSample &only = below != nullptr ? *below : *above;
+                return {only.offset, only.aim};
+            }
+            const float t = (pitch - below->pitch) / (above->pitch - below->pitch);
+            const auto blend = [t](const Vec3f &a, const Vec3f &b) noexcept
+            { return Vec3f{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t}; };
+            return {blend(below->offset, above->offset), blend(below->aim, above->aim)};
         }
 
         /** @brief Starts to follow each shot published since the last frame, and teaches the preview from it. */
@@ -3202,10 +3358,12 @@ namespace TPVCamera
          * @brief Predicts a shot from @p from re-aimed for the crosshair point as the Launch detour flies it: its
          *        launch direction and its landing.
          * @details The Launch detour flies @p aimed turned about the vertical until it lands in the camera's vertical
-         *          plane. The landing is traced from @p from moved into that plane, headed for the point at the aimed
-         *          elevation, so the arc stays in the plane, and the launch direction is that elevation headed for the
-         *          landing. A turn past @p max_correction from the game's @p native aim is refused as the Launch detour
-         *          refuses it: @p aimed then flies unturned, traced from @p from.
+         *          plane. Its first trace is taken here too: a landing already in the plane, or one too near for a
+         *          turn, flies unturned, which is every shot at a near point. Otherwise the landing is traced from
+         *          @p from moved into that plane, headed for the point at the aimed elevation, so the arc stays in the
+         *          plane, and the launch direction is that elevation headed for the landing. A turn past
+         *          @p max_correction from the game's @p native aim is refused as the Launch detour refuses it: @p aimed
+         *          then flies unturned, traced from @p from.
          * @param landing Receives the landing, or nothing when the arc meets nothing in reach.
          * @param normal Receives the surface normal at the landing.
          */
@@ -3220,14 +3378,29 @@ namespace TPVCamera
             const Vector3 point = to_vector(target.point);
             const Vector3 right = view_axes(to_vector(target.forward)).first;
             const float level = std::sqrt(aimed.x * aimed.x + aimed.y * aimed.y);
+            // The Launch detour's first trace, and the ways it stops there (land_in_crosshair_plane): no level part to
+            // turn, nothing met, a landing in the plane, or one too near to turn toward.
+            landing = trace_landing(from, aimed * physics.speed, physics.gravity, physics.drag, flags, skip, &normal);
+            if (!landing || level < 1e-3f)
+            {
+                return aimed;
+            }
+            const float first_lateral = dot(*landing - camera, right);
+            const float goal_x = landing->x - right.x * first_lateral - from.x;
+            const float goal_y = landing->y - right.y * first_lateral - from.y;
+            if (std::fabs(first_lateral) < k_landing_tolerance ||
+                std::sqrt(goal_x * goal_x + goal_y * goal_y) < k_min_target_distance)
+            {
+                return aimed;
+            }
             // The aimed direction turned about the vertical to head from start for goal, its elevation kept. Nothing
-            // when the aimed direction or the line to goal has no level part to turn.
+            // when the line to goal has no level part.
             const auto headed = [&aimed, level](const Vector3 &start, const Vector3 &goal) -> std::optional<Vector3>
             {
                 const float gx = goal.x - start.x;
                 const float gy = goal.y - start.y;
                 const float reach = std::sqrt(gx * gx + gy * gy);
-                if (reach <= 1e-3f || level < 1e-3f)
+                if (reach <= 1e-3f)
                 {
                     return std::nullopt;
                 }
@@ -3255,11 +3428,11 @@ namespace TPVCamera
          * @brief While the bow is held drawn in third person, draws where the shot comes down: a ring on the spot and,
          *        with AimPreviewArc, a dashed arc from the bow.
          * @details The shot is predicted as the Launch detour flies it: from the bow, pointed as the bow points (both
-         *          placed from the first-person eye and the look as the earlier shots with this weapon family showed),
-         *          at the fastest speed seen with this weapon (or defaults), by the weapon's gravity. With
-         *          AimAtCrosshair on, outside free-look, and the crosshair point clear of the bow and within
-         *          MaxAimCorrection of its aim, the shot is re-aimed as prepare_shot re-aims it and turned to land
-         *          above or below the crosshair. Otherwise the game's own shot flies, and the preview traces that.
+         *          placed from the first-person eye and the look as the earlier shots with this weapon family at about
+         *          this look pitch showed), at the fastest speed seen with this weapon (or defaults), by the weapon's
+         *          gravity. With AimAtCrosshair on, outside free-look, and the crosshair point clear of the bow and
+         *          within MaxAimCorrection of its aim, the shot is re-aimed as prepare_shot re-aims it and turned to
+         *          land above or below the crosshair. Otherwise the game's own shot flies, and the preview traces that.
          *          Scatter shot has no preview: its pellets keep the game's spread, which no single arc shows.
          * @param skip The player's own physics, which the trace passes through.
          */
@@ -3284,8 +3457,8 @@ namespace TPVCamera
             const auto kind_index = static_cast<std::size_t>(kind);
             const AimProfile &profile = s_aim_profiles[kind_index % s_aim_profiles.size()];
             const bool same_weapon = profile.learned && profile.weapon == player_missile_weapon(c_player);
-            const Vec3f offset = profile.learned ? profile.offset : k_default_bow_offset;
-            const Vec3f aim = profile.learned ? profile.aim : k_default_bow_aim;
+            const float pitch = std::asin(std::clamp(look->z, -1.0f, 1.0f));
+            const auto [offset, aim] = aim_pose_at(profile, pitch);
             FlightPhysics physics{};
             physics.speed = same_weapon && profile.speed > k_min_trace_speed
                                 ? profile.speed
@@ -3308,10 +3481,10 @@ namespace TPVCamera
             bool re_aimed = false;
             // The re-aim prepare_shot applies, under its conditions: every other shot flies the game's own aim.
             if (settings().ranged_aim_at_crosshair.load(std::memory_order_relaxed) && !free_look && is_finite(point) &&
-                (point - bow).magnitude() >= k_min_target_distance)
+                (point - bow).magnitude() >= k_min_shot_distance)
             {
                 const float max_correction = max_aim_correction();
-                const Vector3 aimed = sighted_direction(target, look, native).value_or((point - bow).normalized());
+                const Vector3 aimed = sighted_direction(target, look, native, bow).value_or((point - bow).normalized());
                 if (angle_deg(native, aimed) <= max_correction)
                 {
                     dir = predict_in_crosshair_plane(target, bow, native, aimed, max_correction, physics, skip, landing,
@@ -3323,6 +3496,15 @@ namespace TPVCamera
             {
                 landing = trace_landing(bow, dir * physics.speed, physics.gravity, physics.drag,
                                         arrow_ray_flags(physics.pierceability), skip, &normal);
+            }
+            if (landing)
+            {
+                s_preview_marks[s_preview_next++ % s_preview_marks.size()] = PreviewMark{
+                    .valid = true,
+                    .ms = GetTickCount64(),
+                    .landing = to_vec3f(*landing),
+                    .pitch = pitch,
+                };
             }
             draw_predicted_flight(session, to_vector(target.camera), bow, dir * physics.speed, physics, landing, normal,
                                   k_arrow_preview_style);

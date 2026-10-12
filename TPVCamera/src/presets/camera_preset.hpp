@@ -58,11 +58,10 @@ namespace TPVCamera::Presets
         float offset_up = 0.0f;
         float eye_height = 1.6f;
         bool dynamic_eye_sync = true; // re-anchor eye height to the real FP eye on out-of-range low poses (kneel/pray)
-        float offset_right = 0.5f;
-        float aim_focus_distance = 12.9f; // crosshair convergence depth, meters (0 = track follow distance)
-        float follow_yaw = 0.0f;          // static resting orbit yaw around the pivot, degrees (0 = directly behind)
-        float follow_pitch = 0.0f;        // static resting orbit pitch around the pivot, degrees (0 = level)
-        float fov = 60.0f;                // third-person FOV in degrees (0 = use the game FOV / no override)
+        float offset_right = 0.4f;
+        float follow_yaw = 0.0f;   // static resting orbit yaw around the pivot, degrees (0 = directly behind)
+        float follow_pitch = 0.0f; // static resting orbit pitch around the pivot, degrees (0 = level)
+        float fov = 60.0f;         // third-person FOV in degrees (0 = use the game FOV / no override)
 
         // Free-look orbit. Sensitivity (mouse) and speed (gamepad) are split per axis so each axis can be
         // inverted on its own: a negative value flips that axis. X drives yaw (look left/right); Y drives

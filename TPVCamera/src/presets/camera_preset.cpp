@@ -23,7 +23,6 @@ namespace TPVCamera::Presets
         s.eye_height.store(preset.eye_height, rel);
         s.dynamic_eye_sync.store(preset.dynamic_eye_sync, rel);
         s.offset_right.store(preset.offset_right, rel);
-        s.aim_focus_distance.store(preset.aim_focus_distance, rel);
         s.follow_yaw.store(preset.follow_yaw, rel);
         s.follow_pitch.store(preset.follow_pitch, rel);
         s.fov.store(preset.fov, rel);
@@ -54,11 +53,10 @@ namespace TPVCamera::Presets
         a.follow_distance_max = lerp(a.follow_distance_max, t.follow_distance_max);
         a.zoom_step = lerp(a.zoom_step, t.zoom_step);
         a.offset_up = lerp(a.offset_up, t.offset_up);
-        // eye_height and aim_focus_distance use 0 as a MODE selector, not a continuous value: eye_height 0
-        // anchors to the bobbing FP eye (> 0 anchors to the body origin lifted by the height, and the body
-        // origin sits at the feet, so blending across 0 sweeps the anchor through the ground); aim_focus 0
-        // tracks the follow distance (> 0 pins a fixed depth). The exponential ease only asymptotes toward
-        // 0, so it would never re-select the 0 mode. Snap across the 0 boundary; blend within a mode.
+        // eye_height uses 0 as a MODE selector, not a continuous value: eye_height 0 anchors to the bobbing
+        // FP eye (> 0 anchors to the body origin lifted by the height, and the body origin sits at the feet,
+        // so a blend across 0 sweeps the anchor through the ground). The exponential ease only asymptotes
+        // toward 0, so it never re-selects the 0 mode. Snap across the 0 boundary and blend within a mode.
         const auto blend_mode_zero = [alpha](float from, float to) noexcept
         {
             constexpr float k_mode_eps = 1e-4f;
@@ -68,7 +66,6 @@ namespace TPVCamera::Presets
         };
         a.eye_height = blend_mode_zero(a.eye_height, t.eye_height);
         a.offset_right = lerp(a.offset_right, t.offset_right);
-        a.aim_focus_distance = blend_mode_zero(a.aim_focus_distance, t.aim_focus_distance);
         a.follow_yaw = lerp(a.follow_yaw, t.follow_yaw);
         a.follow_pitch = lerp(a.follow_pitch, t.follow_pitch);
         // FOV is SNAPPED to the active target here; the actual smooth ease lives in the camera hook, which blends

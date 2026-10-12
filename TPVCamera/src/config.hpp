@@ -40,7 +40,6 @@ namespace TPVCamera
         std::atomic<bool> dynamic_eye_sync{}; // re-anchor eye height to the real FP eye on low poses (kneel/pray) out
                                               // of EyeHeight range
         std::atomic<float> offset_right{};    // pivot shift along the camera right axis
-        std::atomic<float> aim_focus_distance{}; // crosshair convergence depth, meters (0 = track follow distance)
         std::atomic<float> follow_yaw{};   // static resting orbit yaw around the pivot, degrees (0 = directly behind)
         std::atomic<float> follow_pitch{}; // static resting orbit pitch around the pivot, degrees (0 = level)
         std::atomic<float> fov{};          // third-person field of view, degrees (0 = use the game FOV)
@@ -198,7 +197,7 @@ namespace TPVCamera
         // landing in line with the crosshair. ranged_show_trail draws each player shot's flight path, the crosshair
         // point and the impact for ranged_trail_seconds.
         std::atomic<bool> ranged_aim_at_crosshair{true};
-        std::atomic<float> ranged_max_correction{30.0f};
+        std::atomic<float> ranged_max_correction{45.0f};
         std::atomic<bool> ranged_show_trail{false};
         std::atomic<float> ranged_trail_seconds{8.0f};
         // Drop of the player's own shots per weapon, in either view, as a multiple of the game's gravity (the same for
