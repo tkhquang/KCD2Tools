@@ -76,10 +76,10 @@ namespace TPVCamera
      *          in dense geometry. The PWI function is resolved from the LIVE physical-world vtable
      *          each call (the static global is unreliable); the call is SEH-guarded and returns
      *          std::nullopt on any fault, an unresolved world, or a miss, so the caller falls back to
-     *          the thin ray. Only the float return value (distance) is used; the sphere radius is the
-     *          standoff, so the caller must NOT subtract a collision skin on top.
+     *          the thin ray. Only the float return value (distance) is used. The centre stops @p radius
+     *          short of the surface it meets, so that surface lies @p radius beyond the returned distance.
      * @param origin Sphere centre at the start of the sweep, world space.
-     * @param radius Sphere radius (the standoff kept from surfaces), world units.
+     * @param radius Sphere radius, world units.
      * @param sweep Sweep vector; its length is the maximum sweep distance (not normalized).
      * @param objtypes entity_query_flags mask (which entity classes block the sphere).
      * @return The hit distance and point, or std::nullopt on a miss / fault / unavailable.
