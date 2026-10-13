@@ -301,9 +301,10 @@ namespace Constants
     // every frame) catches different objects on consecutive frames as it grazes edges, so the
     // nearest-hit distance is a step function -> the camera position pumps in dense geometry.
     // A swept SPHERE replaces the line with a tube of radius r, so the contact distance varies
-    // continuously across edges and the pump is gone at the source. PWI returns the distance to
-    // first contact (its float return value), and the sphere radius is the standoff (so no skin
-    // is subtracted on the sphere path).
+    // continuously across edges and the pump is gone at the source. PWI returns the distance the
+    // centre travels to first contact (its float return value), which stops the radius short of the
+    // surface; the camera adds the radius back and keeps the same CollisionSkin from that surface as
+    // from a ray hit.
     //
     // PWI is reached through the LIVE physical-world vtable, NOT a static address: the static
     // pPhysicalWorld global did not hold a valid pointer in the running process, and the vtable
@@ -465,6 +466,32 @@ namespace Constants
     // from the last query; in between, the clamp is recomputed cheaply from the cached roof world-Z. Cuts
     // the per-frame cost to ~zero while standing still and avoids re-decoding the position cache each frame.
     constexpr float RENDER_OCCLUSION_REQUERY_DIST = 0.40f;
+
+    // Character fade (hooks/character_fade.cpp): the player's character dithers out when the third-person camera has
+    // no room behind it. CRenderProxy::Render (1.5.6 sub_18049FD10, this, const SRendParams&, const
+    // SRenderingPassInfo&) copies the parameters into every slot's render parameters (sub_1804A0084), and the
+    // character slot hands the CLodValue dissolve byte at SRendParams + SRENDPARAMS_LOD_OFFSET +
+    // CLODVALUE_DISSOLVE_OFFSET to its per-frame render objects with FOB_DISSOLVE (sub_18049E210 from the slot
+    // renderer sub_18049F08C). The engine's own LOD crossfade drives the same byte: with LodA set (FOB_DISSOLVE_OUT)
+    // a higher byte dithers more of the object away, and for the LOD fading in (LodA -1, LodB set) a lower one does.
+    // The proxy's entity (m_pEntity) identifies the player.
+    constexpr ptrdiff_t SRENDPARAMS_LOD_OFFSET = 0xAC;     // CLodValue {i16 lodA, i16 lodB, u8 dissolve}
+    constexpr ptrdiff_t CLODVALUE_LOD_A_OFFSET = 0x00;     // int16 current LOD (-1 = none)
+    constexpr ptrdiff_t CLODVALUE_LOD_B_OFFSET = 0x02;     // int16 LOD fading in (-1 = none)
+    constexpr ptrdiff_t CLODVALUE_DISSOLVE_OFFSET = 0x04;  // uint8 dissolve reference
+    constexpr ptrdiff_t RENDER_PROXY_ENTITY_OFFSET = 0x80; // CRenderProxy::m_pEntity (CEntity*)
+    // SRenderingPassInfo fields of the stock IsGeneralPass test: render-stack level (0 = main view), shadow-map type
+    // (0 = not a shadow pass) and the aux-window flag. The fade raises the byte in the main view only, so the
+    // character keeps its shadow.
+    constexpr ptrdiff_t PASS_INFO_RECURSION_OFFSET = 0x01;
+    constexpr ptrdiff_t PASS_INFO_SHADOW_OFFSET = 0x02;
+    constexpr ptrdiff_t PASS_INFO_AUX_WINDOW_OFFSET = 0x2D;
+    // The engine reads a dissolve byte of 255 with no LOD fading in as "not drawn" (AddOrCreatePersistentRenderObject
+    // skips such an object), so a fade stops one short of it.
+    constexpr int DISSOLVE_MAX_BYTE = 254;
+    // A fade value older than this is ignored, so a faded object comes back on its own when the camera stops setting
+    // it (first person, a menu, a reload).
+    constexpr uint64_t FADE_STALE_MS = 250;
 
     // Camera-space interaction (door/usable look-at ray redirect)
     // The player interactor (wh::entitymodule::C_PlayerInteractor) selects the "press to use" target by

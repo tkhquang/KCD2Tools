@@ -158,7 +158,8 @@ namespace TPVCamera
 
         // Camera collision (non-preset, always-live; Enable/Skin/ReturnSpeed are per-preset). UseCoverageCollision
         // is the master switch for the coverage gate and the lateral probe (render occlusion is independent); OFF
-        // reverts to plain nearest-solid collision.
+        // reverts to plain nearest-solid collision. CloseUpFade fades the character instead of the first-person
+        // switch below HeadClearance; its minimum opacity is clamped where it is read.
         collision.bind<bool>("UseCoverageCollision", "Use Coverage Collision", s.use_coverage_collision, false);
         collision.bind<bool>("UseSphereCollision", "Use Sphere Collision", s.use_sphere_collision, true);
         collision.bind<float>("CollisionRadius", "Collision Radius", s.collision_radius, 0.15f);
@@ -166,6 +167,8 @@ namespace TPVCamera
         collision.bind<float>("CameraProbeSize", "Camera Probe Size", s.camera_probe_size, 0.3f);
         collision.bind<bool>("UseRenderOcclusion", "Use Render Occlusion", s.use_render_occlusion, true);
         collision.bind<float>("HeadClearance", "Head Clearance", s.head_clearance, 0.35f);
+        collision.bind<bool>("CloseUpFade", "Close Up Fade", s.close_up_fade, true);
+        collision.bind<float>("CloseUpFadeMinOpacity", "Close Up Fade Min Opacity", s.close_up_fade_min_opacity, 0.25f);
 
         // State-driven camera policy. The four *State values are comma-separated GameState token lists
         // (Menu, Overlay, Combat, Mount, Dialogue, Minigame; Dice is an alias for Minigame), parsed into
