@@ -5,7 +5,7 @@
  * @details Single-threaded: every method is intended to run on ONE thread (the overlay
  *          UI thread at runtime, or the Bootstrap thread during init). The store never
  *          touches the live camera directly; instead it publishes an immutable
- *          StateBindingTable snapshot (see preset_runtime.hpp) that the render thread
+ *          StateBindingTable snapshot (see preset_runtime.hpp) that the main thread
  *          consumes via a single atomic shared_ptr load (no allocation). CRUD operations that change
  *          applied values call publish().
  *
@@ -175,7 +175,7 @@ namespace TPVCamera::Presets
         PresetStore() = default;
 
         /**
-         * @brief Rebuilds and publishes the StateBindingTable snapshot for the render thread.
+         * @brief Rebuilds and publishes the StateBindingTable snapshot for the main thread.
          * @details The live cycle picks carry over, pass through @p edit_picks, and lose every pick that no longer
          *          names a member of its group. save() reads the picks from the published snapshot, so a change
          *          publishes before it saves.

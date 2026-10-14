@@ -79,7 +79,7 @@ namespace TPVCamera
         // Seed the preset-owned atomics from the factory DEFAULT exactly once on first access. A default-
         // constructed CameraPreset carries the DEFAULT framing values (camera_preset.hpp is the single source
         // of those values, equal to the built-in DEFAULT preset), so the live atomics start at the factory
-        // default until the render-thread resolver applies the per-state preset each active frame. Seeding here
+        // default until the main-thread resolver applies the per-state preset each active frame. Seeding here
         // rather than via literal initializers keeps the default values in one place so they cannot drift.
         // s has static storage, so the lambda references it directly: a simple capture of a static-storage
         // variable is ill-formed (MSVC C3495 under /permissive-).
@@ -119,6 +119,8 @@ namespace TPVCamera
         advanced.bind<int>("SelfHealWindow", "Self Heal Window", s.self_heal_window, 0x100);
         // Advanced: write the built-in signatures and their captured baselines beside the ASI (see aob_resolver.hpp).
         advanced.bind<bool>("ExportSignatures", "Export Signatures", s.export_signatures, false);
+        // Advanced: write the built-in camera rules beside the ASI for reference (see camera_rules_files.hpp).
+        advanced.bind<bool>("ExportRules", "Export Rules", s.export_rules, false);
 
         // Camera framing. The follow distance, offsets, eye height, follow yaw/pitch, the orbit
         // tuning, and the per-preset collision values are all OWNED BY PRESETS (in the shipped presets JSON,
@@ -156,22 +158,29 @@ namespace TPVCamera
         // Free-look orbit (non-preset, always-live; the orbit feel values are per-preset).
         orbit.bind<bool>("FreezeOrbitOnCursor", "Freeze Orbit On Cursor", s.freeze_orbit_on_cursor, true);
 
-        // Camera collision (non-preset, always-live; Enable/Skin/ReturnSpeed are per-preset). UseCoverageCollision
-        // is the master switch for the coverage gate and the lateral probe (render occlusion is independent); OFF
-        // reverts to plain nearest-solid collision. CloseUpFade fades the character instead of the first-person
-        // switch below HeadClearance; its minimum opacity is clamped where it is read.
-        collision.bind<bool>("UseCoverageCollision", "Use Coverage Collision", s.use_coverage_collision, false);
+        // Camera collision (non-preset, always-live; Enable/Skin/ReturnSpeed are per-preset). UseOccluderFade fades
+        // the props between the camera and the character instead of pulling in front of them, and lets the camera pass
+        // through bushes and trees; OFF reverts to plain nearest-solid collision. UseTreeSeeThrough opens a window in
+        // the trees, bushes and grass in front of the character; the minimum opacity, size, start height and softness
+        // shape that window. The fade amounts and the window's shape are clamped where they are read.
         collision.bind<bool>("UseSphereCollision", "Use Sphere Collision", s.use_sphere_collision, true);
         collision.bind<float>("CollisionRadius", "Collision Radius", s.collision_radius, 0.15f);
-        collision.bind<float>("CoverageThreshold", "Coverage Threshold", s.collision_coverage_threshold, 0.8f);
-        collision.bind<float>("CameraProbeSize", "Camera Probe Size", s.camera_probe_size, 0.3f);
-        collision.bind<bool>("UseRenderOcclusion", "Use Render Occlusion", s.use_render_occlusion, true);
+        collision.bind<bool>("UseOccluderFade", "Use Occluder Fade", s.use_occluder_fade, true);
+        collision.bind<float>("OccluderFadeMinOpacity", "Occluder Fade Min Opacity", s.occluder_fade_min_opacity, 0.2f);
+        collision.bind<bool>("UseTreeSeeThrough", "Use Tree See Through", s.use_tree_see_through, true);
+        collision.bind<float>("TreeSeeThroughMinOpacity", "Tree See Through Min Opacity",
+                              s.tree_see_through_min_opacity, 0.2f);
+        collision.bind<float>("TreeSeeThroughSize", "Tree See Through Size", s.tree_see_through_size, 1.0f);
+        collision.bind<float>("TreeSeeThroughStartHeight", "Tree See Through Start Height",
+                              s.tree_see_through_start_height, 0.5f);
+        collision.bind<float>("TreeSeeThroughSoftness", "Tree See Through Softness", s.tree_see_through_softness,
+                              0.35f);
         collision.bind<float>("HeadClearance", "Head Clearance", s.head_clearance, 0.35f);
         collision.bind<bool>("CloseUpFade", "Close Up Fade", s.close_up_fade, true);
         collision.bind<float>("CloseUpFadeMinOpacity", "Close Up Fade Min Opacity", s.close_up_fade_min_opacity, 0.25f);
 
-        // State-driven camera policy. The four *State values are comma-separated GameState token lists
-        // (Menu, Overlay, Combat, Mount, Dialogue, Minigame; Dice is an alias for Minigame), parsed into
+        // State-driven camera policy. The *State values are comma-separated GameState token lists
+        // (Menu, Overlay, Combat, Mount, Dialogue, Minigame and each minigame's own token, see the INI), parsed into
         // bit masks by parse_state_mask. bind_parsed is the library's INI-string-to-atomic-uint32 binding:
         // it applies the parse at registration with the default below and again on every load() / reload(),
         // storing the result relaxed, so editing a list in the INI re-applies live and the parse stays
@@ -180,9 +189,11 @@ namespace TPVCamera
         state_behavior.bind_parsed(
             "ForcedFPVState", "Forced FPV State", s.forced_fpv_mask, parse_state_mask,
             "Aiming,Cart,Dice,Reading,Alchemy,Blacksmithing,ForgeBuilder,Sharpening,StoneThrowing,BattleArchery");
-        state_behavior.bind_parsed("ForcedTPVState", "Forced TPV State", s.forced_tpv_mask, parse_state_mask, "");
+        // The defaults match the shipped INI, so a missing key behaves like the file users get.
+        state_behavior.bind_parsed("ForcedTPVState", "Forced TPV State", s.forced_tpv_mask, parse_state_mask, "Mount");
         state_behavior.bind_parsed("OrbitExcludeState", "Orbit Exclude State", s.orbit_exclude_mask, parse_state_mask,
-                                   "Overlay,Aiming,Cart,Combat,Mount,Minigame");
+                                   "Overlay,Aiming,Cart,Combat,Mount,Lockpicking,Dice,Reading,Alchemy,Pickpocketing,"
+                                   "Blacksmithing,ForgeBuilder,Sharpening,StoneThrowing,BattleArchery,Distract");
         state_behavior.bind<float>("StateSwitchHoldSeconds", "State Switch Hold Seconds", s.state_switch_hold_seconds,
                                    0.2f);
         // Whether a crossbow reload already counts as Aiming (see LiveSettings). Not gated by EnableStateBehavior: it

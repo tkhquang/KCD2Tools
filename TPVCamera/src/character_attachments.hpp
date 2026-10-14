@@ -66,8 +66,10 @@ namespace TPVCamera
         std::uintptr_t attachment = 0;
         /// The item's EntityId.
         std::uint32_t id = 0;
-        /// The item this one is bound to (a bow for its arrow), as an index into CharacterNodes::items, or -1 when it
-        /// is bound to the character itself.
+        /**
+         * @brief The item this one is bound to (a bow for its arrow), as an index into CharacterNodes::items, or -1
+         *        when it is bound to the character itself.
+         */
         std::int8_t parent = -1;
         /// 1 on the character, 2 on a character model it carries, and so on.
         std::uint8_t depth = 0;
@@ -132,8 +134,8 @@ namespace TPVCamera
 
     /**
      * @brief Clears @p nodes and forgets the item set last logged, so the next walk logs its set afresh.
-     * @details For a frame that does not walk: the close-up fade off, or the camera leaving third person. Main thread
-     *          only.
+     * @details For a frame that does not walk: CloseUpFade, UseOccluderFade and collision all off, or the camera
+     *          leaving third person. Main thread only.
      */
     void clear_character_nodes(CharacterNodes &nodes) noexcept;
 

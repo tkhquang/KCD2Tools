@@ -11,6 +11,8 @@
  */
 
 #include "constants.hpp"
+#include "hook_profile.hpp"
+#include "see_through_trace.hpp"
 #include "protocol.h"
 #include "tpv_camera.hpp"
 #include "version.hpp"
@@ -132,9 +134,51 @@ namespace
         {
             written = false;
         }
-        (void)DMK::log().try_log(written ? DMK::LogLevel::Info : DMK::LogLevel::Warning,
-                                 written ? "[DEV] Profile written to {}" : "[DEV] Profile export to {} failed",
-                                 profile_path);
+        // Two calls: the format string must be a constant expression for DMK's checked formatting.
+        if (written)
+        {
+            (void)DMK::log().try_log(DMK::LogLevel::Info, "[DEV] Profile written to {}", profile_path);
+        }
+        else
+        {
+            (void)DMK::log().try_log(DMK::LogLevel::Warning, "[DEV] Profile export to {} failed", profile_path);
+        }
+    }
+
+    /**
+     * @brief Writes this generation's hook aggregates (HookProfile) and see-through trace (SeeThroughTrace) beside the
+     *        log as KCD2_TPVCamera_hook_profile_genNNNN.json and KCD2_TPVCamera_see_through_genNNNN.json.
+     * @details Each measuring thread owns its slot of that storage without synchronization, so the export runs only
+     *          after every hook has retired and the typed drain has passed. A failure is logged and stays here.
+     */
+    void export_hook_profile() noexcept
+    {
+        char directory[MAX_PATH]{};
+        if (!module_directory(directory))
+        {
+            return;
+        }
+        char path[MAX_PATH]{};
+        (void)std::snprintf(path, sizeof(path), "%sKCD2_TPVCamera_hook_profile_gen%04llu.json", directory,
+                            static_cast<unsigned long long>(s_generation_id));
+        if (TPVCamera::HookProfile::export_after_rundown(path))
+        {
+            (void)DMK::log().try_log(DMK::LogLevel::Info, "[DEV] Hook aggregates written to {}", path);
+        }
+        else
+        {
+            (void)DMK::log().try_log(DMK::LogLevel::Warning, "[DEV] Hook aggregate export failed: {}", path);
+        }
+        (void)std::snprintf(path, sizeof(path), "%sKCD2_TPVCamera_see_through_gen%04llu.json", directory,
+                            static_cast<unsigned long long>(s_generation_id));
+        if (TPVCamera::SeeThroughTrace::export_after_rundown(path))
+        {
+            (void)DMK::log().try_log(DMK::LogLevel::Info, "[DEV] See-through CPU trace written to {}", path);
+        }
+        else
+        {
+            (void)DMK::log().try_log(DMK::LogLevel::Warning, "[DEV] See-through CPU trace export failed: {}", path);
+        }
     }
 #endif
 
@@ -343,6 +387,11 @@ extern "C"
                                  static_cast<int>(drain));
                 return 0;
             }
+
+#ifdef DMK_ENABLE_PROFILING
+            // Every hook has retired and drained, so no thread writes the aggregates any more.
+            export_hook_profile();
+#endif
 
             // Ordered Session teardown can retain the XInput chain, so the verdict reads the pins after it.
             s_session.reset();

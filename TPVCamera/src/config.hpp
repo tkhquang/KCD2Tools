@@ -24,7 +24,7 @@ namespace TPVCamera
      */
     struct LiveSettings
     {
-        // Preset-owned framing: the render-thread preset resolver OVERWRITES these every active frame
+        // Preset-owned framing: the main-thread preset resolver OVERWRITES these every active frame
         // (apply_to_live) and the frustum-builder detour reads them. They are NOT INI settings - they
         // live in the presets JSON and are tuned in the overlay. The factory default VALUES live in
         // CameraPreset (camera_preset.hpp, equal to the built-in DEFAULT preset); settings() seeds these
@@ -69,42 +69,41 @@ namespace TPVCamera
                    // / dialogue) so cursor motion does not turn the camera
 
         // Camera collision. Enable/Skin/ReturnSpeed are preset-owned (seeded/overwritten like the framing
-        // above); UseCoverageCollision, UseSphereCollision, CollisionRadius and the gates below are always-live
-        // INI settings, so they keep their registered defaults.
+        // above); UseSphereCollision, CollisionRadius, the occluder fade, the tree see-through, HeadClearance and the
+        // close-up fade are always-live INI settings, so they keep their registered defaults.
         std::atomic<bool> enable_collision{};        // keep the view out of walls
-        std::atomic<float> collision_skin{};         // gap kept from the surface the rays or sphere found, meters
+        std::atomic<float> collision_skin{};         // gap kept from the surface any probe found, meters
         std::atomic<float> collision_return_speed{}; // ease-out speed once an obstruction clears (0 = instant)
-        // Master switch for the COVERAGE-based collision heuristics: the coverage gate (CoverageThreshold) that
-        // only collides when something hides the character, and the lateral frustum-clearance probe
-        // (CameraProbeSize). OFF by default (opt-in): the camera then collides plainly on the nearest solid world
-        // surface (no coverage measurement, no lateral probe); turn it ON for the see-through behaviour. Render
-        // occlusion is INDEPENDENT of this (its own use_render_occlusion toggle below).
-        std::atomic<bool> use_coverage_collision{false};
         // Swept-sphere collision via PrimitiveWorldIntersection, added to the ray fan: the sphere's contact
         // distance is continuous where the fan's rays graze an edge. Falls back to the fan alone when the engine
         // sweep is unavailable or faults.
         std::atomic<bool> use_sphere_collision{true};
         std::atomic<float> collision_radius{0.15f}; // the probes' half-width (fan ray offset, sphere radius), meters
-        // Coverage gate: only collide when an obstruction actually HIDES the character. At a candidate hit the
-        // camera samples the character silhouette and casts to each sample; if the occluded fraction is below
-        // this threshold (0..1) the obstruction is ignored, so thin poles / rails that leave most of the
-        // character visible never jolt the camera (native-TPV feel), while a wall or a near post that hides most
-        // of it still collides. Distance-aware (a closer object hides more), unlike a fixed width/size cutoff.
-        // 0 = OFF (collide on any hit). Higher ignores more; ~0.8 hides most of the character before colliding.
-        // Only consulted while use_coverage_collision is ON. Live-editable.
-        std::atomic<float> collision_coverage_threshold{0.8f};
-        // Lateral / frustum clearance: the pivot->camera collision probes only ALONG the arm, so a wall BESIDE
-        // the camera (a corner, a doorway, a narrow gap) is never seen and intrudes into the view. After the
-        // along-arm pull-in, the camera probes its lateral surroundings and pulls further in until a converging
-        // side wall is at least this many meters away. It is a geometric clearance, not occlusion, so it ignores
-        // the coverage gate (a side wall does not hide the character) and only ever sees static / terrain world
-        // (never the player or NPCs). ~0.3 keeps the view out of corner walls; 0 = OFF. Live-editable.
-        std::atomic<float> camera_probe_size{0.3f};
-        // Render occlusion: also collide the camera with render-only geometry (tent / awning canopy cloth,
-        // overhead brushes) that carries no ray-collidable physics, by querying the 3DEngine render octree
-        // (GetObjectsInBox) along the pivot->camera arm and clamping below an overhead brush. Always-live INI
-        // setting (not preset-owned), INDEPENDENT of use_coverage_collision; no-ops if the octree is unresolved.
-        std::atomic<bool> use_render_occlusion{true};
+        // Occluder fade: props between the camera and the character (posts, fences, open carts, lamps) dither out
+        // instead of pulling the camera in front of them, so the camera keeps its distance. The camera passes through
+        // bushes and tree trunks, but a bush or a tree never fades whole for hiding the character (the tree see-through
+        // opens a window in it), and a bush fades only when the camera is buried in it. Terrain, buildings, walls and
+        // rocks (as the camera rules class them, see camera_rules.hpp) and objects that match no scanned render node
+        // still stop the camera. Off = plain collision on the nearest solid surface.
+        std::atomic<bool> use_occluder_fade{true};
+        // How much of a faded object always stays: 0 (it can almost vanish) .. 1 (stays solid). A prop or a bush the
+        // camera is buried in, or a prop whose physics the camera is inside, starts fading at once but keeps this
+        // too; what only touches the lens is cut by the near clip plane.
+        std::atomic<float> occluder_fade_min_opacity{0.2f};
+        // Tree see-through (see hooks/shader_twins.hpp): the trees, bushes and grass between the camera and the
+        // character open a dithered window around the character, only where they stand nearer than him. The rest of
+        // the plant and its shadow stay. Independent of the occluder fade. Off = trees and bushes stay solid (the
+        // leaves right at the lens are still cut).
+        std::atomic<bool> use_tree_see_through{true};
+        // How much of the plants in the window always stays: 0 (fully open, with a dithered rim) .. 1 (stays solid).
+        std::atomic<float> tree_see_through_min_opacity{0.2f};
+        // The window's size relative to the character: 0.5 .. 2.
+        std::atomic<float> tree_see_through_size{1.0f};
+        // Where the window starts, as a share of the character's height above his feet: 0 (his feet) .. 1 (the top of
+        // his head, so nothing opens); 0.5 = his hips.
+        std::atomic<float> tree_see_through_start_height{0.5f};
+        // The dithered rim around the window, as a share of the window's size: 0 (hard edge) .. 1 (as wide again).
+        std::atomic<float> tree_see_through_softness{0.35f};
         // First-person fallback: when collision leaves the camera less than this many meters from the pivot (a low
         // lintel in a doorway, a wall right behind), it would sit inside the player's head. Instead it eases onto the
         // real eye and the head is hidden by the game's own first-person rig, until the camera has this much room
@@ -149,7 +148,7 @@ namespace TPVCamera
         // on Aiming) waits until the reload is done; on keeps the game's own timing.
         std::atomic<bool> reload_counts_as_aiming{false};
 
-        // Preset manager (see presets/). Presets are always active: the render-thread resolver selects a
+        // Preset manager (see presets/). Presets are always active: the main-thread resolver selects a
         // camera preset by the debounced game state (DEFAULT/COMBAT/AIMING/MOUNT/STEALTH) - or by the
         // overlay's editing pin - and eases the preset-owned framing fields above toward it each active
         // frame, OVERWRITING them. Those framing fields are NOT INI settings; they live in the presets
@@ -222,8 +221,8 @@ namespace TPVCamera
         std::atomic<bool> ranged_aim_preview_through_walls{true};
         std::atomic<uint32_t> ranged_aim_preview_color{0xFFE196u};
 
-        // Start-of-session auto-enable flags, read ONCE during init(). Disabled by default.
-        std::atomic<bool> auto_enable_tpv{false};   // enter third-person automatically on game start
+        // Start-of-session auto-enable flags, read ONCE during init().
+        std::atomic<bool> auto_enable_tpv{true};    // enter third-person automatically on game start
         std::atomic<bool> auto_enable_orbit{false}; // engage free-look orbit automatically on game start
 
         // Advanced. Per-side search radius (bytes) the RTTI self-heal scans around each nominal offset to
@@ -236,6 +235,11 @@ namespace TPVCamera
         // KCD2_TPVCamera.signatures.captured.ini at startup (see export_signatures in aob_resolver.hpp). Read once
         // after the anchors resolve.
         std::atomic<bool> export_signatures{false};
+
+        // Advanced. Writes the built-in camera rules, byte for byte, to KCD2_TPVCamera_rules.default.txt (a reference
+        // the mod never reads) at startup, and again each time an INI reload turns it on (see export_built_in in
+        // camera_rules_files.hpp).
+        std::atomic<bool> export_rules{false};
     };
 
     /** @brief Returns the process-wide live (atomic) settings. */

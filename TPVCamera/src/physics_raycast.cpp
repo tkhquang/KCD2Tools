@@ -84,7 +84,6 @@ namespace TPVCamera
     std::optional<RayHit> ray_world_intersection(const Vector3 &origin, const Vector3 &direction, int objtypes,
                                                  unsigned int flags, const uintptr_t *skip_ents, int n_skip_ents)
     {
-        DMK_PROFILE_SCOPE("phys.rwi");
         if (s_ray_world_intersection == nullptr || s_physical_world_global_addr == 0)
         {
             return std::nullopt;
@@ -194,11 +193,10 @@ namespace TPVCamera
         }
         const uintptr_t world = *world_value;
 
-        // PWI is resolved from the LIVE world vtable (slot PHYS_WORLD_VTABLE_PWI_OFFSET), not a static
-        // address: the static pPhysicalWorld global was found to hold non-pointer data in the running
-        // process, and the vtable slot is the patch-stable anchor. The slot is a lock wrapper that takes
-        // the world mutex and forwards to the real impl, so calling it from the render thread is safe
-        // (it waits for the mutex; it never re-enters our code).
+        // PWI is resolved from the world's vtable (slot PHYS_WORLD_VTABLE_PWI_OFFSET) rather than an AOB of its
+        // own; the vtable slot is the patch-stable anchor. The slot is a lock wrapper that takes the world mutex
+        // and forwards to the real impl, so calling it from the camera's main-thread detour is safe (it waits for
+        // the mutex; it never re-enters our code).
         const auto vtable = DMK::memory::read<uintptr_t>(DMK::Address{world});
         if (!vtable || !DMK::memory::is_plausible_ptr(DMK::Address{*vtable}) ||
             !s_game_module.contains(DMK::Address{*vtable}))
@@ -238,26 +236,23 @@ namespace TPVCamera
         *reinterpret_cast<int *>(params + Constants::SPWI_OFF_ITYPE) = Constants::PRIMITIVE_TYPE_SPHERE;
         *reinterpret_cast<const void **>(params + Constants::SPWI_OFF_PPRIM) = sphere;
         *reinterpret_cast<Vector3 *>(params + Constants::SPWI_OFF_SWEEPDIR) = sweep;
-        // Flags field at +0x98 (the impl tests &0x800 = rwi_queue; do NOT set that - keep the call synchronous).
-        // 0x101 is the empirically FULL-RANGE value: the swept sphere registers both close AND far
-        // contacts. This field is NOT standard rwi pierceability - 0x40F
-        // (rwi_stop_at_pierceable|colltype_any) hit only FAR geometry (missed close walls), and 0 registered NO
-        // contacts at all.
-        *reinterpret_cast<int *>(params + Constants::SPWI_OFF_FLAGS) = Constants::SPWI_FLAGS_FULL_RANGE;
-        // entTypes @+0x9C is DEAD in this fork: the impl (sub_1808182A0) has ZERO reads of +0x9C, so the sphere
-        // ALWAYS queries ent_all and CANNOT be type-filtered here - this write is a defensive no-op (harmless,
-        // kept in case a future build wires the field up). Actors (player body/gear, NPCs) are NOT excluded here;
-        // they are dropped by the FAN-AUTHORITY gate in camera_hook, which accepts the sphere only when it agrees
-        // with the RWI fan's world hit (the fan's objtypes=0x101 is a real arg that provably excludes all actors).
-        *reinterpret_cast<int *>(params + Constants::SPWI_OFF_ENTTYPES) = objtypes;
+        // entTypes @+0x98 is the objtypes mask. The real PWI (1.5.6 sub_180811680) queues the call when 0x800
+        // (rwi_queue) is set and otherwise passes this field straight to GetEntitiesAround (sub_1806EE310), which
+        // keeps only the entities whose sim-class bit is in the mask. 0x800 is cleared so the call always runs
+        // synchronously. With the camera's 0x101 (static | terrain) the player's living entity (class 3) and its
+        // skeleton / worn-gear articulated entity (class 4) are filtered out here; 0 would query no class at all.
+        // The impl never reads +0x9C, so nothing is written there.
+        *reinterpret_cast<int *>(params + Constants::SPWI_OFF_ENTTYPES) = objtypes & ~0x800;
         *reinterpret_cast<void **>(params + Constants::SPWI_OFF_PPCONTACT) = &contact;
         *reinterpret_cast<int *>(params + Constants::SPWI_OFF_GEOMFLAGSALL) = 0;
         // Broad collision-type mask so the sphere stops on any solid surface (mirrors the RWI colltype_any
         // intent). A wrong value here only changes which parts block (functional, not a safety issue).
         *reinterpret_cast<int *>(params + Constants::SPWI_OFF_GEOMFLAGSANY) = Constants::SPWI_GEOMFLAGS_ANY_SOLID;
-        // Skip the player's own physics entities (resolved by the caller via resolve_player_physics_skip), so
-        // the sweep ignores the body/shield/gear and reports a clean WORLD distance. nSkipEnts is impl-clamped
-        // to <=4; pSkipEnts is read as pSkipEnts[i] (an array of IPhysicalEntity*). Both offsets impl-confirmed.
+        // Skip the entities the caller lists (the player's own physics from resolve_player_physics_skip, and the
+        // faded occluders the camera steps past), so the sweep reports a clean WORLD distance. The synchronous PWI
+        // walks every nSkipEnts entry (only its queued path clamps the count to 4); a negative count would make
+        // pSkipEnts the candidate list and skip the world, so only a positive count is written. The PWI implementation
+        // reads both offsets, and pSkipEnts as pSkipEnts[i] (an array of IPhysicalEntity*).
         const bool have_skip = p_skip_ents != nullptr && n_skip_ents > 0;
         *reinterpret_cast<int *>(params + Constants::SPWI_OFF_NSKIPENTS) = have_skip ? n_skip_ents : 0;
         *reinterpret_cast<const void **>(params + Constants::SPWI_OFF_PSKIPENTS) = have_skip ? p_skip_ents : nullptr;
@@ -296,7 +291,8 @@ namespace TPVCamera
     {
         DMK_PROFILE_SCOPE("phys.ray_fan");
         const float len = sweep.magnitude();
-        if (len < 1e-4f)
+        // Written so a NaN length also returns: a NaN ray must never reach the engine.
+        if (!(len >= 1e-4f))
         {
             return std::nullopt;
         }
@@ -335,54 +331,16 @@ namespace TPVCamera
         return best;
     }
 
-    float collider_horizontal_footprint(uintptr_t collider) noexcept
-    {
-        if (collider == 0 || !DMK::memory::is_plausible_ptr(DMK::Address{collider}))
-        {
-            return -1.0f;
-        }
-        // A collider with a foreign OWNER carries a sane world m_BBox at this offset, whether it is a static brush
-        // (fType == PHYS_FOREIGN_ID_STATIC == 1) OR a placed ENTITY (live: the gate post's fType is 0x200002 = an
-        // entity id with flags, NOT static - but its bbox 0.30x0.30x3.69 is valid). Do NOT require STATIC, or
-        // entity posts are missed. Only fType == 0 (terrain heightmap / unowned geom) reads a 0x0 bbox (live), so
-        // exclude it; the degenerate-AABB check below catches it too.
-        const auto ftype = DMK::memory::read<int>(DMK::Address{collider + Constants::PHYS_ENTITY_FOREIGN_TYPE_OFFSET});
-        if (!ftype || *ftype == 0)
-        {
-            return -1.0f;
-        }
-        const auto min_x =
-            DMK::memory::read<float>(DMK::Address{collider + Constants::PHYS_ENTITY_BBOX_MIN_OFFSET + 0});
-        const auto min_y =
-            DMK::memory::read<float>(DMK::Address{collider + Constants::PHYS_ENTITY_BBOX_MIN_OFFSET + 4});
-        const auto max_x =
-            DMK::memory::read<float>(DMK::Address{collider + Constants::PHYS_ENTITY_BBOX_MAX_OFFSET + 0});
-        const auto max_y =
-            DMK::memory::read<float>(DMK::Address{collider + Constants::PHYS_ENTITY_BBOX_MAX_OFFSET + 4});
-        if (!min_x || !min_y || !max_x || !max_y)
-        {
-            return -1.0f;
-        }
-        const float sx = *max_x - *min_x;
-        const float sy = *max_y - *min_y;
-        if (!std::isfinite(sx) || !std::isfinite(sy) || sx < 1.0e-3f || sy < 1.0e-3f || sx > 1.0e5f || sy > 1.0e5f)
-        {
-            return -1.0f; // degenerate / implausible AABB -> unknown
-        }
-        // The LARGER horizontal extent. A post is small in BOTH axes (footprint small); a wall is large in at
-        // least one (footprint large) even when thin in the other - so this separates a thin POST from a thin
-        // WALL, which the minimum-extent metric (smallest of all three axes) cannot: a thin wall is also small on
-        // its depth axis.
-        return (sx > sy) ? sx : sy;
-    }
-
     uintptr_t static_brush_render_node(uintptr_t collider) noexcept
     {
         if (collider == 0 || !DMK::memory::is_plausible_ptr(DMK::Address{collider}))
         {
             return 0;
         }
-        const auto ftype = DMK::memory::read<int>(DMK::Address{collider + Constants::PHYS_ENTITY_FOREIGN_TYPE_OFFSET});
+        // +0x28 packs m_iForeignData in the low 16 bits and m_iForeignFlags in the high 16 bits. The engine's
+        // GetiForeignData reads only the signed low word, so compare that and ignore the flags.
+        const auto ftype =
+            DMK::memory::read<std::int16_t>(DMK::Address{collider + Constants::PHYS_ENTITY_FOREIGN_TYPE_OFFSET});
         if (!ftype || *ftype != Constants::PHYS_FOREIGN_ID_STATIC)
         {
             return 0; // not a static brush owner (entity-attached / pure-physics): no usable render node
@@ -396,52 +354,6 @@ namespace TPVCamera
         return *node;
     }
 
-    float character_occluded_fraction(const Vector3 &camera, const Vector3 &pivot, int objtypes, unsigned int flags)
-    {
-        DMK_PROFILE_SCOPE("phys.char_coverage");
-        // Screen-horizontal axis at the character (perpendicular to the view, kept world-horizontal).
-        const Vector3 view = pivot - camera; // camera -> character
-        const Vector3 world_up{0.0f, 0.0f, 1.0f};
-        Vector3 right = view.cross(world_up);
-        const float rl = right.magnitude();
-        right = (rl > 1e-4f) ? (right / rl) : Vector3{1.0f, 0.0f, 0.0f};
-
-        // Sample the character silhouette relative to the pivot (~eye/head height): four vertical levels from
-        // just above the head down to the shins, three columns across the shoulders. A ray from the camera to
-        // each sample is "occluded" when WORLD geometry lies before it (the player body is ent_living, excluded
-        // by the world-only objtypes, so the character never occludes itself). Like a real TPV camera (which
-        // protects the head/look-at socket, not the feet) each level is WEIGHTED by importance head->feet, so an
-        // obstruction over the upper body counts far more than one over the legs: occluding the upper half
-        // exceeds 0.5, occluding only the legs stays well under it. (k_char_level_weight sums to 2.45.)
-        static const float v_levels[4] = {0.10f, -0.45f, -1.00f, -1.55f};
-        static const float k_char_level_weight[4] = {1.0f, 0.8f, 0.45f, 0.2f}; // head, chest, hips, shins
-        static const float h_cols[3] = {-0.25f, 0.0f, 0.25f};
-        float total = 0.0f;
-        float blocked = 0.0f;
-        for (int vi = 0; vi < 4; ++vi)
-        {
-            const float v = v_levels[vi];
-            const float w = k_char_level_weight[vi];
-            for (const float h : h_cols)
-            {
-                const Vector3 target{pivot.x + right.x * h, pivot.y + right.y * h, pivot.z + v};
-                const Vector3 to_target = target - camera;
-                const float dist = to_target.magnitude();
-                if (dist < 1e-3f)
-                {
-                    continue;
-                }
-                total += w;
-                const auto hit = ray_world_intersection(camera, to_target, objtypes, flags, nullptr, 0);
-                if (hit.has_value() && hit->m_distance < dist - 0.10f)
-                {
-                    blocked += w;
-                }
-            }
-        }
-        return (total > 0.0f) ? (blocked / total) : 0.0f;
-    }
-
     int resolve_player_physics_skip(const Vector3 &origin, const Vector3 &sweep, float radius, int objtypes_all,
                                     int objtypes_world, unsigned int flags, uintptr_t *out_skip, int max_out)
     {
@@ -450,7 +362,8 @@ namespace TPVCamera
             return 0;
         }
         const float len = sweep.magnitude();
-        if (len < 1e-4f)
+        // Written so a NaN length also returns: a NaN ray must never reach the engine.
+        if (!(len >= 1e-4f))
         {
             return 0;
         }

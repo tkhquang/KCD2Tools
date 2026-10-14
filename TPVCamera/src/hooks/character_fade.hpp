@@ -60,6 +60,18 @@ namespace TPVCamera
      */
     [[nodiscard]] std::uintptr_t character_render_node() noexcept;
 
+    /**
+     * @brief Counts the camera frames in which the main view did not draw the player's character while @p watch held,
+     *        and logs the count once a second when it is not zero.
+     * @details The tree see-through opens a window in the trees in front of the character, but a character the trees
+     *          hide completely can be culled by the engine's occlusion test before any window is drawn. While the watch
+     *          is on, the detour counts its main-view draws of the entity last given to set_character_fade, and each
+     *          call closes the frame since the previous one. Without the character fade hook nothing is counted. Main
+     *          thread only, once per camera frame.
+     * @param watch Whether the frame starting now counts: third person, with trees swapped to the see-through shader.
+     */
+    void watch_character_render(bool watch) noexcept;
+
 } // namespace TPVCamera
 
 #endif // TPVCAMERA_HOOKS_CHARACTER_FADE_HPP

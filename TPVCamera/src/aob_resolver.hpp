@@ -264,11 +264,12 @@ namespace TPVCamera
         };
 
         // I3DEngine::GetObjectsInBox (render-node octree query) entry
-        // Direct: the match IS the callable function (no detour). The function is identified by its
-        // standard frame save followed IMMEDIATELY by `mov rcx, [rcx+698h]` (the C3DEngine octree root),
-        // a load shared by no other function in the image, so the entry is unambiguous. P1 anchors the
-        // entry through that octree load; P2 drops the leading `mov rax,rsp` (walk back 3); P3 anchors on
-        // the octree-load body and walks back 0x10 to the entry. The `sub rsp` frame allocation and the
+        // Direct: the match IS the callable function (no detour). The `mov rcx, [rcx+698h]` octree-root load
+        // (C3DEngine::m_pObjectsTree) is not unique on its own: the same encoding appears 21 times in 1.5.6, in
+        // other C3DEngine methods and in the octree callers. What makes the entry unambiguous is the whole run: the
+        // `mov rax, rsp` frame save, the octree load, then `mov rsi, r8` / `mov r8, rdx` and the zeroed stack slot.
+        // P1 anchors the entry through that octree load; P2 drops the leading `mov rax,rsp` (walk back 3); P3 anchors
+        // on the octree-load body and walks back 0x10 to the entry. The `sub rsp` frame allocation and the
         // frame-relative stack-slot displacements (mov/lea [rax-disp8]) are wildcarded for frame-size
         // resilience; the +698h octree-root displacement is the semantic landmark and stays literal. All
         // three verified to match exactly once over the full WHGame.dll image.
@@ -937,7 +938,8 @@ namespace TPVCamera
         // Direct entry hook. P1 is the null-element test and the pushes through `mov rax, [r8]; mov rdi, r9` (the
         // item's shader and the render object). P2 drops the test and walks back 9. P3 is the engine's own invalidation
         // of a persistent object whose item is not ready (`cmp dword [r8+14h], -1`, the persistent flag at +0x26, the
-        // node at +0x30, its temp data at +0x30 and the +0xF8 stamp), walking back 0x3E.
+        // node at +0x30, its temp data at +0x30 and the +0xF8 stamp), walking back 0x3E: the sequence the mod repeats
+        // for a swapped tree.
         inline const Candidate k_addRenderObjectCandidates[] = {
             Candidate::direct("AddRenderObject_P1_Prologue",
                               Pattern::literal("48 85 D2 0F 84 ?? ?? ?? ?? 55 53 56 57 41 54 41 56 41 57 48 8B EC 48 "
@@ -988,6 +990,176 @@ namespace TPVCamera
                               Pattern::literal("F0 FF 43 5C 48 8B 45 C8 48 8D 55 D8 48 89 45 E8 48 8B 45 30 48 89 45 "
                                                "F0 89 75 F8"),
                               -0x4F),
+        };
+
+        // CBaseResource::GetResource entry (sub_1806A11C8; GOG 0x1806C66C8, Game Pass 0x18066F928), called, not
+        // hooked: the cache-only recovery of engine-owned shaders. It locks the global resource registry, finds an
+        // existing name and optionally AddRefs it while locked, and never creates a shader. Its arguments are &class
+        // CRC, &(length, capacity, char*) string view and bool addRef. The result is the CBaseResource subobject
+        // (CShader + 8). P1 is the prologue through the lock, the class lookup and its result test. P2 is the lock and
+        // the class lookup through the name copy (`mov rdx, [rbp+10h]`, the view's text), walking back 0x1A.
+        inline const Candidate k_resourceLookupCandidates[] = {
+            Candidate::direct("ResourceLookup_P1_LockedNameLookup",
+                              Pattern::literal("48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 30 48 8B "
+                                               "D9 41 8A F0 48 8D 0D ?? ?? ?? ?? 48 8B EA FF 15 ?? ?? ?? ?? 48 8B "
+                                               "CB E8 ?? ?? ?? ?? 33 DB 48 8B F8 48 85 C0")),
+            Candidate::direct("ResourceLookup_P2_LockThroughNameCopy",
+                              Pattern::literal("48 8D 0D ?? ?? ?? ?? 48 8B EA FF 15 ?? ?? ?? ?? 48 8B CB E8 ?? ?? ?? "
+                                               "?? 33 DB 48 8B F8 48 85 C0 74 ?? 48 8B 55 10 48 8D 4C 24 ?? 89 5C 24 "
+                                               "?? E8"),
+                              -0x1A),
+        };
+        // The resource registry's SRWLOCK (stru_185575908; GOG 0x18555D358, Game Pass 0x185634BD8), taken by lookup,
+        // registration and removal. A snapshot caller acquires it once and must release it before it calls
+        // ResourceLookup, because a shared SRW acquisition is not recursive. RipRelative on the `lea rcx` that passes
+        // it to AcquireSRWLockShared/Exclusive: P1 in GetResource, before the class lookup and its result test. P2 in
+        // CBaseResource's unregister (sub_1807ABD28), after its virtual guard call (`call [rax+28h]; test al, al;
+        // jz`) and before the lookup of its own class CRC at +0x5C.
+        inline const Candidate k_resourceLockCandidates[] = {
+            Candidate::rip_relative("ResourceLock_P1_NameLookup",
+                                    Pattern::literal("48 8D 0D ?? ?? ?? ?? 48 8B EA FF 15 ?? ?? ?? ?? 48 8B CB E8 ?? "
+                                                     "?? ?? ?? 33 DB 48 8B F8 48 85 C0 74 3E 48 8B 55 10"),
+                                    3, 7),
+            Candidate::rip_relative("ResourceLock_P2_Unregister",
+                                    Pattern::literal("48 8B D9 FF 50 28 84 C0 0F 84 ?? ?? ?? ?? | 48 8D 0D ?? ?? ?? ?? "
+                                                     "FF 15 ?? ?? ?? ?? 48 8D 4B 5C E8 ?? ?? ?? ?? 48 8B F8 48 85 C0"),
+                                    3, 7),
+        };
+        // CShader::s_pContainer (qword_1850DC310; GOG 0x1850C41D0, Game Pass 0x1851978E8), the shader class's resource
+        // container, filled during shader-manager initialization. RipRelative: P1 is the packed-item decoder, which
+        // reads container->begin[shaderId - 1], where the id occupies bits 21..31, then adjusts CBaseResource by -8.
+        // P2 is its one store, in the shader manager's initialization (sub_180DA002C): the container a call returns,
+        // stored right after a `cmp dword [rip+x], 0`, then the three render-state globals that follow it (= 1, = 0,
+        // byte = 1).
+        inline const Candidate k_shaderResourceContainerCandidates[] = {
+            Candidate::rip_relative("ShaderResourceContainer_P1_PackedItem",
+                                    Pattern::literal("48 8B 05 ?? ?? ?? ?? 44 8B DA 44 8B D1 49 C1 EA 15 4C 8B 08 4B "
+                                                     "8B 44 D1 F8 4C 8D 48 F8 48 F7 D8 48 1B C0 83 CA FF"),
+                                    3, 7),
+            Candidate::rip_relative("ShaderResourceContainer_P2_InitStore",
+                                    Pattern::literal("E8 ?? ?? ?? ?? 48 8B C8 E8 ?? ?? ?? ?? 83 3D ?? ?? ?? ?? 00 | 48 "
+                                                     "89 05 ?? ?? ?? ?? 74 ?? 48 8B 0D ?? ?? ?? ?? 48 8D 15 ?? ?? ?? "
+                                                     "?? C7 05 ?? ?? ?? ?? 01 00 00 00 C7 05 ?? ?? ?? ?? 00 00 00 00 "
+                                                     "C6 05 ?? ?? ?? ?? 01"),
+                                    3, 7),
+        };
+
+        // The level inventory's anchors (hooks/twin_inventory.cpp, optional: a miss keeps the capture-only twins).
+        // The global that holds the CObjManager (qword_185496FB0; GOG 0x18547F0D0, Game Pass 0x185555660), where the
+        // vegetation groups are indexed: `movsxd [reg+78h]` (the node's group id), `imul reg, reg, 1A0h` (the group
+        // stride) and `mov reg, [objman+10h]` (the group vector), so a change of either literal fails the anchor.
+        // RipRelative on the load of the global. P1 is CVegetation::GetEntityStatObj (sub_1804323B4; the load at
+        // 0x1804323CD, GOG 0x180431BDD, Game Pass 0x18046031D). P2 is the leaf above it that returns a node's statobj
+        // (sub_18043237C: the group's +0x188 override, else its +0x00 entry), where the stride comes first.
+        inline const Candidate k_vegetationGroupsCandidates[] = {
+            Candidate::rip_relative("VegetationGroups_P1_GetEntityStatObj",
+                                    Pattern::literal("48 63 47 78 | 48 8B 0D ?? ?? ?? ?? 48 8B 5C 24 ?? 48 69 D0 A0 01 "
+                                                     "00 00 48 8B 41 10 48 8B 04 02"),
+                                    3, 7),
+            Candidate::rip_relative("VegetationGroups_P2_StatObjLeaf",
+                                    Pattern::literal("48 63 41 78 48 69 C8 A0 01 00 00 | 48 8B 05 ?? ?? ?? ?? 48 8B 50 "
+                                                     "10 48 8B 84 11 88 01 00 00"),
+                                    3, 7),
+        };
+        // Proof only, never read through: the level-load timeslicer's terrain step (sub_1809B279C) passes
+        // C3DEngine+0x28 and +0x20 to the terrain loader as the out-pointers of the brush material and level statobj
+        // tables (`lea r9, [rbx+28h]; ... lea r8, [rbx+20h]; mov rcx, rbx; call`), which pins
+        // Constants::C3DENGINE_LEVEL_STATOBJS_OFFSET and C3DENGINE_LEVEL_MATERIALS_OFFSET. Both rungs resolve the
+        // `lea r9` (0x1809B3074; GOG 0x1809D7A94, Game Pass 0x180912554). P1 runs through the call, the result test and
+        // the next step's string. P2 leads in from the step's path load and the CryPak call through its vtable +0x170
+        // with the C3DEngine load (`mov rbx, [r14]`), then allows a few bytes between the two out-pointer leas.
+        inline const Candidate k_levelBrushTablesCandidates[] = {
+            Candidate::direct("LevelBrushTables_P1_TerrainLoad",
+                              Pattern::literal("4C 8D 4B 28 48 8B D0 4C 8D 43 20 48 8B CB E8 ?? ?? ?? ?? 84 C0 75 ?? "
+                                               "48 8D 15")),
+            Candidate::direct("LevelBrushTables_P2_PakLeadIn",
+                              Pattern::literal("4C 8D 05 ?? ?? ?? ?? 48 8D 54 24 ?? 48 8B 01 FF 90 70 01 00 00 49 8B "
+                                               "1E [8-16] E8 ?? ?? ?? ?? | 4C 8D 4B 28 [0-4] 4C 8D 43 20 [0-4] E8")),
+        };
+
+        // Loading-only shader preparation: fail-closed entry anchors, with no gameplay-creation fallback.
+        // CSystem::SetSystemGlobalState(this, int state) (sub_1809B315C; GOG 0x1809D7B7C, Game Pass 0x18091263C), a
+        // direct entry hook. States 1..9 cover level preparation, and the closure runs before the transition out of
+        // that range is forwarded, on the engine main thread the detour checks. P1 is the prologue through the TLS
+        // epoch read of a thread-safe static guard. P2 is that guard's epoch compare, the compare against the current
+        // state (`cmp ebx, [rdi+2AE0h]`) and the timer read for the transition log (gEnv->pTimer, `call [rax+30h]`),
+        // walking back 0x2B.
+        inline const Candidate k_setSystemGlobalStateCandidates[] = {
+            Candidate::direct("SetSystemGlobalState_P1_StateTls",
+                              Pattern::literal("48 89 5C 24 10 57 48 83 EC 40 44 8B 05 ?? ?? ?? ?? 48 8B F9 65 48 "
+                                               "8B 04 25 58 00 00 00 8B DA B9 18 00 00 00 4A 8B 04 C0 8B 04 01")),
+            Candidate::direct("SetSystemGlobalState_P2_CurrentStateCompare",
+                              Pattern::literal("39 05 ?? ?? ?? ?? 0F 8F ?? ?? ?? ?? 3B 9F E0 2A 00 00 0F 84 ?? ?? ?? "
+                                               "?? 48 8B 0D ?? ?? ?? ?? 48 85 C9 0F 84 ?? ?? ?? ?? 48 8B 01 48 8D 54 "
+                                               "24 ?? FF 50 30"),
+                              -0x2B),
+        };
+        // SaveGameManager::LoadCryEngineData(this, chunk, save path) (sub_1825BD8D8; GOG 0x1825AE2A8, Game Pass
+        // 0x182656BD4), returns bool. A direct entry hook whose scope also covers same-level reloads, which need not
+        // revisit states 1..9. P1 is the prologue and the argument moves. P2 is the string release (`add rcx, -0Ch`),
+        // the load of the manager's +0x178 member and the loading flag store (`mov byte [rsi+190h], 1`), walking back
+        // 0x2E.
+        inline const Candidate k_saveGameLoadCandidates[] = {
+            Candidate::direct("SaveGameLoad_P1_Args",
+                              Pattern::literal("48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 20 48 8B DA 48 8B F1 48 "
+                                               "8D 15 ?? ?? ?? ?? 49 8B F8 48 8D 4C 24 30")),
+            Candidate::direct("SaveGameLoad_P2_LoadingFlag",
+                              Pattern::literal("48 C7 44 24 ?? 00 00 00 00 48 8D 4C 24 ?? E8 ?? ?? ?? ?? 48 8B 4C 24 "
+                                               "?? 48 83 C1 F4 E8 ?? ?? ?? ?? 48 8B 8E 78 01 00 00 48 8B D3 C6 86 90 "
+                                               "01 00 00 01 E8"),
+                              -0x2E),
+        };
+        // CMatMan::LoadCGFMaterial(this, name, asset path, flags) (sub_1806BA7A0; GOG 0x1806DFCB0, Game Pass
+        // 0x180931CD0), returns IMaterial*. A direct entry hook: the asset context is scoped around the original call
+        // and does not authorize unsynchronized traversal of cached materials. P1 is the prologue through the stack
+        // cookie. P2 is the argument moves, the path copy and the search for a '/' in it (`mov edx, 2Fh; call
+        // [strchr]`), walking back 0x27.
+        inline const Candidate k_loadCGFMaterialCandidates[] = {
+            Candidate::direct("LoadCGFMaterial_P1_Frame",
+                              Pattern::literal("40 55 53 56 57 41 56 48 8D AC 24 70 FE FF FF 48 81 EC 90 02 00 00 "
+                                               "48 8B 05 ?? ?? ?? ?? 48 33 C4")),
+            Candidate::direct("LoadCGFMaterial_P2_PathSplit",
+                              Pattern::literal("48 8B D9 45 8B F1 48 8D 4C 24 ?? 49 8B F0 48 8B FA E8 ?? ?? ?? ?? 48 "
+                                               "8B 4C 24 ?? 48 85 C9 0F 84 ?? ?? ?? ?? BA 2F 00 00 00 FF 15"),
+                              -0x27),
+        };
+        // The static LoadMaterialShader(material, parent, name, mask, input resources, XML ref) (sub_1807E8B40; GOG
+        // 0x18080DCD0, Game Pass 0x18086123C), returns bool. A direct entry hook: the detour captures the assigned
+        // shader item after the engine returns, retaining both engine objects. P1 is the prologue through the stack
+        // cookie and the argument moves (the prologue alone also opens two unrelated Game Pass functions). P2 is the
+        // argument moves through the material's virtual call (`call [rax+50h]`) and the store of its result to the
+        // input resources' +0x30, walking back 0x1F. P3 is that store, the XML-ref test and copy into the input
+        // resources, and the name tests (`test rdi, rdi`, `cmp byte [rdi], 0`), walking back 0x41.
+        inline const Candidate k_loadMaterialShaderCandidates[] = {
+            Candidate::direct("LoadMaterialShader_P1_FrameArgs",
+                              Pattern::literal("40 53 55 56 57 41 56 41 57 48 81 EC 88 00 00 00 48 8B 05 ?? ?? ?? ?? "
+                                               "48 33 C4 48 89 44 24 78 48 8B 01 4D 8B F9 4C 8B B4 24 ?? ?? ?? ?? 49 "
+                                               "8B F8")),
+            Candidate::direct("LoadMaterialShader_P2_ArgsThroughVirtualStore",
+                              Pattern::literal("48 8B 01 4D 8B F9 4C 8B B4 24 ?? ?? ?? ?? 49 8B F8 48 8B AC 24 ?? ?? "
+                                               "?? ?? 48 8B F2 48 8B D9 FF 50 50 41 89 46 30"),
+                              -0x1F),
+            Candidate::direct("LoadMaterialShader_P3_NameTests",
+                              Pattern::literal("41 89 46 30 48 83 7D 00 00 74 ?? 48 8B D5 48 8D 4C 24 ?? E8 ?? ?? ?? "
+                                               "?? 48 8B D0 49 8B CE E8 ?? ?? ?? ?? 48 85 FF 0F 84 ?? ?? ?? ?? 80 3F "
+                                               "00 0F 84"),
+                              -0x41),
+        };
+        // CD3D9Renderer::FlushRTCommands(this, wait, immediate, force) (sub_18052FB9C; GOG 0x18054F4EC, Game Pass
+        // 0x1803CC0EC), returns bool, renderer vtable slot 105; called, not hooked. On the main thread,
+        // (true, true, true) reaches the double-buffer wait that finishes queued CPU shader parsing. P1 is the
+        // prologue through the render thread load (`mov rbx, [rcx+0F8h]`) and the argument moves. P2 starts at that
+        // load and runs through the test of whether the caller is one of the render thread's own threads, walking back
+        // 0x19.
+        inline const Candidate k_flushRTCommandsCandidates[] = {
+            Candidate::direct("FlushRTCommands_P1_RenderThreadArgs",
+                              Pattern::literal("48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 "
+                                               "83 EC 20 48 8B 99 F8 00 00 00 41 8A F1 41 8A E8 44 8A F2 48 8B "
+                                               "F9 48 85 DB")),
+            Candidate::direct("FlushRTCommands_P2_RenderThreadTest",
+                              Pattern::literal("48 8B 99 F8 00 00 00 41 8A F1 41 8A E8 44 8A F2 48 8B F9 48 85 DB 74 "
+                                               "?? 48 8B CB E8 ?? ?? ?? ?? 84 C0 75 ?? 40 84 F6"),
+                              -0x19),
         };
 
         // CCryPak::AdjustFileName (sub_180461DFC; GOG 0x18046161C), the validator of the CCryPak vtable slot the user
@@ -1068,6 +1240,55 @@ namespace TPVCamera
                               -0x3E),
         };
 
+        // Optional character optimization: build only the character twin's forward stage. CreatePipelineStates calls
+        // the forward builder at 0x18071DBD6 (sub_18071D4FC: stage = pipeline+0x48, output = PSOs+0x50, technique
+        // int16 at desc+0x30 = -1; GOG 0x18074302E, Game Pass 0x1806E49A2). Both rungs resolve that call: P1 is the
+        // technique store and the argument moves into it, then the result's AND into the success flag and the test of
+        // the pipeline's +0x50. P2 keeps the technique store and the stage load, lets the other argument moves vary
+        // around them, and runs through the +0x50 test into the `cmp [rdi+18F0h], r14d` after it. The consumer
+        // decodes the callee and requires the call to lie inside the resolved CreatePsos function. A miss keeps the
+        // full paired build.
+        inline const Candidate k_characterForwardPsosCandidates[] = {
+            Candidate::direct("CharacterForwardPsos_P1_StageAndArguments",
+                              Pattern::literal("66 C7 46 30 FF FF 49 8D 55 50 48 8B 4F 48 4C 8B CB 4C 8B C6 E8 ?? "
+                                               "?? ?? ?? 44 22 E0 4C 39 77 50"),
+                              20),
+            Candidate::direct("CharacterForwardPsos_P2_StageThroughChecks",
+                              Pattern::literal("66 C7 46 30 FF FF [4-16] 48 8B 4F 48 [3-8] | E8 ?? ?? ?? ?? 44 22 E0 "
+                                               "4C 39 77 50 0F 84 ?? ?? ?? ?? 44 39 B7 F0 18 00 00")),
+        };
+
+        // Optional plant optimization: build only the twin passes a plant item draws. Steam 1.5.6 CreatePipelineStates
+        // calls the depth-prepass builder at 0x18071DAD8 (sub_181070880: stage = pipeline+0x38, technique int16 at
+        // desc+0x30 = 8, output = PSOs+0x00) after its local-cache miss, and the G-buffer pass builder at 0x18071DB64
+        // (sub_180F18784: stage = pipeline+0x40, desc+0x30 = 0, pass in r8b, output = PSOs+0x28 for pass 0; passes 2
+        // and 1 follow into +0x38 and +0x30). Each rung matched once in Steam 1.5.6 (0x18071DAD8, 0x18071DB64), GOG 1.5
+        // (0x180742F30, 0x180742FBC) and Game Pass 1.4 (0x1806E48A4, 0x1806E4930), inside CreatePipelineStates.
+        // Resolve the call, validate its callee and require it to belong to the resolved CreatePsos function. A miss
+        // keeps the full paired plant build; no fixed-address fallback or additional hook.
+        inline const Candidate k_plantPrepassPsosCandidates[] = {
+            Candidate::direct("PlantPrepassPsos_P1_TechniqueStageCall",
+                              Pattern::literal("66 41 C7 40 30 08 00 48 8B D6 4C 8B 61 38 4D 8B C5 48 8B CB E8 ?? ?? "
+                                               "?? ?? 45 33 F6 84 C0 74 05 45 8A E7 EB 23 4D 8B C5 48 8B D6 49 8B CC "
+                                               "E8 ?? ?? ?? ?? 44 8A E0"),
+                              46),
+            Candidate::direct("PlantPrepassPsos_P2_MissCall",
+                              Pattern::literal("84 C0 74 05 45 8A E7 EB ?? 4D 8B C5 48 8B D6 49 8B CC E8 ?? ?? ?? ?? "
+                                               "44 8A E0 84 C0"),
+                              18),
+        };
+        inline const Candidate k_plantGBufferPsosCandidates[] = {
+            Candidate::direct("PlantGBufferPsos_P1_TechniqueStagePass0",
+                              Pattern::literal("66 44 89 76 30 4D 8D 45 28 48 8B 47 40 48 8B D6 48 8B CB 48 89 44 24 "
+                                               "30 E8 ?? ?? ?? ?? 84 C0 74 05 41 8A C7 EB ?? 48 8B 4C 24 30 4D 8D 4D "
+                                               "28 45 33 C0 48 8B D6 E8"),
+                              53),
+            Candidate::direct("PlantGBufferPsos_P2_Pass0Then2",
+                              Pattern::literal("4D 8D 4D 28 45 33 C0 48 8B D6 E8 ?? ?? ?? ?? 48 8B 4C 24 30 4D 8D 4D "
+                                               "38 41 B0 02 48 8B D6"),
+                              10),
+        };
+
         // The RT-mask bit of the dissolve (qword_1850D9538, 0x10 live; GOG 0x1850C42A8, Game Pass 0x18519A628), a
         // global the renderer fills at startup. Rip-relative on the `or` that reads it after the FOB_DISSOLVE bit test
         // (`bt reg, 1Ch; jnb`). P1 is AddRenderObject's RT-mask build, where the next test is bit 0x32 (0x1804A52C5).
@@ -1087,6 +1308,236 @@ namespace TPVCamera
                                                      "00 00 00 02 00 00 00"),
                                     3, 7),
         };
+
+        // CObjManager::AddOrCreatePersistentRenderObject entry (the occluder fade writes the CLodValue dissolve byte)
+        // Direct entry hook. P1 is the prologue through the CVars load and the shadow-pass test on the pass info
+        // (matched 1.5.3, 1.5.5 and 1.5.6). P2 is the "dissolve managed" / "dissolve changed" flag ORs followed by the
+        // dissolve byte compare (entry + 0x1F5). P3 is the FOB_DISSOLVE bit set followed by the LodA sign test that
+        // picks FOB_DISSOLVE_OUT (entry + 0x24B). Each matched once over the 1.5.6 image.
+        inline const Candidate k_addOrCreateRenderObjectCandidates[] = {
+            Candidate::direct("AddOrCreateRO_P1_PrologueShadowTest",
+                              Pattern::literal("4C 89 44 24 18 56 57 41 54 41 57 48 83 EC 28 4C 8B 7C 24 78 49 8B F1 "
+                                               "48 8B 05 ?? ?? ?? ?? 48 8B FA 41 80 7F 02 00")),
+            Candidate::direct("AddOrCreateRO_P2_DissolveFlagsCompare",
+                              Pattern::literal("48 8B 13 48 B8 00 00 00 00 00 04 00 00 48 0B D0 49 B8 00 00 00 00 00 "
+                                               "02 00 00 48 89 13 0F B6 4E 04 38 4B 20"),
+                              -0x1F5),
+            Candidate::direct("AddOrCreateRO_P3_DissolveBitLodSign",
+                              Pattern::literal("48 0F BA EA 1C 48 89 13 0F B7 06 66 F7 D0 0F B7 C8 48 C1 E9 0F"),
+                              -0x24B),
+        };
+
+        // The tree see-through's window anchors (hooks/shader_twins.cpp). Each rung below matched exactly once in the
+        // executable sections of Steam 1.5.6, GOG 1.5 and Game Pass 1.4, at the same function on each.
+
+        // GeneratePerViewConstantBuffer entry (sub_180653940; GOG 0x180678F60)
+        // Not hooked: the function the upload mid hook must sit in, and whose entry must keep the pipeline in r13
+        // (keeps_pipeline_in_r13()). P1 is the prologue through the frame lea. P2 is the argument moves
+        // (`mov rsi, r9`, `mov r14, rdx`, `mov r13, rcx`), the test of the buffer reference and the pipeline's current
+        // view (`mov r15, [rcx+1978h]`), walking back 0x80. P3 is `movsxd r12, r8d; imul r8, r12, 470h`, the per-view
+        // stride, walking back 0xBE.
+        inline const Candidate k_perViewConstantsCandidates[] = {
+            Candidate::direct(
+                "PerViewConstants_P1_Prologue",
+                Pattern::literal("40 55 53 56 57 41 54 41 55 41 56 41 57 48 81 EC 68 03 00 00 48 8D 6C 24 50")),
+            Candidate::direct(
+                "PerViewConstants_P2_ArgsBody",
+                Pattern::literal("49 8B F1 4C 89 8D ?? ?? ?? ?? 4C 8B F2 44 89 45 ?? 4C 8B E9 0F 84 ?? ?? ?? ?? 49 83 "
+                                 "39 00 0F 84 ?? ?? ?? ?? 4C 8B B9 78 19 00 00"),
+                -0x80),
+            Candidate::direct("PerViewConstants_P3_StrideBody",
+                              Pattern::literal("49 81 C7 ?? ?? ?? ?? 4D 63 E0 4D 69 C4 70 04 00 00 4C 89 65 ??"),
+                              -0xBE),
+        };
+
+        // The per-view upload call inside GeneratePerViewConstantBuffer (0x180654E32; GOG 0x18067A452)
+        // Mid hook on the `call` itself, at the `|`: the call's ABI puts the buffer in rcx, the data in rdx and the
+        // view count at [rsp+0x20], the function keeps its pipeline in r13, and every rung keeps `mov r8d, 470h`, the
+        // stride that makes it this upload. P1 is the count load and the argument moves into the call and the reload of
+        // the buffer reference after it. P2 is the restore of the data and reference pointers after the view loop. P3
+        // is the stride through the call and the release of the reference after it (`lock xadd [rcx+1Ch]`).
+        inline const Candidate k_perViewUploadCandidates[] = {
+            Candidate::direct("PerViewUpload_P1_ArgsThroughCall",
+                              Pattern::literal("8B 45 00 41 B8 70 04 00 00 48 8B 0E 48 8B D7 89 44 24 20 | E8 ?? ?? ?? "
+                                               "?? 48 8B 0E")),
+            Candidate::direct("PerViewUpload_P2_RestoreThroughCall",
+                              Pattern::literal("48 8B BD ?? ?? ?? ?? 48 8B B5 ?? ?? ?? ?? 8B 45 ?? 41 B8 70 04 00 00 "
+                                               "[6-10] 89 44 24 20 | E8")),
+            Candidate::direct("PerViewUpload_P3_StrideThroughRelease",
+                              Pattern::literal("41 B8 70 04 00 00 [6-10] 89 44 24 20 | E8 ?? ?? ?? ?? 48 8B 0E [2-6] "
+                                               "48 85 C9 [2-6] 83 C8 FF F0 0F C1 41 1C")),
+        };
+#if defined(TPVCAMERA_DEV_BUILD)
+        // The DEV-only HW shader factory anchors (hooks/shader_twins.cpp vertex reuse and hooks/twin_clone.cpp).
+        // CHWShader::mfForName entry (sub_1807E8740; GOG 0x18080D8D0, Game Pass 0x180860E3C), a direct entry hook. It
+        // owns one returned reference, which the parser transfers to the new pass. P1 is the prologue through the
+        // frame allocation. P2 is the stack-argument loads and register moves after the stack cookie, then the name
+        // tests (`test rcx, rcx`, `cmp byte [rcx], 0`), walking back 0x30.
+        inline const Candidate k_hardwareShaderForNameCandidates[] = {
+            Candidate::direct("HardwareShaderForName_P1_Frame",
+                              Pattern::literal("48 89 5C 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 30 FA "
+                                               "FF FF 48 81 EC D0 06 00 00")),
+            Candidate::direct("HardwareShaderForName_P2_ArgsNameTests",
+                              Pattern::literal("48 8B BD ?? ?? ?? ?? 4D 8B E9 4C 8B B5 ?? ?? ?? ?? 41 8B F0 4C 8B BD "
+                                               "?? ?? ?? ?? 48 8B D9 48 89 7C 24 ?? 48 89 54 24 ?? 48 85 C9 0F 84 ?? "
+                                               "?? ?? ?? 80 39 00 0F 84"),
+                              -0x30),
+        };
+        // The factory-exclusive SRWLOCK around lookup, construction and token-map replacement: the `lea rdx` that
+        // passes it to the scoped exclusive lock (0x1807E8880; GOG 0x18080DA10, Game Pass 0x180860F7C). The anchor
+        // keeps the instruction address, so the consumer decodes the lock and verifies that the site lies inside the
+        // factory. P1 is the lock and the GetResource call after it (`mov r8b, 1`, addRef). P2 lets the stack slots
+        // vary and runs through the lookup's result test into `mov ecx, 138h`, the CHWShader_D3D allocation.
+        inline const Candidate k_hardwareShaderLockSiteCandidates[] = {
+            Candidate::direct("HardwareShaderLockSite_P1_FactoryLookup",
+                              Pattern::literal("48 8D 15 ?? ?? ?? ?? 48 8D 4C 24 50 E8 ?? ?? ?? ?? 41 B0 01 48 8D "
+                                               "54 24 60 48 8D 4C 24 30 E8")),
+            Candidate::direct("HardwareShaderLockSite_P2_LookupThroughAlloc",
+                              Pattern::literal("48 8D 15 ?? ?? ?? ?? [4-12] E8 ?? ?? ?? ?? 41 B0 01 [8-16] E8 ?? ?? ?? "
+                                               "?? 48 8B F8 48 85 C0 0F 85 ?? ?? ?? ?? B9 38 01 00 00")),
+        };
+
+        // The DEV twin clone's layout proofs (hooks/twin_clone.cpp), never read through or hooked: its dry-run reads
+        // the SShaderTechnique, CShader, CBaseResource and CHWShader_D3D fields Constants describes only while all of
+        // them match, and every offset it reads lies on a store one of them pins. Each rung matched once in the
+        // executable sections of Steam 1.5.6, GOG 1.5 and Game Pass 1.4, with the same bytes on all three, and both
+        // rungs of a proof resolve the same instruction. P1 is the exact code. P2 keeps every proven displacement
+        // and immediate literal, but wildcards the ModRM bytes (so another register allocation still matches) and
+        // bounds the gaps over the calls and the stores that prove nothing. They prove layouts, not a build: the
+        // read-only dry-run runs wherever the layouts are proven, and a stage that writes to the engine needs its own
+        // decision on the builds it runs on.
+        // SShaderTechnique's constructor (sub_18088831C; the `|` at 0x180888359, GOG 0x1808AD0B9, Game Pass
+        // 0x1808C4D71): the stores of the six HW shader slots at +0x10..+0x38, then, from the `|`, the render elements
+        // and targets at +0x48..+0x60, +0x68, the flags 0x400000 at +0x40, the owner at +0x00 and the -1 pass index
+        // table at +0x7A and +0x82.
+        inline const Candidate k_techniqueLayoutCandidates[] = {
+            Candidate::direct("TechniqueLayout_P1_Constructor",
+                              Pattern::literal("48 89 69 10 33 C0 0F 11 41 18 ?? ?? ?? ?? ?? 0F 11 41 28 48 89 41 38 | "
+                                               "48 89 69 50 48 89 69 48 48 89 69 60 48 89 69 58 89 69 68 48 C7 41 40 "
+                                               "00 00 40 00 48 89 11 4C 89 71 7A 66 44 89 B1 82 00 00 00")),
+            Candidate::direct("TechniqueLayout_P2_AnyRegister",
+                              Pattern::literal("48 89 ?? 10 [2-12] 0F 11 ?? 18 [0-12] 0F 11 ?? 28 48 89 ?? 38 | 48 89 "
+                                               "?? 50 48 89 ?? 48 48 89 ?? 60 48 89 ?? 58 89 ?? 68 48 C7 ?? 40 00 00 "
+                                               "40 00 [3-8] 4C 89 ?? 7A 66 44 89 ?? 82 00 00 00")),
+        };
+        // CShader's creator (sub_180D9FD98): `mov ecx, 148h` into the engine allocator, the constructor, the reference
+        // `lock inc [rax+5Ch]`, the base resource at +8, the name at +0x88 (`mov esi, 88h`) and the id bound
+        // `cmp [rcx+60h], 800h` (0x180D9FDAC; GOG 0x180D9FFBC, Game Pass 0x18124CB78).
+        inline const Candidate k_shaderLayoutCandidates[] = {
+            Candidate::direct(
+                "ShaderLayout_P1_Create",
+                Pattern::literal("B9 48 01 00 00 49 8B F9 49 8B F0 48 8B DA E8 ?? ?? ?? ?? 48 85 C0 0F 84 "
+                                 "?? ?? ?? ?? 48 8B C8 E8 ?? ?? ?? ?? 48 89 03 48 85 C0 74 ?? F0 FF 40 5C "
+                                 "48 8B 0B 48 8D 54 24 ?? 8B 05 ?? ?? ?? ?? 48 83 C1 08 4C 8B C6 89 44 24 "
+                                 "?? E8 ?? ?? ?? ?? 48 83 7F 08 00 74 ?? 48 8B 0B BE 88 00 00 00 48 03 CE "
+                                 "48 8B D7 E8 ?? ?? ?? ?? 48 8B 0B 48 03 CE E8 ?? ?? ?? ?? 48 8B 0B 81 79 "
+                                 "60 00 08 00 00")),
+            Candidate::direct(
+                "ShaderLayout_P2_AnyRegister",
+                Pattern::literal("B9 48 01 00 00 [6-16] E8 ?? ?? ?? ?? 48 85 C0 0F 84 ?? ?? ?? ?? 48 8B C8 E8 ?? ?? "
+                                 "?? ?? 48 89 ?? 48 85 C0 74 ?? F0 FF 40 5C [8-40] 48 83 C1 08 [4-24] 48 83 ?? 08 00 "
+                                 "[2-8] B? 88 00 00 00 [6-40] 81 ?? 60 00 08 00 00")),
+        };
+        // CShader's constructor (sub_180D9FE44, from 0x180D9FE7E; GOG 0x180DA008E, Game Pass 0x18124CC4A): the
+        // CryStringT texts at +0x80 and +0x88, the qwords at +0x90 and +0x98, the byte +0xA0 = 1, the techniques'
+        // TArray at +0xA8/+0xB0, +0xB8 = -1, the dword at +0xBC, the qwords at +0xC0, +0xC8 and +0x128..+0x138, the
+        // dword at +0x140 and +0x144 = FLT_MAX. The gaps skip the calls, the memset of +0xD0..+0x11F and +0x120.
+        inline const Candidate k_shaderMembersCandidates[] = {
+            Candidate::direct(
+                "ShaderMembers_P1_Constructor",
+                Pattern::literal("48 83 C0 0C 48 89 87 80 00 00 00 E8 [19] 48 89 87 88 00 00 00 48 89 9F 90 00 00 00 "
+                                 "48 89 9F 98 00 00 00 [4] C6 87 A0 00 00 00 01 48 89 9F B0 00 00 00 48 89 9F A8 00 "
+                                 "00 00 C7 87 B8 00 00 00 FF FF FF FF 89 9F BC 00 00 00 48 89 9F C0 00 00 00 48 89 "
+                                 "9F C8 00 00 00 E8 [14] 48 89 9F 28 01 00 00 48 89 9F 30 01 00 00 48 89 9F 38 01 "
+                                 "00 00 89 9F 40 01 00 00 [5] C7 87 44 01 00 00 FF FF 7F 7F")),
+            Candidate::direct(
+                "ShaderMembers_P2_AnyRegister",
+                Pattern::literal("48 83 C0 0C 48 89 ?? 80 00 00 00 E8 [10-30] 48 89 ?? 88 00 00 00 48 89 ?? 90 00 00 "
+                                 "00 48 89 ?? 98 00 00 00 [0-8] C6 ?? A0 00 00 00 01 48 89 ?? B0 00 00 00 48 89 ?? A8 "
+                                 "00 00 00 C7 ?? B8 00 00 00 FF FF FF FF 89 ?? BC 00 00 00 48 89 ?? C0 00 00 00 48 89 "
+                                 "?? C8 00 00 00 E8 [10-40] 48 89 ?? 28 01 00 00 48 89 ?? 30 01 00 00 48 89 ?? 38 01 "
+                                 "00 00 89 ?? 40 01 00 00 [0-8] C7 ?? 44 01 00 00 FF FF 7F 7F")),
+        };
+        // RT_ParseShader's stores of the shader binary's two CRCs (sub_180883200, the call at 0x1808832C6; GOG
+        // 0x1808A8026, Game Pass 0x1808C5506): the header CRC to +0x138 and the second one to +0x134, each a dword.
+        // P2 leads in from the call's two lea arguments (+0x10 and +0x28 of the binary header) and lets each store's
+        // source and destination registers vary.
+        inline const Candidate k_shaderBinaryCrcsCandidates[] = {
+            Candidate::direct("ShaderBinaryCrcs_P1_ParseStores",
+                              Pattern::literal("E8 ?? ?? ?? ?? 41 8B 46 08 89 87 38 01 00 00 41 8B 46 0C 89 87 34 01 "
+                                               "00 00")),
+            Candidate::direct("ShaderBinaryCrcs_P2_AnyRegister",
+                              Pattern::literal("4D 8D ?? 10 [0-4] 4D 8D ?? 28 [2-6] | E8 ?? ?? ?? ?? [2-3] 08 [1-2] ?? "
+                                               "38 01 00 00 [2-3] 0C [1-2] ?? 34 01 00 00")),
+        };
+        // CBaseResource's constructor (sub_1807AC1D8, from 0x1807AC1E6; GOG 0x1807D1536, Game Pass 0x18072AD76):
+        // +0x58, the reference count +0x54 = 1, +0x60, the resource name (a CryStringT text) at +0x68 and the byte at
+        // +0x70. A CHWShader_D3D starts with it (its constructor calls this one on the object itself), so a pass's
+        // resource name is at +0x68.
+        inline const Candidate k_resourceNameCandidates[] = {
+            Candidate::direct("ResourceName_P1_Constructor",
+                              Pattern::literal("48 8D 05 ?? ?? ?? ?? 48 C7 43 58 00 00 00 00 48 89 03 C7 43 54 01 00 "
+                                               "00 00 C7 43 60 00 00 00 00 E8 ?? ?? ?? ?? 48 83 C0 0C 48 89 43 68 48 "
+                                               "8B C3 C6 43 70 00")),
+            Candidate::direct("ResourceName_P2_AnyRegister",
+                              Pattern::literal("48 8D 05 ?? ?? ?? ?? [0-8] 48 C7 ?? 58 00 00 00 00 [0-8] C7 ?? 54 01 "
+                                               "00 00 00 C7 ?? 60 00 00 00 00 E8 ?? ?? ?? ?? 48 83 C0 0C 48 89 ?? 68 "
+                                               "[0-8] C6 ?? 70 00")),
+        };
+        // CHWShader's constructor (sub_1807AB558, from 0x1807AB575; GOG 0x1807D08C5, Game Pass 0x18072A105): the
+        // CryStringT texts at +0x80 and +0x88, the token map's std::string at +0xD0 (empty: the size at +0xE0 = 0 and
+        // the capacity at +0xE8 = 15), +0xF0, +0xB8, +0xC0, +0xA0, +0x98, +0xA8, +0xB0, the byte at +0x78 and
+        // +0x90 = -1.
+        inline const Candidate k_hardwareShaderMembersCandidates[] = {
+            Candidate::direct(
+                "HardwareShaderMembers_P1_Constructor",
+                Pattern::literal("48 83 C0 0C 48 89 83 80 00 00 00 E8 [4] 48 83 C0 0C 0F 57 C0 48 89 83 88 00 00 00 "
+                                 "33 C0 0F 11 83 D0 00 00 00 48 89 83 E0 00 00 00 48 C7 83 E8 00 00 00 0F 00 00 00 "
+                                 "88 83 D0 00 00 00 48 89 83 F0 00 00 00 48 89 83 B8 00 00 00 48 89 83 C0 00 00 00 "
+                                 "48 89 83 A0 00 00 00 48 89 83 98 00 00 00 48 89 83 A8 00 00 00 48 89 83 B0 00 00 "
+                                 "00 88 43 78 48 8B C3 48 C7 83 90 00 00 00 FF FF FF FF")),
+            Candidate::direct(
+                "HardwareShaderMembers_P2_AnyRegister",
+                Pattern::literal("48 83 C0 0C 48 89 ?? 80 00 00 00 E8 ?? ?? ?? ?? 48 83 C0 0C [0-8] 48 89 ?? 88 00 00 "
+                                 "00 [2-8] 0F 11 ?? D0 00 00 00 48 89 ?? E0 00 00 00 48 C7 ?? E8 00 00 00 0F 00 00 00 "
+                                 "88 ?? D0 00 00 00 48 89 ?? F0 00 00 00 48 89 ?? B8 00 00 00 48 89 ?? C0 00 00 00 48 "
+                                 "89 ?? A0 00 00 00 48 89 ?? 98 00 00 00 48 89 ?? A8 00 00 00 48 89 ?? B0 00 00 00 88 "
+                                 "?? 78 [0-8] 48 C7 ?? 90 00 00 00 FF FF FF FF")),
+        };
+        // The HW shader factory's construction (sub_1807E8740, from 0x1807E88AF; GOG 0x18080DA3F, Game Pass
+        // 0x180860FAB): `mov ecx, 138h` into the allocator, the constructor, the name source to +0x80 and the entry to
+        // +0x88, then the binary CRC compare at +0xC4, the class byte to +0x78, the CRC to +0xC4 and the test of the
+        // cache object at +0xF0.
+        inline const Candidate k_hardwareShaderSetupCandidates[] = {
+            Candidate::direct(
+                "HardwareShaderSetup_P1_Construct",
+                Pattern::literal("B9 38 01 00 00 E8 [4] 48 85 C0 74 ?? 48 8B C8 E8 [4] 48 8B F8 EB ?? 33 FF 48 8B 54 "
+                                 "24 ?? 48 8D 8F 80 00 00 00 E8 [34] 48 8D 8F 88 00 00 00 49 8B D5 E8 [45] 39 B7 C4 "
+                                 "00 00 00 75 ?? 83 3D ?? ?? ?? ?? 00 0F 84 ?? ?? ?? ?? 41 83 7E 08 00 0F 84 ?? ?? "
+                                 "?? ?? 4D 8B C6 49 8B D7 48 8B CF E8 ?? ?? ?? ?? E9 ?? ?? ?? ?? 48 8B CF E8 ?? ?? "
+                                 "?? ?? 44 88 67 78 89 B7 C4 00 00 00 48 83 BF F0 00 00 00 00")),
+            Candidate::direct(
+                "HardwareShaderSetup_P2_AnyRegister",
+                Pattern::literal("B9 38 01 00 00 E8 ?? ?? ?? ?? 48 85 C0 74 ?? 48 8B C8 E8 ?? ?? ?? ?? 48 8B ?? EB ?? "
+                                 "33 ?? [4-12] 48 8D ?? 80 00 00 00 E8 [20-60] 48 8D ?? 88 00 00 00 [3-8] E8 [30-80] "
+                                 "39 ?? C4 00 00 00 75 ?? [30-60] 88 ?? 78 89 ?? C4 00 00 00 48 83 ?? F0 00 00 00 00")),
+        };
+        // The factory's tail (0x1807E8A85; GOG 0x18080DC15, Game Pass 0x180861181): the cache object GetResource found
+        // to +0xF0, the type to +0xC8, the HW mask to +0xA0 and the FX mask to +0xA8.
+        inline const Candidate k_hardwareShaderCacheCandidates[] = {
+            Candidate::direct(
+                "HardwareShaderCache_P1_TailStores",
+                Pattern::literal("80 3D ?? ?? ?? ?? 00 48 89 B7 F0 00 00 00 74 ?? 48 8D 8F 10 01 00 00 49 8B D7 E8 ?? "
+                                 "?? ?? ?? 48 8D 8F 28 01 00 00 49 8B D6 E8 ?? ?? ?? ?? 8B 85 ?? ?? ?? ?? 48 8B CF 89 "
+                                 "87 C8 00 00 00 48 8B 44 24 ?? 48 89 87 A0 00 00 00 48 8B 85 ?? ?? ?? ?? 48 89 87 A8 "
+                                 "00 00 00")),
+            Candidate::direct(
+                "HardwareShaderCache_P2_AnyRegister",
+                Pattern::literal("80 3D ?? ?? ?? ?? 00 [0-4] 89 ?? F0 00 00 00 74 ?? 48 8D ?? 10 01 00 00 [3-6] E8 ?? "
+                                 "?? ?? ?? 48 8D ?? 28 01 00 00 [3-6] E8 ?? ?? ?? ?? [4-16] 89 ?? C8 00 00 00 [4-10] "
+                                 "89 ?? A0 00 00 00 [4-10] 89 ?? A8 00 00 00")),
+        };
+#endif
     } // namespace Aob
 
     /**
@@ -1097,7 +1548,12 @@ namespace TPVCamera
      *          are scalars decoded from game code, not addresses. AnimNameHashCall is a call site, and its consumer
      *          decodes the callee. The ranged ids are addresses, except GetPhysicsSlot, a scalar. ProxyRender is an
      *          address. The shader twin ids are addresses (DissolveRtBit a global), except the three CryPak slots,
-     *          scalars.
+     *          scalars. AddOrCreateRO is an address, and so are the window ids (PerViewUpload is a call site the mid
+     *          hook sits on). ResourceLookup is an address, ResourceLock and ShaderResourceContainer globals, and the
+     *          three PSO builder ids call sites. VegetationGroups is a global, and LevelBrushTables an instruction site
+     *          that only proves two member offsets. Of the DEV-only ids, HardwareShaderForName is an address and
+     *          HardwareShaderLockSite an instruction site its consumer decodes; the ids from TechniqueLayout to
+     *          HardwareShaderCache are instruction sites that only prove layouts.
      */
     enum class AnchorId : std::size_t
     {
@@ -1137,15 +1593,44 @@ namespace TPVCamera
         AuxSetFlags,          // CAuxGeomCB::SetRenderFlags (vtable-slot validator)
         AuxDrawLines,         // CAuxGeomCB::DrawLines (vtable-slot validator)
         ProxyRender,          // CRenderProxy::Render (the character fade's dissolve byte)
-        AddRenderObject,      // CRenderView::AddRenderObject (a character item swaps to its twin)
+        AddRenderObject,      // CRenderView::AddRenderObject (a character or tree item swaps to its twin)
         ShaderGenLoad,        // the shader .ext loader (a twin gets its stock shader's gen flags)
         ShaderForName,        // CShaderMan::mfForName (creates the twin instances; called, not hooked)
+        SetSystemGlobalState, // CSystem::SetSystemGlobalState (the twins of a level load are closed before it ends)
+        SaveGameLoad,         // SaveGameManager::LoadCryEngineData (the same close for a save load, same level too)
+        LoadCGFMaterial,      // CMatMan::LoadCGFMaterial (the asset path a material load runs under)
+        LoadMaterialShader,   // LoadMaterialShader (captures each loaded shader item a twin can be made for)
+        FlushRTCommands,      // CD3D9Renderer::FlushRTCommands (vtable-slot validator; the loading parse barrier)
         AdjustFileName,       // CCryPak::AdjustFileName (vtable-slot validator; the user shader directory)
         PakOpenSlot,          // ICryPak FOpen vtable byte offset (quorum of the two shader loaders)
         PakReadSlot,          // ICryPak FReadRaw vtable byte offset (quorum of the two shader loaders)
         PakCloseSlot,         // ICryPak FClose vtable byte offset (quorum of the two shader loaders)
-        CreatePsos,           // CreatePipelineStates (a character item keeps its stock PSOs until the twin's are built)
+        CreatePsos,           // CreatePipelineStates (a swapped item keeps its stock PSOs until the twin's are built)
         DissolveRtBit,        // the dissolve's RT-mask bit (the character twins' fading sets are built ahead with it)
+        AddOrCreateRO,        // CObjManager::AddOrCreatePersistentRenderObject (the occluder fade's dissolve byte)
+        PerViewConstants,     // GeneratePerViewConstantBuffer (holds the upload site; keeps the pipeline in r13)
+        PerViewUpload,        // its per-view upload call (the tree see-through writes the window rows; mid hook)
+
+        ResourceLookup,           // CBaseResource::GetResource (the twins' cache-only recovery after a DLL reload)
+        ResourceLock,             // the resource registry's SRWLOCK (a global)
+        ShaderResourceContainer,  // CShader::s_pContainer, the shader class's resource container (a global)
+        CharacterForwardPsosCall, // CreatePipelineStates' call of the forward-stage builder (a call site)
+        PlantPrepassPsosCall,     // CreatePipelineStates' call of the depth-prepass builder (a call site)
+        PlantGBufferPsosCall,     // CreatePipelineStates' call of the G-buffer pass builder (a call site)
+        VegetationGroups,         // the global that holds CObjManager (the level inventory's vegetation groups)
+        LevelBrushTables,         // proof of C3DEngine's level statobj and brush material table offsets (not read)
+#if defined(TPVCAMERA_DEV_BUILD)
+        HardwareShaderForName,  // CHWShader::mfForName (DEV vertex reuse and the twin clone's factory)
+        HardwareShaderLockSite, // the HW shader factory's SRWLOCK lea (an instruction site the consumer decodes)
+        TechniqueLayout,        // DEV twin clone: proof of SShaderTechnique's layout (an instruction site, not read)
+        ShaderLayout,           // DEV twin clone: proof of CShader's size and layout (an instruction site, not read)
+        ShaderMembers,          // DEV twin clone: proof of CShader's members (its constructor; not read)
+        ShaderBinaryCrcs,       // DEV twin clone: proof of CShader's two binary CRCs (the parse's stores; not read)
+        ResourceName,           // DEV twin clone: proof of CBaseResource's resource name (its constructor; not read)
+        HardwareShaderMembers,  // DEV twin clone: proof of CHWShader's members (its constructor; not read)
+        HardwareShaderSetup,    // DEV twin clone: proof of the factory's size, name source, entry, class and CRC stores
+        HardwareShaderCache,    // DEV twin clone: proof of the factory's cache object, type and mask stores
+#endif
         Count,
     };
 
@@ -1157,30 +1642,47 @@ namespace TPVCamera
      */
     enum class Feature : std::size_t
     {
-        Camera,              // Frustum: the third-person camera itself
-        GameState,           // Context: the camera-manager reads behind menu, combat and mount detection
-        Engine,              // Genv: the engine interfaces (crosshair ray, player look, collision, occlusion)
-        HeadVisibility,      // HeadVisibility: the player head from behind
-        Orbit,               // InputDispatch: free-look orbit
-        MoveIntent,          // ActionDispatch: device-agnostic movement intent for orbit move detection
-        Collision,           // Genv, RayWorldIntersection: camera collision
-        Interaction,         // InteractionRayBuild, InteractorLookRay: camera-space interaction
-        CrosshairCandidates, // InteractorCandidates: use candidates picked along the crosshair ray
-        CrosshairPrompt,     // SegmentBoxPoint, PromptSegmentReturn: the cross-centered use prompt at the crosshair
-        OverlayState,        // OverlayHide, OverlayShow: offset suppression under game UI
-        MenuState,           // MenuOpen, MenuClose: offset suppression under the in-game menu
-        Occlusion,           // Genv, GetObjectsInBox: render-only roof and canopy occlusion
-        NativeTurn,          // the IsThirdPerson call sites and slot, and the camera-changed event: native turning
-        TurnDecision,        // TurnInstalledState, with the function-scoped proofs: turns that finish on the look
-        TurnSteps,           // PhysEntMovement: turn steps kept in place
-        CrouchedAnimations,  // AnimIdByCrcSlot, AnimNameHashCall: the NPC crouched idle and turns for the player
-        RangedAim,           // FireProjectile, ProjectileLaunch, GetPhysicsSlot: shots re-aimed for the crosshair point
-        RangedTrail,         // ArrowCollision and the aux-geometry calls: the trail and aim preview (needs RangedAim)
-        CharacterFade,       // ProxyRender: the character dithers out when the camera is too close to it
-        ShaderTwins,         // Genv, the AddRenderObject, .ext, shader-loader and PSO anchors, the CryPak slots: the
-                             // character's eyes, hair and eye film fade with him
-        FadeWarmupRtBit,     // DissolveRtBit: the RT mask of the fading sets the character twins build ahead (needs
-                             // ShaderTwins; without it those sets carry the dissolve in their flags only)
+        Camera,               // Frustum: the third-person camera itself
+        GameState,            // Context: the camera-manager reads behind menu, combat and mount detection
+        Engine,               // Genv: the engine interfaces (crosshair ray, player look, collision, occlusion)
+        HeadVisibility,       // HeadVisibility: the player head from behind
+        Orbit,                // InputDispatch: free-look orbit
+        MoveIntent,           // ActionDispatch: device-agnostic movement intent for orbit move detection
+        Collision,            // Genv, RayWorldIntersection: camera collision
+        Interaction,          // InteractionRayBuild, InteractorLookRay: camera-space interaction
+        CrosshairCandidates,  // InteractorCandidates: use candidates picked along the crosshair ray
+        CrosshairPrompt,      // SegmentBoxPoint, PromptSegmentReturn: the cross-centered use prompt at the crosshair
+        OverlayState,         // OverlayHide, OverlayShow: offset suppression under game UI
+        MenuState,            // MenuOpen, MenuClose: offset suppression under the in-game menu
+        Occlusion,            // Genv, GetObjectsInBox: the render-octree scan the occluder fade uses
+        NativeTurn,           // the IsThirdPerson call sites and slot, and the camera-changed event: native turning
+        TurnDecision,         // TurnInstalledState, with the function-scoped proofs: turns that finish on the look
+        TurnSteps,            // PhysEntMovement: turn steps kept in place
+        CrouchedAnimations,   // AnimIdByCrcSlot, AnimNameHashCall: the NPC crouched idle and turns for the player
+        RangedAim,            // FireProjectile, ProjectileLaunch, GetPhysicsSlot: shots re-aimed at the crosshair point
+        RangedTrail,          // ArrowCollision and the aux-geometry calls: the trail and aim preview (needs RangedAim)
+        CharacterFade,        // ProxyRender: the character dithers out when the camera is too close to it
+        ShaderTwins,          // Genv, the AddRenderObject, .ext, shader-loader and PSO anchors, the CryPak slots: the
+                              // character's eyes, hair and eye film fade with him, and the plant twins
+        FadeWarmupRtBit,      // DissolveRtBit: the RT mask of the fading sets the character twins build ahead (needs
+                              // ShaderTwins; without it those sets carry the dissolve in their flags only)
+        OccluderFade,         // AddOrCreateRO: objects between the camera and the character dither out
+        TreeHoleWindow,       // PerViewConstants, PerViewUpload: the window rows the tree see-through reads (needs
+                              // ShaderTwins; when this one fails only the character's twins run)
+        ShaderTwinRecovery,   // ResourceLookup, ResourceLock, ShaderResourceContainer: the engine-owned twins are
+                              // found again after a logic-DLL reload (needs ShaderTwins)
+        CharacterForwardPsos, // CreatePsos, CharacterForwardPsosCall: the character twin builds only its forward stage
+                              // and reuses the unchanged stock stages (needs ShaderTwins)
+        PlantDrawnPsos,       // CreatePsos and the two plant builder calls: only the twin passes a plant or frame item
+                              // draws are built and waited for (needs ShaderTwins)
+        TwinInventory,        // Genv, VegetationGroups, LevelBrushTables: the level inventory at loading boundaries
+                              // (needs ShaderTwins; without it the twins come from captured materials only)
+#if defined(TPVCAMERA_DEV_BUILD)
+        VertexShaderReuse,    // HardwareShaderForName, HardwareShaderLockSite, ResourceLookup: a new pass reuses an
+                              // identical stock vertex program through the resource registry (needs ShaderTwins)
+        TwinCloneDryRun,      // the layout proofs (TechniqueLayout to HardwareShaderCache), the HW shader factory and
+                              // its lock, ResourceLookup: the twin clone's read-only dry-run (needs ShaderTwins)
+#endif
         Count,
     };
 
@@ -1281,6 +1783,25 @@ namespace TPVCamera
      * @note Setup/control-plane only: compiles the pattern at runtime.
      */
     [[nodiscard]] bool dispatches_camera_event(std::uintptr_t handle_event, std::uint8_t event_id);
+
+    /**
+     * @brief True when @p site lies inside the function that starts at @p entry, by the .pdata entry that holds
+     *        @p site (followed through chained unwind info to the function's entry fragment).
+     * @details Proves that a mid hook sits inside the function whose register use it relies on.
+     * @note Setup/control-plane only.
+     */
+    [[nodiscard]] bool site_in_function(std::uintptr_t site, std::uintptr_t entry) noexcept;
+
+    /**
+     * @brief True when GeneratePerViewConstantBuffer at @p per_view moves its pipeline (rcx) to r13 at its entry.
+     * @details Searches the function's entry fragment, which must begin at @p per_view, for `mov r13, rcx` followed
+     *          by the test of the buffer reference and the read of the pipeline's current view (`[rcx+1978h]`), the
+     *          shape PerViewConstants_P2 matches. The upload mid hook reads the pipeline from r13,
+     *          which nothing else in the function writes on Steam 1.5.6, GOG 1.5 or Game Pass 1.4; a build that kept
+     *          it elsewhere fails this proof, and the mid hook's own pipeline test fails closed on any other value.
+     * @note Setup/control-plane only: compiles the pattern at runtime.
+     */
+    [[nodiscard]] bool keeps_pipeline_in_r13(std::uintptr_t per_view);
 
     /**
      * @brief Returns the retained per-anchor resolution report (the startup table, then the function-scoped anchors
