@@ -25,8 +25,7 @@
 
 #include "camera_hook.hpp"
 #include "../rtti_types.hpp"
-#include "camera/collision_trace.hpp"
-#include "camera/ease.hpp"
+#include "camera/collision.hpp"
 #include "camera/see_through_driver.hpp"
 #include "aob_resolver.hpp"
 #include "character_attachments.hpp"
@@ -80,16 +79,6 @@ namespace TPVCamera
     // here, before the cull planes are computed, moves the rendered view AND its culling together.
     using FrustumBuildFunc = uintptr_t(__fastcall *)(uintptr_t camera);
 
-    // After a recompute met a surface the camera does not ease back out at all for this long (seconds, drained on every
-    // frame): a probe that grazes an edge and misses it the next frame, or an arm swung fast through clutter, keeps the
-    // camera in instead of letting it ease out and snap back in.
-    constexpr float k_collision_hold_seconds = 0.3f;
-
-    // The least gap kept between the camera and a surface (meters): the game's own near clip distance. A pull-in that
-    // lags its target never puts the lens on or past the surface that stopped it, and the lens near plane (see
-    // k_lens_near_max) is held this far short of the ground or a building.
-    constexpr float k_lens_near_margin = 0.05f;
-
     // The close-up fade: the band (meters of arm above HeadClearance) over which the character fades out. What it
     // carries fades with it, found by its attachment link (see s_character_nodes).
     constexpr float k_close_fade_band = 0.4f;
@@ -122,12 +111,9 @@ namespace TPVCamera
     constexpr float k_lens_near_max = 0.4f;
     constexpr float k_lens_near_character_margin = 0.35f;
     constexpr float k_lens_near_rate = 8.0f;
-    // The fade's sightline set is refreshed at most this often (seconds), or once the camera moved this far (meters).
-    constexpr float k_fade_sightline_period = 1.0f / 15.0f;
-    constexpr float k_fade_sightline_move = 0.3f;
-    // Set when the camera leaves third person: the next third-person frame drops the fade lists it kept, so nothing
-    // from before the gap is faded again. Main thread only (the camera detour).
-    static bool s_fade_cache_stale = false;
+    // The camera collision's and the occluder fade's carry-over between frames (see camera/collision.hpp). Main thread
+    // only (the camera detour).
+    static CollisionState s_collision{};
 
     // The render nodes of the character and of what it carries (what is bound to its attachments, a bow's nocked
     // arrow included), walked every third-person frame while CloseUpFade, UseOccluderFade or collision is on, and
@@ -162,7 +148,7 @@ namespace TPVCamera
      *        not cut: the ground, a structure (its physics or its drawn mesh), or anything that matches no scanned
      *        node.
      * @details Tested along lens_rays(). A prop, a frame or a plant met on a ray is walked past: cutting those at the
-     *          lens is the point. So is a structure's collision where it draws nothing (structure_drawn_on()). Main
+     *          lens is the point. So is a structure's collision where it draws nothing (classify_probe_hit()). Main
      *          thread only (uses the occluder scan).
      * @return The depth, or @p reach when nothing is that close.
      */
@@ -187,23 +173,15 @@ namespace TPVCamera
                     break;
                 }
                 const float along = walked + h->m_distance;
+                void *node = nullptr;
                 OccluderClass cls = OccluderClass::Structure;
-                void *node = (h->m_terrain == 0 && h->m_collider != 0) ? occluder_node_for_collider(h->m_collider, &cls)
-                                                                       : nullptr;
-                const Sightline at_hit{ray.from + unit * (along - Constants::COLLISION_DRAWN_REACH),
-                                       ray.from + unit * (along + Constants::COLLISION_DRAWN_REACH)};
-                if (node != nullptr && cls == OccluderClass::Structure &&
-                    !structure_drawn_on(QueryLedger::Tag::Lens, node, &at_hit, 1))
-                {
-                    walked = along + 0.02f;
-                    continue;
-                }
-                if (node == nullptr || cls == OccluderClass::Structure)
+                if (classify_probe_hit(QueryLedger::Tag::Lens, *h, along, std::span<const Vector3>(&ray.from, 1), unit,
+                                       &node, &cls) == ProbeVerdict::Stop)
                 {
                     nearest = std::min(nearest, along / dir_length);
                     break;
                 }
-                walked = along + 0.02f;
+                walked = along + 0.02f; // a prop, a frame, a plant, or a structure's collision that draws nothing
             }
         }
         const float drawn = structure_on_arm(QueryLedger::Tag::Lens, rays, 9, 1, nearest / reach, nullptr);
@@ -2071,22 +2049,7 @@ namespace TPVCamera
             apply_orbit_body_turn(body_target_yaw);
         }
 
-        // Camera collision and the occluder fade. The arm runs from the pivot (a safe point inside the player) to the
-        // computed camera position. Each object the arm meets is classed by its camera rule (see OccluderClass).
-        // Terrain, buildings and their wall, door and window pieces, walls, rocks, and anything that matches no scanned
-        // render node stop the camera: it pulls in at once to just short of the surface and eases back out once the
-        // obstruction clears, so the camera stays inside the room the player stands in. A prop (a fence, a cart, a
-        // lamp), a bush or a tree is stepped past instead when UseOccluderFade is on, and a prop dithers out, so the
-        // camera keeps its distance rather than jumping in front of each prop and back. RWI_OBJTYPES_CAMERA excludes
-        // living entities, so the player and NPCs never stop the camera. The follow distance is carried in
-        // collision_distance. With nothing in the way it follows the desired distance on the same frame, so a zoom
-        // stays on the view axis.
-        //
-        // The fade keeps the head, the chest and the hips visible: the props whose mesh crosses a sightline from the
-        // camera to those points fade, along with the ones the arm steps past. A tree, a bush or a grass patch never
-        // fades whole for hiding the character (the tree see-through opens a window in it instead); only a prop or a
-        // bush the camera is buried in fades, and it starts at once. A building corner that hides part of the character
-        // is left as it is.
+        // Camera collision and the occluder fade (see camera/collision.hpp).
         const bool fade_on = cfg.use_occluder_fade.load(std::memory_order_relaxed) && occluder_fade_available();
         const bool close_fade = cfg.close_up_fade.load(std::memory_order_relaxed) && character_fade_available();
         if (!step.repeat_build)
@@ -2104,595 +2067,26 @@ namespace TPVCamera
             set_occluder_player_nodes(std::span<const std::uintptr_t>(
                 s_character_nodes.nodes.data(), static_cast<std::size_t>(s_character_nodes.count + 1)));
         }
-        const Vector3 head_point = anchor_base;
-        const Vector3 hip_point =
-            body_valid ? anchor_origin + world_up * k_fade_hip_height : anchor_base - world_up * k_fade_hip_drop;
-        const Vector3 chest_point = (head_point + hip_point) * 0.5f;
-        // The render nodes faded this frame. Refreshed on every collision recompute and held in between, since the
-        // throttle below reuses the whole arm while nothing moved.
-        static std::array<FadeEntry, Constants::OCCLUDER_FADE_MAX_NODES> s_fade_nodes{};
-        static int s_fade_count = 0;
-        // How many of s_fade_nodes the arm walk put there (they come first); the sightline entries follow them.
-        static int s_arm_fade_count = 0;
-        const auto add_fade_node = [](void *node, char source, bool buried)
-        {
-            if (node == nullptr)
-            {
-                return;
-            }
-            for (int i = 0; i < s_fade_count; ++i)
-            {
-                FadeEntry &e = s_fade_nodes[static_cast<std::size_t>(i)];
-                if (e.node == node)
-                {
-                    e.buried = e.buried || buried;
-                    return;
-                }
-            }
-            if (s_fade_count < Constants::OCCLUDER_FADE_MAX_NODES)
-            {
-                s_fade_nodes[static_cast<std::size_t>(s_fade_count++)] = FadeEntry{node, source, buried};
-            }
+        const bool wall_class_changed = !step.repeat_build && advance_fence_classification();
+        const CollisionInput collision_input{
+            .pivot = pivot,
+            .desired = camera_position,
+            .world_up = world_up,
+            .head = anchor_base,
+            .hip = body_valid ? anchor_origin + world_up * k_fade_hip_height : anchor_base - world_up * k_fade_hip_drop,
+            .delta_time = delta_time,
+            .fade_on = fade_on,
+            .wall_class_changed = wall_class_changed,
+            .repeat_build = step.repeat_build,
         };
-        // The props on a sightline from the camera to the character, tested against their render meshes (a prop's
-        // cloth carries no physics), and the props and bushes the camera is buried in. The set is refreshed at most
-        // every k_fade_sightline_period, or as soon as the camera moved k_fade_sightline_move since the last refresh;
-        // in between the last set is reused, which the fade's hold bridges. The mesh test is the costly part of the
-        // camera frame, so this keeps it to a few runs a second.
-        static std::array<SightlineOccluder, Constants::OCCLUDER_FADE_MAX_NODES> s_sight_nodes{};
-        static int s_sight_count = 0;
-        static float s_sight_age = 1e9f;
-        static Vector3 s_sight_cam{};
+        camera_position = resolve_camera_collision(cam, s_collision, collision_input);
+
+        // Hand the fade set to the dissolve hook once per frame (the frame's second build changes nothing).
         if (!step.repeat_build)
         {
-            s_sight_age += delta_time;
-        }
-        const auto add_sightline_nodes = [&](const Vector3 &from)
-        {
-            if (s_sight_age >= k_fade_sightline_period ||
-                (from - s_sight_cam).magnitude_squared() > k_fade_sightline_move * k_fade_sightline_move)
-            {
-                s_sight_age = 0.0f;
-                s_sight_cam = from;
-                const Sightline lines[3] = {{from, head_point}, {from, chest_point}, {from, hip_point}};
-                // The props the arm found the camera inside already fade at once; their meshes are not read again.
-                std::array<void *, Constants::OCCLUDER_FADE_MAX_NODES> inside{};
-                std::size_t n_inside = 0;
-                for (int i = 0; i < s_fade_count; ++i)
-                {
-                    const FadeEntry &e = s_fade_nodes[static_cast<std::size_t>(i)];
-                    if (e.inside)
-                    {
-                        inside[n_inside++] = e.node;
-                    }
-                }
-                s_sight_count = occluders_on_sightlines(lines, 3, std::span<void *const>(inside.data(), n_inside),
-                                                        s_sight_nodes.data(), Constants::OCCLUDER_FADE_MAX_NODES);
-            }
-            for (int i = 0; i < s_sight_count; ++i)
-            {
-                const SightlineOccluder &o = s_sight_nodes[static_cast<std::size_t>(i)];
-                add_fade_node(o.node, 's', o.buried);
-            }
-        };
-        if (!fade_on || s_fade_cache_stale)
-        {
-            s_fade_count = 0;
-            s_arm_fade_count = 0;
-            s_sight_count = 0;
-            s_sight_age = 1e9f;
-            s_fade_cache_stale = false;
+            submit_fade_set(s_collision, delta_time);
         }
 
-        const bool wall_class_changed = !step.repeat_build && advance_fence_classification();
-        if (wall_class_changed)
-        {
-            s_sight_age = 1e9f;
-        }
-        if (cfg.enable_collision.load(std::memory_order_relaxed))
-        {
-            const Vector3 to_camera = camera_position - pivot;
-            const float desired_distance = to_camera.magnitude();
-            if (desired_distance > 1e-3f)
-            {
-                const Vector3 ray_dir = to_camera / desired_distance;
-
-                // The arm's result is reused while the pivot and the desired camera stay within
-                // k_collision_recompute_dist of where it was computed, for at most k_collision_max_age_ms of real time:
-                // a STATIC collider can still move (an animated door is one), so a camera held still recomputes too.
-                // Real time, not the game clock, so a result also expires across a pause or with collision off. A new
-                // fence class, a fade toggle or a lapsed hold recomputes at once.
-                constexpr float k_collision_recompute_dist = 0.06f;
-                constexpr std::uint64_t k_collision_max_age_ms = 100;
-                const float recompute_d2 = k_collision_recompute_dist * k_collision_recompute_dist;
-                const Vector3 throttle_cam = camera_position; // desired (pre-collision); the block overwrites it
-                static bool s_collision_throttle_valid = false;
-                static bool s_throttle_fade_on = false;
-                static Vector3 s_throttle_pivot{};
-                static Vector3 s_throttle_cam{};
-                static float s_cached_allowed = 0.0f;
-                static bool s_cached_held_in = false;
-                static std::uint64_t s_collision_stamp_ms = 0;
-                const std::uint64_t collision_now_ms = GetTickCount64();
-                const bool recompute = wall_class_changed || !s_collision_throttle_valid ||
-                                       fade_on != s_throttle_fade_on ||
-                                       collision_now_ms - s_collision_stamp_ms >= k_collision_max_age_ms ||
-                                       (pivot - s_throttle_pivot).magnitude_squared() > recompute_d2 ||
-                                       (throttle_cam - s_throttle_cam).magnitude_squared() > recompute_d2;
-                // CollisionSkin is the gap the camera keeps from whatever surface the probes found. A pull-in may lag
-                // its target by the skin less the lens margin.
-                const float skin = cfg.collision_skin.load(std::memory_order_relaxed);
-                const float pull_slack = std::max(0.0f, skin - k_lens_near_margin);
-                if (!recompute && cam.collision_valid)
-                {
-                    // Reuse last frame's allowed distance (the shared easing) and fade set, then skip the whole
-                    // walk / sphere / sightline computation below. A result that held nothing in stays the live
-                    // desired distance, so a zoom between recomputes is not held to the stale one.
-                    const float return_speed = cfg.collision_return_speed.load(std::memory_order_relaxed);
-                    note_collision_motion(
-                        ease_collision_toward(cam, s_cached_held_in ? s_cached_allowed : desired_distance,
-                                              desired_distance, delta_time, return_speed, pull_slack));
-                    camera_position = pivot + ray_dir * cam.collision_distance;
-                    // The hold drains here too; when it runs out the next frame recomputes, so the release starts.
-                    if (cam.collision_hold_timer > 0.0f)
-                    {
-                        cam.collision_hold_timer -= delta_time;
-                        if (cam.collision_hold_timer <= 0.0f)
-                        {
-                            s_collision_throttle_valid = false;
-                        }
-                    }
-                    // The camera still eases in or out between recomputes: once it has moved far enough, the
-                    // sightlines are cast again from where it is now, on top of what the arm walk found.
-                    if (fade_on && (camera_position - s_sight_cam).magnitude_squared() >
-                                       k_fade_sightline_move * k_fade_sightline_move)
-                    {
-                        s_fade_count = s_arm_fade_count;
-                        for (int i = 0; i < s_fade_count; ++i)
-                        {
-                            s_fade_nodes[static_cast<std::size_t>(i)].buried = false;
-                        }
-                        add_sightline_nodes(camera_position);
-                    }
-                    goto collision_done;
-                }
-
-                DMK_PROFILE_SCOPE("camera.collision_recompute");
-                // CollisionRadius is the probes' half-width (the fan's ray offset, the sphere's radius, the drawn-mesh
-                // arm's line offset).
-                const float collision_radius = cfg.collision_radius.load(std::memory_order_relaxed);
-                const Vector3 desired_cam = pivot + to_camera;
-                // One continuous basis across the arm (side level, lift = side x arm), the one the fan uses too, for
-                // the drawn-mesh arm's lines.
-                Vector3 arm_side = ray_dir.cross(world_up);
-                arm_side = (arm_side.magnitude() > 1e-3f) ? arm_side.normalized()
-                                                          : ray_dir.cross(Vector3{1.0f, 0.0f, 0.0f}).normalized();
-                const Vector3 arm_lift = arm_side.cross(ray_dir);
-                // The probes' five parallel lines: the arm's centre and four offsets by the radius, the fan's pattern.
-                const Vector3 arm_offsets[5] = {Vector3{}, arm_side * collision_radius, arm_side * -collision_radius,
-                                                arm_lift * collision_radius, arm_lift * -collision_radius};
-                s_fade_count = 0;
-                {
-                    // The visible brushes, trees and entities around the arm and the character, for the hit match
-                    // below, the drawn-mesh test of the arm and the sightline test. The scan is cached and re-queried
-                    // only when the arm leaves it.
-                    const Vector3 scan_points[4] = {pivot, desired_cam, head_point, hip_point};
-                    refresh_occluder_scan(scan_points, 4);
-                }
-
-                // Walk the arm with the RWI FAN (centre + 4 rays offset by the radius; RWI takes objtypes as a plain
-                // argument, so actors are provably excluded, and each hit carries its collider). A hit on a prop or a
-                // plant (matched to its render node through the collider's foreign link or, for baked level physics,
-                // its world box) is stepped past: its collider is skipped, a prop fades, and the fan is re-cast. The
-                // first hit that is terrain, a structure where it draws something, or matches no visible object is the
-                // collision.
-                // RayWorldIntersection does not always honour the skip list (a baked collider can come back on the
-                // re-cast), so a collider met twice is walked past from just beyond the hit instead.
-                uintptr_t stepped_past[Constants::COLLISION_FADE_SKIP_MAX];
-                int n_stepped = 0;
-                // The props the arm stepped past, their colliders, and how far along the arm each was entered.
-                void *arm_props[Constants::COLLISION_FADE_SKIP_MAX];
-                uintptr_t arm_prop_colliders[Constants::COLLISION_FADE_SKIP_MAX];
-                float arm_prop_entries[Constants::COLLISION_FADE_SKIP_MAX];
-                Vector3 arm_prop_points[Constants::COLLISION_FADE_SKIP_MAX]; // where the fan ray met each
-                int n_arm_props = 0;
-                float walk_from = 0.0f; // meters along the arm the fan starts from
-                int resumes = 0;
-                std::optional<RayHit> fan;
-                // What the walk met, for the trace below: up to k_walk_trace_max hits in order.
-                constexpr int k_walk_trace_max = 8;
-                WalkStep walk_trace[k_walk_trace_max];
-                int n_walk_trace = 0;
-                const auto note_step = [&](const RayHit &at, void *node, OccluderClass cls, char what)
-                {
-                    if (n_walk_trace < k_walk_trace_max)
-                    {
-                        walk_trace[n_walk_trace++] = WalkStep{at.m_collider, node, at.m_distance, cls, what};
-                    }
-                };
-                for (;;)
-                {
-                    std::optional<RayHit> h = ray_fan_sweep(
-                        QueryLedger::Tag::Fan, pivot + ray_dir * walk_from, ray_dir * (desired_distance - walk_from),
-                        collision_radius, Constants::RWI_OBJTYPES_CAMERA, Constants::RWI_FLAGS_STOP_AT_SOLID,
-                        stepped_past, n_stepped);
-                    if (h.has_value())
-                    {
-                        h->m_distance += walk_from;
-                    }
-                    if (!h.has_value() || h->m_distance >= desired_distance)
-                    {
-                        break; // open past here
-                    }
-                    const bool met_before = h->m_collider != 0 && std::find(stepped_past, stepped_past + n_stepped,
-                                                                            h->m_collider) != stepped_past + n_stepped;
-                    if (met_before)
-                    {
-                        if (++resumes > Constants::COLLISION_WALK_RESUME_MAX)
-                        {
-                            note_step(*h, nullptr, OccluderClass::Structure, 'x');
-                            fan = h; // cannot get past it: the collision
-                            break;
-                        }
-                        note_step(*h, nullptr, OccluderClass::Structure, 'r');
-                        walk_from = h->m_distance + Constants::COLLISION_WALK_RESUME_STEP;
-                        continue;
-                    }
-                    OccluderClass cls = OccluderClass::Structure;
-                    void *node = (h->m_terrain == 0 && h->m_collider != 0)
-                                     ? occluder_node_for_collider(h->m_collider, &cls)
-                                     : nullptr;
-                    // A man-made structure stops the camera only where it draws something: the five lines are tested
-                    // against its drawn mesh around the hit, and with none of it there the hit is on collision that
-                    // draws nothing (the canvas walls and roof of a tent model that draws only its frame), so the walk
-                    // resumes just past it. Anything drawn there that one of the lines meets, a beam, a rail or a
-                    // plank, keeps the collision.
-                    if (node != nullptr && cls == OccluderClass::Structure)
-                    {
-                        Sightline at_hit[5];
-                        for (int i = 0; i < 5; ++i)
-                        {
-                            const Vector3 at = pivot + arm_offsets[i] + ray_dir * h->m_distance;
-                            at_hit[i] = {at - ray_dir * Constants::COLLISION_DRAWN_REACH,
-                                         at + ray_dir * Constants::COLLISION_DRAWN_REACH};
-                        }
-                        if (!structure_drawn_on(QueryLedger::Tag::DrawnOn, node, at_hit, 5) &&
-                            ++resumes <= Constants::COLLISION_WALK_RESUME_MAX)
-                        {
-                            note_step(*h, node, cls, 'u');
-                            walk_from = h->m_distance + Constants::COLLISION_WALK_RESUME_STEP;
-                            continue;
-                        }
-                    }
-                    if (node == nullptr || cls == OccluderClass::Structure || !fade_on ||
-                        n_stepped >= Constants::COLLISION_FADE_SKIP_MAX)
-                    {
-                        note_step(*h, node, cls, h->m_terrain != 0 ? 't' : 'c');
-                        fan = h; // terrain, a structure, without a visible mesh, or unknown: the collision
-                        break;
-                    }
-                    // Step past it. A prop fades where what it draws spans the arm both across and up and down, from
-                    // where the arm enters its collision out to the camera; the empty part of a collision box (under a
-                    // cart, between a fence's rails) and a post or a rail thinner than the arm let the camera through
-                    // without a fade. A tree or a bush does not fade: the tree see-through window opens the leaves in
-                    // front of the character, the near plane cuts the ones at the lens, and a bush the camera ends up
-                    // buried in fades through the sightline test. An invisible designer volume hides nothing
-                    // (dissolving its no-draw material would draw it).
-                    note_step(*h, node, cls, 'p');
-                    stepped_past[n_stepped++] = h->m_collider;
-                    Sightline beyond[5];
-                    for (int i = 0; i < 5; ++i)
-                    {
-                        beyond[i] = {pivot + arm_offsets[i] + ray_dir * h->m_distance, desired_cam + arm_offsets[i]};
-                    }
-                    if (cls == OccluderClass::Prop && spans_tube(node, beyond))
-                    {
-                        add_fade_node(node, 'a', false);
-                        arm_props[n_arm_props] = node;
-                        arm_prop_colliders[n_arm_props] = h->m_collider;
-                        arm_prop_points[n_arm_props] = h->m_point;
-                        arm_prop_entries[n_arm_props++] = h->m_distance;
-                    }
-                }
-                log_walk_change(std::span<const WalkStep>(walk_trace, static_cast<std::size_t>(n_walk_trace)),
-                                desired_distance);
-                s_arm_fade_count = s_fade_count;
-                std::optional<RayHit> hit = fan;
-                bool from_sphere = false;
-                // UseSphereCollision adds the swept SPHERE to the fan: its contact is continuous where the fan's five
-                // rays graze an edge. The FAN is the collision AUTHORITY either way (its hits carry the collider and
-                // the normal); the sphere is trusted only where it agrees with the fan's surface, and only to put that
-                // surface a little nearer. With no fan hit there is no collision whatever the sphere would meet, so
-                // the sphere is swept only after a fan hit, and only as far as its agreement window reaches: a
-                // contact beyond fan + k_sphere_agree_beyond is rejected, so a longer sweep cannot change the result.
-                if (fan.has_value() && cfg.use_sphere_collision.load(std::memory_order_relaxed))
-                {
-                    // The sweep's entTypes (SPWIParams +0x98) is the 0x101 = static|terrain mask, which the real PWI
-                    // (1.5.6 sub_180811680) hands to GetEntitiesAround as its objtypes (EAX = 0x101 at 0x180811D8F),
-                    // so the player's living entity and its skeleton / worn-gear articulated entity are never
-                    // candidates and need no skip entry. The colliders the fan stepped past are skipped, so the
-                    // sphere does not stop at a faded post (the synchronous PWI walks every nSkipEnts entry).
-                    constexpr float k_sphere_agree_beyond = 0.05f;
-                    constexpr float k_sphere_agree_before = 0.10f;
-                    const float sweep_reach = std::min(desired_distance, fan->m_distance + k_sphere_agree_beyond);
-                    const std::optional<RayHit> sphere =
-                        sphere_world_sweep(QueryLedger::Tag::SweepPwi, pivot, collision_radius, ray_dir * sweep_reach,
-                                           Constants::RWI_OBJTYPES_CAMERA, stepped_past, n_stepped);
-                    // The FAN is the AUTHORITY: each of its hits carries the real collider and surface normal, while
-                    // the sphere wrapper returns only a distance. The sphere is trusted ONLY when it AGREES with the
-                    // fan's world surface (within the radius inset).
-                    if (sphere.has_value() &&
-                        sphere->m_distance >= fan->m_distance - collision_radius - k_sphere_agree_before &&
-                        sphere->m_distance <= fan->m_distance + k_sphere_agree_beyond &&
-                        sphere->m_distance + collision_radius < fan->m_distance)
-                    {
-                        hit = sphere; // sphere agrees with the fan's world surface -> use it (continuous, no pump)
-                        from_sphere = true;
-                        HookProfile::count(HookProfile::Counter::SphereWin);
-                    }
-                }
-
-                // Where the nearest solid surface is along the arm: the fan's ray hit, or the sphere's contact plus its
-                // radius (the sphere's centre stops CollisionRadius short of the surface). The camera keeps the same
-                // CollisionSkin from it whichever probe found it, so a frame that switches between the fan and the
-                // sphere does not move the camera.
-                float surface = desired_distance;
-                if (hit.has_value())
-                {
-                    surface = hit->m_distance + (from_sphere ? collision_radius : 0.0f);
-                }
-                float blocking_distance = desired_distance;
-                bool blocked = false;
-                if (surface < desired_distance)
-                {
-                    blocking_distance = std::max(0.0f, surface - skin);
-                    blocked = true;
-                }
-
-                // Trace the collision hit (the solid-world fan/sphere result) and what the fan stepped past, so a
-                // wrong stop or a wrong fade is identifiable from the log. Rate-limited to a meaningful change
-                // (block-state toggle or distance move > 0.1m) so it never spams a frame.
-                {
-                    static bool s_phys_blocked = false;
-                    static float s_phys_dist = -1.0f;
-                    const float dd = blocked ? (surface - s_phys_dist) : 0.0f;
-                    const bool moved = (dd > 0.1f) || (dd < -0.1f);
-                    // The trace below identifies the hit object via a render-octree query (render_hit_info); gate it
-                    // on trace logging being ENABLED so that diagnostic octree + per-node vertex scan never runs on
-                    // a normal-play frame.
-                    const bool trace_on = DMK::log().is_enabled(DMK::LogLevel::Trace);
-                    if (trace_on && blocked && (blocked != s_phys_blocked || moved))
-                    {
-                        // Identify the object from the fan (point + collider), not the sphere's synthetic hit.
-                        // node = the collider's foreign render-node link (0 for baked level physics, which
-                        // render_hit_info then resolves by querying the render octree at the hit point). matched =
-                        // the scanned node the collision decided on, and its class.
-                        const RayHit &id_hit = fan.has_value() ? *fan : *hit;
-                        const Vector3 &hp = id_hit.m_point;
-                        const Vector3 &hn = id_hit.m_normal;
-                        const int hit_terrain = id_hit.m_terrain;
-                        const uintptr_t collider = id_hit.m_collider;
-                        void *node = reinterpret_cast<void *>(static_brush_render_node(collider));
-                        char obj_name[160] = {};
-                        float obj_ext[3] = {};
-                        int obj_kind = 0;
-                        (void)render_hit_info(hp, node, obj_name, static_cast<int>(sizeof(obj_name)), obj_ext,
-                                              &obj_kind);
-                        static const char *const k_obj_kinds[] = {"none", "foreign", "prop", "solid", "excluded"};
-                        const char *kind_str = (obj_kind >= 0 && obj_kind <= 4) ? k_obj_kinds[obj_kind] : "?";
-                        OccluderClass matched_cls = OccluderClass::Structure;
-                        void *matched = (fade_on && hit_terrain == 0 && collider != 0)
-                                            ? occluder_node_for_collider(collider, &matched_cls)
-                                            : nullptr;
-                        char matched_name[160] = {};
-                        render_node_name(matched, matched_name, static_cast<int>(sizeof(matched_name)));
-                        float cbox[6] = {};
-                        (void)read_collider_box(collider, cbox);
-                        (void)DMK::log().try_log(
-                            DMK::LogLevel::Trace,
-                            "PhysicsCollision HIT: src={} bTerrain={} dist={} of {} stepped={} kind={} obj=\"{}\" "
-                            "ext=({}, {}, {}) collider={:#x} colliderExt=({}, {}, {}) node={:#x} matched=\"{}\" "
-                            "class={} point=({}, {}, {}) normal=({}, {}, {}) cam=({}, {}, {}) pivot=({}, {}, {})",
-                            from_sphere ? "sphere" : "fan", hit_terrain, surface, desired_distance, n_stepped, kind_str,
-                            obj_name, obj_ext[0], obj_ext[1], obj_ext[2], collider, cbox[3] - cbox[0],
-                            cbox[4] - cbox[1], cbox[5] - cbox[2], reinterpret_cast<uintptr_t>(node), matched_name,
-                            matched != nullptr ? occluder_class_name(matched_cls) : "unmatched", hp.x, hp.y, hp.z, hn.x,
-                            hn.y, hn.z, camera_position.x, camera_position.y, camera_position.z, pivot.x, pivot.y,
-                            pivot.z);
-                    }
-                    s_phys_blocked = blocked;
-                    if (blocked)
-                    {
-                        s_phys_dist = surface;
-                    }
-                }
-
-                // A building's drawn mesh can stand inside its physics: a thatched roof's physics is its outer surface
-                // while the drawn thatch hangs below it, so the arm can pass the physics and still end in the thatch.
-                // The cloth canopies over market stalls have no physics at all. The arm (its centre and four offsets
-                // by the radius, like the fan) is also tested against the render meshes of the man-made structures it
-                // passes through short of where the physics stops it; one that at least three of the lines cross
-                // stops the camera CollisionSkin short of where the third of them meets it (about where the centre
-                // does on a flat surface, and moving smoothly as the arm swings into a sloped cloth or roof), so the
-                // lens never sits inside a drawn wall or roof, or above a canopy the character stands under, while a
-                // guy rope or a chain with no physics does not stop it.
-                Sightline arm[5];
-                {
-                    for (int i = 0; i < 5; ++i)
-                    {
-                        arm[i] = {pivot + arm_offsets[i], desired_cam + arm_offsets[i]};
-                    }
-                    void *mesh_node = nullptr;
-                    const float crossing =
-                        structure_on_arm(QueryLedger::Tag::StructureOnArm, arm, 5, 3,
-                                         surface / std::max(desired_distance, 1e-3f), &mesh_node, true);
-                    const float mesh_surface = crossing * desired_distance;
-                    static void *s_mesh_logged = nullptr;
-                    if (crossing <= 1.0f && mesh_surface < surface)
-                    {
-                        surface = mesh_surface;
-                        blocking_distance = std::max(0.0f, mesh_surface - skin);
-                        blocked = true;
-                    }
-                    else
-                    {
-                        mesh_node = nullptr;
-                    }
-                    if (mesh_node != s_mesh_logged)
-                    {
-                        s_mesh_logged = mesh_node;
-                        char name[160] = {};
-                        render_node_name(mesh_node, name, static_cast<int>(sizeof(name)));
-                        if (mesh_node != nullptr)
-                        {
-                            (void)DMK::log().try_log(
-                                DMK::LogLevel::Trace,
-                                "Camera: arm stops at the drawn mesh of \"{}\" at {:.2f} of {:.2f} m", name,
-                                crossing * desired_distance, desired_distance);
-                        }
-                        else
-                        {
-                            (void)DMK::log().try_log(DMK::LogLevel::Trace,
-                                                     "Camera: arm clear of drawn structure meshes");
-                        }
-                    }
-                }
-
-                // A prop the arm let through (the hay on a wagon) that the lens sits inside fills the view, so its
-                // fade starts at once instead of after the listing delay (FadeEntry::inside). For the last prop
-                // entered before the camera, a ray from the camera back to the point where a fan ray met it shows
-                // whether the camera got out of it again: physics reports a surface only from outside, so meeting that
-                // prop on the way means the camera is past it, and reaching the point without meeting it means the
-                // camera is inside. Anything else on the way is walked past; with too much on the way the prop is not
-                // taken for one the camera is inside. What only touches the lens, a corner or a branch, is cut by the
-                // lens near plane instead (see k_lens_near_max).
-                const auto camera_inside = [](const Vector3 &camera, const Vector3 &met_at, uintptr_t prop)
-                {
-                    const Vector3 to = met_at - camera;
-                    const float length = to.magnitude();
-                    if (length < 0.05f)
-                    {
-                        return false;
-                    }
-                    const Vector3 dir = to / length;
-                    float walked = 0.0f;
-                    for (int step = 0; step < 4; ++step)
-                    {
-                        const float reach = length - 0.02f - walked;
-                        if (reach <= 0.0f)
-                        {
-                            return true;
-                        }
-                        const std::optional<RayHit> h = ray_world_intersection(
-                            QueryLedger::Tag::Inside, camera + dir * walked, dir * reach,
-                            Constants::RWI_OBJTYPES_CAMERA, Constants::RWI_FLAGS_STOP_AT_SOLID, nullptr, 0);
-                        if (!h.has_value())
-                        {
-                            return true;
-                        }
-                        if (h->m_collider == prop)
-                        {
-                            return false;
-                        }
-                        walked += h->m_distance + 0.02f;
-                    }
-                    return false;
-                };
-                // The target: the blocking distance, or the desired one when the arm is clear. For
-                // k_collision_hold_seconds after a recompute met a surface that holds the camera where it is (within
-                // one recompute step) or nearer, the camera does not ease back out at all (drained on every frame, the
-                // throttled ones too), toward a clear arm or a farther surface alike: the fan's rays meet a thin pole
-                // only on the frames it lies on one of them, and on the others would let the camera out to whatever
-                // stands behind it, only to pull it back in. A surface met farther out drains the hold instead, so the
-                // camera follows a surface that slides away once the hold runs out. A pull-in is never held back. A
-                // hold that runs out on this frame releases at once: the throttled frames after it reuse this target
-                // and drain nothing.
-                float allowed_distance = blocked ? blocking_distance : desired_distance;
-                if (blocked &&
-                    (!cam.collision_valid || allowed_distance <= cam.collision_distance + k_collision_recompute_dist))
-                {
-                    cam.collision_hold_timer = k_collision_hold_seconds;
-                }
-                else if (cam.collision_valid && cam.collision_hold_timer > 0.0f)
-                {
-                    cam.collision_hold_timer -= delta_time;
-                    if (cam.collision_hold_timer > 0.0f)
-                    {
-                        allowed_distance = std::min(allowed_distance, cam.collision_distance);
-                    }
-                }
-
-                {
-                    const float lens_at = allowed_distance;
-                    int last = -1;
-                    for (int i = 0; i < n_arm_props; ++i)
-                    {
-                        if (arm_prop_entries[i] < lens_at && (last < 0 || arm_prop_entries[i] > arm_prop_entries[last]))
-                        {
-                            last = i;
-                        }
-                    }
-                    if (last >= 0 &&
-                        camera_inside(pivot + ray_dir * lens_at, arm_prop_points[last], arm_prop_colliders[last]))
-                    {
-                        for (int k = 0; k < s_fade_count; ++k)
-                        {
-                            FadeEntry &e = s_fade_nodes[static_cast<std::size_t>(k)];
-                            e.inside = e.inside || e.node == arm_props[last];
-                        }
-                    }
-                }
-
-                // Ease toward the allowed distance (fast pull-IN so a wall is never clipped, a critically damped
-                // return-OUT), via the shared helper the throttle bypass also uses.
-                const float return_speed = cfg.collision_return_speed.load(std::memory_order_relaxed);
-                note_collision_motion(ease_collision_toward(cam, allowed_distance, desired_distance, delta_time,
-                                                            return_speed, pull_slack));
-
-                camera_position = pivot + ray_dir * cam.collision_distance;
-
-                // Fade whatever still hides the character from where the camera is: the sightlines from it to the
-                // head, chest and hips, tested against the scanned meshes. This catches what the arm's rays do not
-                // (cloth with no ray physics, a fence across the legs), and a prop or a bush the camera is buried in.
-                if (fade_on)
-                {
-                    add_sightline_nodes(camera_position);
-                }
-                // With this frame's tests done, the mesh of a structure or prop the arm is about to reach is measured
-                // ahead, so its first read does not land in the frame the arm meets it.
-                prefetch_occluder_meshes(arm, 5);
-
-                // Cache the freshly computed target so a held-still camera reuses it next frame (throttle above).
-                s_collision_throttle_valid = true;
-                s_throttle_fade_on = fade_on;
-                s_throttle_pivot = pivot;
-                s_throttle_cam = throttle_cam;
-                s_cached_allowed = allowed_distance;
-                s_cached_held_in = allowed_distance < desired_distance - k_collision_clear_slack;
-                s_collision_stamp_ms = collision_now_ms;
-            }
-        collision_done:;
-        }
-        else if (!step.repeat_build)
-        {
-            // No collision in this preset: the camera goes wherever the rig puts it, and the objects in front of the
-            // character still fade. The collision state is dropped, so turning collision back on starts afresh.
-            cam.collision_valid = false;
-            cam.collision_speed = 0.0f;
-            cam.collision_hold_timer = 0.0f;
-            s_fade_count = 0;
-            s_arm_fade_count = 0;
-            const Vector3 scan_points[4] = {pivot, camera_position, head_point, hip_point};
-            refresh_occluder_scan(scan_points, 4);
-            if (fade_on)
-            {
-                add_sightline_nodes(camera_position);
-            }
-        }
-
-        // Hand the fade set to the dissolve hook once per frame (the frame's second build changes nothing). With the
-        // fade off the set is empty, so whatever is still faded fades back in. Each object fades until only
-        // OccluderFadeMinOpacity of it stays, a ghost of where it stands.
         // The close-up fade (see the too-close block below): with CloseUpFade the character dithers out as the camera
         // closes in, as far as CloseUpFadeMinOpacity lets him from HeadClearance of arm and starting k_close_fade_band
         // before it. Measured from the head where it really is: the pivot plus the turn hold, which keeps the pivot
@@ -2706,23 +2100,6 @@ namespace TPVCamera
                 ? std::clamp((head_clearance + k_close_fade_band - arm_after_collision) / k_close_fade_band, 0.0f,
                              close_most)
                 : 0.0f;
-        if (!step.repeat_build)
-        {
-            const float strength =
-                1.0f - std::clamp(cfg.occluder_fade_min_opacity.load(std::memory_order_relaxed), 0.0f, 1.0f);
-            std::array<FadeRequest, Constants::OCCLUDER_FADE_MAX_NODES> requests{};
-            const auto n = static_cast<std::size_t>(s_fade_count);
-            for (std::size_t i = 0; i < n; ++i)
-            {
-                const FadeEntry &e = s_fade_nodes[i];
-                // OccluderFadeMinOpacity of every object stays, the camera inside it or not: one the camera is buried
-                // in or inside only starts at once instead of after the listing delay. A full fade there makes it
-                // vanish and pop back once the camera leaves it, on every pass.
-                requests[i] = FadeRequest{e.node, strength, e.buried || e.inside};
-            }
-            log_fade_set_change(std::span<const FadeEntry>(s_fade_nodes.data(), n));
-            update_occluder_fade(std::span<const FadeRequest>(requests.data(), n), delta_time);
-        }
 
         // The trees, bushes and grass, which never fade whole for hiding the character, open a window around him
         // instead (see run_tree_see_through), from the camera the fade's sightlines were cast from and the scan the
@@ -3438,9 +2815,7 @@ namespace TPVCamera
                 }
                 s_orbit_was_engaged = false;
             }
-            cam.collision_valid = false;
-            cam.collision_speed = 0.0f;
-            cam.collision_hold_timer = 0.0f;
+            reset_collision_carry(cam);
             cam.head_fallback = false;
             cam.head_fallback_blend = 0.0f;
             set_head_fallback(false);
@@ -3454,7 +2829,7 @@ namespace TPVCamera
             {
                 clear_character_nodes(s_character_nodes);
             }
-            s_fade_cache_stale = true;
+            s_collision.fade_stale = true;
             // And the tree see-through window shuts; its trees go back to the stock shader after the module's hold.
             if (!repeat_build)
             {
