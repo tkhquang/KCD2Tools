@@ -129,6 +129,7 @@ set(COMMON_SOURCES
   src/dev/see_through_trace.cpp
   src/aob_resolver.cpp
   src/camera/collision_trace.cpp
+  src/camera/see_through_driver.cpp
   src/camera_rules.cpp
   src/camera_rules_files.cpp
   src/character_attachments.cpp
