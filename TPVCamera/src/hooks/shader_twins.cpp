@@ -1320,7 +1320,12 @@ namespace TPVCamera
          * @brief Checks that the four rows of every view in the upload are still zero, then writes @p values into
          *        them.
          * @details @p data is the generator's buffer (count * 0x470 bytes) and @p stack the stack pointer at the upload
-         *          call, where the view count is its fifth argument.
+         *          call, where the view count is its fifth argument. Contract: each listed item reads the rows in
+         *          exactly one depth-writing pass, and the rows are uploaded once per main-view generation, so a row
+         *          change cannot make the depth and opaque passes disagree. The engine never fills the rows and only
+         *          the DebugPostAA technique reads them (.z of rows 0 and 1 as jitter). A transposed perspective fill
+         *          would zero both gates (row 0 .w, row 3 .x), but an off-centre orthographic fill sets row 0 .w, so
+         *          any non-zero row reports InUse and turns the window off instead of being overwritten.
          * @note Render thread. SEH-guarded, POD body.
          */
         [[nodiscard]] RowWrite write_rows_guarded(std::uintptr_t data, std::uintptr_t stack,
