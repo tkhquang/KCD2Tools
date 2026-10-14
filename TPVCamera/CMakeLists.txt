@@ -128,6 +128,7 @@ set(COMMON_SOURCES
   src/dev/query_ledger.cpp
   src/dev/see_through_trace.cpp
   src/aob_resolver.cpp
+  src/camera/collision.cpp
   src/camera/collision_trace.cpp
   src/camera/see_through_driver.cpp
   src/camera_rules.cpp
