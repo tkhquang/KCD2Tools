@@ -1,0 +1,100 @@
+// TPVCamera tree see-through window and near cut.
+//
+// Included by the mod's copies of Vegetation and Illum right after ShadeLib.cfi; the mod's copies of CommonZPass and
+// CommonZPrePass call TPVApplyHole right after their ApplyDissolve, so a tree drawn with a copy loses the pixels
+// that sit inside a window around the character and nearer to the camera than him, and the pixels close to the lens.
+// The generator resolves TPVCAMERA_FRAME_HOLE for the bare-frame copy of Illum, leaving only pixels close to the
+// lens eligible for removal, so a pole in front of the character stays. The rest of the tree or frame, and its
+// shadow (drawn with the stock shader), stay. Both passes run the same test on the same inputs, so a pixel is removed from both
+// or kept in both.
+//
+// The window and the near cut come from the four rows of CV_ProjMatr in the main view's per-view constants
+// (CBPerViewGlobal). The engine never fills those rows, so they are zero unless TPVCamera writes them, and a zero
+// strength switches its test off:
+//   row 0: xyz = world centre of the character's box, w = strength (0 none, 1 window fully open)
+//   row 1: x = half width, y = half height (metres, on the character's vertical plane facing the camera),
+//          z = depth margin (metres in front of the character where nothing is removed), w = depth feather (metres)
+//   row 2: x = rim softness, the share of the window the dithered rim takes (0 hard edge to 1),
+//          y = floor (world height: a pixel whose ray meets the plane below it stays, so plants that hide only the
+//          character's legs keep their look), z = floor feather (metres above the floor over which the cut fades in),
+//          w = tunnel (0: the window narrows to a point at the lens, like a cone from the camera; 1: it keeps its size
+//          from the character back to the lens, like a tube, so the blades and leaves just in front of the lens that
+//          would hide him go too instead of being cut in a circle around him)
+//   row 3: x = near cut strength (0 none, 1 full), y = view depth (metres) nearer than which a pixel goes, z = view
+//          depth beyond which it stays; in between the cut fades out
+//
+// Only symbols from Common.cfi, FXConstantDefs.cfi and ShadeLib.cfi are used, so the copies need no other include.
+// Each function has a single return (early returns inside branches make fxc warn about an uninitialized result).
+// The amount is precise, like the position it comes from, so the compiler cannot reorder its math differently in
+// the two passes and leave a pixel kept in one and removed in the other.
+
+// How much of the tree or frame to remove at this pixel, 0 (keep) to 1 (remove). svPos is the pixel's SV_Position:
+// xy in render target pixels, w the view depth in metres.
+float TPVHoleAmount(float4 svPos)
+{
+	precise float holeAmount = 0.0;
+#if !TPVCAMERA_FRAME_HOLE
+	const float4 holeAnchor = CV_ProjMatr[0];
+	[branch] if (holeAnchor.w > 0.0)
+	{
+		const float4 holeSize = CV_ProjMatr[1];
+		const float4 holeRim = CV_ProjMatr[2];
+
+		// CV_CameraFrontVector points backward; every stock use negates it.
+		const float3 viewFwd = -CV_CameraFrontVector.xyz;
+		const float3 toAnchor = holeAnchor.xyz - GetWorldViewPos();
+
+		// The window lies on the vertical plane through the character that faces the camera (world Z is up), so it
+		// keeps his whole height when the camera looks down at him.
+		const float planeLen = length(toAnchor.xy);
+		const float3 planeNormal = float3(toAnchor.xy, 0.0) / max(planeLen, 0.1);
+
+		// The pixel's ray from the camera (the jitter is in the basis). Its length cancels out below.
+		const float3 pixelRay = mul((float3x3)CV_ScreenToWorldBasis, float3(svPos.xy, 1.0));
+		const float rayDotNormal = dot(pixelRay, planeNormal);
+		[branch] if (planeLen >= 0.1 && rayDotNormal > 0.0001)
+		{
+			// Where the ray meets the plane, relative to the camera, and how deep that point is.
+			const float3 planeHit = pixelRay * (dot(toAnchor, planeNormal) / rayDotNormal);
+			const float planeDepth = dot(planeHit, viewFwd);
+
+			// Elliptic window in metres on the plane, with a soft rim. Its offset on the plane, carried back along the
+			// ray to the pixel's own depth, is the pixel's offset from the camera-to-character line there; the tunnel
+			// compares that with the window's size instead, so the window keeps its size back to the lens.
+			const float3 planeAcross = float3(-planeNormal.y, planeNormal.x, 0.0);
+			const float tubeWiden = max(planeDepth / max(svPos.w, 0.05), 1.0);
+			const float windowScale = lerp(1.0, tubeWiden, saturate(holeRim.w));
+			const float2 ellipseUV = float2(dot(planeHit - toAnchor, planeAcross), planeHit.z - toAnchor.z) /
+									 (max(holeSize.xy, 0.05) * windowScale);
+			const float rimStart = 1.0 - clamp(holeRim.x, 0.001, 1.0);
+			const float shapeWeight = 1.0 - smoothstep(rimStart, 1.0, length(ellipseUV));
+
+			// Nothing whose ray meets the plane below the floor goes, faded in over the feather above it.
+			const float hitHeight = GetWorldViewPos().z + planeHit.z;
+			const float floorCut = smoothstep(holeRim.y, holeRim.y + max(holeRim.z, 0.01), hitHeight);
+
+			// Only what is nearer than the character's plane minus the margin goes, faded in over the feather.
+			const float depthCut = saturate((planeDepth - holeSize.z - svPos.w) / max(holeSize.w, 0.01));
+			holeAmount = holeAnchor.w * shapeWeight * floorCut * depthCut;
+		}
+	}
+#endif
+
+	// The near cut: whatever is this close to the lens goes, anywhere on the screen, faded out with its depth.
+	const float4 holeNear = CV_ProjMatr[3];
+	[branch] if (holeNear.x > 0.0)
+	{
+		const float nearCut = saturate((holeNear.z - svPos.w) / max(holeNear.z - holeNear.y, 0.01));
+		holeAmount = max(holeAmount, holeNear.x * nearCut);
+	}
+	return holeAmount;
+}
+
+// Removes this pixel in the stock 4x4 dither pattern when it is inside the window or close to the lens; an amount of
+// 1 removes every pixel.
+void TPVApplyHole(float4 svPos)
+{
+	precise const float holeAmount = TPVHoleAmount(svPos);
+	[branch] if (holeAmount > 0.0)
+		clip(GetDissolveThreshold17((int2)svPos.xy) - holeAmount);
+}

@@ -10,6 +10,7 @@
 
 #include "tpv_camera.hpp"
 #include "aob_resolver.hpp"
+#include "camera_rules_files.hpp"
 #include "config.hpp"
 #include "constants.hpp"
 #include "global_state.hpp"
@@ -59,6 +60,24 @@ namespace TPVCamera
     // be restored last. shutdown() retires it while the code pages are still mapped.
     static HookSet s_hooks;
 
+    // The [Advanced] ExportRules value the last check saw, so an INI reload writes the file again only when it turns
+    // the key on. Read and written by init(), then by the INI watcher thread.
+    static std::atomic<bool> s_export_rules_seen{false};
+
+    /**
+     * @brief Writes the built-in camera rules beside the ASI (Rules::export_built_in()) when [Advanced] ExportRules is
+     *        on and was off at the last check, so at startup when it is on.
+     * @note Init after the INI loads, then the INI watcher thread after a reload that ran the setters.
+     */
+    static void export_rules_when_switched_on() noexcept
+    {
+        const bool on = settings().export_rules.load(std::memory_order_relaxed);
+        if (!s_export_rules_seen.exchange(on, std::memory_order_relaxed) && on)
+        {
+            Rules::export_built_in();
+        }
+    }
+
     /**
      * @brief Returns true when a menu or overlay is up; the hotkeys ignore presses then.
      */
@@ -100,9 +119,9 @@ namespace TPVCamera
 
     /**
      * @brief Switches the current state to the next or previous preset bound to exactly the same states.
-     * @details The state is the debounced mask the render thread publishes every game-view frame, first person
+     * @details The state is the debounced mask the main thread publishes every game-view frame, first person
      *          included, so a press in first person picks the preset that third person then uses. The pick goes
-     *          to the render thread directly: the preset store is single-threaded and runs on the overlay thread.
+     *          to the main thread directly: the preset store is single-threaded and runs on the overlay thread.
      *          The store writes the pick to the presets file on its next save or at shutdown. A switch also eases
      *          the zoom out: the zoom keys offset whichever preset is in use, and a carried-over offset hides the
      *          difference between the presets the player cycles through.
@@ -206,7 +225,7 @@ namespace TPVCamera
 
         // Build the cached class-vtable identities over the WHGame.dll image, before any detour is armed.
         // Every per-frame "is this vtable type X" test resolves through these, so the RTTI sweep happens
-        // here once per type instead of on the render thread. Scoped to the game image on purpose: the DMK
+        // here once per type instead of on the main thread. Scoped to the game image on purpose: the DMK
         // default Region::host() is the game EXE, and every tracked type lives in WHGame.dll.
         init_game_types(DMK::Region{DMK::Address{mod.base}, mod.size});
 
@@ -248,11 +267,12 @@ namespace TPVCamera
         warn_if_degraded(initialize_ranged_hook(gated_anchor_address(Feature::Engine, AnchorId::Genv), s_hooks),
                          "Ranged hook initialization failed - shots keep the game's own aim in third person");
 
-        // The eyes, eyelashes, hair, beard and eye film that fade with the character in the close-up fade.
-        // Best-effort: without it the close-up fade hides the head instead.
+        // The eyes, eyelashes, hair, beard and eye film that fade with the character in the close-up fade, and the
+        // dithered window in the trees, bushes and grass between the camera and the character. Best-effort: without it
+        // the close-up fade hides the head instead, and plants keep their stock shaders.
         warn_if_degraded(initialize_shader_twins(s_hooks),
                          "Shader twin initialization failed - the close-up fade hides the head instead of fading the "
-                         "eyes and hair");
+                         "eyes and hair, and plants in front of the character stay solid");
 
         return {};
     }
@@ -322,8 +342,8 @@ namespace TPVCamera
         // character to face the camera direction. The momentary OrbitHoldKey below is the alternative
         // freelook style (hold to engage, release to return). OrbitExcludeState only auto-disables
         // free-look when you ENTER those states (e.g. mounting); it does not forbid manually turning it
-        // back on there (Combat and Mount are excluded because free-look currently fights the game's own
-        // camera control in those states).
+        // back on there (Combat and Mount are excluded because free-look fights the game's own camera
+        // control in those states).
         // Default: F4, or hold LB + click the left stick (LS) on a controller.
         add_press(
             orbit, "OrbitToggleKey", "Orbit Toggle Key", "orbit_toggle",
@@ -440,7 +460,8 @@ namespace TPVCamera
      * @details The bound setters re-apply the live settings on each reload. A reload that runs them also rebinds
      *          every key combo (Input::rebind) and re-applies each Consume flag, the only runtime reshapes of the
      *          input bindings. A reshape leaves the published zoom BindingTokens stale, so the callback republishes
-     *          them on the watcher thread, a control-plane thread, before it reports the outcome.
+     *          them on the watcher thread, a control-plane thread, before it reports the outcome. After a reload that
+     *          ran the setters it also writes the built-in camera rules if the reload switched ExportRules on.
      */
     static void enable_hot_reload(const DMK::config::Ini &ini)
     {
@@ -457,6 +478,9 @@ namespace TPVCamera
                                        else
                                            reload_logger.info("INI auto-reload: no setter ran (file unchanged or "
                                                               "unreadable)");
+                                       // A reload that switched [Advanced] ExportRules on writes the rules file now.
+                                       if (setters_ran)
+                                           export_rules_when_switched_on();
                                    });
 
         if (status == DMK::config::AutoReloadStatus::Started)
@@ -490,11 +514,18 @@ namespace TPVCamera
         // Camera presets are user-owned and created automatically: the file is seeded from the embedded
         // factory defaults on first run, any missing built-in is re-added, and a corrupt file falls back to
         // those defaults, so loading never fails and never blocks the mod. The built-in state presets
-        // (DEFAULT/COMBAT/AIMING/MOUNT/STEALTH) and any user presets feed the render-thread resolver via the
+        // (DEFAULT/COMBAT/AIMING/MOUNT/STEALTH) and any user presets feed the main-thread resolver via the
         // published binding table.
         const std::string presets_path =
             DMK::filesystem::get_runtime_directory_utf8() + "\\" + Constants::get_presets_filename();
         Presets::PresetStore::instance().load(presets_path);
+
+        // The camera rules decide how the camera treats each object. They load before the hooks, so the first scan
+        // already has them, and after the INI, so its LogLevel applies to their diagnostics.
+        Rules::load_at_start();
+        // [Advanced] ExportRules writes the built-in rules beside the ASI for reference, here and whenever an INI
+        // reload switches it on (enable_hot_reload()).
+        export_rules_when_switched_on();
 
         // Memory cache is a hot-path accelerator; a failure is non-fatal because the
         // readability checks fall back to direct VirtualQuery calls.
@@ -532,11 +563,13 @@ namespace TPVCamera
         refresh_zoom_binding_tokens();
 
         enable_hot_reload(ini);
+        // Edits to the rules files apply while the game runs. The camera frame reads each new set at its next scan.
+        Rules::start_watcher();
 
-        // Apply the start-of-session auto-enable flags (read once here; disabled by default). The view
-        // gate (should_apply_view) still suppresses the offset under menus/loading, so an auto-enabled
-        // view simply eases in once gameplay is reached. Orbit engages with the camera (it is gated on
-        // the offset being active), starting from the centred 0,0 angle.
+        // Apply the start-of-session auto-enable flags (read once here; AutoEnableTPV is on by default,
+        // AutoEnableOrbit off). The view gate (should_apply_view) still suppresses the offset under
+        // menus/loading, so an auto-enabled view simply eases in once gameplay is reached. Orbit engages with
+        // the camera (it is gated on the offset being active), starting from the centred 0,0 angle.
         {
             const LiveSettings &startup = settings();
             CameraState &cam = camera_state();
@@ -591,12 +624,14 @@ namespace TPVCamera
         // Stop re-aiming and tracking shots; the shot detours pass straight through until the hooks retire.
         release_ranged();
         // Unpublish the shader twins' swap set while the hooks are still installed, so the character's items go back
-        // to the stock shaders. The twin shaders stay loaded on purpose.
+        // to the stock shaders, and swap the see-through trees back, so no render object keeps a plant twin. Later
+        // camera frames leave the trees alone. The twin shaders stay loaded on purpose.
         shutdown_shader_twins();
 
-        // Join the mod's workers before any hook goes: the INI watcher, so no reload setter runs during teardown, and
-        // the overlay render thread, so no UI mutation races the preset flush.
+        // Join the mod's workers before any hook goes: the INI watcher, so no reload setter runs during teardown, the
+        // rules watcher, and the overlay's own render thread, so no UI mutation races the preset flush.
         DMK::config::disable_auto_reload();
+        Rules::stop_watcher();
         Overlay::stop();
 
         // A worker whose join failed still runs code in this image and holds its module reference. Its dependencies,
@@ -610,6 +645,7 @@ namespace TPVCamera
 
         // Persist any unsaved preset edits.
         Presets::PresetStore::instance().flush();
+        Rules::log_name_form_totals();
 
         // Hooks are caller-owned and the library removes none of them, so this is the only path that restores the
         // patched prologues. The set disables every hook, waits until no game thread is inside a detour, and only then
@@ -618,7 +654,7 @@ namespace TPVCamera
         if (hooks == RetireStatus::Retired)
         {
             // No detour runs any more, so the zoom tokens the frustum detour read can go, and so can the sets for the
-            // fade a render thread handed the shader twins while they shut down.
+            // fade and the PSO waits a render thread handed the shader twins while they shut down.
             release_zoom_binding_tokens();
             release_shader_twin_records();
             logger.info("Shutdown: teardown complete");

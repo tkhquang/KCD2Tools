@@ -161,7 +161,7 @@ namespace TPVCamera
         std::atomic<bool> s_local_actor_recovery{false};
 
         // The scheduler owns the cadence, the per-group latch, and the one-shot drift Warning. Created on the
-        // init thread; s_scheduler_ready publishes it (release) to the render thread that ticks it (acquire), so
+        // init thread; s_scheduler_ready publishes it (release) to the main thread that ticks it (acquire), so
         // a tick can never observe a half-built group list.
         std::optional<DMK::rtti::HealScheduler> s_scheduler;
         std::atomic<bool> s_scheduler_ready{false};

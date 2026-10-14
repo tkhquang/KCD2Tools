@@ -150,9 +150,17 @@ jobs:
             exit 1
           }
 
-          # Create package directory and copy template files
+          # Create package directory and copy template files. The camera rules file is intentionally NOT shipped:
+          # KCD2_TPVCamera_rules.txt in the template is the source CMake embeds in the ASI, whose built-in rules are in
+          # force while no such file is beside it, so packaging it would replace a player's own main file on update.
+          # Players change rules in KCD2_TPVCamera_rules_User.txt; [Advanced] ExportRules writes the built-in copy.
+          $rulesFile = "KCD2_TPVCamera_rules.txt"
           New-Item -ItemType Directory -Path $packageDir -Force
-          Copy-Item -Path "$templateDir\*" -Destination $packageDir -Recurse
+          Copy-Item -Path "$templateDir\*" -Destination $packageDir -Recurse -Exclude $rulesFile
+          if (Test-Path "$packageDir\$rulesFile") {
+            Write-Error "$rulesFile must not be packaged: the ASI embeds it"
+            exit 1
+          }
 
           # Copy the built ASI file
           $asiSource = "$buildDir\KCD2_TPVCamera.asi"
@@ -248,7 +256,7 @@ jobs:
 
           **[KCSE users](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332):** keep KCSE's `dinput8.dll` and use `version.dll` or `winmm.dll` for Ultimate ASI Loader. Do not rename or replace KCSE's DLL or overwrite another mod's DLL. The same ASI loader can load TPVCamera and Henry's Senses.
 
-          Back up your customized INI before updating, then reapply your settings to the supplied INI. Keep `KCD2_TPVCamera_presets.json` to retain your saved presets. See the [README](https://github.com/tkhquang/KCD2Tools/blob/main/TPVCamera/README.md) for folder examples and Wine/Proton overrides.
+          Back up your customized INI before updating, then reapply your settings to the supplied INI. Keep `KCD2_TPVCamera_presets.json` to retain your saved presets, and keep your own camera rules in `KCD2_TPVCamera_rules_User.txt`. The camera rules are built into the mod, so an update brings their changes without touching your files. See the [README](https://github.com/tkhquang/KCD2Tools/blob/main/TPVCamera/README.md) for folder examples and Wine/Proton overrides.
 
           If no `KCD2_TPVCamera.log` appears in the binary folder after launching, the loader is not loading the mod - try one of the other loader DLLs above.
 
@@ -264,6 +272,10 @@ jobs:
 
           Edit `KCD2_TPVCamera.ini` for hotkeys and global options. Camera framing is preset-driven:
           open the in-game overlay (Home) to tune and save presets, stored in `KCD2_TPVCamera_presets.json`.
+          Which objects stop the camera, fade or open in the see-through window is set per folder or per model by the
+          camera rules built into the mod; change them in `KCD2_TPVCamera_rules_User.txt` beside the ASI, and set
+          `ExportRules = true` in the INI to write the built-in rules to `KCD2_TPVCamera_rules.default.txt` for reference
+          (see the README's Camera rules section).
 
           See the [README](https://github.com/{3}/blob/main/TPVCamera/README.md) for detailed instructions.
 

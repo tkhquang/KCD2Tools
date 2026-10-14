@@ -20,7 +20,11 @@ It is still early days, so if anything feels off or you have an idea that would 
 [*]In-game preset manager: edit, add, and save camera presets from an overlay; built-in presets for normal play, combat, aiming, horseback, sneaking, and special poses (lying down, sitting, kneeling, riding a cart) apply automatically by situation, and you can bind your own presets to combinations of states (such as aiming while crouched), with the most specific match winning[/*]
 [*]Several presets per situation, switched in game with a key; Close Shoulder (a tight over-the-shoulder camera) and Aiming Wide (the everyday framing while aiming) ship ready to use[/*]
 [*]Free-look look sensitivity is set per axis for both mouse and gamepad, so horizontal and vertical can be tuned independently; set a negative value to invert that axis. Mark any preset setting as Shared to apply its value to every preset at once[/*]
-[*]Smooth camera collision with an optional see-through mode (off by default) that ignores thin posts, rails and fences you can see past and keeps out of corners, plus a cloth-roof clamp (on by default) so a look-down is not buried in tent or awning fabric, and when there is no room behind your character (a low doorway, a wall right behind) the character fades out with everything it wears and holds (weapons, a drawn bow and its arrow, the quiver, the shield, hair, beard, eyes and eyelashes) instead of the view jumping to first person; all tunable in the INI[/*]
+[*]Camera collision that keeps its distance: posts, fences, open carts, lamps, furniture and hanging decorations between the camera and your character fade out instead of pulling the camera in[/*]
+[*]The ground, rocks, buildings, platforms, fences too tall to see over, covered wagons and big haystacks still stop the camera, so inside a house it stays in the room[/*]
+[*]Trees, bushes and tall grass in front of your character open a dithered window around it, only where they hide it; the camera passes through bushes and trunks, and leaves right at the lens are cut away[/*]
+[*]When there is no room behind your character (a low doorway, a wall right behind), the character fades out with everything it wears and holds instead of the view jumping to first person[/*]
+[*]Camera rules decide, folder by folder or model by model, which objects stop the camera, fade, open in the window or are left alone, a mod's own models included[/*]
 [*]Crosshair stays lined up with what you point at (partly, only for interactions and not 100% yet)[/*]
 [*]Full keyboard and XInput controller support[/*]
 [*]Almost every setting is editable live while the game runs[/*]
@@ -62,6 +66,7 @@ Download the TPVCamera release archive from the Files tab or [url=https://github
 [list]
 [*][b]KCD2_TPVCamera.asi[/b] - The mod.[/*]
 [*][b]KCD2_TPVCamera.ini[/b] - Hotkeys and global settings.[/*]
+[*]The camera rules, which set how the camera treats each object in the world, are built into the ASI. Your own changes go in [b]KCD2_TPVCamera_rules_User.txt[/b], which you create (see Camera Rules below).[/*]
 [*][b]KCD2_TPVCamera_presets.json[/b] - Created on first run; not included in the archive.[/*]
 [/list]
 TPVCamera does not use the Mods folder.
@@ -71,7 +76,7 @@ Launch the game; third-person turns on automatically once you reach gameplay. Pr
 
 [b]How to verify the mod loaded:[/b] check for [b]KCD2_TPVCamera.log[/b] beside the ASI. If it is missing, check that the ASI and x64 loader DLL are directly beside WHGame.dll, then try another unused loader variant and relaunch. Replace only the Ultimate ASI Loader DLL you installed; keep KCSE and other mods' DLLs. On Wine/Proton, also check the override below.
 
-When updating, back up your customized INI before extracting the new archive, then reapply your settings to the supplied INI. Keep KCD2_TPVCamera_presets.json to retain your saved camera presets.
+When updating, back up your customized INI before extracting the new archive, then reapply your settings to the supplied INI. Keep KCD2_TPVCamera_presets.json to retain your saved camera presets. An update brings its camera rules built into the ASI and never touches your own KCD2_TPVCamera_rules_User.txt. If you replaced the built-in rules with a KCD2_TPVCamera_rules.txt of your own, that file stays in force, and the rules of an update reach you only once you delete it.
 
 [b]Folder layout[/b] (everything goes in the binary folder, next to WHGame.dll):
 [code]
@@ -80,6 +85,7 @@ Bin/Win64MasterMasterSteamPGO/
 |-- dinput8.dll                        (ASI loader; see KCSE note above)
 |-- KCD2_TPVCamera.asi                  (this mod)
 |-- KCD2_TPVCamera.ini                  (settings)
+|-- KCD2_TPVCamera_rules_User.txt       (your own camera rules; optional, you create it)
 |-- KCD2_TPVCamera_presets.json         (created on first run)
 \-- KCD2_TPVCamera.log                  (created when the mod loads)
 [/code]
@@ -91,6 +97,12 @@ Add an override for your chosen loader DLL in the game's [b]Properties -> Launch
 Use version=n,b or winmm=n,b instead when using that loader name. If you also use KCSE's dinput8.dll with the version.dll loader, retain both overrides:
 [code]WINEDLLOVERRIDES="dinput8,version=n,b" %command%[/code]
 For a command-line launch, set the same WINEDLLOVERRIDES value before your launch command. Keep any overrides your other mods need.
+
+[size=5]Uninstall[/size]
+[list]
+[*]In the folder beside WHGame.dll, delete every file whose name starts with [b]KCD2_TPVCamera[/b]: the ASI, the INI, the rules files (your own, other mods' patches and an exported copy included), the presets, the logs and any signature files. Delete the ASI loader DLL only if no other mod uses it.[/*]
+[*]Optionally, delete the shaders TPVCamera wrote to the game's shader cache, usually [b]%USERPROFILE%\Saved Games\kingdomcome2\shaders\cache\d3d12\[/b] (the log line "ShaderTwins: ... twin file(s) in <folder>" names it): the files whose names start with [b]kcd2_tpvcamera_[/b], in that folder and in its cg...shaders subfolders. Leave the rest of the folder alone: it is the game's own shader cache, and deleting it only makes the game compile its shaders again.[/*]
+[/list]
 
 [size=5]Default Controls[/size]
 All keys are rebindable in KCD2_TPVCamera.ini.
@@ -112,12 +124,41 @@ Edit KCD2_TPVCamera.ini, grouped into:
 [*][b][Settings][/b] - log level, the view hotkeys, the preset-overlay key, and the start-of-session auto-enable flags[/*]
 [*][b][Camera][/b] - zoom keys, the camera-space interaction toggle, the view-transition ease, the camera-stability options (StableAimBasis, AimBasisSmoothing) that keep the view steady against head-bob, sway, and combat shake, and the native turn animation (NativeTurnAnimation, with NativeTurnAngle and NativeTurnSettleDelay tuning when Henry turns on the spot to face where you look). The framing itself is per-preset[/*]
 [*][b][Orbit][/b] - the free-look orbit keys (press-to-toggle and momentary hold) and the cursor freeze (the orbit feel is per-preset)[/*]
-[*][b][Collision][/b] - the collision probe and radius, UseCoverageCollision (only pull in for things that hide your character) with its coverage / side-wall options, the independent UseRenderOcclusion cloth-roof clamp (enable, skin, and return speed are per-preset), HeadClearance, the room the camera needs behind your character, and CloseUpFade (fade the character and everything it wears and holds instead of switching to first person when there is less) with how much of the character always stays[/*]
+[*][b][Collision][/b] - the collision probe and radius, UseOccluderFade (fade the props that hide your character instead of pulling in; buildings still stop the camera) with how much of them stays (enable, skin, and return speed are per-preset), UseTreeSeeThrough (open a dithered window around your character in the trees, bushes and tall grass in front of it) with how much of the plants stays, its size, where it starts up the body and its softness, HeadClearance, the room the camera needs behind your character, and CloseUpFade (fade the character and everything it wears and holds instead of switching to first person when there is less) with how much of the character always stays[/*]
 [*][b][StateBehavior][/b] - switch first/third person on entering a situation (combat, aiming, dialogue, minigame, mount, menu, overlay), restore the prior view on exit (manual toggles during it stick), suspend/restore free-look in chosen situations, choose where the native turn animation is switched off (NativeTurnExcludeState), and whether loading a crossbow already counts as aiming (ReloadCountsAsAiming)[/*]
 [*][b][Ranged][/b] - aim third-person shots (arrows, bolts, handgonne balls) and distraction stones at the crosshair (AimAtCrosshair), the largest correction allowed (MaxAimCorrection), the flight trail (ShowProjectileTrail, ProjectileTrailSeconds), a live preview of where a drawn shot or a held distraction stone will land (ShowAimPreview, AimPreviewArc, AimPreviewOpacity, AimPreviewColor, AimPreviewThroughWalls), and how much your shots drop per weapon (BowGravity, CrossbowGravity, FirearmGravity)[/*]
 [*][b][Presets][/b] - the preset blend speed and the keys that cycle presets bound to the same situation (NextPresetKey, PreviousPresetKey); the camera framing lives in the in-game preset manager (open with Home) and is stored in KCD2_TPVCamera_presets.json next to the INI. That file is created automatically from the built-in defaults on first run; it is not shipped, so updating the mod never overwrites presets you have tuned[/*]
+[*][b][Advanced][/b] - the self-heal window, ExportSignatures (writes the built-in signatures for reporting a problem after a game update) and ExportRules (see Camera Rules below)[/*]
 [/list]
 Most values apply the next frame after you save the file.
+
+How the camera treats each object (which ones stop it, fade, let it through, open in the see-through window or thin away at the lens) is set by the camera rules, not in the INI; see Camera Rules below. UseOccluderFade and UseTreeSeeThrough still turn the fade and the window on or off for every object, whatever the rules say.
+
+[size=5]Camera Rules[/size]
+The camera rules decide how the camera treats every object in the world: which ones stop it like a wall, fade while they hide your character, let it through, open in the see-through window or thin away at the lens. They go by the model's path in the game files, for a whole folder or one model, so you can change any of them and cover other mods' models too. The [url=https://github.com/tkhquang/KCD2Tools/blob/main/TPVCamera/README.md#camera-rules]README[/url] has the full syntax, which rule wins and what the rules cannot change.
+[list]
+[*][b]Built-in rules[/b] - built into the ASI and updated with it. Set ExportRules = true in the INI's [Advanced] section to write them, with notes that explain the syntax, to KCD2_TPVCamera_rules.default.txt (TPVCamera never reads that file).[/*]
+[*][b]KCD2_TPVCamera_rules_<Name>.txt[/b] - patches from other mods or from you, read next in name order.[/*]
+[*][b]KCD2_TPVCamera_rules_User.txt[/b] - your own changes, read last, so they win. Updates never touch it.[/*]
+[/list]
+Every rules file sits beside KCD2_TPVCamera.asi. Edits apply while the game runs, about a second after you save. To replace the built-in rules entirely, rename the exported file to KCD2_TPVCamera_rules.txt; the rules of later updates then reach you only once you delete it.
+
+[b]One rule per line:[/b] [code]<match> = <behaviour> [options][/code]
+A match is a folder, one model, a text (*hlod*), a state (@actor, @animated, @nodraw, @merged, @unnamed) or @default. The behaviours are collide, fade, tree, bush, grass, frame, pass, character and exclude.
+
+[b]Find a model's path:[/b] set LogLevel = TRACE, go up to the object, and the log names it with the rule that decided it:
+[code]Rules: objects/manmade/vehicles/wagons/wagon_c_hay.cgf [brush] -> collide mesh (built-in KCD2_TPVCamera_rules.txt:295 'objects/manmade/vehicles/wagons/wagon_c_hay.cgf')[/code]
+
+[b]Examples[/b] for KCD2_TPVCamera_rules_User.txt:
+[code]
+objects/manmade/vehicles/wagons/wagon_c_hay.cgf = fade                         # the covered hay wagon fades
+objects/manmade/vehicles/wagons/ = fade                                        # every covered wagon fades
+objects/manmade/structures/industrial/hay/ = collide mesh                      # all hay stops the camera
+objects/manmade/common_furniture/beds/bed_warmer_fancy.cgf = exclude           # one model left out of the mod
+objects/mymod/trees/ = tree                                                    # a mod's trees open in the window
+[/code]
+
+[b]For mod authors:[/b] ship your rules as KCD2_TPVCamera_rules_<YourMod>.txt, a separate optional file the player copies beside KCD2_TPVCamera.asi by hand (TPVCamera reads no rules from the Mods folder), and keep folder lines to your mod's own folders. See the README for details.
 
 [size=5]Hotkey Format[/size]
 [list]
@@ -158,8 +199,8 @@ These pair well with a third-person camera:
 [*]Free-look orbit is a raw proof-of-concept: fine for swinging the camera around to look at the front of Henry, but rough for normal gameplay.[/*]
 [*]Free-look orbit conflicts with the game's own camera control on horseback and in combat, so it is auto-disabled in those situations.[/*]
 [*]The first-person body rig can still look slightly off from behind in some animations.[/*]
-[*]Camera collision keeps the view out of walls but has no soft-edge smoothing yet.[/*]
-[*]The eyes, eyelashes, hair, beard and the thin wet film over the eyes fade with your character through copies of the game's own eye, hair and material shaders. The game builds what those copies need for the fade in the background while you play in third person, once after the mod is installed or updated (up to about a minute of play), and keeps it in its shader cache, so the first close-up normally finds it ready. A close-up before it is ready hides your character's head instead, like in first person; once it is, the head stays shown.[/*]
+[*]Faded objects use the engine's dither, so a large faded open wagon or hay pile shows a fine screen-door pattern rather than smooth transparency.[/*]
+[*]The plant window, the cut of tent frames at the lens and the fade of your character's eyes, hair and beard use copies of the game's shaders, prepared at the loading screen or the next pause (the Esc menu, or a menu screen while the game is paused). A plant first seen during play keeps its normal look until then, and a close-up before the character's copies are ready hides the head, as in first person. Loading may take longer.[/*]
 [*]A held torch's flame and light do not fade with your character.[/*]
 [*]The raycast-based crosshair fix is partial: it does not cover every interaction type, so some still show parallax or an offset.[/*]
 [*]A third-person shot at a target almost touching Henry (closer than about half a meter past the bow) can still land beside the crosshair. Hitting it would turn the shot more than MaxAimCorrection (45 degrees by default) away from where the bow points, so the game's own shot flies instead. Raising MaxAimCorrection in [Ranged] covers closer targets.[/*]
@@ -171,8 +212,7 @@ These pair well with a third-person camera:
 [size=5]Roadmap[/size]
 [list]
 [*]Rework the free-look orbit so it is usable in normal gameplay (interaction during orbit, smoother engage/release, better mouse feel), including resolving the conflict with the game's own camera on horseback and in combat where orbit is currently auto-disabled.[/*]
-[*]Soft-edge camera collision so the view eases around obstacles instead of snapping.[/*]
-[*]Handle thin occluders (fence rails, thin foliage) between the camera and the character more cleanly.[/*]
+[*]Soften the dither on large faded objects.[/*]
 [*]Fix shadows being cut off behind the character (the shadow cascade still follows the first-person eye).[/*]
 [*]Extend the raycast-based crosshair/interaction fix to cover more interaction types.[/*]
 [/list]

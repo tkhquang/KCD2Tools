@@ -2430,6 +2430,10 @@ namespace TPVCamera
          */
         void report_flight(const Flight &flight, std::string_view reason) noexcept
         {
+            if (!DMK::log().is_enabled(DMK::LogLevel::Debug))
+            {
+                return;
+            }
             const char *kind = hit_kind(flight);
             const char *name = flight.impact && flight.impact_object.entity ? flight.impact_object.name : "";
             const Vec3f end = flight.impact ? flight.impact_point
@@ -2447,7 +2451,7 @@ namespace TPVCamera
 
             if (!flight.shot.target_valid)
             {
-                (void)DMK::log().try_log(DMK::LogLevel::Info,
+                (void)DMK::log().try_log(DMK::LogLevel::Debug,
                                          "Ranged {} #{}: at ({:.2f}, {:.2f}, {:.2f}) after {:.2f} s | {} {} {} | no "
                                          "crosshair target to compare | {} samples, level speed {:.1f} m/s",
                                          flight.impact ? "IMPACT" : "END", flight.serial, stop.x, stop.y, stop.z,
@@ -2466,7 +2470,7 @@ namespace TPVCamera
             const float err_up = DMK::math::radians_to_degrees(std::atan2(dot(seen, up), along));
             const float miss = (stop - point).magnitude();
             (void)DMK::log().try_log(
-                DMK::LogLevel::Info,
+                DMK::LogLevel::Debug,
                 "Ranged {} #{}: at ({:.2f}, {:.2f}, {:.2f}) after {:.2f} s | {} {} {} | {:.3f} m from the crosshair "
                 "point ({}) | {:.3f} deg off the crosshair from the release camera (right {:+.3f}, up {:+.3f}) | {} "
                 "samples, level speed {:.1f} m/s",
@@ -2476,7 +2480,7 @@ namespace TPVCamera
             if (flight.shot.landing_traced)
             {
                 (void)DMK::log().try_log(
-                    DMK::LogLevel::Info,
+                    DMK::LogLevel::Debug,
                     "Ranged {} #{} landing: {:.3f} m from the traced landing, {:+.3f} m beside the crosshair",
                     flight.impact ? "IMPACT" : "END", flight.serial,
                     (stop - to_vector(flight.shot.landing)).magnitude(), dot(seen, right));
@@ -2562,6 +2566,11 @@ namespace TPVCamera
             flight.end_ms = 0;
             append_sample(flight, shot.launch, 0.0f);
 
+            // Flight tracking also serves the optional trail; only its diagnostic text is level-gated.
+            if (!DMK::log().is_enabled(DMK::LogLevel::Debug))
+            {
+                return;
+            }
             const Vec3f &launch = shot.launch;
             const Vec3f &native = shot.native_dir;
             const Vec3f &flown = shot.flown_dir;
@@ -2569,7 +2578,7 @@ namespace TPVCamera
             {
                 const Vec3f &point = shot.target.point;
                 (void)DMK::log().try_log(
-                    DMK::LogLevel::Info,
+                    DMK::LogLevel::Debug,
                     "Ranged SHOT #{}: {} | {} launched ({:.2f}, {:.2f}, {:.2f}) at {:.1f} m/s, gravity {:.2f} ({}, "
                     "x{:.2f} of {:.2f}), drag {:.3f}, pierce {} | crosshair point ({:.2f}, {:.2f}, {:.2f}) {:.2f} m "
                     "from the camera ({}) | correction {:.2f} deg | dir ({:.3f}, {:.3f}, {:.3f}) -> ({:.3f}, {:.3f}, "
@@ -2583,7 +2592,7 @@ namespace TPVCamera
                 {
                     const Vec3f &landing = shot.landing;
                     (void)DMK::log().try_log(
-                        DMK::LogLevel::Info,
+                        DMK::LogLevel::Debug,
                         "Ranged SHOT #{} landing: traced at ({:.2f}, {:.2f}, {:.2f}), {:+.3f} m beside the crosshair "
                         "before the turn, {:+.3f} m after a {:.2f} deg turn",
                         flight.serial, landing.x, landing.y, landing.z, shot.landing_lateral_unturned,
@@ -2610,7 +2619,7 @@ namespace TPVCamera
                 }
                 else if (shot.landing_turn_refused)
                 {
-                    (void)DMK::log().try_log(DMK::LogLevel::Info,
+                    (void)DMK::log().try_log(DMK::LogLevel::Debug,
                                              "Ranged SHOT #{} landing: {:+.3f} m beside the crosshair, the turn to "
                                              "bring it in line is beyond MaxAimCorrection",
                                              flight.serial, shot.landing_lateral_unturned);
@@ -2619,7 +2628,7 @@ namespace TPVCamera
             else
             {
                 (void)DMK::log().try_log(
-                    DMK::LogLevel::Info,
+                    DMK::LogLevel::Debug,
                     "Ranged SHOT #{}: {} | {} launched ({:.2f}, {:.2f}, {:.2f}) at {:.1f} m/s, gravity {:.2f} ({}, "
                     "x{:.2f} of {:.2f}) | dir ({:.3f}, {:.3f}, {:.3f}) | projectile {:#x}, thread {}",
                     flight.serial, outcome_text(shot.outcome), ammo_text(shot.ammo), launch.x, launch.y, launch.z,
@@ -2641,7 +2650,7 @@ namespace TPVCamera
                     flown_as = shot.sighted ? " | flown as the first-person shot at the crosshair point"
                                             : " | flown straight at the crosshair point (no first-person eye)";
                 }
-                (void)DMK::log().try_log(DMK::LogLevel::Info,
+                (void)DMK::log().try_log(DMK::LogLevel::Debug,
                                          "Ranged SHOT #{} bow: aimed {:+.3f} deg up and {:+.3f} deg right of the "
                                          "look{}",
                                          flight.serial, DMK::math::radians_to_degrees(std::atan2(dot(bow, up), along)),

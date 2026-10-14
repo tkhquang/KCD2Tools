@@ -1,6 +1,6 @@
 /**
  * @file preset_runtime.cpp
- * @brief Render-thread preset resolver: state -> target preset -> eased apply to live settings.
+ * @brief Main-thread preset resolver: state -> target preset -> eased apply to live settings.
  */
 
 #include "preset_runtime.hpp"
@@ -20,11 +20,11 @@ namespace TPVCamera::Presets
     namespace
     {
 
-        // Written only by compare-exchange (publish_table, republish_picks), read by the render thread via an atomic
+        // Written only by compare-exchange (publish_table, republish_picks), read by the main thread via an atomic
         // shared_ptr load each frame (a spinlock-guarded refcount bump on MSVC, no heap allocation).
         std::atomic<std::shared_ptr<const StateBindingTable>> s_table{nullptr};
 
-        // Render-thread-only transition state (resolve_and_apply / reset_transition run only there).
+        // Main-thread-only transition state (resolve_and_apply / reset_transition run only there).
         CameraPreset s_applied;
         CameraPreset s_stage1; // intermediate state of the 2-stage critically-damped preset blend (see below)
         bool s_have_applied = false;

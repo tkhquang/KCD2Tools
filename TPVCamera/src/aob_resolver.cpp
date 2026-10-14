@@ -396,12 +396,40 @@ namespace TPVCamera
             code_ladder("CRenderViewAddRenderObject", Aob::k_addRenderObjectCandidates, Role::Entry),
             code_ladder("ShaderGenLoad", Aob::k_shaderGenLoadCandidates, Role::Entry),
             code_ladder("ShaderForName", Aob::k_shaderForNameCandidates, Role::Entry),
+            code_ladder("SetSystemGlobalState", Aob::k_setSystemGlobalStateCandidates, Role::Entry),
+            code_ladder("SaveGameLoad", Aob::k_saveGameLoadCandidates, Role::Entry),
+            code_ladder("LoadCGFMaterial", Aob::k_loadCGFMaterialCandidates, Role::Entry),
+            code_ladder("LoadMaterialShader", Aob::k_loadMaterialShaderCandidates, Role::Entry),
+            code_ladder("FlushRTCommands", Aob::k_flushRTCommandsCandidates, Role::Entry),
             code_ladder("AdjustFileName", Aob::k_adjustFileNameCandidates, Role::Entry),
             quorum("PakOpenSlot", k_pak_open_slot_votes, 0, k_vtable_offset_range),
             quorum("PakReadSlot", k_pak_read_slot_votes, 0, k_vtable_offset_range),
             quorum("PakCloseSlot", k_pak_close_slot_votes, 0, k_vtable_offset_range),
             code_ladder("CreatePipelineStates", Aob::k_createPipelineStatesCandidates, Role::Entry),
             code_ladder("DissolveRtBit", Aob::k_dissolveRtBitCandidates, Role::Data),
+            code_ladder("AddOrCreatePersistentRenderObject", Aob::k_addOrCreateRenderObjectCandidates, Role::Entry),
+            code_ladder("GeneratePerViewConstantBuffer", Aob::k_perViewConstantsCandidates, Role::Entry),
+            code_ladder("PerViewConstantUpload", Aob::k_perViewUploadCandidates, Role::CallSite),
+            code_ladder("ResourceLookup", Aob::k_resourceLookupCandidates, Role::Entry),
+            code_ladder("ResourceLock", Aob::k_resourceLockCandidates, Role::Data),
+            code_ladder("ShaderResourceContainer", Aob::k_shaderResourceContainerCandidates, Role::Data),
+            code_ladder("CharacterForwardPsosCall", Aob::k_characterForwardPsosCandidates, Role::CallSite),
+            code_ladder("PlantPrepassPsosCall", Aob::k_plantPrepassPsosCandidates, Role::CallSite),
+            code_ladder("PlantGBufferPsosCall", Aob::k_plantGBufferPsosCandidates, Role::CallSite),
+            code_ladder("VegetationGroups", Aob::k_vegetationGroupsCandidates, Role::Data),
+            code_ladder("LevelBrushTables", Aob::k_levelBrushTablesCandidates, Role::Site),
+#if defined(TPVCAMERA_DEV_BUILD)
+            code_ladder("HardwareShaderForName", Aob::k_hardwareShaderForNameCandidates, Role::Entry),
+            code_ladder("HardwareShaderLockSite", Aob::k_hardwareShaderLockSiteCandidates, Role::Site),
+            code_ladder("TechniqueLayout", Aob::k_techniqueLayoutCandidates, Role::Site),
+            code_ladder("ShaderLayout", Aob::k_shaderLayoutCandidates, Role::Site),
+            code_ladder("ShaderMembers", Aob::k_shaderMembersCandidates, Role::Site),
+            code_ladder("ShaderBinaryCrcs", Aob::k_shaderBinaryCrcsCandidates, Role::Site),
+            code_ladder("ResourceName", Aob::k_resourceNameCandidates, Role::Site),
+            code_ladder("HardwareShaderMembers", Aob::k_hardwareShaderMembersCandidates, Role::Site),
+            code_ladder("HardwareShaderSetup", Aob::k_hardwareShaderSetupCandidates, Role::Site),
+            code_ladder("HardwareShaderCache", Aob::k_hardwareShaderCacheCandidates, Role::Site),
+#endif
         };
         static_assert(std::size(k_anchors) == k_anchor_count, "k_anchors must hold one entry per AnchorId.");
 
@@ -433,13 +461,53 @@ namespace TPVCamera
                                                        AnchorId::AuxSetFlags, AnchorId::AuxDrawLines};
         constexpr AnchorId k_character_fade_anchors[] = {AnchorId::ProxyRender};
         constexpr AnchorId k_shader_twins_anchors[] = {
-            AnchorId::Genv,          AnchorId::AddRenderObject, AnchorId::ShaderGenLoad,
-            AnchorId::ShaderForName, AnchorId::AdjustFileName,  AnchorId::PakOpenSlot,
-            AnchorId::PakReadSlot,   AnchorId::PakCloseSlot,    AnchorId::CreatePsos,
+            AnchorId::Genv,
+            AnchorId::AddRenderObject,
+            AnchorId::ShaderGenLoad,
+            AnchorId::ShaderForName,
+            AnchorId::AdjustFileName,
+            AnchorId::PakOpenSlot,
+            AnchorId::PakReadSlot,
+            AnchorId::PakCloseSlot,
+            AnchorId::CreatePsos,
+            AnchorId::SetSystemGlobalState,
+            AnchorId::SaveGameLoad,
+            AnchorId::LoadCGFMaterial,
+            AnchorId::LoadMaterialShader,
+            AnchorId::FlushRTCommands,
         };
         // The dissolve's RT-mask bit, apart from the twins: without it the character twins' fading sets are still
         // built ahead, with the dissolve in their flags only (the stages add the bit from the flags).
         constexpr AnchorId k_fade_warmup_rt_bit_anchors[] = {AnchorId::DissolveRtBit};
+        constexpr AnchorId k_occluder_fade_anchors[] = {AnchorId::AddOrCreateRO};
+        // The tree see-through's window rows, apart from the twins too, so a patch to the per-view constants turns off
+        // only the trees and the character's twins go on.
+        constexpr AnchorId k_tree_hole_window_anchors[] = {AnchorId::PerViewConstants, AnchorId::PerViewUpload};
+        constexpr AnchorId k_shader_twin_recovery_anchors[] = {AnchorId::ResourceLookup, AnchorId::ResourceLock,
+                                                               AnchorId::ShaderResourceContainer};
+        constexpr AnchorId k_character_forward_psos_anchors[] = {AnchorId::CreatePsos,
+                                                                 AnchorId::CharacterForwardPsosCall};
+        constexpr AnchorId k_plant_drawn_psos_anchors[] = {AnchorId::CreatePsos, AnchorId::PlantPrepassPsosCall,
+                                                           AnchorId::PlantGBufferPsosCall};
+        // The level inventory, apart from the twins: a patch that moves the level tables turns off only the inventory,
+        // and the twins go on from the material loads they capture.
+        constexpr AnchorId k_twin_inventory_anchors[] = {AnchorId::Genv, AnchorId::VegetationGroups,
+                                                         AnchorId::LevelBrushTables};
+#if defined(TPVCAMERA_DEV_BUILD)
+        constexpr AnchorId k_vertex_shader_reuse_anchors[] = {
+            AnchorId::HardwareShaderForName,
+            AnchorId::HardwareShaderLockSite,
+            AnchorId::ResourceLookup,
+        };
+        // The DEV twin clone's dry-run reads CShader, SShaderTechnique, CBaseResource and CHWShader_D3D fields only
+        // where every one of their layouts is proven, HW shader token maps only under the factory's own lock, and
+        // looks the factory's objects up by name. The proofs pin layouts, not a build (aob_resolver.hpp).
+        constexpr AnchorId k_twin_clone_dry_run_anchors[] = {
+            AnchorId::TechniqueLayout,        AnchorId::ShaderLayout,        AnchorId::ShaderMembers,
+            AnchorId::ShaderBinaryCrcs,       AnchorId::ResourceName,        AnchorId::HardwareShaderMembers,
+            AnchorId::HardwareShaderSetup,    AnchorId::HardwareShaderCache, AnchorId::HardwareShaderForName,
+            AnchorId::HardwareShaderLockSite, AnchorId::ResourceLookup};
+#endif
 
         /// One feature gate: its log name and the anchors it depends on.
         struct FeatureSpec
@@ -472,9 +540,19 @@ namespace TPVCamera
             {"CharacterFade", k_character_fade_anchors},
             {"ShaderTwins", k_shader_twins_anchors},
             {"FadeWarmupRtBit", k_fade_warmup_rt_bit_anchors},
+            {"OccluderFade", k_occluder_fade_anchors},
+            {"TreeHoleWindow", k_tree_hole_window_anchors},
+            {"ShaderTwinRecovery", k_shader_twin_recovery_anchors},
+            {"CharacterForwardPsos", k_character_forward_psos_anchors},
+            {"PlantDrawnPsos", k_plant_drawn_psos_anchors},
+            {"TwinInventory", k_twin_inventory_anchors},
+#if defined(TPVCAMERA_DEV_BUILD)
+            {"VertexShaderReuse", k_vertex_shader_reuse_anchors},
+            {"TwinCloneDryRun", k_twin_clone_dry_run_anchors},
+#endif
         }};
 
-        constexpr std::size_t k_max_feature_anchors = 9;
+        constexpr std::size_t k_max_feature_anchors = 14;
         static_assert(std::ranges::all_of(k_features,
                                           [](const FeatureSpec &spec)
                                           {
@@ -485,13 +563,34 @@ namespace TPVCamera
 
         // The hooked anchors: a repaired signature for one of them authorizes a code write.
         constexpr AnchorId k_hooked_anchors[] = {
-            AnchorId::Frustum,          AnchorId::HeadVisibility,      AnchorId::InputDispatch,
-            AnchorId::ActionDispatch,   AnchorId::InteractionRayBuild, AnchorId::InteractorCandidates,
-            AnchorId::OverlayHide,      AnchorId::OverlayShow,         AnchorId::MenuOpen,
-            AnchorId::MenuClose,        AnchorId::PhysEntMovement,     AnchorId::FireProjectile,
-            AnchorId::ProjectileLaunch, AnchorId::ArrowCollision,      AnchorId::SegmentBoxPoint,
-            AnchorId::ProxyRender,      AnchorId::AddRenderObject,     AnchorId::ShaderGenLoad,
+            AnchorId::Frustum,
+            AnchorId::HeadVisibility,
+            AnchorId::InputDispatch,
+            AnchorId::ActionDispatch,
+            AnchorId::InteractionRayBuild,
+            AnchorId::InteractorCandidates,
+            AnchorId::OverlayHide,
+            AnchorId::OverlayShow,
+            AnchorId::MenuOpen,
+            AnchorId::MenuClose,
+            AnchorId::PhysEntMovement,
+            AnchorId::FireProjectile,
+            AnchorId::ProjectileLaunch,
+            AnchorId::ArrowCollision,
+            AnchorId::SegmentBoxPoint,
+            AnchorId::ProxyRender,
+            AnchorId::AddRenderObject,
+            AnchorId::ShaderGenLoad,
             AnchorId::CreatePsos,
+            AnchorId::SetSystemGlobalState,
+            AnchorId::SaveGameLoad,
+            AnchorId::LoadCGFMaterial,
+            AnchorId::LoadMaterialShader,
+            AnchorId::AddOrCreateRO,
+            AnchorId::PerViewUpload,
+#if defined(TPVCAMERA_DEV_BUILD)
+            AnchorId::HardwareShaderForName,
+#endif
         };
 
         // Room after the startup pass for the function-scoped anchors resolve_turn_decision_layout() (six) and
@@ -1118,6 +1217,29 @@ namespace TPVCamera
                         "C8 41 FF D0",
                         event_id));
         return dispatch.has_value() && DMK::scan::scan(*dispatch, bounds->fragment, 1, Pages::Executable).has_value();
+    }
+
+    bool site_in_function(std::uintptr_t site, std::uintptr_t entry) noexcept
+    {
+        if (site == 0 || entry == 0 || !s_image_range.contains(DMK::Address{site}))
+        {
+            return false;
+        }
+        const std::optional<FunctionBounds> bounds = function_bounds(site);
+        return bounds && bounds->fragment.contains(DMK::Address{site}) && bounds->entry.base.raw() == entry;
+    }
+
+    bool keeps_pipeline_in_r13(std::uintptr_t per_view)
+    {
+        const std::optional<FunctionBounds> bounds = function_bounds(per_view);
+        if (!bounds || !s_image_range.contains(DMK::Address{per_view}) || bounds->entry.base.raw() != per_view)
+        {
+            return false;
+        }
+        // `mov r13, rcx; jz; cmp qword [r9], 0; jz; mov r15, [rcx+1978h]`, the tail of PerViewConstants_P2.
+        const DMK::Result<DMK::scan::Pattern> shape = DMK::scan::Pattern::compile(
+            "4C 8B E9 0F 84 ?? ?? ?? ?? 49 83 39 00 0F 84 ?? ?? ?? ?? 4C 8B B9 78 19 00 00");
+        return shape.has_value() && DMK::scan::scan(*shape, bounds->entry, 1, Pages::Executable).has_value();
     }
 
     std::span<const ResolvedAnchor> anchor_report() noexcept

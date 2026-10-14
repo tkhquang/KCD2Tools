@@ -17,7 +17,7 @@
 
 // Resolved base address of the game's global context. Kept as a stable unmangled symbol (rather than
 // namespaced state) so it can be located from external tooling such as Cheat Engine or x64dbg during
-// reverse-engineering. Atomic because the render thread reads it (the camera/minigame chain walks in
+// reverse-engineering. Atomic because the main thread reads it (the camera/minigame chain walks in
 // game_state.cpp) while shutdown nulls it on the bootstrap thread before the hooks are removed; relaxed
 // is sufficient (a standalone pointer, no dependent data published through it, and each chain walk
 // independently validates the value it reads). std::atomic<std::byte *> is lock-free and layout-identical
@@ -67,13 +67,13 @@ namespace TPVCamera
         // writer. The flag guards no other data, so relaxed order is enough on both sides.
         std::atomic<bool> zoom_reset_requested{false};
 
-        // First-person <-> third-person view-switch blend (render thread only): 0 = first person,
+        // First-person <-> third-person view-switch blend (main thread only): 0 = first person,
         // 1 = third person. Eased toward the target view each frame (smoothstepped at use) so toggling
         // and UI suppression slide instead of snapping. NOT reset on suppression - it eases back to 0.
         float view_blend{0.0f};
 
         // Camera-collision carry-over, touched only by the frustum-builder detour (the game's
-        // render thread), so it needs no synchronization. The allowed follow distance after the
+        // main thread), so it needs no synchronization. The allowed follow distance after the
         // collision raycast, eased so the view pulls in instantly but returns out smoothly.
         // collision_desired is the uncollided distance that frame, so the shortfall left by an
         // obstruction can ease out while the desired distance itself moves (a zoom).
@@ -89,13 +89,13 @@ namespace TPVCamera
         // every frame): a probe that grazes an edge and misses it the next frame, or an arm swung fast through
         // clutter, keeps the camera in instead of letting it ease out and snap back in.
         float collision_hold_timer{0.0f};
-        // First-person fallback (render thread only): set while the camera arm is shorter than HeadClearance, so the
+        // First-person fallback (main thread only): set while the camera arm is shorter than HeadClearance, so the
         // camera would sit inside the player's head; head_fallback_blend eases the camera from the collided position
         // onto the eye (1 = at the eye) and back. The head is hidden while it is set (see the head-visibility detour).
         bool head_fallback{false};
         float head_fallback_blend{0.0f};
 
-        // Free-look base (render thread only, like the fields above). While orbit_base_held the orbit turns a held
+        // Free-look base (main thread only, like the fields above). While orbit_base_held the orbit turns a held
         // base, the follow rig for the look pitch orbit_base_pitch (radians), instead of the live follow pose.
         // orbit_base_offset is the held pitch less the look's; it decays to 0 as free-look eases back after it turns
         // off, and the hold ends once it has. Cleared on suppression unless a situation holds free-look off.
@@ -103,7 +103,7 @@ namespace TPVCamera
         float orbit_base_pitch{0.0f};
         float orbit_base_offset{0.0f};
 
-        // Camera-relative movement (render thread only). orbit_moving latches whether the character was
+        // Camera-relative movement (main thread only). orbit_moving latches whether the character was
         // moving last frame so the heading is aligned to the camera ONCE on the idle -> moving edge, not
         // re-aligned every frame. The move signal is the device-agnostic action-input magnitude (the
         // action dispatcher, via player_onaction_hook), captured the instant a key is pressed - not
@@ -120,7 +120,7 @@ namespace TPVCamera
         // and the body turns UNDER it: the rig's orbit angle is derived as
         // (orbit_target_yaw + (orbit_yaw - this) - char_forward_yaw), so on the capture frame it equals the
         // pre-move orbit (no snap) and eases to the user's residual orbit as the body rotates to the
-        // heading - the camera never pops. Render-thread only.
+        // heading - the camera never pops. Main-thread only.
         float orbit_yaw_at_capture_deg{0.0f};
 
         // Free-look orbit. While orbit_active (the orbit key is toggled on), the input
@@ -128,11 +128,11 @@ namespace TPVCamera
         // and blocks the look events so the player aim stays put; the render hook circles
         // the camera around the player by those angles. On release the angles ease back to
         // the configured initial yaw/pitch. orbit_active is written by the input poll thread
-        // and read by the render thread, the angles by both, so all are atomic.
+        // and read by the main thread, the angles by both, so all are atomic.
         std::atomic<bool> orbit_active{false};
         std::atomic<float> orbit_yaw{0.0f};
         std::atomic<float> orbit_pitch{0.0f};
-        // The allowed range of orbit_pitch this frame (degrees), published by the render thread while free-look is on
+        // The allowed range of orbit_pitch this frame (degrees), published by the main thread while free-look is on
         // so OrbitPitchMin / OrbitPitchMax stay measured from level whatever pitch the held base has, and the camera
         // never goes past what the rig can show.
         std::atomic<float> orbit_pitch_lo{-90.0f};
@@ -143,11 +143,11 @@ namespace TPVCamera
         // reports a HELD position, so it is latched here and integrated by rate (with delta_time) in the
         // render hook - holding the stick keeps orbiting, frame-rate independent. Cleared to 0 when not
         // orbiting so re-engaging with the stick centred does not jump. Written on the input thread, read
-        // (and cleared) on the render thread; relaxed atomics (a one-frame-stale deflection is harmless).
+        // (and cleared) on the main thread; relaxed atomics (a one-frame-stale deflection is harmless).
         std::atomic<float> orbit_pad_yaw{0.0f};
         std::atomic<float> orbit_pad_pitch{0.0f};
 
-        // Orbit angle low-pass (render thread only). The rendered orbit yaw/pitch (degrees) ease toward
+        // Orbit angle low-pass (main thread only). The rendered orbit yaw/pitch (degrees) ease toward
         // the raw accumulated orbit_yaw/orbit_pitch target each frame, so free-look is not as jittery as
         // the raw per-frame mouse deltas: the engine smooths native look DOWNSTREAM of the input dispatch
         // the orbit hook captures and blocks, so without this filter the orbit gets unsmoothed input.
@@ -157,7 +157,7 @@ namespace TPVCamera
         float orbit_pitch_render{0.0f};
         bool orbit_render_valid{false};
 
-        // Continuous-align (GTA) steering low-pass (render thread only). In continuous-align mode the
+        // Continuous-align (GTA) steering low-pass (main thread only). In continuous-align mode the
         // camera follows the body/look heading (the derived rig angle cancels to ~0), so the user's
         // orbit-since-capture STEERS the run rather than orbiting the rig. This is that steering angle
         // (degrees) low-passed toward the raw input, fed to BOTH the body/look heading and the rig
@@ -168,7 +168,7 @@ namespace TPVCamera
 
         bool orbit_steer_valid{false};
 
-        // Orbit move-detection re-arm latch (render thread only). A genuine sub-stop movement-input reading must
+        // Orbit move-detection re-arm latch (main thread only). A genuine sub-stop movement-input reading must
         // be observed since orbit engaged, or the game's own move input must show the movement too, before a
         // move-start is honored, so a stranded input latch (a held-move release swallowed on a combat action-map
         // swap) cannot re-trip the body-turn with the keys released. Cleared when orbit disengages, so re-engaging
@@ -180,7 +180,7 @@ namespace TPVCamera
         bool orbit_move_armed_by_game{false};
         float orbit_move_game_idle{0.0f};
 
-        // Dynamic eye-height sync (render thread only). When DynamicEyeSync is on, eye_sync_applied is the
+        // Dynamic eye-height sync (main thread only). When DynamicEyeSync is on, eye_sync_applied is the
         // eased effective eye height: it re-anchors to the REAL first-person eye when a low pose (kneel /
         // pray, and other poses EyeHeight does not model) drops it OUT of range of the configured height,
         // where a fixed height floats the camera too high. eye_sync_valid is cleared on suppression so the
@@ -196,7 +196,7 @@ namespace TPVCamera
         std::atomic<bool> eye_sync_engaged{false};
         std::atomic<float> eye_sync_effective{0.0f};
 
-        // Per-preset FOV override ease (render thread only). fov_ease_applied is the eased rendered FOV
+        // Per-preset FOV override ease (main thread only). fov_ease_applied is the eased rendered FOV
         // (radians) written into the render CCamera; fov_ease_stage1 is the 2-stage critically-damped
         // intermediate. fov_ease_valid is cleared on suppression (and is false on first engage) so the next
         // engaged frame SNAPS to the desired FOV instead of easing across the first-person gap, matching the
@@ -205,7 +205,7 @@ namespace TPVCamera
         float fov_ease_applied{0.0f};
         bool fov_ease_valid{false};
 
-        // Aim-basis low-pass (render thread only). The third-person rig basis quaternion (XYZW), low-passed
+        // Aim-basis low-pass (main thread only). The third-person rig basis quaternion (XYZW), low-passed
         // toward the per-frame target (the look-controller aim quat under StableAimBasis, else the eye quat)
         // when AimBasisSmoothing is on, so engine-driven view rotation - which the follow distance amplifies
         // into a camera-position swing - is damped. basis_quat_valid is cleared on suppression (and is false
@@ -217,7 +217,7 @@ namespace TPVCamera
         float basis_quat_w{1.0f};
         bool basis_quat_valid{false};
 
-        // Turn-in-place pivot hold (render thread only). A native turn-in-place animation steps the body a little
+        // Turn-in-place pivot hold (main thread only). A native turn-in-place animation steps the body a little
         // (its root motion moves the entity 5-20 cm), and the pivot follows the entity origin, so without this the
         // camera shifts with every turn whose steps were not kept in place. turn_hold_x/y is the horizontal
         // displacement the body made while turning in place. It is subtracted from the body origin so the pivot stays
@@ -235,7 +235,7 @@ namespace TPVCamera
         float turn_track_step{0.0f};
         bool turn_track_valid{false};
 
-        // Orbit-exclude policy and aim hand-off (render thread only, except orbit_hold_released). orbit_suspended is
+        // Orbit-exclude policy and aim hand-off (main thread only, except orbit_hold_released). orbit_suspended is
         // true while the policy holds free-look off and will restore it. orbit_hold_released is posted by the
         // OrbitHoldKey release on the input thread before it turns free-look off, consumed by the policy's restore,
         // and cleared by every engage (see apply_orbit_exclude_policy). aim_handoff_requested is raised by the frustum
@@ -344,7 +344,7 @@ namespace TPVCamera
 
     /**
      * @brief Returns the current debounced game-state mask (GameState bits, see game_state.hpp).
-     * @details Written once per frame by the camera detour (render thread) and read by the input
+     * @details Written once per frame by the camera detour (main thread) and read by the input
      *          dispatch thread for the orbit-exclude gate, so it is atomic for a race-free read.
      */
     [[nodiscard]] std::atomic<uint32_t> &game_state_mask() noexcept;
@@ -354,7 +354,7 @@ namespace TPVCamera
      * @details Lets the overlay defer its size-sensitive setup (offscreen surface + DPI font scale)
      *          until the game is actually in gameplay - when the window is at its final resolution -
      *          instead of snapshotting the transient loading-window size. Set by the camera detour
-     *          (render thread), read by the overlay thread.
+     *          (main thread), read by the overlay thread.
      */
     [[nodiscard]] std::atomic<bool> &game_world_ready() noexcept;
 

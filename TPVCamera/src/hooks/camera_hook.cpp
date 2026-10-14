@@ -28,6 +28,7 @@
 #include "aob_resolver.hpp"
 #include "character_attachments.hpp"
 #include "constants.hpp"
+#include "dev/hook_profile.hpp"
 #include "config.hpp"
 #include "global_state.hpp"
 #include "game_state.hpp"
@@ -38,6 +39,7 @@
 #include "render_occlusion.hpp"
 #include "hooks/ranged_hook.hpp"
 #include "hooks/character_fade.hpp"
+#include "hooks/occluder_fade.hpp"
 #include "hooks/shader_twins.hpp"
 #include "hooks/ui_menu_hooks.hpp"
 #include "hooks/player_onaction_hook.hpp"
@@ -53,9 +55,11 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <array>
 
@@ -71,8 +75,14 @@ namespace TPVCamera
     // cache both compare against it, so a reused result takes the same branch as the frame that computed it.
     constexpr float k_collision_clear_slack = 1e-4f;
 
-    // The least gap kept between the camera and the surface that stopped it while the camera pulls in (meters): the
-    // game's own near clip distance. A pull-in that lags its target never puts the lens on or past that surface.
+    // After a recompute met a surface the camera does not ease back out at all for this long (seconds, drained on every
+    // frame): a probe that grazes an edge and misses it the next frame, or an arm swung fast through clutter, keeps the
+    // camera in instead of letting it ease out and snap back in.
+    constexpr float k_collision_hold_seconds = 0.3f;
+
+    // The least gap kept between the camera and a surface (meters): the game's own near clip distance. A pull-in that
+    // lags its target never puts the lens on or past the surface that stopped it, and the lens near plane (see
+    // k_lens_near_max) is held this far short of the ground or a building.
     constexpr float k_lens_near_margin = 0.05f;
 
     /**
@@ -165,93 +175,566 @@ namespace TPVCamera
     constexpr float k_close_fade_faded_head_hide_on = 0.95f;
     constexpr float k_close_fade_faded_head_hide_off = 0.9f;
 
-    // Fraction (0..1) of the character that the hit collider hides, with a per-collider cache so a solid the
-    // camera moves along is not re-measured every frame. Pipeline: a cheap footprint pre-check (a building-scale
-    // collider always occludes, so collide without rasterizing its often-compound mesh), else the visible-mesh
-    // raster (render_coverage_of_brush / render_coverage_at), else a physics-ray fallback for a compound the
-    // render mesh cannot see through. Returns < 0 (collide) for an unmeasurable solid, 0..1 otherwise. A COLLIDE
-    // verdict (< 0 or >= cov_thresh) is cached and reused FREELY on later frames: a wall / shed stays solid as the
-    // camera slides along it, colliding is the safe direction, and re-running the octree + raster every frame is
-    // the dominant moving cost in dense scenes. A SKIP verdict (a thin prop the body is visible past) is reused
-    // only within proximity of the cached hit, so a prop's low coverage never leaks across a big shared collider
-    // onto a bare wall (which would clip) and a moving camera re-measures it. Single render-thread caller, so the
-    // static cache is race-free.
-    static float measure_collider_coverage(uintptr_t collider, const Vector3 &hit_point, const Vector3 &pivot,
-                                           const Vector3 &desired_cam, const Vector3 &to_camera, float cov_thresh)
+    // Where the occluder fade aims the hip sightline: this far above the feet when the body is known, else this far
+    // below the eye. The head and a chest point between the two complete the three sightlines.
+    constexpr float k_fade_hip_height = 0.9f;
+    constexpr float k_fade_hip_drop = 0.75f;
+    // The lens near plane: in third person the near clip plane is pushed out to k_lens_near_max, so a leaf, a branch
+    // or the corner of a prop right at the lens is cut away pixel by pixel instead of filling the view (fading a whole
+    // tree for one leaf would be worse). It is held k_lens_near_margin short of the ground or a building, so the
+    // camera never sees through a wall, and k_lens_near_character_margin short of the character's head. A nearer
+    // clearance is taken at once, a farther one followed at k_lens_near_rate (1/s).
+    constexpr float k_lens_near_max = 0.4f;
+    constexpr float k_lens_near_character_margin = 0.35f;
+    constexpr float k_lens_near_rate = 8.0f;
+    // The fade's sightline set is refreshed at most this often (seconds), or once the camera moved this far (meters).
+    constexpr float k_fade_sightline_period = 1.0f / 15.0f;
+    constexpr float k_fade_sightline_move = 0.3f;
+    // The tree see-through window (see run_tree_see_through). The height above the window's floor over which the cut
+    // fades in (meters). The floor is TreeSeeThroughStartHeight of the character's height above his feet, his hips by
+    // default: grass, a bush or a trunk that hides only his feet and legs is how a person standing in a field looks, so
+    // nothing below the hips opens: with the camera up, the plants in front of his legs meet his plane below the floor
+    // and stay; with the camera down in the grass, the blades between the lens and him meet his plane at his chest and
+    // head, inside the window, and open.
+    constexpr float k_tree_hole_floor_feather = 0.25f;
+    // Half the character's width at the shoulders and the top of the head above the eye (meters); the character's
+    // height when the body is unknown, and the least height the window takes (lying down); half the character's depth
+    // (meters, his back and a shield or cloak on it) and the steepest view slope (rise over run) it is counted for,
+    // since a camera looking down sees his back meet the window's plane higher than it stands and his toes lower; the
+    // margin kept around the character, inside the fully open part of the window (the dithered rim lies outside it);
+    // how many frames of the character's travel the window grows by, since the renderer draws the frame before the
+    // camera's and a window that did not grow would trail a galloping rider; the fastest travel that counts (m/s, a
+    // faster step is a teleport or a load) and the rate (1/s) the travel speed is smoothed at; the seconds the window
+    // takes to open or close; and the least distance across the ground (meters) from the camera to the character's
+    // centre, below which the camera looks straight down at him and there is no plane to open a window on.
+    constexpr float k_tree_hole_half_width = 0.4f;
+    constexpr float k_tree_hole_head_above_eye = 0.15f;
+    constexpr float k_tree_hole_default_height = 1.85f;
+    constexpr float k_tree_hole_min_height = 0.6f;
+    constexpr float k_tree_hole_half_depth = 0.25f;
+    constexpr float k_tree_hole_max_slope = 2.0f;
+    constexpr float k_tree_hole_margin = 0.15f;
+    constexpr float k_tree_hole_lead_frames = 2.0f;
+    constexpr float k_tree_hole_max_speed = 20.0f;
+    constexpr float k_tree_hole_speed_rate = 8.0f;
+    constexpr float k_tree_hole_ramp_seconds = 0.2f;
+    constexpr float k_tree_hole_min_reach = 0.1f;
+    // The near cut (see run_tree_see_through): the swapped plants and bare frames lose every pixel nearer to the lens
+    // than k_near_cut_full (view depth, meters) and fade back in up to k_near_cut_clear, so a branch or a beam right in
+    // front of the lens thins away while the rest of it stays. A frame is listed while its box comes within
+    // k_near_cut_list_reach of the camera, farther than the cut reaches, so it is swapped before a beam of it gets
+    // there; at most k_near_cut_max_frames are.
+    constexpr float k_near_cut_full = 0.6f;
+    constexpr float k_near_cut_clear = 1.2f;
+    constexpr float k_near_cut_list_reach = 2.0f;
+    constexpr int k_near_cut_max_frames = 8;
+
+    /** @brief A render node the camera fades this frame, how it was found, and whether the camera is in it. */
+    struct FadeEntry
     {
-        constexpr int k_cov_cache = 8;
-        constexpr float k_cov_reuse_dist2 = 0.5f * 0.5f;
-        static uintptr_t s_cov_col[k_cov_cache] = {};
-        static float s_cov_val[k_cov_cache] = {};
-        static float s_cov_hx[k_cov_cache] = {};
-        static float s_cov_hy[k_cov_cache] = {};
-        static float s_cov_hz[k_cov_cache] = {};
+        void *node = nullptr;
+        char source = '?';   // 'a' a prop the arm stepped past, 's' on a sightline
+        bool buried = false; // the sightline test found the camera buried in it (a prop or a bush)
+        bool inside = false; // the arm walk found the camera inside its physics
+    };
 
-        int slot = -1, free_slot = -1;
-        for (int k = 0; k < k_cov_cache; ++k)
+    // Set when the camera leaves third person: the next third-person frame drops the fade lists it kept, so nothing
+    // from before the gap is faded again. Main thread only (the camera detour).
+    static bool s_fade_cache_stale = false;
+
+    // The render nodes of the character and of what it carries (what is bound to its attachments, a bow's nocked
+    // arrow included), walked every third-person frame while CloseUpFade, UseOccluderFade or collision is on, and
+    // empty otherwise. The occluder scan classes them as the character (set_occluder_player_nodes), so the camera
+    // passes through what he carries, and the close-up fade dissolves the carried ones with him. Main thread only (the
+    // camera detour).
+    static CharacterNodes s_character_nodes{};
+
+    /** @brief One hit the camera walk met along the arm, for the walk trace. */
+    struct WalkStep
+    {
+        uintptr_t collider = 0;
+        void *node = nullptr; // the scanned render node it matched, or nullptr
+        float distance = 0.0f;
+        OccluderClass cls = OccluderClass::Structure;
+        // 'p' stepped past, 'c' the collision, 't' terrain, 'r' re-hit and walked past, 'x' re-hit too often, 'u' a
+        // structure's collision with nothing drawn there, walked past
+        char what = '?';
+    };
+
+    /**
+     * @brief The file name of @p node's mesh, for the log: render_node_name() into @p path, then the part after its
+     *        last slash, or "?" when the path is empty.
+     */
+    static const char *mesh_file_name(void *node, char (&path)[160]) noexcept
+    {
+        render_node_name(node, path, static_cast<int>(sizeof(path)));
+        const char *base = path;
+        for (const char *p = path; *p != '\0'; ++p)
         {
-            if (collider != 0 && s_cov_col[k] == collider)
+            if (*p == '/' || *p == '\\')
             {
-                slot = k;
-                break;
-            }
-            if (s_cov_col[k] == 0)
-            {
-                free_slot = k;
+                base = p + 1;
             }
         }
-        if (slot >= 0)
+        return *base != '\0' ? base : "?";
+    }
+
+    // Logs the camera walk at Trace when the colliders it met or what it did with them change: each hit's object,
+    // class and distance along the arm, so a wrong stop or a wrong pass is identifiable from the log. Main thread only.
+    // A failed allocation drops the line, so it never leaves the camera frame as an exception.
+    static void log_walk_change(std::span<const WalkStep> steps, float desired_distance) noexcept
+    {
+        static std::array<WalkStep, 8> s_last{};
+        static std::size_t s_last_count = 0;
+        const std::size_t n = std::min(steps.size(), s_last.size());
+        const auto same = [](const WalkStep &a, const WalkStep &b)
+        { return a.collider == b.collider && a.what == b.what; };
+        if (n == s_last_count &&
+            std::equal(steps.begin(), steps.begin() + static_cast<std::ptrdiff_t>(n), s_last.begin(), same))
         {
-            const float cached = s_cov_val[slot];
-            if (cached < 0.0f || cached >= cov_thresh)
+            return;
+        }
+        std::copy_n(steps.begin(), n, s_last.begin());
+        s_last_count = n;
+        if (!DMK::log().is_enabled(DMK::LogLevel::Trace))
+        {
+            return;
+        }
+        try
+        {
+            std::string text;
+            for (std::size_t i = 0; i < n; ++i)
             {
-                return cached; // cached COLLIDE verdict: reuse freely (solid stays solid as the camera moves)
+                const WalkStep &s = steps[i];
+                char path[160];
+                const char *name = mesh_file_name(s.node, path);
+                text += std::format("{}{} {}({}) at {:.2f}", i == 0 ? "" : ", ", s.what,
+                                    s.node != nullptr ? name : "unmatched",
+                                    s.node != nullptr ? occluder_class_name(s.cls) : "-", s.distance);
             }
-            const float dx = hit_point.x - s_cov_hx[slot], dy = hit_point.y - s_cov_hy[slot],
-                        dz = hit_point.z - s_cov_hz[slot];
-            if (dx * dx + dy * dy + dz * dz < k_cov_reuse_dist2)
+            (void)DMK::log().try_log(DMK::LogLevel::Trace, "Camera walk of {:.2f} m: {}", desired_distance,
+                                     n == 0 ? std::string{"open"} : text);
+        }
+        catch (...)
+        {
+        }
+    }
+
+    /**
+     * @brief The nine rays from @p eye across the near end of the view (its centre, edge midpoints and corners), each
+     *        @p reach meters of view depth long.
+     * @param tan_half_width Tangent of half the horizontal FOV.
+     * @param tan_half_height Tangent of half the vertical FOV.
+     */
+    static void lens_rays(const Vector3 &eye, const Vector3 &right, const Vector3 &forward, const Vector3 &up,
+                          float tan_half_width, float tan_half_height, float reach, Sightline (&rays)[9])
+    {
+        int n = 0;
+        for (int sx = -1; sx <= 1; ++sx)
+        {
+            for (int sz = -1; sz <= 1; ++sz)
             {
-                return cached; // cached SKIP verdict: reuse only near the cached hit (no leak across a collider)
+                const Vector3 dir = forward + right * (static_cast<float>(sx) * tan_half_width) +
+                                    up * (static_cast<float>(sz) * tan_half_height);
+                rays[n++] = {eye, eye + dir * reach};
             }
+        }
+    }
+
+    /**
+     * @brief The view depth of the nearest surface within @p reach meters of the camera that the near clip plane must
+     *        not cut: the ground, a structure (its physics or its drawn mesh), or anything that matches no scanned
+     *        node.
+     * @details Tested along lens_rays(). A prop, a frame or a plant met on a ray is walked past: cutting those at the
+     *          lens is the point. So is a structure's collision where it draws nothing (structure_drawn_on()). Main
+     *          thread only (uses the occluder scan).
+     * @return The depth, or @p reach when nothing is that close.
+     */
+    static float lens_clearance(const Sightline (&rays)[9], float reach)
+    {
+        float nearest = reach;
+        for (const Sightline &ray : rays)
+        {
+            // A hit's view depth is its distance along the ray over the ray's length per meter of view depth.
+            const Vector3 span = ray.to - ray.from;
+            const float length = span.magnitude();
+            const float dir_length = length / reach;
+            const Vector3 unit = span / length;
+            float walked = 0.0f;
+            for (int step = 0; step < 4 && walked < length; ++step)
+            {
+                const std::optional<RayHit> h = ray_world_intersection(
+                    ray.from + unit * walked, unit * (length - walked), Constants::RWI_OBJTYPES_CAMERA,
+                    Constants::RWI_FLAGS_STOP_AT_SOLID, nullptr, 0);
+                if (!h.has_value())
+                {
+                    break;
+                }
+                const float along = walked + h->m_distance;
+                OccluderClass cls = OccluderClass::Structure;
+                void *node = (h->m_terrain == 0 && h->m_collider != 0) ? occluder_node_for_collider(h->m_collider, &cls)
+                                                                       : nullptr;
+                const Sightline at_hit{ray.from + unit * (along - Constants::COLLISION_DRAWN_REACH),
+                                       ray.from + unit * (along + Constants::COLLISION_DRAWN_REACH)};
+                if (node != nullptr && cls == OccluderClass::Structure && !structure_drawn_on(node, &at_hit, 1))
+                {
+                    walked = along + 0.02f;
+                    continue;
+                }
+                if (node == nullptr || cls == OccluderClass::Structure)
+                {
+                    nearest = std::min(nearest, along / dir_length);
+                    break;
+                }
+                walked = along + 0.02f;
+            }
+        }
+        const float drawn = structure_on_arm(rays, 9, 1, nearest / reach, nullptr);
+        if (drawn <= 1.0f)
+        {
+            nearest = std::min(nearest, drawn * reach);
+        }
+        return nearest;
+    }
+
+    // Logs the fade set at Debug when it changes, naming each object with how it was found ([a] stepped past by the
+    // arm, [s] on a sightline; ! the camera inside its physics, + the camera buried in its mesh), so a wrong fade is
+    // identifiable from the log without live debugging. Main thread only (the camera frame). A failed allocation drops
+    // the line.
+    static void log_fade_set_change(std::span<const FadeEntry> entries) noexcept
+    {
+        static std::array<FadeEntry, Constants::OCCLUDER_FADE_MAX_NODES> s_last{};
+        static std::size_t s_last_count = 0;
+        const std::size_t n = std::min(entries.size(), s_last.size());
+        const auto same = [](const FadeEntry &a, const FadeEntry &b)
+        { return a.node == b.node && a.source == b.source && a.buried == b.buried && a.inside == b.inside; };
+        if (n == s_last_count &&
+            std::equal(entries.begin(), entries.begin() + static_cast<std::ptrdiff_t>(n), s_last.begin(), same))
+        {
+            return;
+        }
+        std::copy_n(entries.begin(), n, s_last.begin());
+        s_last_count = n;
+        if (!DMK::log().is_enabled(DMK::LogLevel::Debug))
+        {
+            return;
+        }
+        try
+        {
+            std::string text;
+            for (std::size_t i = 0; i < n; ++i)
+            {
+                char path[160];
+                text += (i == 0) ? "" : ", ";
+                text += mesh_file_name(entries[i].node, path);
+                text += '[';
+                text += entries[i].source;
+                text += entries[i].inside ? "!" : "";
+                text += entries[i].buried ? "+]" : "]";
+            }
+            (void)DMK::log().try_log(DMK::LogLevel::Debug, "OccluderFade set ({}): {}", n, text);
+        }
+        catch (...)
+        {
+        }
+    }
+
+    // The tree see-through on the main thread (the camera detour): how far the window is open (0 shut .. 1 open), the
+    // character's smoothed travel speed (m/s), and whether the window was last asked to be open, for the log.
+    static float s_tree_hole_open = 0.0f;
+    static float s_tree_hole_speed = 0.0f;
+    static bool s_tree_hole_wanted = false;
+
+    /** @brief The nodes a list last held, so its log line comes only when the list changes. */
+    struct ListedNodes
+    {
+        std::array<void *, Constants::TREE_HOLE_MAX_NODES> last{};
+        std::size_t count = 0;
+
+        /** @brief Keeps @p nodes as the latest list; true when they differ from the ones before. */
+        bool changed(std::span<void *const> nodes) noexcept
+        {
+            const std::size_t n = std::min(nodes.size(), last.size());
+            if (n == count && std::equal(nodes.begin(), nodes.begin() + static_cast<std::ptrdiff_t>(n), last.begin()))
+            {
+                return false;
+            }
+            std::copy_n(nodes.begin(), n, last.begin());
+            count = n;
+            return true;
+        }
+    };
+
+    /** @brief The file names of @p nodes' meshes, comma-separated, or "none", for the log. */
+    static std::string listed_node_names(std::span<void *const> nodes)
+    {
+        if (nodes.empty())
+        {
+            return "none";
+        }
+        std::string text;
+        for (void *node : nodes)
+        {
+            char path[160];
+            text += text.empty() ? "" : ", ";
+            text += mesh_file_name(node, path);
+        }
+        return text;
+    }
+
+    // Logs the plants (trees, bushes, grass patches) listed for the see-through window at Debug when the list changes,
+    // by name, with the window's size, so a plant that should have opened (or one that should not have) is identifiable
+    // from the log, and likewise the bare frames listed for the near cut. The swaps themselves are logged by the shader
+    // twins module. Main thread only (the camera frame). A failed allocation drops the line.
+    static void log_tree_window_change(std::span<void *const> trees, std::span<void *const> frames,
+                                       const TreeHoleWindow &window) noexcept
+    {
+        static ListedNodes s_trees;
+        static ListedNodes s_frames;
+        const bool trees_changed = s_trees.changed(trees);
+        const bool frames_changed = s_frames.changed(frames);
+        if (!DMK::log().is_enabled(DMK::LogLevel::Debug))
+        {
+            return;
+        }
+        try
+        {
+            if (trees_changed)
+            {
+                (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                         "TreeSeeThrough: {} plant(s) in the window ({:.2f} x {:.2f} m, "
+                                         "open from {:.2f} m below its centre, strength {:.2f}): {}",
+                                         s_trees.count, 2.0f * window.half_width, 2.0f * window.half_height,
+                                         window.anchor.z - window.floor_z, window.strength,
+                                         listed_node_names(trees.first(s_trees.count)));
+            }
+            if (frames_changed)
+            {
+                (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                         "NearCut: {} frame(s) near the lens (cut from {:.2f} m, "
+                                         "gone within {:.2f} m, strength {:.2f}): {}",
+                                         s_frames.count, window.near_clear, window.near_full, window.near_strength,
+                                         listed_node_names(frames.first(s_frames.count)));
+            }
+        }
+        catch (...)
+        {
+        }
+    }
+
+    /**
+     * @brief The character's own render node for the shader twins: the one the character fade's detour last saw draw
+     *        in the main view, the node his temporary render objects name, or else the attachment walk's.
+     * @details Both are his CRenderProxy: the walk reads it from his entity's proxy map, the detour is handed it by the
+     *          engine. They differ only for a frame or two after a load, until the new proxy draws. A difference that
+     *          lasts means the walk's layout does not fit this build, so the carried nodes it lists match no draw
+     *          either and what he carries stays solid while he fades; that is logged once as a warning. Main thread
+     *          only.
+     */
+    static std::uintptr_t character_own_node()
+    {
+        // Camera frames the two may differ for before the warning.
+        constexpr int k_mismatch_frames = 30;
+        static int s_mismatch_frames = 0;
+        static bool s_mismatch_logged = false;
+        const std::uintptr_t drawn = character_render_node();
+        const std::uintptr_t walked = s_character_nodes.root();
+        if (drawn == 0 || walked == 0 || drawn == walked)
+        {
+            s_mismatch_frames = 0;
+        }
+        else if (++s_mismatch_frames >= k_mismatch_frames && !s_mismatch_logged)
+        {
+            s_mismatch_logged = true;
+            (void)DMK::log().try_log(DMK::LogLevel::Warning,
+                                     "CloseUpFade: the attachment walk found the character's render node at {:#x}, "
+                                     "but the character fade sees it draw at {:#x}; what it carries may stay solid",
+                                     walked, drawn);
+        }
+        return drawn != 0 ? drawn : walked;
+    }
+
+    /**
+     * @brief Advances the shader twins by one third-person camera frame.
+     * @details The twins fade the character's eyes, eyelashes, hair, beard and eye film with him in the close-up fade
+     *          (see eye_fade_ready()). While it can run they run on his render nodes: his own (character_own_node()),
+     *          then the carried ones s_character_nodes walked this frame. The trees and frames take @p window, @p trees
+     *          and @p frames (run_tree_see_through()). Main thread only, once per frame (not on the frame's second
+     *          build).
+     * @param close_fade Whether the close-up fade can run this frame: CloseUpFade on, with the character fade hook.
+     * @param window The tree see-through's window and the near cut this frame.
+     * @param trees The trees in the window.
+     * @param frames The bare frames near the lens.
+     * @param delta_time Seconds this frame advances.
+     */
+    static void run_character_twins(bool close_fade, const TreeHoleWindow &window, std::span<void *const> trees,
+                                    std::span<void *const> frames, float delta_time)
+    {
+        static_assert(std::tuple_size_v<decltype(CharacterNodes::nodes)> == Constants::CHARACTER_TWIN_MAX_NODES,
+                      "The swap set names the character's own node and every carried one.");
+        std::array<std::uintptr_t, Constants::CHARACTER_TWIN_MAX_NODES> nodes{};
+        std::size_t count = 0;
+        if (const std::uintptr_t own = close_fade ? character_own_node() : 0; own != 0)
+        {
+            const std::span<const std::uintptr_t> carried = s_character_nodes.carried();
+            nodes[0] = own;
+            std::ranges::copy(carried, nodes.begin() + 1);
+            count = 1 + carried.size();
+        }
+        update_shader_twins(std::span<const std::uintptr_t>(nodes.data(), count), window, trees, frames, delta_time);
+    }
+
+    /**
+     * @brief Hands the tree see-through its window and its plants, and the near cut its frames, for this camera frame.
+     * @details Trees and bushes are never faded whole for hiding the character, so the trees, bushes and grass between
+     *          the camera and the character open a dithered window around him instead, only where they stand nearer
+     *          than him: the rest of the plant and its shadow stay (see hooks/shader_twins.hpp). The window is an
+     *          ellipse on the character's vertical plane facing the camera, centred on his box (the feet to the top of
+     *          the head). It is fully open over his shoulders and his height (taller by his depth when the camera looks
+     *          down at him), both scaled by TreeSeeThroughSize, plus a margin that grows with his speed, and its
+     *          dithered rim, TreeSeeThroughSoftness of that size wide, lies outside. The shader cuts it at
+     *          TreeSeeThroughStartHeight of his height, his hips by default, so plants that hide only his feet and
+     *          legs stay, and grass opens only where it hides his chest or head (the camera down in it). The plants in
+     *          the window keep TreeSeeThroughMinOpacity of themselves. The window keeps its size back to the lens (a
+     *          tube), so the blades just in front of the lens that would hide him go too instead of being cut in a
+     *          circle around him. Every scanned tree, bush or grass patch whose box meets the tube from the window's
+     *          bounding rectangle back to the camera is listed: a broad phase, since the shader decides per pixel. The
+     *          window eases open and shut over k_tree_hole_ramp_seconds and closes with the view blend, and the plants
+     *          stay listed while it is open at all. Whenever @p wanted, whatever the tree settings, the swapped plants
+     *          and the bare frames within k_near_cut_list_reach of the camera also make the near cut: their pixels
+     *          within k_near_cut_clear of the lens thin away, all of them within k_near_cut_full, with the view blend;
+     *          a frame gets only that, so a pole in front of the character stays. Also keeps the character-render
+     *          watch on while plants or frames are swapped, and runs the character's twins with the trees
+     *          (run_character_twins(), the eyes, hair and eye film fade) while CloseUpFade is on, whatever the tree
+     *          settings. Main thread only, once per frame (not on the frame's second build).
+     * @param camera The camera the occluder fade cast its sightlines from: the near end of the tube.
+     * @param eye The first-person eye, which carries the head's height in every pose.
+     * @param feet The body origin, when @p body_valid.
+     * @param body_valid Whether @p feet and @p body_step were read this frame.
+     * @param body_step The body's move across the ground since the last frame (meters).
+     * @param wanted Whether the window and the near cut should be on: third person, with no dialogue, menu or overlay
+     *        up.
+     * @param view_blend The first-person (0) to third-person (1) blend.
+     * @param delta_time Seconds this frame advances.
+     */
+    static void run_tree_see_through(const Vector3 &camera, const Vector3 &eye, const Vector3 &feet, bool body_valid,
+                                     float body_step, bool wanted, float view_blend, float delta_time)
+    {
+        if (!shader_twins_available())
+        {
+            return;
+        }
+        LiveSettings &cfg = settings();
+        const float strength =
+            1.0f - std::clamp(cfg.tree_see_through_min_opacity.load(std::memory_order_relaxed), 0.0f, 1.0f);
+        const bool near_cut = wanted;
+        wanted = wanted && cfg.use_tree_see_through.load(std::memory_order_relaxed) && strength > 0.0f;
+        if (wanted != s_tree_hole_wanted)
+        {
+            s_tree_hole_wanted = wanted;
+            (void)DMK::log().try_log(DMK::LogLevel::Debug, "TreeSeeThrough: window {}", wanted ? "opening" : "closing");
+        }
+        const float ramp = delta_time / k_tree_hole_ramp_seconds;
+        s_tree_hole_open = wanted ? std::min(1.0f, s_tree_hole_open + ramp) : std::max(0.0f, s_tree_hole_open - ramp);
+        const float travel =
+            (body_valid && delta_time > 1e-4f) ? std::min(body_step / delta_time, k_tree_hole_max_speed) : 0.0f;
+        s_tree_hole_speed += (travel - s_tree_hole_speed) * (1.0f - std::exp(-k_tree_hole_speed_rate * delta_time));
+
+        const Vector3 up{0.0f, 0.0f, 1.0f};
+        const Vector3 top = eye + up * k_tree_hole_head_above_eye;
+        const Vector3 bottom = body_valid ? feet : top - up * k_tree_hole_default_height;
+        const float height = std::max(top.z - bottom.z, k_tree_hole_min_height);
+        const float size = std::clamp(cfg.tree_see_through_size.load(std::memory_order_relaxed), 0.5f, 2.0f);
+        const float softness = std::clamp(cfg.tree_see_through_softness.load(std::memory_order_relaxed), 0.0f, 1.0f);
+        const float margin = k_tree_hole_margin + s_tree_hole_speed * delta_time * k_tree_hole_lead_frames;
+        TreeHoleWindow window{};
+        window.anchor = (top + bottom) * 0.5f;
+        window.strength = strength * s_tree_hole_open * std::clamp(view_blend, 0.0f, 1.0f);
+        const Vector3 toward{window.anchor.x - camera.x, window.anchor.y - camera.y, 0.0f};
+        const float reach = toward.magnitude();
+        // Seen from above (or below), the character's back meets the window's plane higher than it stands and his toes
+        // lower, by his half depth times the view's slope, so his height on the plane grows by that.
+        const float slope = std::min(std::abs(camera.z - window.anchor.z) / std::max(reach, k_tree_hole_min_reach),
+                                     k_tree_hole_max_slope);
+        const float half_extent_width = k_tree_hole_half_width * size + margin;
+        const float half_extent_height = (0.5f * height + k_tree_hole_half_depth * slope) * size + margin;
+        // The shader starts its dithered rim at (1 - softness) of the half sizes it is given. The window is fully open
+        // over the character and his margin, and the rim lies outside them, softness of those half sizes wide: the
+        // half sizes grow by (1 + softness), and the rim's share of them is softness / (1 + softness).
+        const float rim_scale = 1.0f + softness;
+        window.half_width = half_extent_width * rim_scale;
+        window.half_height = half_extent_height * rim_scale;
+        window.softness = softness / rim_scale;
+        // Nothing opens below TreeSeeThroughStartHeight of his height (the shader cuts there, faded in over
+        // k_tree_hole_floor_feather), and the window keeps its size back to the lens (a tube, not a cone narrowing to
+        // the lens).
+        const float start_height =
+            std::clamp(cfg.tree_see_through_start_height.load(std::memory_order_relaxed), 0.0f, 1.0f);
+        window.floor_z = bottom.z + start_height * height;
+        window.floor_feather = k_tree_hole_floor_feather;
+        window.tunnel = 1.0f;
+        window.near_strength = near_cut ? std::clamp(view_blend, 0.0f, 1.0f) : 0.0f;
+        window.near_full = k_near_cut_full;
+        window.near_clear = k_near_cut_clear;
+
+        // The bare frames near the lens, listed first so the list's cap never drops one for a plant.
+        std::array<void *, k_near_cut_max_frames> frames{};
+        int n_frames = 0;
+        if (window.near_strength > 0.0f)
+        {
+            n_frames = frames_near(camera, k_near_cut_list_reach, frames.data(), static_cast<int>(frames.size()));
         }
 
-        const float footprint = collider_horizontal_footprint(collider);
-        const bool building_scale = footprint > Constants::COLLIDER_WALL_FOOTPRINT_MIN;
-        void *node = reinterpret_cast<void *>(static_brush_render_node(collider));
-        float cov = building_scale ? -1.0f : render_coverage_of_brush(node, pivot, desired_cam);
-        if (cov < 0.0f && !building_scale)
+        // The window stands on the vertical plane through the character's centre, facing the camera across the ground,
+        // with its corners in order around it; they hold the rim too. The tube runs from the same rectangle moved to
+        // the camera, so every tree, bush or grass patch a pixel of it can open is listed.
+        std::array<void *, Constants::TREE_HOLE_MAX_NODES> trees{};
+        int n_trees = 0;
+        if (window.strength > 0.0f && reach >= k_tree_hole_min_reach)
         {
-            // Foreign-null collider (merged / proxy: a columbarium, a tent guy-stick, an ENTITY / HLOD-baked
-            // post). Measure the visible brush at the hit - a thin DIAGONAL stick has a huge axis-aligned bbox
-            // but a sliver mesh, so only the raster coverage can tell it is thin (the bbox footprint cannot).
-            cov = render_coverage_at(hit_point, pivot, to_camera);
-            if (cov < 0.0f && footprint >= 0.0f && footprint < Constants::COLLIDER_POST_FOOTPRINT_MAX)
-            {
-                cov = 0.0f; // unmeasurable thin post -> body visible past it -> skip
-            }
-            else if (cov < 0.0f)
-            {
-                // A COMPOUND structure the render mesh cannot raster (rmesh null), neither a tiny post nor a
-                // building: an OPEN wooden frame (body visible THROUGH the beams) vs a SOLID compound (a shed).
-                // The PHYSICS ray occlusion tells them apart: open -> low -> skip; solid -> high -> collide.
-                cov = character_occluded_fraction(desired_cam, pivot, Constants::RWI_OBJTYPES_CAMERA,
-                                                  Constants::RWI_FLAGS_STOP_AT_SOLID);
-            }
+            const Vector3 facing = toward / reach;
+            const Vector3 across = Vector3{-facing.y, facing.x, 0.0f} * window.half_width;
+            const Vector3 rise = up * window.half_height;
+            const Vector3 far_corners[4] = {window.anchor - across - rise, window.anchor + across - rise,
+                                            window.anchor + across + rise, window.anchor - across + rise};
+            const Vector3 back = camera - window.anchor;
+            const Vector3 near_corners[4] = {far_corners[0] + back, far_corners[1] + back, far_corners[2] + back,
+                                             far_corners[3] + back};
+            n_trees =
+                trees_in_window(near_corners, far_corners, trees.data(), static_cast<int>(trees.size()) - n_frames);
         }
+        const std::span<void *const> listed(trees.data(), static_cast<std::size_t>(n_trees));
+        const std::span<void *const> listed_frames(frames.data(), static_cast<std::size_t>(n_frames));
+        log_tree_window_change(listed, listed_frames, window);
+        // The same module fades the character's eyes, eyelashes, hair and eye film with him in the close-up fade.
+        run_character_twins(cfg.close_up_fade.load(std::memory_order_relaxed) && character_fade_available(), window,
+                            listed, listed_frames, delta_time);
+        watch_character_render(shader_twin_stats().swapped > 0);
+    }
 
-        if (collider != 0)
+    /**
+     * @brief Shuts the tree see-through window at once and lists no tree, for a first-person frame.
+     * @details The trees still swapped go back to the stock shader once the shader twins module's hold runs out, so
+     *          this keeps being called while any is left. Main thread only, once per frame.
+     */
+    static void stop_tree_see_through(float delta_time)
+    {
+        s_tree_hole_open = 0.0f;
+        s_tree_hole_speed = 0.0f;
+        if (s_tree_hole_wanted)
         {
-            if (slot < 0)
-            {
-                slot = (free_slot >= 0) ? free_slot : static_cast<int>(collider % k_cov_cache);
-            }
-            s_cov_col[slot] = collider;
-            s_cov_val[slot] = cov;
-            s_cov_hx[slot] = hit_point.x;
-            s_cov_hy[slot] = hit_point.y;
-            s_cov_hz[slot] = hit_point.z;
+            s_tree_hole_wanted = false;
+            (void)DMK::log().try_log(DMK::LogLevel::Debug, "TreeSeeThrough: window closed (first person)");
         }
-        return cov;
+        if (!shader_twins_available())
+        {
+            return;
+        }
+        const TreeHoleWindow shut{};
+        log_tree_window_change({}, {}, shut);
+        // First person has no close-up fade, so the character's twins do not run either.
+        update_shader_twins({}, shut, {}, {}, delta_time);
+        watch_character_render(false);
     }
 
     // Head-visibility setter: SetHeadHidden(this /*rcx*/, bool hide_head /*dl*/, char flags /*r8b*/).
@@ -411,7 +894,7 @@ namespace TPVCamera
     /**
      * @brief The zoom hold bindings resolved to BindingTokens for the per-frame query.
      * @details Acquired on the control plane (refresh_zoom_binding_tokens: after the input engine starts and after
-     *          every INI reload, the only places their bindings reshape) and published whole, so the render thread
+     *          every INI reload, the only places their bindings reshape) and published whole, so the main thread
      *          never resolves a binding name itself. A token left stale by a reshape reads "not held" (fail closed)
      *          until the reload callback republishes, a window of a few milliseconds.
      */
@@ -458,68 +941,6 @@ namespace TPVCamera
     // ignore it too: the head is hidden like in first person. Read with s_head_fallback by the head re-assert and the
     // head-visibility detour; unlike it, it leaves the camera where it is.
     static std::atomic<bool> s_head_close_fade{false};
-
-    // The render nodes of the character and of what it carries (what is bound to its attachments, a bow's nocked
-    // arrow included), walked every third-person frame while CloseUpFade is on, before the character starts to fade,
-    // and empty otherwise. The close-up fade dissolves the carried ones with the character. Main thread only (the
-    // camera detour).
-    static CharacterNodes s_character_nodes{};
-
-    /**
-     * @brief The character's own render node for the shader twins: the one the character fade's detour last saw draw
-     *        in the main view, the node his temporary render objects name, or else the attachment walk's.
-     * @details Both are his CRenderProxy: the walk reads it from his entity's proxy map, the detour is handed it by the
-     *          engine. They differ only for a frame or two after a load, until the new proxy draws. A difference that
-     *          lasts means the walk's layout does not fit this build, so the carried nodes it lists match no draw
-     *          either and what he carries stays solid while he fades; that is logged once as a warning. Main thread
-     *          only.
-     */
-    static std::uintptr_t character_own_node()
-    {
-        // Camera frames the two may differ for before the warning.
-        constexpr int k_mismatch_frames = 30;
-        static int s_mismatch_frames = 0;
-        static bool s_mismatch_logged = false;
-        const std::uintptr_t drawn = character_render_node();
-        const std::uintptr_t walked = s_character_nodes.root();
-        if (drawn == 0 || walked == 0 || drawn == walked)
-        {
-            s_mismatch_frames = 0;
-        }
-        else if (++s_mismatch_frames >= k_mismatch_frames && !s_mismatch_logged)
-        {
-            s_mismatch_logged = true;
-            (void)DMK::log().try_log(DMK::LogLevel::Warning,
-                                     "CloseUpFade: the attachment walk found the character's render node at {:#x}, "
-                                     "but the character fade sees it draw at {:#x}; what it carries may stay solid",
-                                     walked, drawn);
-        }
-        return drawn != 0 ? drawn : walked;
-    }
-
-    /**
-     * @brief Advances the shader twins by one third-person camera frame.
-     * @details The twins fade the character's eyes, eyelashes, hair, beard and eye film with him in the close-up fade
-     *          (see eye_fade_ready()). While it can run they run on his render nodes: his own (character_own_node()),
-     *          then the carried ones s_character_nodes walked this frame. Main thread only, once per frame (not on the
-     *          frame's second build).
-     * @param close_fade Whether the close-up fade can run this frame: CloseUpFade on, with the character fade hook.
-     */
-    static void run_character_twins(bool close_fade)
-    {
-        static_assert(std::tuple_size_v<decltype(CharacterNodes::nodes)> == Constants::CHARACTER_TWIN_MAX_NODES,
-                      "The swap set names the character's own node and every carried one.");
-        std::array<std::uintptr_t, Constants::CHARACTER_TWIN_MAX_NODES> nodes{};
-        std::size_t count = 0;
-        if (const std::uintptr_t own = close_fade ? character_own_node() : 0; own != 0)
-        {
-            const std::span<const std::uintptr_t> carried = s_character_nodes.carried();
-            nodes[0] = own;
-            std::ranges::copy(carried, nodes.begin() + 1);
-            count = 1 + carried.size();
-        }
-        update_shader_twins(std::span<const std::uintptr_t>(nodes.data(), count));
-    }
 
     // Published by the frustum detour each game-view frame: true while the game is showing the OS cursor
     // (a UI is up). The free-look input gate reads it to FREEZE the orbit - hold its angles and ignore
@@ -582,7 +1003,7 @@ namespace TPVCamera
      *          frame the screen opens and release the same frame it closes; every other state (Combat, Mount,
      *          Dialogue, Minigame, Aiming, Crouch) is matched against the debounced game-state mask, so a
      *          brief flicker does not pop the view. Read directly from the live config, so it is independent
-     *          of EnableStateBehavior. Called from the render thread (the frustum detour) and the
+     *          of EnableStateBehavior. Called from the main thread (the frustum detour) and the
      *          input-dispatch thread (the free-look gate); every read is atomic, so the cross-thread call is
      *          safe.
      */
@@ -785,6 +1206,30 @@ namespace TPVCamera
     }
 
     /**
+     * @brief This frame's pause signals for the shader twins' pause-time creation (service_shader_twins_paused()).
+     * @details The game clock comes from frame_delta(), the Esc game menu and the UI overlays from their hooks. A
+     *          dialogue matters only while the clock stands still (it never lets a twin be created), with or without a
+     *          menu or an overlay seen (after a DEV hot reload a menu open across it is not), so without @p state the
+     *          game state is polled here only then.
+     * @param step This build's FrameStep.
+     * @param state This frame's game-state mask (the raw and the debounced one together), or std::nullopt.
+     */
+    [[nodiscard]] static TwinPauseSignals twin_pause_signals(const FrameStep &step, std::optional<uint32_t> state)
+    {
+        TwinPauseSignals signals{};
+        signals.clock_paused = step.paused;
+        signals.menu_open = is_game_menu_open();
+        signals.overlay_up = overlay_state().active.load(std::memory_order_relaxed);
+        if (signals.clock_paused)
+        {
+            // The dialogue bit comes from the active camera, which needs no player.
+            const uint32_t mask = state.has_value() ? *state : poll_game_state(0);
+            signals.dialogue = (mask & state_bit(GameState::Dialogue)) != 0u;
+        }
+        return signals;
+    }
+
+    /**
      * @brief Resolves the live C_Player via g_env each frame (validated by its vtable); 0 on failure.
      * @details Walks g_env -> p_game -> CCryAction (cached, resolved once via a virtual GetIGameFramework
      *          call) -> p_action_game -> C_Player, then confirms C_Player by its main vtable. Resolving
@@ -968,9 +1413,8 @@ namespace TPVCamera
         // Publish the chain root for the heal group, as the resolver does.
         note_framework_base(s_cry_action);
 
-        // CCryAction -> CActionGame -> local actor in one guarded walk. walk() issues one guarded read per hop
-        // and screens each result against that hop's validity floor, which is exactly the per-hop read plus
-        // plausibility check this used to spell out, and it reports the failing hop index in Error::detail.
+        // CCryAction -> CActionGame -> local actor in one guarded walk. walk() issues one guarded read per hop,
+        // screens each result against that hop's validity floor, and reports the failing hop index in Error::detail.
         const RuntimeOffsets &offsets = runtime_offsets();
         const std::array<std::ptrdiff_t, 3> actor_chain{offsets.ccryaction_actiongame.load().value,
                                                         offsets.cactiongame_local_actor.load().value, 0};
@@ -1008,8 +1452,8 @@ namespace TPVCamera
         // address (a scanned base plus a pointer chain that can go stale between frames), and it is why this
         // function needs no SEH wrapper of its own: a stale chain reports a fault instead of raising one, and
         // a chain that drifted onto a read-only page is rejected rather than silently unprotected. It is also
-        // an out-of-line library call, so the consume-once store the engine reads on its own thread cannot be
-        // elided - the intent the old volatile qualifier carried.
+        // an out-of-line library call, so the compiler cannot elide the consume-once store the engine reads on
+        // its own thread.
         bool wrote = true;
         if (pitch_ease > 0.0f)
         {
@@ -1501,14 +1945,15 @@ namespace TPVCamera
         const Vector3 up = basis_rotation.rotate(Vector3{0.0f, 0.0f, 1.0f});
         GameStructures::Matrix34f *matrix = reinterpret_cast<GameStructures::Matrix34f *>(camera);
         // Per-preset FOV, smoothly crossing the "off" boundary. SetFrustum (sub_1805392FC) writes the render
-        // CCamera's FOV scalar at camera+0x30 right before this builder, plus the cull-frustum edge vectors at
-        // camera+0x50 / +0x58 / +0x60 / +0x68 / +0x70 (all proportional to 1/tan(fov/2), with +0x60 the tan term
-        // itself). So camera+0x30 read here is the live GAME FOV (radians). cfg.fov is the per-preset TARGET in
-        // degrees (0 = use the game FOV). We ease a rendered FOV toward (target>0 ? target : game FOV) with a
-        // 2-stage critically-damped ease at the preset-blend rate, so turning a preset's FOV on/off GLIDES
-        // through the game FOV instead of snapping across 0. We write it (rescaling the edges by
-        // tan(new/2)/tan(game/2) so culling matches) only while a preset wants a FOV or is still easing back;
-        // once settled at the game FOV we pass through, so the game's own dynamic FOV keeps working. TPV only.
+        // CCamera's FOV scalar at camera+0x30 right before this builder, plus the cull-frustum terms at camera+0x50 /
+        // +0x58 / +0x68 / +0x70 (the near and far corner x and z, proportional to tan(fov/2)) and +0x60 (the
+        // projection plane distance, proportional to 1/tan(fov/2)). So camera+0x30 read here is the live GAME FOV
+        // (radians). cfg.fov is the per-preset TARGET in degrees (0 = use the game FOV). A rendered FOV eases toward
+        // (target>0 ? target : game FOV) with a 2-stage critically-damped ease at the preset-blend rate, so turning a
+        // preset's FOV on/off GLIDES through the game FOV instead of snapping across 0. It is written (the frustum
+        // terms rescaled by tan(new/2)/tan(game/2) so culling matches) only while a preset wants a FOV or is still
+        // easing back; once settled at the game FOV this passes through, so the game's own dynamic FOV keeps working.
+        // TPV only.
         const float game_fov = *reinterpret_cast<const float *>(
             camera + Constants::CCAMERA_PROJECTION_FOV_OFFSET); // radians, freshly set by SetFrustum
         if (view_blend > 0.0f && game_fov > 0.05f && game_fov < 3.0f)
@@ -1539,10 +1984,10 @@ namespace TPVCamera
                 *reinterpret_cast<float *>(camera + Constants::CCAMERA_PROJECTION_FOV_OFFSET) =
                     cam.fov_ease_applied; // projection FOV (radians)
                 *reinterpret_cast<float *>(camera + Constants::CCAMERA_CULL_EDGE_0_OFFSET) *=
-                    ratio; // cull edges (proportional to 1/tan)
+                    ratio; // near/far corner x and z (proportional to tan)
                 *reinterpret_cast<float *>(camera + Constants::CCAMERA_CULL_EDGE_1_OFFSET) *= ratio;
                 *reinterpret_cast<float *>(camera + Constants::CCAMERA_CULL_TAN_OFFSET) /=
-                    ratio; // = tan term (inverse)
+                    ratio; // projection plane distance (proportional to 1/tan)
                 *reinterpret_cast<float *>(camera + Constants::CCAMERA_CULL_EDGE_3_OFFSET) *= ratio;
                 *reinterpret_cast<float *>(camera + Constants::CCAMERA_CULL_EDGE_4_OFFSET) *= ratio;
             }
@@ -1711,8 +2156,8 @@ namespace TPVCamera
         // so this is invisible while orbiting, but on release it lets the camera ease back to centre
         // along the SHORTEST path (<= 180 deg) in one smooth pass instead of un-spinning every full
         // revolution the player made. The re-based value is only stored back on release (below), so the wrap
-        // here stays render-thread-local while held. The raw accumulator itself is written by the mouse path
-        // on the input thread and by the gamepad integration above on the render thread; only one input device
+        // here stays main-thread-local while held. The raw accumulator itself is written by the mouse path
+        // on the input thread and by the gamepad integration above on the main thread; only one input device
         // drives orbit at a time in practice, so the relaxed load here does not race a meaningful write (and a
         // dropped sub-degree delta in the unlikely simultaneous case is harmless, never torn).
         float orbit_yaw_deg = std::remainder(cam.orbit_yaw.load(std::memory_order_relaxed), 360.0f);
@@ -2317,13 +2762,124 @@ namespace TPVCamera
             apply_orbit_body_turn(body_target_yaw);
         }
 
-        // Camera collision: keep the view out of world geometry. Cast from the pivot (a safe
-        // point inside the player) to the computed camera position; on a hit, pull the camera in
-        // to just short of the surface. RWI_OBJTYPES_CAMERA excludes living entities so the ray
-        // ignores the player and NPCs and only solid world geometry blocks the view. The camera
-        // pulls in instantly (so it never ends up behind a wall) and eases back out once the
-        // obstruction clears. The follow distance is carried in collision_distance. With nothing in
-        // the way it follows the desired distance on the same frame, so a zoom stays on the view axis.
+        // Camera collision and the occluder fade. The arm runs from the pivot (a safe point inside the player) to the
+        // computed camera position. Each object the arm meets is classed by its camera rule (see OccluderClass).
+        // Terrain, buildings and their wall, door and window pieces, walls, rocks, and anything that matches no scanned
+        // render node stop the camera: it pulls in at once to just short of the surface and eases back out once the
+        // obstruction clears, so the camera stays inside the room the player stands in. A prop (a fence, a cart, a
+        // lamp), a bush or a tree is stepped past instead when UseOccluderFade is on, and a prop dithers out, so the
+        // camera keeps its distance rather than jumping in front of each prop and back. RWI_OBJTYPES_CAMERA excludes
+        // living entities, so the player and NPCs never stop the camera. The follow distance is carried in
+        // collision_distance. With nothing in the way it follows the desired distance on the same frame, so a zoom
+        // stays on the view axis.
+        //
+        // The fade keeps the head, the chest and the hips visible: the props whose mesh crosses a sightline from the
+        // camera to those points fade, along with the ones the arm steps past. A tree, a bush or a grass patch never
+        // fades whole for hiding the character (the tree see-through opens a window in it instead); only a prop or a
+        // bush the camera is buried in fades, and it starts at once. A building corner that hides part of the character
+        // is left as it is.
+        const bool fade_on = cfg.use_occluder_fade.load(std::memory_order_relaxed) && occluder_fade_available();
+        const bool close_fade = cfg.close_up_fade.load(std::memory_order_relaxed) && character_fade_available();
+        if (!step.repeat_build)
+        {
+            // One attachment walk serves the occluder scan's exclusion of what the character carries and the close-up
+            // fade. Bone-bound items need not have an IEntity parent, so the actor registry alone cannot identify them.
+            if (entity_addr != 0 && (close_fade || fade_on || cfg.enable_collision.load(std::memory_order_relaxed)))
+            {
+                (void)collect_character_nodes(entity_addr, s_character_nodes);
+            }
+            else if (s_character_nodes.entity != 0)
+            {
+                clear_character_nodes(s_character_nodes);
+            }
+            set_occluder_player_nodes(std::span<const std::uintptr_t>(
+                s_character_nodes.nodes.data(), static_cast<std::size_t>(s_character_nodes.count + 1)));
+        }
+        const Vector3 head_point = anchor_base;
+        const Vector3 hip_point =
+            body_valid ? anchor_origin + world_up * k_fade_hip_height : anchor_base - world_up * k_fade_hip_drop;
+        const Vector3 chest_point = (head_point + hip_point) * 0.5f;
+        // The render nodes faded this frame. Refreshed on every collision recompute and held in between, since the
+        // throttle below reuses the whole arm while nothing moved.
+        static std::array<FadeEntry, Constants::OCCLUDER_FADE_MAX_NODES> s_fade_nodes{};
+        static int s_fade_count = 0;
+        // How many of s_fade_nodes the arm walk put there (they come first); the sightline entries follow them.
+        static int s_arm_fade_count = 0;
+        const auto add_fade_node = [](void *node, char source, bool buried)
+        {
+            if (node == nullptr)
+            {
+                return;
+            }
+            for (int i = 0; i < s_fade_count; ++i)
+            {
+                FadeEntry &e = s_fade_nodes[static_cast<std::size_t>(i)];
+                if (e.node == node)
+                {
+                    e.buried = e.buried || buried;
+                    return;
+                }
+            }
+            if (s_fade_count < Constants::OCCLUDER_FADE_MAX_NODES)
+            {
+                s_fade_nodes[static_cast<std::size_t>(s_fade_count++)] = FadeEntry{node, source, buried};
+            }
+        };
+        // The props on a sightline from the camera to the character, tested against their render meshes (a prop's
+        // cloth carries no physics), and the props and bushes the camera is buried in. The set is refreshed at most
+        // every k_fade_sightline_period, or as soon as the camera moved k_fade_sightline_move since the last refresh;
+        // in between the last set is reused, which the fade's hold bridges. The mesh test is the costly part of the
+        // camera frame, so this keeps it to a few runs a second.
+        static std::array<SightlineOccluder, Constants::OCCLUDER_FADE_MAX_NODES> s_sight_nodes{};
+        static int s_sight_count = 0;
+        static float s_sight_age = 1e9f;
+        static Vector3 s_sight_cam{};
+        if (!step.repeat_build)
+        {
+            s_sight_age += delta_time;
+        }
+        const auto add_sightline_nodes = [&](const Vector3 &from)
+        {
+            if (s_sight_age >= k_fade_sightline_period ||
+                (from - s_sight_cam).magnitude_squared() > k_fade_sightline_move * k_fade_sightline_move)
+            {
+                s_sight_age = 0.0f;
+                s_sight_cam = from;
+                const Sightline lines[3] = {{from, head_point}, {from, chest_point}, {from, hip_point}};
+                // The props the arm found the camera inside already fade at once; their meshes are not read again.
+                std::array<void *, Constants::OCCLUDER_FADE_MAX_NODES> inside{};
+                std::size_t n_inside = 0;
+                for (int i = 0; i < s_fade_count; ++i)
+                {
+                    const FadeEntry &e = s_fade_nodes[static_cast<std::size_t>(i)];
+                    if (e.inside)
+                    {
+                        inside[n_inside++] = e.node;
+                    }
+                }
+                s_sight_count = occluders_on_sightlines(lines, 3, std::span<void *const>(inside.data(), n_inside),
+                                                        s_sight_nodes.data(), Constants::OCCLUDER_FADE_MAX_NODES);
+            }
+            for (int i = 0; i < s_sight_count; ++i)
+            {
+                const SightlineOccluder &o = s_sight_nodes[static_cast<std::size_t>(i)];
+                add_fade_node(o.node, 's', o.buried);
+            }
+        };
+        if (!fade_on || s_fade_cache_stale)
+        {
+            s_fade_count = 0;
+            s_arm_fade_count = 0;
+            s_sight_count = 0;
+            s_sight_age = 1e9f;
+            s_fade_cache_stale = false;
+        }
+
+        const bool wall_class_changed = !step.repeat_build && advance_fence_classification();
+        if (wall_class_changed)
+        {
+            s_sight_age = 1e9f;
+        }
         if (cfg.enable_collision.load(std::memory_order_relaxed))
         {
             const Vector3 to_camera = camera_position - pivot;
@@ -2332,25 +2888,26 @@ namespace TPVCamera
             {
                 const Vector3 ray_dir = to_camera / desired_distance;
 
-                // Static-world throttle: camera collision only ever queries STATIC / terrain geometry (movable
-                // rigids, the player and NPCs are all excluded), which cannot move while the camera holds still and
-                // changes only SLOWLY as the camera moves. So the full result (walk, sphere, render occlusion,
-                // lateral probe) is recomputed only once the pivot or the desired camera position has moved more
-                // than k_collision_recompute_dist; in between it is reused and only the easing runs - which
-                // collapses the cost to ~zero while standing AND skips most frames while walking (the dominant cost
-                // in dense scenes such as a doorway). The threshold is a MOVEMENT distance, so fast motion still
-                // recomputes every frame (responsive) while slow motion reuses for a few frames; the reused target
-                // is at most one threshold of camera travel stale, which the easing and the collision standoff
-                // (CollisionSkin) absorb, so the camera never visibly clips.
+                // The arm's result is reused while the pivot and the desired camera stay within
+                // k_collision_recompute_dist of where it was computed, for at most k_collision_max_age_ms of real time:
+                // a STATIC collider can still move (an animated door is one), so a camera held still recomputes too.
+                // Real time, not the game clock, so a result also expires across a pause or with collision off. A new
+                // fence class, a fade toggle or a lapsed hold recomputes at once.
                 constexpr float k_collision_recompute_dist = 0.06f;
+                constexpr std::uint64_t k_collision_max_age_ms = 100;
                 const float recompute_d2 = k_collision_recompute_dist * k_collision_recompute_dist;
                 const Vector3 throttle_cam = camera_position; // desired (pre-collision); the block overwrites it
                 static bool s_collision_throttle_valid = false;
+                static bool s_throttle_fade_on = false;
                 static Vector3 s_throttle_pivot{};
                 static Vector3 s_throttle_cam{};
                 static float s_cached_allowed = 0.0f;
                 static bool s_cached_held_in = false;
-                const bool recompute = !s_collision_throttle_valid ||
+                static std::uint64_t s_collision_stamp_ms = 0;
+                const std::uint64_t collision_now_ms = GetTickCount64();
+                const bool recompute = wall_class_changed || !s_collision_throttle_valid ||
+                                       fade_on != s_throttle_fade_on ||
+                                       collision_now_ms - s_collision_stamp_ms >= k_collision_max_age_ms ||
                                        (pivot - s_throttle_pivot).magnitude_squared() > recompute_d2 ||
                                        (throttle_cam - s_throttle_cam).magnitude_squared() > recompute_d2;
                 // CollisionSkin is the gap the camera keeps from whatever surface the probes found. A pull-in may lag
@@ -2359,9 +2916,9 @@ namespace TPVCamera
                 const float pull_slack = std::max(0.0f, skin - k_lens_near_margin);
                 if (!recompute && cam.collision_valid)
                 {
-                    // Reuse last frame's allowed distance (the shared easing), then skip the whole walk / sphere /
-                    // render-occlusion / lateral-probe computation below. A result that held nothing in stays the
-                    // live desired distance, so a zoom between recomputes is not held to the stale one.
+                    // Reuse last frame's allowed distance (the shared easing) and fade set, then skip the whole
+                    // walk / sphere / sightline computation below. A result that held nothing in stays the live
+                    // desired distance, so a zoom between recomputes is not held to the stale one.
                     const float return_speed = cfg.collision_return_speed.load(std::memory_order_relaxed);
                     ease_collision_toward(cam, s_cached_held_in ? s_cached_allowed : desired_distance, desired_distance,
                                           delta_time, return_speed, pull_slack);
@@ -2375,124 +2932,190 @@ namespace TPVCamera
                             s_collision_throttle_valid = false;
                         }
                     }
+                    // The camera still eases in or out between recomputes: once it has moved far enough, the
+                    // sightlines are cast again from where it is now, on top of what the arm walk found.
+                    if (fade_on && (camera_position - s_sight_cam).magnitude_squared() >
+                                       k_fade_sightline_move * k_fade_sightline_move)
+                    {
+                        s_fade_count = s_arm_fade_count;
+                        for (int i = 0; i < s_fade_count; ++i)
+                        {
+                            s_fade_nodes[static_cast<std::size_t>(i)].buried = false;
+                        }
+                        add_sightline_nodes(camera_position);
+                    }
                     goto collision_done;
                 }
 
-                // Prefer the swept SPHERE (PrimitiveWorldIntersection): its contact distance is continuous
-                // as the sweep grazes edges, so the camera does not pump in dense geometry the way a single
-                // thin ray does (the root cause of the orbit position-jump). Whichever probe finds the surface,
-                // the camera keeps the same CollisionSkin from it. Fall back to the ray fan alone when the sphere
-                // is disabled, unavailable, or faults, so collision always works and never regresses.
-                // Camera collision = swept SPHERE (smooth) cross-checked against an RWI multi-ray FAN (correct).
-                // The PrimitiveWorldIntersection sphere may not honour our object types: the fork SPWIParams keeps
-                // a FLAGS field at +0x98 and the real entTypes at +0x9C, and +0x9C is a static-RE inference (the
-                // sim-class filter runs in a dispatched processor), so the sphere cannot be trusted to type-filter
-                // on its own. With entTypes effectively ent_all the sweep can hit the player's OWN
-                // CArticulatedEntity (skeleton + worn-gear physics) at point-blank (the "shield on the back" case).
-                // So the sphere is CROSS-CHECKED against the FAN (centre + 4 rays offset by the radius; RWI takes
-                // objtypes as a plain function ARG so it is provably correct), which gives the true nearest WORLD
-                // distance. The sphere is trusted ONLY when its contact is not closer than that world distance
-                // (allowing the sphere-radius inset); otherwise the fan distance is used. So the sphere can only
-                // make the result SMOOTHER, never closer than the world: no regression.
+                DMK_PROFILE_SCOPE("camera.collision_recompute");
+                // CollisionRadius is the probes' half-width (the fan's ray offset, the sphere's radius, the drawn-mesh
+                // arm's line offset).
                 const float collision_radius = cfg.collision_radius.load(std::memory_order_relaxed);
-                // UseCoverageCollision is the master switch for the coverage-based heuristics (the coverage gate
-                // and the lateral probe). When OFF the camera collides plainly on the nearest solid: the coverage
-                // threshold is forced to 0 (no walk) and the lateral probe is skipped. Render occlusion is
-                // INDEPENDENT (its own UseRenderOcclusion toggle below).
-                const bool use_coverage = cfg.use_coverage_collision.load(std::memory_order_relaxed);
-                const float cov_thresh =
-                    use_coverage ? cfg.collision_coverage_threshold.load(std::memory_order_relaxed) : 0.0f;
-                // Find the nearest occluder that actually HIDES the body. With the coverage gate OFF (cov_thresh
-                // <= 0) this is just the nearest solid world surface. With it ON, WALK the arm: step through
-                // readable THIN props - each measured by ITS OWN visible mesh (via the brush the ray actually
-                // hit, resolved through the collider's foreign data), so a foreground basket / pole the body is
-                // plainly visible past is skipped - and stop at the first thing that genuinely covers the body: a
-                // solid we cannot rasterize (a building's compound mesh, a pure-physics proxy), terrain, or a
-                // readable mesh hiding >= CoverageThreshold of the body. If only thin props lie between the camera
-                // and the body with open space behind them, nothing covers and the camera stays out (no jolt).
-                // This judges each occluder on its own merit, where the prior single-shot gate saw only the
-                // nearest brush and let the body sit buried behind everything past it.
-                std::optional<RayHit> fan;
-                // Measured coverage (0..1) of the occluder the walk decides to block on; -9 = not measured (coverage
-                // gate off, terrain, or an unmeasurable solid). Logged so an oscillating thin prop whose coverage
-                // straddles CoverageThreshold frame to frame is visible without live debugging.
-                float blocked_cov = -9.0f;
-                if (cov_thresh <= 0.0f)
+                const Vector3 desired_cam = pivot + to_camera;
+                // One continuous basis across the arm (side level, lift = side x arm), the one the fan uses too, for
+                // the drawn-mesh arm's lines.
+                Vector3 arm_side = ray_dir.cross(world_up);
+                arm_side = (arm_side.magnitude() > 1e-3f) ? arm_side.normalized()
+                                                          : ray_dir.cross(Vector3{1.0f, 0.0f, 0.0f}).normalized();
+                const Vector3 arm_lift = arm_side.cross(ray_dir);
+                // The probes' five parallel lines: the arm's centre and four offsets by the radius, the fan's pattern.
+                const Vector3 arm_offsets[5] = {Vector3{}, arm_side * collision_radius, arm_side * -collision_radius,
+                                                arm_lift * collision_radius, arm_lift * -collision_radius};
+                s_fade_count = 0;
                 {
-                    fan = ray_fan_sweep(pivot, to_camera, collision_radius, Constants::RWI_OBJTYPES_CAMERA,
-                                        Constants::RWI_FLAGS_STOP_AT_SOLID);
+                    // The visible brushes, trees and entities around the arm and the character, for the hit match
+                    // below, the drawn-mesh test of the arm and the sightline test. The scan is cached and re-queried
+                    // only when the arm leaves it.
+                    const Vector3 scan_points[4] = {pivot, desired_cam, head_point, hip_point};
+                    refresh_occluder_scan(scan_points, 4);
                 }
-                else
+
+                // Walk the arm with the RWI FAN (centre + 4 rays offset by the radius; RWI takes objtypes as a plain
+                // argument, so actors are provably excluded, and each hit carries its collider). A hit on a prop or a
+                // plant (matched to its render node through the collider's foreign link or, for baked level physics,
+                // its world box) is stepped past: its collider is skipped, a prop fades, and the fan is re-cast. The
+                // first hit that is terrain, a structure where it draws something, or matches no visible object is the
+                // collision.
+                // RayWorldIntersection does not always honour the skip list (a baked collider can come back on the
+                // re-cast), so a collider met twice is walked past from just beyond the hit instead.
+                uintptr_t stepped_past[Constants::COLLISION_FADE_SKIP_MAX];
+                int n_stepped = 0;
+                // The props the arm stepped past, their colliders, and how far along the arm each was entered.
+                void *arm_props[Constants::COLLISION_FADE_SKIP_MAX];
+                uintptr_t arm_prop_colliders[Constants::COLLISION_FADE_SKIP_MAX];
+                float arm_prop_entries[Constants::COLLISION_FADE_SKIP_MAX];
+                Vector3 arm_prop_points[Constants::COLLISION_FADE_SKIP_MAX]; // where the fan ray met each
+                int n_arm_props = 0;
+                float walk_from = 0.0f; // meters along the arm the fan starts from
+                int resumes = 0;
+                std::optional<RayHit> fan;
+                // What the walk met, for the trace below: up to k_walk_trace_max hits in order.
+                constexpr int k_walk_trace_max = 8;
+                WalkStep walk_trace[k_walk_trace_max];
+                int n_walk_trace = 0;
+                const auto note_step = [&](const RayHit &at, void *node, OccluderClass cls, char what)
                 {
-                    const Vector3 desired_cam = pivot + to_camera;
-                    uintptr_t cov_skip[Constants::COVERAGE_SKIP_MAX];
-                    int n_cov_skip = 0;
-                    for (int iter = 0; iter < Constants::COVERAGE_SKIP_MAX; ++iter)
+                    if (n_walk_trace < k_walk_trace_max)
                     {
-                        const std::optional<RayHit> h =
-                            ray_fan_sweep(pivot, to_camera, collision_radius, Constants::RWI_OBJTYPES_CAMERA,
-                                          Constants::RWI_FLAGS_STOP_AT_SOLID, cov_skip, n_cov_skip);
-                        if (!h.has_value() || h->m_distance >= desired_distance)
+                        walk_trace[n_walk_trace++] = WalkStep{at.m_collider, node, at.m_distance, cls, what};
+                    }
+                };
+                for (;;)
+                {
+                    std::optional<RayHit> h = ray_fan_sweep(
+                        pivot + ray_dir * walk_from, ray_dir * (desired_distance - walk_from), collision_radius,
+                        Constants::RWI_OBJTYPES_CAMERA, Constants::RWI_FLAGS_STOP_AT_SOLID, stepped_past, n_stepped);
+                    if (h.has_value())
+                    {
+                        h->m_distance += walk_from;
+                    }
+                    if (!h.has_value() || h->m_distance >= desired_distance)
+                    {
+                        break; // open past here
+                    }
+                    const bool met_before = h->m_collider != 0 && std::find(stepped_past, stepped_past + n_stepped,
+                                                                            h->m_collider) != stepped_past + n_stepped;
+                    if (met_before)
+                    {
+                        if (++resumes > Constants::COLLISION_WALK_RESUME_MAX)
                         {
-                            break; // open past here -> nothing between camera and body hides it
-                        }
-                        if (h->m_terrain != 0)
-                        {
-                            fan = h; // terrain always covers (never see under the world)
+                            note_step(*h, nullptr, OccluderClass::Structure, 'x');
+                            fan = h; // cannot get past it: the collision
                             break;
                         }
-                        // How much of the character does this collider hide? Cheap footprint pre-check, then
-                        // visible-mesh raster, then a physics-ray fallback - cached per collider so a solid the
-                        // camera slides along is not re-rasterized every frame. See measure_collider_coverage.
-                        const float cov = measure_collider_coverage(h->m_collider, h->m_point, pivot, desired_cam,
-                                                                    to_camera, cov_thresh);
-                        if (cov < 0.0f || cov >= cov_thresh)
+                        note_step(*h, nullptr, OccluderClass::Structure, 'r');
+                        walk_from = h->m_distance + Constants::COLLISION_WALK_RESUME_STEP;
+                        continue;
+                    }
+                    OccluderClass cls = OccluderClass::Structure;
+                    void *node = (h->m_terrain == 0 && h->m_collider != 0)
+                                     ? occluder_node_for_collider(h->m_collider, &cls)
+                                     : nullptr;
+                    // A man-made structure stops the camera only where it draws something: the five lines are tested
+                    // against its drawn mesh around the hit, and with none of it there the hit is on collision that
+                    // draws nothing (the canvas walls and roof of a tent model that draws only its frame), so the walk
+                    // resumes just past it. Anything drawn there that one of the lines meets, a beam, a rail or a
+                    // plank, keeps the collision.
+                    if (node != nullptr && cls == OccluderClass::Structure)
+                    {
+                        Sightline at_hit[5];
+                        for (int i = 0; i < 5; ++i)
                         {
-                            // Unmeasurable solid (building / pure-physics) OR a readable mesh that hides enough of
-                            // the body -> this is the collision.
-                            blocked_cov = cov;
-                            fan = h;
-                            break;
+                            const Vector3 at = pivot + arm_offsets[i] + ray_dir * h->m_distance;
+                            at_hit[i] = {at - ray_dir * Constants::COLLISION_DRAWN_REACH,
+                                         at + ray_dir * Constants::COLLISION_DRAWN_REACH};
                         }
-                        if (h->m_collider == 0)
+                        if (!structure_drawn_on(node, at_hit, 5) && ++resumes <= Constants::COLLISION_WALK_RESUME_MAX)
                         {
-                            fan = h; // cannot skip an unknown collider -> stop here (safe: collide)
-                            break;
+                            note_step(*h, node, cls, 'u');
+                            walk_from = h->m_distance + Constants::COLLISION_WALK_RESUME_STEP;
+                            continue;
                         }
-                        cov_skip[n_cov_skip++] = h->m_collider; // a thin prop the body is visible past -> look behind
+                    }
+                    if (node == nullptr || cls == OccluderClass::Structure || !fade_on ||
+                        n_stepped >= Constants::COLLISION_FADE_SKIP_MAX)
+                    {
+                        note_step(*h, node, cls, h->m_terrain != 0 ? 't' : 'c');
+                        fan = h; // terrain, a structure, without a visible mesh, or unknown: the collision
+                        break;
+                    }
+                    // Step past it. A prop fades where what it draws spans the arm both across and up and down, from
+                    // where the arm enters its collision out to the camera; the empty part of a collision box (under a
+                    // cart, between a fence's rails) and a post or a rail thinner than the arm let the camera through
+                    // without a fade. A tree or a bush does not fade: the tree see-through window opens the leaves in
+                    // front of the character, the near plane cuts the ones at the lens, and a bush the camera ends up
+                    // buried in fades through the sightline test. An invisible designer volume hides nothing
+                    // (dissolving its no-draw material would draw it).
+                    note_step(*h, node, cls, 'p');
+                    stepped_past[n_stepped++] = h->m_collider;
+                    Sightline beyond[5];
+                    for (int i = 0; i < 5; ++i)
+                    {
+                        beyond[i] = {pivot + arm_offsets[i] + ray_dir * h->m_distance, desired_cam + arm_offsets[i]};
+                    }
+                    if (cls == OccluderClass::Prop && spans_tube(node, beyond))
+                    {
+                        add_fade_node(node, 'a', false);
+                        arm_props[n_arm_props] = node;
+                        arm_prop_colliders[n_arm_props] = h->m_collider;
+                        arm_prop_points[n_arm_props] = h->m_point;
+                        arm_prop_entries[n_arm_props++] = h->m_distance;
                     }
                 }
+                log_walk_change(std::span<const WalkStep>(walk_trace, static_cast<std::size_t>(n_walk_trace)),
+                                desired_distance);
+                s_arm_fade_count = s_fade_count;
                 std::optional<RayHit> hit = fan;
                 bool from_sphere = false;
-                // UseSphereCollision selects the probe: when set, the swept SPHERE smooths the fan's world hit
-                // (continuous contact distance, no pump in dense geometry); when clear, the multi-ray FAN result
-                // is used alone (with the configured skin) for a cheaper, ray-only probe that skips the per-frame
-                // PWI sweep. The FAN is always the collision AUTHORITY either way; the sphere can only make the
-                // result smoother, never closer.
+                // UseSphereCollision adds the swept SPHERE to the fan: its contact is continuous where the fan's five
+                // rays graze an edge. The FAN is the collision AUTHORITY either way (its hits carry the collider and
+                // the normal); the sphere is trusted only where it agrees with the fan's surface, and only to put that
+                // surface a little nearer.
                 if (cfg.use_sphere_collision.load(std::memory_order_relaxed))
                 {
-                    // Resolve the player's / actors' physics entities (body / skeleton / worn shield / NPCs in the
-                    // way) to SKIP on the sphere sweep, so it reports a clean WORLD distance instead of slamming
-                    // into the player at point-blank. The PWI struct entTypes field is DEAD in this fork (0 reads
-                    // in the impl sub_1808182A0), so pSkipEnts is the ONLY way to exclude the player; the
-                    // probe casts in REVERSE (camera -> pivot) because the pivot is inside the body and a forward
-                    // ray exits through a back-face and misses it. Buffer capped at 4 (SPWIParams nSkipEnts clamps).
-                    uintptr_t skip_ents[4];
-                    const int n_skip = resolve_player_physics_skip(pivot, to_camera, collision_radius,
-                                                                   0x11F /*ent_all*/, Constants::RWI_OBJTYPES_CAMERA,
-                                                                   Constants::RWI_FLAGS_STOP_AT_SOLID, skip_ents, 4);
+                    // The sweep's entTypes (SPWIParams +0x98) is the same 0x101 = static|terrain mask, which the
+                    // real PWI (1.5.6 sub_180811680) hands to GetEntitiesAround, so the player's living entity and its
+                    // skeleton / worn-gear articulated entity are not candidates. The player's physics is still
+                    // resolved and skipped as a second guard: a static-class entity the sweep starts inside (with a
+                    // shield on the back) can stop the sphere a few centimeters out while the fan is clear. The probe
+                    // casts in REVERSE (camera -> pivot) because the pivot is inside the body and a
+                    // forward ray exits through a back-face and misses it. The colliders the fan stepped past are
+                    // skipped too, so the sphere does not stop at a faded post. The buffer is our own cap (the
+                    // synchronous PWI walks every nSkipEnts entry).
+                    uintptr_t skip_ents[4 + Constants::COLLISION_FADE_SKIP_MAX];
+                    int n_skip = resolve_player_physics_skip(pivot, to_camera, collision_radius, 0x11F /*ent_all*/,
+                                                             Constants::RWI_OBJTYPES_CAMERA,
+                                                             Constants::RWI_FLAGS_STOP_AT_SOLID, skip_ents, 4);
+                    for (int i = 0; i < n_stepped; ++i)
+                    {
+                        skip_ents[n_skip++] = stepped_past[i];
+                    }
                     const std::optional<RayHit> sphere = sphere_world_sweep(
                         pivot, collision_radius, to_camera, Constants::RWI_OBJTYPES_CAMERA, skip_ents, n_skip);
-                    // The FAN (0x101 = static|terrain) is the AUTHORITY for collision: a plain objtypes arg that
-                    // provably excludes ALL actors (player body/gear, NPCs = ent_living/independent/rigid). The PWI
-                    // sphere only SMOOTHS the fan's world hit - it queries ent_all (the struct entTypes is dead in
-                    // this fork, so it cannot be type-filtered and returns no collider to test), so it is trusted
-                    // ONLY when it AGREES with the fan's world surface (within the radius inset). Crucially, when
-                    // the fan finds NO world (open space), there is NO collision - any actor the sphere saw (an
-                    // NPC at the camera, your own shield) is ignored = transparent, like non-physicalized grass.
-                    // This drops actor collisions UNIFORMLY with no skip-list / probe and no per-entity guessing.
-                    // The sphere's surface (its contact plus the radius) must also lie nearer than the fan's hit: a
-                    // farther one would put the camera past a wall the fan's rays met.
+                    // The FAN is the AUTHORITY: each of its hits carries the real collider and surface normal, while
+                    // the sphere wrapper returns only a distance. The sphere is trusted ONLY when it AGREES with the
+                    // fan's world surface (within the radius inset). When the fan finds NO collision (open space or
+                    // only faded objects), there is no collision, whatever the sphere saw.
                     if (fan.has_value() && sphere.has_value() &&
                         sphere->m_distance >= fan->m_distance - collision_radius - 0.10f &&
                         sphere->m_distance <= fan->m_distance + 0.05f &&
@@ -2503,16 +3126,10 @@ namespace TPVCamera
                     }
                 }
 
-                // After a recompute met a surface the camera does not ease back out at all for this long (seconds,
-                // drained on every frame): a probe that grazes an edge and misses it the next frame, or an arm swung
-                // fast through clutter, keeps the camera in instead of letting it ease out and snap back in.
-                constexpr float k_collision_hold_seconds = 0.3f;
-
                 // Where the nearest solid surface is along the arm: the fan's ray hit, or the sphere's contact plus its
-                // radius (the sphere's centre stops CollisionRadius short of the surface). The coverage walk above
-                // already decided this hit COVERS the body (or the gate is off and the nearest solid blocks). The
-                // camera keeps the same CollisionSkin from it whichever probe found it, so a frame that switches
-                // between the fan and the sphere does not move the camera.
+                // radius (the sphere's centre stops CollisionRadius short of the surface). The camera keeps the same
+                // CollisionSkin from it whichever probe found it, so a frame that switches between the fan and the
+                // sphere does not move the camera.
                 float surface = desired_distance;
                 if (hit.has_value())
                 {
@@ -2526,11 +3143,9 @@ namespace TPVCamera
                     blocked = true;
                 }
 
-                // Trace the PHYSICS collision hit (the solid-world fan/sphere result) so it can be compared
-                // against RenderOcclusion HIT: physics fires on walls / terrain / solid props (objtypes
-                // ent_static|ent_terrain), render occlusion on non-physical cloth. Where physics is silent but
-                // render fires (or vice versa) is the proof they are complementary, not redundant. Rate-limited
-                // to a meaningful change (block-state toggle or distance move > 0.1m) so it never spams a frame.
+                // Trace the collision hit (the solid-world fan/sphere result) and what the fan stepped past, so a
+                // wrong stop or a wrong fade is identifiable from the log. Rate-limited to a meaningful change
+                // (block-state toggle or distance move > 0.1m) so it never spams a frame.
                 {
                     static bool s_phys_blocked = false;
                     static float s_phys_dist = -1.0f;
@@ -2538,17 +3153,14 @@ namespace TPVCamera
                     const bool moved = (dd > 0.1f) || (dd < -0.1f);
                     // The trace below identifies the hit object via a render-octree query (render_hit_info); gate it
                     // on trace logging being ENABLED so that diagnostic octree + per-node vertex scan never runs on
-                    // a normal-play frame - it is purely for the PhysicsCollision HIT log. (A foreign-null hit, the
-                    // common case once the coverage walk skips thin scenery, takes render_hit_info's expensive
-                    // octree path, which was running every frame the camera moved while blocked.)
+                    // a normal-play frame.
                     const bool trace_on = DMK::log().is_enabled(DMK::LogLevel::Trace);
                     if (trace_on && blocked && (blocked != s_phys_blocked || moved))
                     {
-                        // The FAN is the collision AUTHORITY: it carries the real collider + surface normal. The
-                        // sphere only SMOOTHS the distance and reports a synthetic normal / null collider, so identify
-                        // the object the camera blocked on from the fan (point + collider), not the sphere's `hit`.
-                        // node = the collider's foreign render-node link (0 for a merged / proxy collider, which
-                        // render_hit_info then resolves by querying the render octree at the hit point).
+                        // Identify the object from the fan (point + collider), not the sphere's synthetic hit.
+                        // node = the collider's foreign render-node link (0 for baked level physics, which
+                        // render_hit_info then resolves by querying the render octree at the hit point). matched =
+                        // the scanned node the collision decided on, and its class.
                         const RayHit &id_hit = fan.has_value() ? *fan : *hit;
                         const Vector3 &hp = id_hit.m_point;
                         const Vector3 &hn = id_hit.m_normal;
@@ -2560,17 +3172,27 @@ namespace TPVCamera
                         int obj_kind = 0;
                         (void)render_hit_info(hp, node, obj_name, static_cast<int>(sizeof(obj_name)), obj_ext,
                                               &obj_kind);
-                        static const char *const k_obj_kinds[] = {"none", "foreign", "prop", "solid", "hlod"};
+                        static const char *const k_obj_kinds[] = {"none", "foreign", "prop", "solid", "excluded"};
                         const char *kind_str = (obj_kind >= 0 && obj_kind <= 4) ? k_obj_kinds[obj_kind] : "?";
+                        OccluderClass matched_cls = OccluderClass::Structure;
+                        void *matched = (fade_on && hit_terrain == 0 && collider != 0)
+                                            ? occluder_node_for_collider(collider, &matched_cls)
+                                            : nullptr;
+                        char matched_name[160] = {};
+                        render_node_name(matched, matched_name, static_cast<int>(sizeof(matched_name)));
+                        float cbox[6] = {};
+                        (void)read_collider_box(collider, cbox);
                         (void)DMK::log().try_log(
                             DMK::LogLevel::Trace,
-                            "PhysicsCollision HIT: src={} bTerrain={} dist={} of {} cov={} kind={} obj=\"{}\" "
-                            "ext=({}, {}, {}) collider={:#x} node={:#x} point=({}, {}, {}) normal=({}, {}, {}) "
-                            "cam=({}, {}, {}) pivot=({}, {}, {})",
-                            from_sphere ? "sphere" : "fan", hit_terrain, surface, desired_distance, blocked_cov,
-                            kind_str, obj_name, obj_ext[0], obj_ext[1], obj_ext[2], collider,
-                            reinterpret_cast<uintptr_t>(node), hp.x, hp.y, hp.z, hn.x, hn.y, hn.z, camera_position.x,
-                            camera_position.y, camera_position.z, pivot.x, pivot.y, pivot.z);
+                            "PhysicsCollision HIT: src={} bTerrain={} dist={} of {} stepped={} kind={} obj=\"{}\" "
+                            "ext=({}, {}, {}) collider={:#x} colliderExt=({}, {}, {}) node={:#x} matched=\"{}\" "
+                            "class={} point=({}, {}, {}) normal=({}, {}, {}) cam=({}, {}, {}) pivot=({}, {}, {})",
+                            from_sphere ? "sphere" : "fan", hit_terrain, surface, desired_distance, n_stepped, kind_str,
+                            obj_name, obj_ext[0], obj_ext[1], obj_ext[2], collider, cbox[3] - cbox[0],
+                            cbox[4] - cbox[1], cbox[5] - cbox[2], reinterpret_cast<uintptr_t>(node), matched_name,
+                            matched != nullptr ? occluder_class_name(matched_cls) : "unmatched", hp.x, hp.y, hp.z, hn.x,
+                            hn.y, hn.z, camera_position.x, camera_position.y, camera_position.z, pivot.x, pivot.y,
+                            pivot.z);
                     }
                     s_phys_blocked = blocked;
                     if (blocked)
@@ -2579,35 +3201,108 @@ namespace TPVCamera
                     }
                 }
 
-                // Render-only overhead roofs (tent / awning canopy cloth) carry no ray-collidable physics, so the
-                // fan and sphere glide through them and the cloth buries the camera on a look-down. Query the
-                // render octree along the same arm and clamp below an overhead brush. The clamp keeps its own standoff,
-                // the sightline tube radius (RENDER_OCCLUSION_COLUMN_RADIUS), so no skin is subtracted. Gated by
-                // UseRenderOcclusion alone - it is INDEPENDENT of UseCoverageCollision (it handles non-physical cloth,
-                // not a coverage heuristic). A thin overhead beam is rejected inside render_occlusion_limit by the
-                // sightline vertex-count test, not a body-coverage gate (an overhead canopy covers ~0 of the body
-                // silhouette).
-                if (cfg.use_render_occlusion.load(std::memory_order_relaxed))
+                // A building's drawn mesh can stand inside its physics: a thatched roof's physics is its outer surface
+                // while the drawn thatch hangs below it, so the arm can pass the physics and still end in the thatch.
+                // The cloth canopies over market stalls have no physics at all. The arm (its centre and four offsets
+                // by the radius, like the fan) is also tested against the render meshes of the man-made structures it
+                // passes through short of where the physics stops it; one that at least three of the lines cross
+                // stops the camera CollisionSkin short of where the third of them meets it (about where the centre
+                // does on a flat surface, and moving smoothly as the arm swings into a sloped cloth or roof), so the
+                // lens never sits inside a drawn wall or roof, or above a canopy the character stands under, while a
+                // guy rope or a chain with no physics does not stop it.
+                Sightline arm[5];
                 {
-                    // Query the render octree only out to where the physics collision already stops the camera: a
-                    // roof beyond that point can never be reached, so indoors / near walls (where physics blocks
-                    // close) the query box shrinks to the short arm and skips the room's geometry, the bulk of the
-                    // render-occlusion cost in dense scenes.
-                    const Vector3 occ_arm = ray_dir * blocking_distance;
-                    const std::optional<float> roof = render_occlusion_limit(pivot, occ_arm, collision_radius);
-                    if (roof.has_value() && roof.value() < blocking_distance)
+                    for (int i = 0; i < 5; ++i)
                     {
-                        blocking_distance = std::max(0.0f, roof.value());
+                        arm[i] = {pivot + arm_offsets[i], desired_cam + arm_offsets[i]};
+                    }
+                    void *mesh_node = nullptr;
+                    const float crossing =
+                        structure_on_arm(arm, 5, 3, surface / std::max(desired_distance, 1e-3f), &mesh_node, true);
+                    const float mesh_surface = crossing * desired_distance;
+                    static void *s_mesh_logged = nullptr;
+                    if (crossing <= 1.0f && mesh_surface < surface)
+                    {
+                        surface = mesh_surface;
+                        blocking_distance = std::max(0.0f, mesh_surface - skin);
                         blocked = true;
+                    }
+                    else
+                    {
+                        mesh_node = nullptr;
+                    }
+                    if (mesh_node != s_mesh_logged)
+                    {
+                        s_mesh_logged = mesh_node;
+                        char name[160] = {};
+                        render_node_name(mesh_node, name, static_cast<int>(sizeof(name)));
+                        if (mesh_node != nullptr)
+                        {
+                            (void)DMK::log().try_log(
+                                DMK::LogLevel::Trace,
+                                "Camera: arm stops at the drawn mesh of \"{}\" at {:.2f} of {:.2f} m", name,
+                                crossing * desired_distance, desired_distance);
+                        }
+                        else
+                        {
+                            (void)DMK::log().try_log(DMK::LogLevel::Trace,
+                                                     "Camera: arm clear of drawn structure meshes");
+                        }
                     }
                 }
 
+                // A prop the arm let through (the hay on a wagon) that the lens sits inside fills the view, so its
+                // fade starts at once instead of after the listing delay (FadeEntry::inside). For the last prop
+                // entered before the camera, a ray from the camera back to the point where a fan ray met it shows
+                // whether the camera got out of it again: physics reports a surface only from outside, so meeting that
+                // prop on the way means the camera is past it, and reaching the point without meeting it means the
+                // camera is inside. Anything else on the way is walked past; with too much on the way the prop is not
+                // taken for one the camera is inside. What only touches the lens, a corner or a branch, is cut by the
+                // lens near plane instead (see k_lens_near_max).
+                const auto camera_inside = [](const Vector3 &camera, const Vector3 &met_at, uintptr_t prop)
+                {
+                    const Vector3 to = met_at - camera;
+                    const float length = to.magnitude();
+                    if (length < 0.05f)
+                    {
+                        return false;
+                    }
+                    const Vector3 dir = to / length;
+                    float walked = 0.0f;
+                    for (int step = 0; step < 4; ++step)
+                    {
+                        const float reach = length - 0.02f - walked;
+                        if (reach <= 0.0f)
+                        {
+                            return true;
+                        }
+                        const std::optional<RayHit> h =
+                            ray_world_intersection(camera + dir * walked, dir * reach, Constants::RWI_OBJTYPES_CAMERA,
+                                                   Constants::RWI_FLAGS_STOP_AT_SOLID, nullptr, 0);
+                        if (!h.has_value())
+                        {
+                            return true;
+                        }
+                        if (h->m_collider == prop)
+                        {
+                            return false;
+                        }
+                        walked += h->m_distance + 0.02f;
+                    }
+                    return false;
+                };
                 // The target: the blocking distance, or the desired one when the arm is clear. For
-                // k_collision_hold_seconds after a recompute met a surface (drained on every frame, the throttled ones
-                // too) the camera does not ease back out at all; a pull-in is never held back. A hold that runs out on
-                // this frame releases at once: the throttled frames after it reuse this target and drain nothing.
+                // k_collision_hold_seconds after a recompute met a surface that holds the camera where it is (within
+                // one recompute step) or nearer, the camera does not ease back out at all (drained on every frame, the
+                // throttled ones too), toward a clear arm or a farther surface alike: the fan's rays meet a thin pole
+                // only on the frames it lies on one of them, and on the others would let the camera out to whatever
+                // stands behind it, only to pull it back in. A surface met farther out drains the hold instead, so the
+                // camera follows a surface that slides away once the hold runs out. A pull-in is never held back. A
+                // hold that runs out on this frame releases at once: the throttled frames after it reuse this target
+                // and drain nothing.
                 float allowed_distance = blocked ? blocking_distance : desired_distance;
-                if (blocked)
+                if (blocked &&
+                    (!cam.collision_valid || allowed_distance <= cam.collision_distance + k_collision_recompute_dist))
                 {
                     cam.collision_hold_timer = k_collision_hold_seconds;
                 }
@@ -2620,71 +3315,23 @@ namespace TPVCamera
                     }
                 }
 
-                // Lateral / frustum clearance. The pivot->camera probe only sees obstacles ALONG the arm, so a
-                // wall BESIDE the camera (a corner, a doorway jamb, a narrow gap) is invisible to it and intrudes
-                // into the view. Probe the camera's lateral surroundings (the frustum cross-section: +-right /
-                // +-up around the look axis) and pull the camera further in along the arm until any CONVERGING
-                // side wall is at least CameraProbeSize away. This is geometric penetration safety, NOT occlusion,
-                // so it bypasses the coverage gate (a side wall does not hide the character) and queries static /
-                // terrain world only (RWI_OBJTYPES_CAMERA never returns the player or NPCs). A wall the arm runs
-                // PARALLEL to (a corridor) cannot be escaped by pulling in, so it is left alone rather than yanking
-                // the camera to first person. Bounded passes; only does work when something is within reach.
-                const float probe = use_coverage ? cfg.camera_probe_size.load(std::memory_order_relaxed) : 0.0f;
-                if (probe > 0.0f && allowed_distance > collision_radius)
                 {
-                    const Vector3 view = ray_dir * -1.0f; // the camera looks back along the arm toward the pivot
-                    Vector3 probe_right = view.cross(Vector3{0.0f, 0.0f, 1.0f});
-                    const float rl = probe_right.magnitude();
-                    if (rl > 1e-4f)
+                    const float lens_at = allowed_distance;
+                    int last = -1;
+                    for (int i = 0; i < n_arm_props; ++i)
                     {
-                        probe_right = probe_right / rl;
-                        const Vector3 probe_up = probe_right.cross(view); // orthonormal (right & view perpendicular)
-                        const Vector3 lateral[4] = {probe_right, probe_right * -1.0f, probe_up, probe_up * -1.0f};
-                        // Floor the pull-in at the closest USEFUL third-person distance (follow_distance_min). A side
-                        // wall grazing the frustum is a SOFTER concern than a direct occluder, so never drag the
-                        // camera to near first person (losing the whole view + jamming into the character) just to
-                        // hold one off - accept a little intrusion instead. Capped to the incoming allowed_distance
-                        // so a tight pull from a real along-arm occluder is never pushed back OUT into it.
-                        const float lateral_floor =
-                            std::min(allowed_distance, cfg.follow_distance_min.load(std::memory_order_relaxed));
-                        for (int pass = 0; pass < 3 && allowed_distance > lateral_floor; ++pass)
+                        if (arm_prop_entries[i] < lens_at && (last < 0 || arm_prop_entries[i] > arm_prop_entries[last]))
                         {
-                            const Vector3 cam_test = pivot + ray_dir * allowed_distance;
-                            float capped = allowed_distance;
-                            for (const Vector3 &side : lateral)
-                            {
-                                const std::optional<RayHit> h =
-                                    ray_world_intersection(cam_test, side * probe, Constants::RWI_OBJTYPES_CAMERA,
-                                                           Constants::RWI_FLAGS_STOP_AT_SOLID);
-                                if (!h.has_value() || h->m_distance >= probe)
-                                {
-                                    continue; // this side is clear within the probe
-                                }
-                                // Wall plane: point P, normal N (toward the camera). Lateral clearance along the
-                                // arm is clear(t) = dot(pivot - P, N) + t * dot(ray_dir, N). Pulling IN clears the
-                                // wall only when the arm runs INTO it (dot(ray_dir, N) < 0); a parallel / diverging
-                                // wall is left alone. Solve for the largest t that keeps the camera `probe` off it.
-                                const Vector3 &P = h->m_point;
-                                const Vector3 &N = h->m_normal;
-                                const float a = ray_dir.x * N.x + ray_dir.y * N.y + ray_dir.z * N.z;
-                                if (a >= -0.05f)
-                                {
-                                    continue; // parallel / diverging side wall: pulling in cannot clear it
-                                }
-                                const float b = (pivot.x - P.x) * N.x + (pivot.y - P.y) * N.y + (pivot.z - P.z) * N.z;
-                                const float t = (probe - b) / a;
-                                if (t < capped)
-                                {
-                                    capped = t;
-                                }
-                            }
-                            if (capped >= allowed_distance - 1e-3f)
-                            {
-                                break; // every side clear -> done
-                            }
-                            allowed_distance = std::max(lateral_floor, capped);
-                            blocked = true;
-                            cam.collision_hold_timer = k_collision_hold_seconds; // latch like a normal blocking hit
+                            last = i;
+                        }
+                    }
+                    if (last >= 0 &&
+                        camera_inside(pivot + ray_dir * lens_at, arm_prop_points[last], arm_prop_colliders[last]))
+                    {
+                        for (int k = 0; k < s_fade_count; ++k)
+                        {
+                            FadeEntry &e = s_fade_nodes[static_cast<std::size_t>(k)];
+                            e.inside = e.inside || e.node == arm_props[last];
                         }
                     }
                 }
@@ -2696,25 +3343,92 @@ namespace TPVCamera
 
                 camera_position = pivot + ray_dir * cam.collision_distance;
 
+                // Fade whatever still hides the character from where the camera is: the sightlines from it to the
+                // head, chest and hips, tested against the scanned meshes. This catches what the arm's rays do not
+                // (cloth with no ray physics, a fence across the legs), and a prop or a bush the camera is buried in.
+                if (fade_on)
+                {
+                    add_sightline_nodes(camera_position);
+                }
+                // With this frame's tests done, the mesh of a structure or prop the arm is about to reach is measured
+                // ahead, so its first read does not land in the frame the arm meets it.
+                prefetch_occluder_meshes(arm, 5);
+
                 // Cache the freshly computed target so a held-still camera reuses it next frame (throttle above).
                 s_collision_throttle_valid = true;
+                s_throttle_fade_on = fade_on;
                 s_throttle_pivot = pivot;
                 s_throttle_cam = throttle_cam;
                 s_cached_allowed = allowed_distance;
                 s_cached_held_in = allowed_distance < desired_distance - k_collision_clear_slack;
+                s_collision_stamp_ms = collision_now_ms;
             }
         collision_done:;
         }
-        else
+        else if (!step.repeat_build)
         {
-            // No collision in this preset: the camera goes wherever the rig puts it. The collision state is dropped,
-            // so turning collision back on starts afresh.
+            // No collision in this preset: the camera goes wherever the rig puts it, and the objects in front of the
+            // character still fade. The collision state is dropped, so turning collision back on starts afresh.
             cam.collision_valid = false;
             cam.collision_speed = 0.0f;
             cam.collision_hold_timer = 0.0f;
+            s_fade_count = 0;
+            s_arm_fade_count = 0;
+            const Vector3 scan_points[4] = {pivot, camera_position, head_point, hip_point};
+            refresh_occluder_scan(scan_points, 4);
+            if (fade_on)
+            {
+                add_sightline_nodes(camera_position);
+            }
         }
 
-        // Too close to the character. With no room behind the player - a low lintel in a doorway (the roof clamp holds
+        // Hand the fade set to the dissolve hook once per frame (the frame's second build changes nothing). With the
+        // fade off the set is empty, so whatever is still faded fades back in. Each object fades until only
+        // OccluderFadeMinOpacity of it stays, a ghost of where it stands.
+        // The close-up fade (see the too-close block below): with CloseUpFade the character dithers out as the camera
+        // closes in, as far as CloseUpFadeMinOpacity lets him from HeadClearance of arm and starting k_close_fade_band
+        // before it. Measured from the head where it really is: the pivot plus the turn hold, which keeps the pivot
+        // off the body while it steps through a turn.
+        const float head_clearance = cfg.head_clearance.load(std::memory_order_relaxed);
+        const float arm_after_collision = (camera_position - (pivot + turn_hold)).magnitude();
+        const float close_most =
+            1.0f - std::clamp(cfg.close_up_fade_min_opacity.load(std::memory_order_relaxed), 0.0f, 1.0f);
+        const float close_amount =
+            (close_fade && head_clearance > 0.0f)
+                ? std::clamp((head_clearance + k_close_fade_band - arm_after_collision) / k_close_fade_band, 0.0f,
+                             close_most)
+                : 0.0f;
+        if (!step.repeat_build)
+        {
+            const float strength =
+                1.0f - std::clamp(cfg.occluder_fade_min_opacity.load(std::memory_order_relaxed), 0.0f, 1.0f);
+            std::array<FadeRequest, Constants::OCCLUDER_FADE_MAX_NODES> requests{};
+            const auto n = static_cast<std::size_t>(s_fade_count);
+            for (std::size_t i = 0; i < n; ++i)
+            {
+                const FadeEntry &e = s_fade_nodes[i];
+                // OccluderFadeMinOpacity of every object stays, the camera inside it or not: one the camera is buried
+                // in or inside only starts at once instead of after the listing delay. A full fade there makes it
+                // vanish and pop back once the camera leaves it, on every pass.
+                requests[i] = FadeRequest{e.node, strength, e.buried || e.inside};
+            }
+            log_fade_set_change(std::span<const FadeEntry>(s_fade_nodes.data(), n));
+            update_occluder_fade(std::span<const FadeRequest>(requests.data(), n), delta_time);
+        }
+
+        // The trees, bushes and grass, which never fade whole for hiding the character, open a window around him
+        // instead (see run_tree_see_through), from the camera the fade's sightlines were cast from and the scan the
+        // collision just refreshed. Shut in dialogue and while a menu or an overlay is up.
+        if (!step.repeat_build)
+        {
+            const bool ui_up =
+                is_game_menu_open() || overlay_state().active.load(std::memory_order_relaxed) ||
+                (game_state_mask().load(std::memory_order_relaxed) & state_bit(GameState::Dialogue)) != 0u;
+            run_tree_see_through(camera_position, eye_position, body_origin, body_valid, cam.turn_track_step, !ui_up,
+                                 view_blend, delta_time);
+        }
+
+        // Too close to the character. With no room behind the player - a low lintel in a doorway (the collision holds
         // the camera under it), a wall right behind - collision pulls the camera onto the pivot, inside the head, and
         // the view shows the head's inside until the player moves. With CloseUpFade the camera stays where the
         // collision put it and the character dithers out instead, as far as CloseUpFadeMinOpacity lets him from
@@ -2728,34 +3442,10 @@ namespace TPVCamera
         {
             constexpr float k_head_fallback_margin = 0.15f; // meters of extra room before third person resumes
             constexpr float k_head_fallback_rate = 12.0f;   // ease rate, 1/sec (frame-rate independent below)
-            const float clearance = cfg.head_clearance.load(std::memory_order_relaxed);
-            // Measured from the head where it really is: the pivot plus the turn hold, which keeps the pivot off the
-            // body while it steps through a turn.
-            const float arm = (camera_position - (pivot + turn_hold)).magnitude();
-            const bool close_fade = cfg.close_up_fade.load(std::memory_order_relaxed) && character_fade_available();
+            const float clearance = head_clearance;
+            const float arm = arm_after_collision;
             if (!step.repeat_build)
             {
-                const float close_most =
-                    1.0f - std::clamp(cfg.close_up_fade_min_opacity.load(std::memory_order_relaxed), 0.0f, 1.0f);
-                const float close_amount =
-                    (close_fade && clearance > 0.0f)
-                        ? std::clamp((clearance + k_close_fade_band - arm) / k_close_fade_band, 0.0f, close_most)
-                        : 0.0f;
-                // What the character carries (the weapons, the quiver, a shield, a bow and the arrow nocked on it) are
-                // entities of their own, bound to the character's attachments. They fade with the character, exactly as
-                // far as it does, through the character fade's render proxy hook, which set_character_fade hands the
-                // list: a static item's slot passes the raised byte on to the engine's persistent render objects. The
-                // walk runs whenever the close-up fade is on, not only while the character fades, so the list is ready
-                // the frame it starts.
-                if (close_fade && entity_addr != 0)
-                {
-                    (void)collect_character_nodes(entity_addr, s_character_nodes);
-                }
-                else if (s_character_nodes.entity != 0)
-                {
-                    clear_character_nodes(s_character_nodes);
-                }
-                run_character_twins(close_fade);
                 set_character_fade(entity_addr, close_amount, &s_character_nodes);
                 // With the eye fade ready (the shader twins) the face and the eyes dither out with the body and the
                 // head is hidden only once the face is gone; with the eyelashes, hair, beard and eye film ready too
@@ -2776,7 +3466,7 @@ namespace TPVCamera
                         "dithers the whole character out, eyes, eyelashes, hair and eye film included, and keeps the "
                         "head shown",
                     };
-                    (void)DMK::log().try_log(DMK::LogLevel::Info, "Camera: the close-up fade {} (close amount {:.2f})",
+                    (void)DMK::log().try_log(DMK::LogLevel::Debug, "Camera: the close-up fade {} (close amount {:.2f})",
                                              k_head_paths[static_cast<std::size_t>(head_path)], close_amount);
                 }
                 if (all_fade)
@@ -2882,6 +3572,48 @@ namespace TPVCamera
             }
         }
 
+        // The lens near plane (see k_lens_near_max). The builder rebuilds the cull planes and the render projection
+        // from the near corner, which SetFrustum writes fresh before every build, so scaling it moves the near plane
+        // for this build only. The clearance is measured once per frame from the final pose and the same plane is used
+        // for the frame's second build; it eases with the view blend, so first person keeps the game's plane.
+        {
+            static float s_lens_near = 0.0f;
+            auto *near_corner = reinterpret_cast<float *>(camera + Constants::CCAMERA_NEAR_CORNER_OFFSET);
+            const float game_near = near_corner[1];
+            if (view_blend > 0.0f && game_near > 1e-4f && game_near < k_lens_near_max)
+            {
+                if (!step.repeat_build)
+                {
+                    const Vector3 view_right{matrix->m[0][0], matrix->m[1][0], matrix->m[2][0]};
+                    const Vector3 view_forward{matrix->m[0][1], matrix->m[1][1], matrix->m[2][1]};
+                    const Vector3 view_up{matrix->m[0][2], matrix->m[1][2], matrix->m[2][2]};
+                    // The surfaces the plane must not cut, looked for only as far as the plane may go.
+                    const float tan_half_width = std::fabs(near_corner[0] / game_near);
+                    const float tan_half_height = std::fabs(near_corner[2] / game_near);
+                    Sightline rays[9];
+                    lens_rays(final_position, view_right, view_forward, view_up, tan_half_width, tan_half_height,
+                              k_lens_near_max, rays);
+                    const float solid = lens_clearance(rays, k_lens_near_max);
+                    const float target =
+                        std::max(game_near, std::min(solid - k_lens_near_margin,
+                                                     arm_after_collision - k_lens_near_character_margin));
+                    s_lens_near =
+                        (target < s_lens_near || s_lens_near < game_near)
+                            ? target
+                            : s_lens_near + (target - s_lens_near) * (1.0f - std::exp(-k_lens_near_rate * delta_time));
+                }
+                const float near_plane = game_near + (std::max(s_lens_near, game_near) - game_near) * view_blend;
+                const float scale = near_plane / game_near;
+                near_corner[0] *= scale;
+                near_corner[1] *= scale;
+                near_corner[2] *= scale;
+            }
+            else
+            {
+                s_lens_near = 0.0f;
+            }
+        }
+
         // Publish the rendered camera pose + crosshair direction for the camera-space interaction hook
         // (interaction_hook.cpp). The player use-cone is eye-anchored and never reads the render camera, so
         // in third person the screen-centre crosshair and the use-target diverge by the shoulder offset
@@ -2937,20 +3669,18 @@ namespace TPVCamera
 
     /**
      * @brief Keeps the player head in sync with the offset state once per frame.
-     * @details While the offset is active the head must stay shown (hidden only during the
-     *          first-person fallback, when the camera sits at the eye, and once the close-up fade
-     *          has the character mostly dithered out, since the stock eyes, hair and eye film
-     *          ignore the dither), but the engine only sets head visibility on its own
-     *          transitions, so re-call the setter whenever the live hide flag disagrees. When the
-     *          offset has just turned off, restore the game's intended hide value exactly once so
-     *          the first-person rig hides the head again. The hide flag is re-read rather than cached so this
-     *          self-heals regardless of who last changed it, and a call is issued only on a
-     *          mismatch so the engine is not driven every frame.
-     *          The player is the live C_Player resolved this frame when there is one, else the
-     *          one the setter was last called on. A live player that differs from the latched
-     *          one is adopted first (adopt_head_state), because a freshly loaded generation or a
-     *          new level has no call latched until the game next switches the view itself.
-     * @param active Whether the offset is currently being applied to the game view.
+     * @details While the offset is active the head must stay shown (hidden only during the first-person fallback,
+     *          when the camera sits at the eye, and once the close-up fade has the character mostly dithered out while
+     *          the eye fade is not ready, or his face gone while it is, since the stock eyes, eyelashes and eye film
+     *          ignore the dither), but the engine only sets head visibility on its own transitions, so re-call the
+     *          setter whenever the live hide flag disagrees. When the offset has just turned off, restore the game's
+     *          intended hide value exactly once so the first-person rig hides the head again. The hide flag is re-read
+     *          rather than cached so this self-heals regardless of who last changed it, and a call is issued only on a
+     *          mismatch so the engine is not driven every frame. The player is the live C_Player resolved this frame
+     *          when there is one, else the one the setter was last called on. A live player that differs from the
+     *          latched one is adopted first (adopt_head_state), because a freshly loaded generation or a new level has
+     *          no call latched until the game next switches the view itself.
+     * @param active Whether the offset is being applied to the game view this frame.
      * @param c_player The live C_Player (vtable-validated), or 0.
      */
     static void reassert_head_visibility(bool active, uintptr_t c_player)
@@ -2987,7 +3717,7 @@ namespace TPVCamera
      *          forces the view ONCE when a forced state begins, lets the player toggle freely while it
      *          lasts, and restores the pre-force view when the state ends - unless the player changed
      *          the view themselves meanwhile, in which case their choice stands. Forced-FPV wins over
-     *          forced-TPV on overlap. Runs on the render thread only (the detour), so the latch state is
+     *          forced-TPV on overlap. Runs on the main thread only (the detour), so the latch state is
      *          plain file-scope static; cam.applying is atomic because the hotkeys write it too.
      * @param cam Camera state whose applying flag (the live view) is forced and restored.
      * @param state Current debounced GameState mask.
@@ -3055,7 +3785,7 @@ namespace TPVCamera
      * @details Edge-triggered, like the forced-view policy: free-look is turned off once when a listed
      *          state begins and re-enabled when it ends, so a state that interrupts free-look (a
      *          dialogue, a minigame) does not permanently cancel it. It only re-enables if the policy
-     *          was the one that turned it off (free-look was on at entry). Render-thread only.
+     *          was the one that turned it off (free-look was on at entry). Main-thread only.
      *
      *          orbit_active is also written by the input thread (the toggle and OrbitHoldKey). The policy turns it off
      *          and on only by compare-exchange, and an OrbitHoldKey release posts orbit_hold_released before it clears
@@ -3366,27 +4096,81 @@ namespace TPVCamera
     }
 
     /**
-     * @brief Gate + matrix-offset body for the frustum-builder detour. Separated from the SEH wrapper
-     *        so that frame can hold C++ objects that need unwinding.
-     * @details Cheapest exits first: the runtime toggle, then the CView vtable identity (a single
-     *          guarded read), so the inactive feature and any non-game camera (shadow, reflection,
-     *          portal) pay almost nothing.
-     * @param camera The camera handed to the frustum builder (matrix at offset 0).
+     * @brief Times the frustum detour around the original engine call without filling the profiler ring with
+     *        non-game cameras.
+     * @details Two records per identified game-view build separate all mod work from the original engine call; the
+     *          camera.frustum_build scope of the body nests inside frustum_mod. Other cameras record only individual
+     *          calls of at least 1 ms. Empty when profiling is off; no logger calls, allocations, or shared timing
+     *          counters.
      */
-    static void detour_frustum_build_impl(uintptr_t camera)
+    struct FrustumBuildProfile
     {
+#ifdef DMK_ENABLE_PROFILING
+        LARGE_INTEGER mod_started{};
+        LARGE_INTEGER original_started{};
+        bool game_view = false;
+#endif
 
-        // Named timing scope for the whole per-frame camera body. Compiles to nothing unless the build sets
-        // DMK_ENABLE_PROFILING, and the collision/occlusion queries below carry their own nested scopes, so a
-        // profiling build attributes a frame spike to a specific query instead of "the camera hook".
-        DMK_PROFILE_SCOPE("camera.frustum_build");
+        void begin_mod() noexcept
+        {
+#ifdef DMK_ENABLE_PROFILING
+            QueryPerformanceCounter(&mod_started);
+#endif
+        }
 
-        // Advance the self-heal scheduler once per frame, before anything reads a healed offset. This is the
-        // mod's render-thread heartbeat: every un-latched group whose gate passes and whose retry interval is
-        // due runs its scan here, and a group that has resolved is not scanned again. It runs even on the idle
-        // fast path below, because the bases a group waits on come up while the offset is still disengaged.
-        offset_heal_tick();
+        void identify_game_view() noexcept
+        {
+#ifdef DMK_ENABLE_PROFILING
+            game_view = true;
+#endif
+        }
 
+        void begin_original() noexcept
+        {
+#ifdef DMK_ENABLE_PROFILING
+            QueryPerformanceCounter(&original_started);
+#endif
+        }
+
+        void finish() noexcept
+        {
+#ifdef DMK_ENABLE_PROFILING
+            LARGE_INTEGER ended{};
+            QueryPerformanceCounter(&ended);
+            auto &profiler = DMK::Profiler::get_instance();
+            const auto thread = GetCurrentThreadId();
+            if (game_view)
+            {
+                HookProfile::record_game_frustum(mod_started.QuadPart, original_started.QuadPart, ended.QuadPart);
+                profiler.record("camera.frustum_mod", mod_started.QuadPart, original_started.QuadPart, thread);
+                profiler.record("camera.frustum_original", original_started.QuadPart, ended.QuadPart, thread);
+                return;
+            }
+            // Rejected or unidentified cameras must not evict the ring with a sample on every frustum call. Keep only
+            // individual calls taking at least 1 ms; DEV totals go into the separate bounded aggregate export.
+            HookProfile::record_other_frustum(mod_started.QuadPart, original_started.QuadPart, ended.QuadPart);
+            const auto slow_ticks = std::max<std::int64_t>(profiler.qpc_frequency() / 1000, 1);
+            if (original_started.QuadPart - mod_started.QuadPart >= slow_ticks)
+            {
+                profiler.record("camera.other_frustum_mod_slow", mod_started.QuadPart, original_started.QuadPart,
+                                thread);
+            }
+            if (ended.QuadPart - original_started.QuadPart >= slow_ticks)
+            {
+                profiler.record("camera.other_frustum_original_slow", original_started.QuadPart, ended.QuadPart,
+                                thread);
+            }
+#endif
+        }
+    };
+
+    /**
+     * @brief Gate and matrix-offset body, outside the SEH wrapper so local C++ objects can unwind.
+     * @param camera The camera handed to the frustum builder (matrix at offset 0).
+     * @param profile Per-call diagnostic state, marked after identifying the game view.
+     */
+    static void detour_frustum_build_impl(uintptr_t camera, FrustumBuildProfile &profile)
+    {
         CameraState &cam = camera_state();
         LiveSettings &cfg = settings();
 
@@ -3427,6 +4211,28 @@ namespace TPVCamera
             return;
         }
 
+        profile.identify_game_view();
+        // Named timing scope for the camera body of the game view; the other frustum builds of a frame returned
+        // above. The game view normally builds twice per frame. Compiles to nothing unless the build sets
+        // DMK_ENABLE_PROFILING, and the collision/occlusion queries below carry their own nested scopes, so a
+        // profiling build attributes a frame spike to a specific query instead of "the camera hook".
+        DMK_PROFILE_SCOPE("camera.frustum_build");
+
+        // Every game-view build takes its step, the idle ones included, so the wall-clock fallback always measures
+        // from the previous build and the frame's second build is told apart on either path.
+        const FrameStep step = frame_delta();
+        const float delta_time = step.seconds;
+        const bool repeat_build = step.repeat_build;
+
+        // Advance the self-heal scheduler once per frame, before anything below reads a healed offset. Its retry
+        // interval counts ticks as frames, so neither the other frustum builds (dozens a frame) nor the frame's second
+        // build tick it. The idle path needs it too: the bases a group waits on come up while the offset is still
+        // disengaged. A resolved group latches, so only groups still waiting for their live bases can scan here.
+        if (!repeat_build)
+        {
+            offset_heal_tick();
+        }
+
         // Fast path: nothing can drive the offset, so there is nothing to do. When any forced state is
         // configured the policy must run every game-view frame to catch the state-change EDGES that
         // trigger a one-time forced switch, so only skip when the player is in manual first person with
@@ -3452,15 +4258,22 @@ namespace TPVCamera
             // Offset disengaged: the orbit cannot be capturing, and the cursor flag is only refreshed on
             // the game-view path below, so clear it here to keep it from latching true across the gap.
             s_cursor_shown.store(false, std::memory_order_relaxed);
+            // The trees the tree see-through still holds swapped go back to the stock shader once its hold runs out,
+            // so it keeps getting its frames while any is left. The twins a pause creates come in first person too.
+            if (!repeat_build && shader_twins_available())
+            {
+                service_shader_twins_paused(twin_pause_signals(step, std::nullopt));
+                if (shader_twin_stats().swapped > 0)
+                {
+                    stop_tree_see_through(delta_time);
+                }
+            }
             return;
         }
 
-        // Game-view camera: take the single per-frame delta and resolve the player once here, then
-        // reuse both in the matrix offset below so neither is computed twice per frame. The game state
-        // is derived from the discrete engine signals and published for the input-dispatch thread.
-        const FrameStep step = frame_delta();
-        const float delta_time = step.seconds;
-        const bool repeat_build = step.repeat_build;
+        // Game-view camera: resolve the player once here and reuse it and the frame step in the matrix offset
+        // below. The game state is derived from the discrete engine signals and published for the input-dispatch
+        // thread.
         const uintptr_t c_player = resolve_c_player();
         // Presets are always active, so the debounced game state is always needed here (to select the
         // active preset and, when state behaviour is on, to drive the forced-view / orbit-exclude policies).
@@ -3497,13 +4310,19 @@ namespace TPVCamera
             cam.aim_handoff_cancel = true;
         }
         game_state_mask().store(state, std::memory_order_relaxed);
+        // While the game stands still, the shader twins create the twins of the variants that came after the loading
+        // screen: once per frame, before this frame's update of them.
+        if (!repeat_build && shader_twins_available())
+        {
+            service_shader_twins_paused(twin_pause_signals(step, raw_state | state));
+        }
 
         // Publish whether the game is showing the OS cursor (a UI is up) so the free-look input gate can
         // freeze the orbit while menus / loot / trade / dialogue are open. The hardware-mouse reference
         // counter (g_env -> p_hardware_mouse -> + count) reads > 0 whenever any UI requests the cursor.
         // Every link is screened (memory::walk + memory::read), and any failed link - or the feature
         // being disabled - publishes false, so a layout miss or a load degrades to normal orbit rather
-        // than a stuck-frozen one. Read here on the render thread; the input thread only reads the
+        // than a stuck-frozen one. Read here on the main thread; the input thread only reads the
         // published flag (same producer/consumer split as game_state_mask, so no new cross-thread race).
         // Non-game-view frustum frames (shadow/reflection) skip this publish, but cannot strand the orbit
         // frozen: s_offset_active is co-published on this same game-view path and the input gate tests it
@@ -3590,17 +4409,20 @@ namespace TPVCamera
             cam.head_fallback_blend = 0.0f;
             s_head_fallback.store(false, std::memory_order_relaxed);
             s_head_close_fade.store(false, std::memory_order_relaxed);
-            // The character draws solid again at once: in first person its body is in view.
+            // Faded objects go solid at once (they are behind the first-person eye), and the next third-person frame
+            // starts from an empty fade set instead of node addresses from before the gap.
+            reset_occluder_fade();
             set_character_fade(0, 0.0f);
             // The carried list goes too, and the next third-person walk logs its set afresh.
             if (s_character_nodes.entity != 0)
             {
                 clear_character_nodes(s_character_nodes);
             }
-            // First person has no close-up fade, so the twins do not run; their sets for the fade keep warming up.
+            s_fade_cache_stale = true;
+            // And the tree see-through window shuts; its trees go back to the stock shader after the module's hold.
             if (!repeat_build)
             {
-                update_shader_twins({});
+                stop_tree_see_through(delta_time);
             }
             // First person (or suppressed): the camera is the eye, so the interaction hook must NOT redirect.
             interaction_aim_pose().invalidate();
@@ -3678,11 +4500,11 @@ namespace TPVCamera
      * @details Apart from the detour, because the detour's DetourScope needs C++ object unwinding, which a __try
      *          frame cannot hold.
      */
-    static void frustum_build_offset_guarded(uintptr_t camera) noexcept
+    static void frustum_build_offset_guarded(uintptr_t camera, FrustumBuildProfile &profile) noexcept
     {
         __try
         {
-            detour_frustum_build_impl(camera);
+            detour_frustum_build_impl(camera, profile);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -3699,9 +4521,14 @@ namespace TPVCamera
     static uintptr_t __fastcall detour_frustum_build(uintptr_t camera) noexcept
     {
         const DetourScope in_flight;
-        frustum_build_offset_guarded(camera);
+        FrustumBuildProfile profile;
+        profile.begin_mod();
+        frustum_build_offset_guarded(camera, profile);
         const FrustumBuildFunc original = s_frustum_build_original.load(std::memory_order_acquire);
-        return original ? original(camera) : 0;
+        profile.begin_original();
+        const uintptr_t result = original ? original(camera) : 0;
+        profile.finish();
+        return result;
     }
 
     /**
@@ -3726,7 +4553,8 @@ namespace TPVCamera
             // detour) rather than the raw toggle, so a forced-FPV/TPV state shows or hides the head
             // to match the view the player actually sees. The first-person fallback (camera at the
             // eye, no room behind) hides it like first person does, and so does a close-up fade far
-            // enough along that the eyes and hair would stay solid in the dithered face.
+            // enough along that the eyes would float in the dithered face (when the eye fade is not
+            // ready), or the eyelashes and eye film once the face is gone (when it is).
             const bool active = s_offset_active.load(std::memory_order_relaxed);
             const bool final_hide_head = active ? (s_head_fallback.load(std::memory_order_relaxed) ||
                                                    s_head_close_fade.load(std::memory_order_relaxed))
@@ -3812,7 +4640,7 @@ namespace TPVCamera
                 {
                     // Mouse-up raises the camera, mouse-down lowers it; a negative Y sensitivity inverts that.
                     const float sensitivity_y = settings().orbit_sensitivity_y.load(std::memory_order_relaxed);
-                    // Within the range the render thread published (see CameraState::orbit_pitch_lo); a value
+                    // Within the range the main thread published (see CameraState::orbit_pitch_lo); a value
                     // already outside it is kept but cannot grow.
                     const float old_pitch = cam.orbit_pitch.load(std::memory_order_relaxed);
                     cam.orbit_pitch.store(
@@ -4683,7 +5511,13 @@ namespace TPVCamera
 
     DMK::Result<void> initialize_camera(uintptr_t module_base, size_t module_size, HookSet &hooks)
     {
+        HookProfile::initialize();
         DMK::Logger &logger = DMK::log();
+
+#ifdef DMK_ENABLE_PROFILING
+        // Allocate the diagnostic ring on the initialization thread before any camera callback can record.
+        (void)DMK::Profiler::get_instance();
+#endif
 
         // Start in first-person (offset off) so the game looks normal on load; the view
         // hotkeys toggle/force the third-person offset on. The hooks below fast-path out
@@ -4700,9 +5534,9 @@ namespace TPVCamera
         // those features no-op (the camera still renders), so the result is intentionally discarded.
         (void)initialize_physics_raycast(module_base, module_size, s_genv_runtime);
 
-        // Resolve the 3DEngine render-octree query so the camera can also collide with render-only roofs
-        // (tent / awning canopy cloth) that carry no ray-collidable physics. Best-effort: a miss no-ops the
-        // roof render clamp, so the result is intentionally discarded.
+        // Resolve the 3DEngine render-octree query the occluder scan uses to find the objects between the camera and
+        // the character. Best-effort: a miss leaves plain physics collision, so the result is intentionally
+        // discarded.
         (void)initialize_render_occlusion(module_base, module_size, s_genv_runtime);
 
         // What the character carries fades with it, found through the entity system g_env holds. Handed over before
@@ -4824,6 +5658,13 @@ namespace TPVCamera
                 "Camera: character fade unavailable ({}); the camera switches to first person when too close",
                 character.error().message());
         }
+        // Fade the objects between the camera and the character instead of pulling the camera in front of them.
+        // Best-effort: without it the camera collides with them.
+        if (auto fade = initialize_occluder_fade(hooks); !fade.has_value())
+        {
+            logger.warning("Camera: occluder fade unavailable ({}); objects in front of the character block the camera",
+                           fade.error().message());
+        }
 
         logger.info("Camera: Third-person camera hooks installed");
         return {};
@@ -4842,7 +5683,7 @@ namespace TPVCamera
         }
         catch (...)
         {
-            // An allocation failure leaves no tokens published, so the render thread falls back to the name-based
+            // An allocation failure leaves no tokens published, so the main thread falls back to the name-based
             // query and never reads a stale pair.
             s_zoom_tokens.store(nullptr, std::memory_order_release);
         }

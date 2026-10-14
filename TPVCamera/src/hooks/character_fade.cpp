@@ -24,7 +24,6 @@
 #include <cmath>
 #include <cstdint>
 #include <span>
-#include <string>
 #include <utility>
 
 namespace TPVCamera
@@ -55,6 +54,10 @@ namespace TPVCamera
         std::atomic<std::uint32_t> s_applies{0};
         std::atomic<std::uint32_t> s_carried_character_applies{0};
         std::atomic<std::uint32_t> s_carried_static_applies{0};
+        // The character-render watch (watch_character_render): while it is on, the detour counts the main-view draws of
+        // the character, and the camera frame reads and clears the count.
+        std::atomic<bool> s_watch_character{false};
+        std::atomic<std::uint32_t> s_character_draws{0};
 
         /** @brief What a drawn render proxy is to the character fade. */
         enum class ProxyKind : std::uint8_t
@@ -116,7 +119,8 @@ namespace TPVCamera
          *          AddOrCreatePersistentRenderObject, so a carried static mesh fades through the same byte. The byte is
          *          raised for the call and restored after it, so the caller's parameters are left as they were. Shadow
          *          passes are left alone, so the character keeps its shadow. Each main-view draw of the character
-         *          publishes its proxy (character_render_node()).
+         *          publishes its proxy (character_render_node()), and while the character-render watch is on it is
+         *          counted.
          * @note Raw arbitrary-signature detour (DMK [B-84]): it must not throw, and every call in it is noexcept.
          */
         void __fastcall proxy_render_detour(void *proxy, std::uint8_t *params, const std::uint8_t *pass) noexcept
@@ -128,10 +132,16 @@ namespace TPVCamera
             {
                 const auto address = reinterpret_cast<std::uintptr_t>(proxy);
                 if (*reinterpret_cast<const std::uintptr_t *>(address + Constants::RENDER_PROXY_ENTITY_OFFSET) ==
-                        character &&
-                    s_character_node.load(std::memory_order_relaxed) != address)
+                    character)
                 {
-                    s_character_node.store(address, std::memory_order_relaxed);
+                    if (s_character_node.load(std::memory_order_relaxed) != address)
+                    {
+                        s_character_node.store(address, std::memory_order_relaxed);
+                    }
+                    if (s_watch_character.load(std::memory_order_relaxed))
+                    {
+                        s_character_draws.fetch_add(1, std::memory_order_relaxed);
+                    }
                 }
             }
             const auto ours = static_cast<std::uint8_t>(s_byte.load(std::memory_order_relaxed));
@@ -292,6 +302,44 @@ namespace TPVCamera
     std::uintptr_t character_render_node() noexcept
     {
         return s_character_node.load(std::memory_order_relaxed);
+    }
+
+    void watch_character_render(bool watch) noexcept
+    {
+        // The camera frame runs before the frame's world pass, so the draws counted since the last call belong to the
+        // frame that call opened; it counts when that call was watching. Main-thread state.
+        static bool s_watching = false;
+        static int s_watched_frames = 0;
+        static int s_missed_frames = 0;
+        static std::uint64_t s_window_start_ms = 0;
+        const std::uint32_t draws = s_character_draws.exchange(0, std::memory_order_relaxed);
+        if (s_watching)
+        {
+            ++s_watched_frames;
+            if (draws == 0)
+            {
+                ++s_missed_frames;
+            }
+        }
+        s_watching =
+            watch && s_available.load(std::memory_order_relaxed) && s_entity.load(std::memory_order_relaxed) != 0;
+        s_watch_character.store(s_watching, std::memory_order_relaxed);
+
+        const std::uint64_t now_ms = GetTickCount64();
+        if (now_ms - s_window_start_ms < 1000)
+        {
+            return;
+        }
+        if (s_missed_frames > 0)
+        {
+            (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                     "CharacterFade: the main view did not draw the character in {} of {} frame(s) "
+                                     "in the last second while the tree see-through had trees swapped",
+                                     s_missed_frames, s_watched_frames);
+        }
+        s_watched_frames = 0;
+        s_missed_frames = 0;
+        s_window_start_ms = now_ms;
     }
 
 } // namespace TPVCamera
