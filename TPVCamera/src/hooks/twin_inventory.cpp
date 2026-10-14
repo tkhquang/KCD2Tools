@@ -9,6 +9,7 @@
  */
 
 #include "twin_inventory.hpp"
+#include "twin_common.hpp"
 #include "camera_rules_files.hpp"
 #include "constants.hpp"
 
@@ -39,11 +40,6 @@ namespace TPVCamera
         static_assert((Constants::TWIN_INVENTORY_MATERIAL_SET & (Constants::TWIN_INVENTORY_MATERIAL_SET - 1)) == 0,
                       "The dedupe set's size must be a power of two.");
 
-        [[nodiscard]] constexpr char lower(char c) noexcept
-        {
-            return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
-        }
-
         /**
          * @brief Canonicalizes an engine string while its owner keeps it alive: lower case, forward slashes.
          * @param backslash Set when the string held a backslash.
@@ -61,7 +57,7 @@ namespace TPVCamera
                 {
                     const char c = path[i];
                     backslash = backslash || c == '\\';
-                    out[i] = c == '\\' ? '/' : lower(c);
+                    out[i] = c == '\\' ? '/' : ascii_lower(c);
                     if (c == '\0')
                     {
                         return true;
@@ -230,13 +226,6 @@ namespace TPVCamera
             {
                 return false;
             }
-        }
-
-        /** @brief True when @p object's vtable carries the RTTI name @p mangled (one loader query; setup-style). */
-        [[nodiscard]] bool object_has_type(std::uintptr_t object, std::string_view mangled) noexcept
-        {
-            const std::uintptr_t vtable = object != 0 ? read_pointer_guarded(object) : 0;
-            return vtable != 0 && DMK::rtti::vtable_is_type(DMK::Address{vtable}, mangled);
         }
 
         /**
