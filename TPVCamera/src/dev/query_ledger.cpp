@@ -70,8 +70,7 @@ namespace TPVCamera::QueryLedger
         stats.calls.fetch_add(calls, std::memory_order_relaxed);
         stats.ticks.fetch_add(elapsed, std::memory_order_relaxed);
         raise_max(stats.max_ticks, elapsed);
-        // The Diagnostic tag runs only for Trace logging and stays out of the per-frame budget.
-        if (kind == Kind::Physics && tag != Tag::Diagnostic)
+        if (kind == Kind::Physics)
         {
             s_frame_physics.fetch_add(calls, std::memory_order_relaxed);
             s_frame_physics_ticks.fetch_add(elapsed, std::memory_order_relaxed);

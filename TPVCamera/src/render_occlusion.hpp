@@ -283,24 +283,11 @@ namespace TPVCamera
     [[nodiscard]] bool advance_fence_classification() noexcept;
 
     /**
-     * @brief Best-effort identity (.cgf name + world AABB extents) of the brush at a physics camera-collision hit.
-     * @details For trace logging only: turns an opaque collider address into the object the camera blocked on, so a
-     *          false positive (a thin prop, a wall, a roof) is identifiable from the log WITHOUT live debugging. When
-     *          @p node is non-null (the collider's foreign render-node link, via static_brush_render_node) it is read
-     *          directly; otherwise the render octree is queried at @p hit_point and the compact brush whose mesh is AT
-     *          the hit (preferred) or that merely contains it (fallback, e.g. a compound building) is reported.
-     *          SEH-guarded; returns false and leaves @p out_name empty / @p ext zeroed on a fault or miss.
-     * @param hit_point World-space physics hit position (the fan / RWI hit, not the synthetic sphere point).
-     * @param node The collider's foreign render node, or nullptr if it had none (baked level physics carries none).
-     * @param out_name Receives the null-terminated .cgf path, truncated to @p out_sz.
-     * @param out_sz Size of @p out_name in bytes.
-     * @param ext Receives the brush world AABB extents (x, y, z) in meters, or zeros.
-     * @param out_kind Receives which path identified the brush (nullptr to ignore): 0 none, 1 foreign-linked node,
-     *        2 prop (a brush whose MESH is within HIT_MESH_EPS of the hit), 3 solid (a brush that only CONTAINS
-     *        the hit), 4 a brush the camera rules exclude (an HLOD block).
+     * @brief Where the camera rule that classed scanned node @p node is written ("file:line"), for the log.
+     * @details Empty when @p node is not in the current scan. Main thread only (reads the scan).
+     * @param out Receives the null-terminated location, truncated to @p cap.
      */
-    [[nodiscard]] bool render_hit_info(const Vector3 &hit_point, void *node, char *out_name, int out_sz, float ext[3],
-                                       int *out_kind) noexcept;
+    void occluder_rule_where(void *node, char *out, int cap) noexcept;
 
 } // namespace TPVCamera
 

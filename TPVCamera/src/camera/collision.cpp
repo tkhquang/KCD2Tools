@@ -246,12 +246,13 @@ namespace TPVCamera
          * @brief Logs the collision hit (the solid-world fan/sphere result) and what the fan stepped past, so a wrong
          *        stop or a wrong fade is identifiable from the log.
          * @details Rate-limited to a meaningful change (block-state toggle or distance move > 0.1m) so it never spams
-         *          a frame. The hit object is identified via a render-octree query (render_hit_info), so the whole
-         *          trace is gated on Trace logging being ENABLED: that diagnostic octree + per-node vertex scan never
-         *          runs on a normal-play frame.
+         *          a frame, and written only while Trace logging is enabled. The object is named from what the walk
+         *          already knows, so the line runs no query: the collider's foreign render-node link (none for baked
+         *          level physics), the scanned node the collision decided on with its class, and the camera rule that
+         *          classed it.
          */
         void trace_physics_hit(CollisionState &state, const ArmWalk &walk, const std::optional<RayHit> &hit,
-                               bool from_sphere, bool blocked, float surface, float desired_distance, bool fade_on,
+                               bool from_sphere, bool blocked, float surface, float desired_distance,
                                const Vector3 &camera, const Vector3 &pivot)
         {
             const float dd = blocked ? (surface - state.traced_distance) : 0.0f;
@@ -259,40 +260,34 @@ namespace TPVCamera
             const bool trace_on = DMK::log().is_enabled(DMK::LogLevel::Trace);
             if (trace_on && blocked && (blocked != state.traced_blocked || moved))
             {
-                // Identify the object from the fan (point + collider), not the sphere's synthetic hit. node = the
-                // collider's foreign render-node link (0 for baked level physics, which render_hit_info then resolves
-                // by querying the render octree at the hit point). matched = the scanned node the collision decided
-                // on, and its class.
+                // Identify the object from the fan (point + collider), not the sphere's synthetic hit.
                 const RayHit &id_hit = walk.fan.has_value() ? *walk.fan : *hit;
                 const Vector3 &hp = id_hit.m_point;
                 const Vector3 &hn = id_hit.m_normal;
                 const int hit_terrain = id_hit.m_terrain;
                 const uintptr_t collider = id_hit.m_collider;
-                void *node = reinterpret_cast<void *>(static_brush_render_node(collider));
-                char obj_name[160] = {};
-                float obj_ext[3] = {};
-                int obj_kind = 0;
-                (void)render_hit_info(hp, node, obj_name, static_cast<int>(sizeof(obj_name)), obj_ext, &obj_kind);
-                static const char *const k_obj_kinds[] = {"none", "foreign", "prop", "solid", "excluded"};
-                const char *kind_str = (obj_kind >= 0 && obj_kind <= 4) ? k_obj_kinds[obj_kind] : "?";
+                void *linked = reinterpret_cast<void *>(static_brush_render_node(collider));
+                char linked_name[160] = {};
+                render_node_name(linked, linked_name, static_cast<int>(sizeof(linked_name)));
                 OccluderClass matched_cls = OccluderClass::Structure;
-                void *matched = (fade_on && hit_terrain == 0 && collider != 0)
-                                    ? occluder_node_for_collider(collider, &matched_cls)
-                                    : nullptr;
+                void *matched =
+                    (hit_terrain == 0 && collider != 0) ? occluder_node_for_collider(collider, &matched_cls) : nullptr;
                 char matched_name[160] = {};
                 render_node_name(matched, matched_name, static_cast<int>(sizeof(matched_name)));
+                char rule[160] = {};
+                occluder_rule_where(matched, rule, static_cast<int>(sizeof(rule)));
                 float cbox[6] = {};
                 (void)read_collider_box(collider, cbox);
                 (void)DMK::log().try_log(
                     DMK::LogLevel::Trace,
-                    "PhysicsCollision HIT: src={} bTerrain={} dist={} of {} stepped={} kind={} obj=\"{}\" "
-                    "ext=({}, {}, {}) collider={:#x} colliderExt=({}, {}, {}) node={:#x} matched=\"{}\" "
-                    "class={} point=({}, {}, {}) normal=({}, {}, {}) cam=({}, {}, {}) pivot=({}, {}, {})",
-                    from_sphere ? "sphere" : "fan", hit_terrain, surface, desired_distance, walk.n_stepped, kind_str,
-                    obj_name, obj_ext[0], obj_ext[1], obj_ext[2], collider, cbox[3] - cbox[0], cbox[4] - cbox[1],
-                    cbox[5] - cbox[2], reinterpret_cast<uintptr_t>(node), matched_name,
-                    matched != nullptr ? occluder_class_name(matched_cls) : "unmatched", hp.x, hp.y, hp.z, hn.x, hn.y,
-                    hn.z, camera.x, camera.y, camera.z, pivot.x, pivot.y, pivot.z);
+                    "PhysicsCollision HIT: src={} bTerrain={} dist={} of {} stepped={} collider={:#x} "
+                    "colliderExt=({}, {}, {}) linked={:#x} \"{}\" matched=\"{}\" class={} rule={} point=({}, {}, {}) "
+                    "normal=({}, {}, {}) cam=({}, {}, {}) pivot=({}, {}, {})",
+                    from_sphere ? "sphere" : "fan", hit_terrain, surface, desired_distance, walk.n_stepped, collider,
+                    cbox[3] - cbox[0], cbox[4] - cbox[1], cbox[5] - cbox[2], reinterpret_cast<uintptr_t>(linked),
+                    linked_name, matched_name, matched != nullptr ? occluder_class_name(matched_cls) : "unmatched",
+                    rule[0] != '\0' ? rule : "-", hp.x, hp.y, hp.z, hn.x, hn.y, hn.z, camera.x, camera.y, camera.z,
+                    pivot.x, pivot.y, pivot.z);
             }
             state.traced_blocked = blocked;
             if (blocked)
@@ -545,8 +540,7 @@ namespace TPVCamera
             blocking_distance = std::max(0.0f, surface - skin);
             blocked = true;
         }
-        trace_physics_hit(state, walk, hit, from_sphere, blocked, surface, desired_distance, in.fade_on, in.desired,
-                          in.pivot);
+        trace_physics_hit(state, walk, hit, from_sphere, blocked, surface, desired_distance, in.desired, in.pivot);
 
         // A building's drawn mesh can stand inside its physics: a thatched roof's physics is its outer surface while
         // the drawn thatch hangs below it, so the arm can pass the physics and still end in the thatch. The cloth

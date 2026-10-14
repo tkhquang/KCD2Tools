@@ -34,7 +34,6 @@ namespace TPVCamera::QueryLedger
         Crosshair,
         AimPreview,
         LaunchTrace,
-        Diagnostic,
         Untagged,
         Count
     };
@@ -91,9 +90,8 @@ namespace TPVCamera::QueryLedger
     [[nodiscard]] constexpr const char *tag_name(Tag tag) noexcept
     {
         constexpr std::array<const char *, TAG_COUNT> k_names = {
-            "fan",       "sweep_pwi",   "lens",          "inside",     "structure_on_arm",
-            "drawn_on",  "sightline",   "occluder_scan", "prefetch",   "fence_wall",
-            "crosshair", "aim_preview", "launch_trace",  "diagnostic", "untagged",
+            "fan",           "sweep_pwi", "lens",       "inside",    "structure_on_arm", "drawn_on",     "sightline",
+            "occluder_scan", "prefetch",  "fence_wall", "crosshair", "aim_preview",      "launch_trace", "untagged",
         };
         const auto index = static_cast<std::size_t>(tag);
         return index < k_names.size() ? k_names[index] : "?";
