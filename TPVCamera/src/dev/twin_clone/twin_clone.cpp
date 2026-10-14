@@ -19,6 +19,7 @@
 #include "aob_resolver.hpp"
 #include "dev/hook_profile.hpp"
 #include "global_state.hpp"
+#include "hooks/twin_common.hpp"
 #include "shader_token_diff.hpp"
 
 #include <DetourModKit.hpp>
@@ -83,17 +84,6 @@ namespace TPVCamera::TwinClone
             return static_cast<double>(micros) / 1000.0;
         }
 
-        [[nodiscard]] constexpr char lower(char c) noexcept
-        {
-            return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
-        }
-
-        [[nodiscard]] constexpr bool equals_nocase(std::string_view a, std::string_view b) noexcept
-        {
-            return a.size() == b.size() &&
-                   std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) { return lower(x) == lower(y); });
-        }
-
         /** @brief The family CRC a twin's name ends with ('_' and eight hex digits): its binary's header CRC, or 0. */
         [[nodiscard]] constexpr std::uint32_t family_crc(std::string_view name) noexcept
         {
@@ -105,7 +95,7 @@ namespace TPVCamera::TwinClone
             std::uint32_t crc = 0;
             for (const char c : name.substr(at + 1))
             {
-                const char l = lower(c);
+                const char l = ascii_lower(c);
                 const int digit = l >= '0' && l <= '9' ? l - '0' : l >= 'a' && l <= 'f' ? l - 'a' + 10 : -1;
                 if (digit < 0)
                 {
@@ -415,7 +405,7 @@ namespace TPVCamera::TwinClone
                 out[0] = '\0';
                 return false;
             }
-            std::transform(out.begin(), out.begin() + static_cast<std::ptrdiff_t>(used), out.begin(), lower);
+            std::transform(out.begin(), out.begin() + static_cast<std::ptrdiff_t>(used), out.begin(), ascii_lower);
             if (with_mask && mask != 0)
             {
                 const auto tail = std::format_to_n(out.data() + used, out.size() - 1 - used, "({:x})", mask);
@@ -443,7 +433,7 @@ namespace TPVCamera::TwinClone
             {
                 for (const char c : text)
                 {
-                    if (at >= key.size() || key[at] != lower(c))
+                    if (at >= key.size() || key[at] != ascii_lower(c))
                     {
                         return false;
                     }
@@ -1341,7 +1331,7 @@ namespace TPVCamera::TwinClone
 
         // The CShader: its name, then the scalars a clone takes from its stock or its family.
         const std::string_view twin_name = blobs::k_twins[plan.kind].twin_name;
-        if (!equals_nocase(parsed.name.data(), twin_name))
+        if (!equals_nocase(parsed.name.data(), blobs::k_twins[plan.kind].twin_name))
         {
             findings.mismatch("CShader +{:#x} name '{}' (planned '{}')", C::SHADER_NAME_OFFSET, parsed.name.data(),
                               twin_name);

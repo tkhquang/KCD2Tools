@@ -64,6 +64,7 @@
  */
 
 #include "shader_twins.hpp"
+#include "twin_common.hpp"
 #include "twin_inventory.hpp"
 #if defined(TPVCAMERA_DEV_BUILD)
 #include "dev/twin_clone/twin_clone.hpp"
@@ -842,40 +843,6 @@ namespace TPVCamera
         int s_logged_inventory_left = 0;
         std::uint32_t s_logged_pause_created = 0;
         std::uint32_t s_logged_overlaps = 0;
-
-        [[nodiscard]] constexpr char lower(char c) noexcept
-        {
-            return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
-        }
-
-        /** @brief True when @p text starts with @p prefix, ignoring case. */
-        [[nodiscard]] bool starts_with_nocase(const char *text, const char *prefix) noexcept
-        {
-            for (; *prefix != '\0'; ++prefix, ++text)
-            {
-                if (*text == '\0' || lower(*text) != lower(*prefix))
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        /** @brief True when @p text equals @p want, ignoring case. */
-        [[nodiscard]] constexpr bool equals_nocase(const char *text, const char *want) noexcept
-        {
-            for (;; ++text, ++want)
-            {
-                if (lower(*text) != lower(*want))
-                {
-                    return false;
-                }
-                if (*want == '\0')
-                {
-                    return true;
-                }
-            }
-        }
 
         /** @brief The kind whose label is @p label, or -1. */
         [[nodiscard]] constexpr int kind_labelled(const char *label) noexcept
@@ -3178,16 +3145,6 @@ namespace TPVCamera
             return fn && in_game_image(*fn) ? *fn : 0;
         }
 
-        /**
-         * @brief True when @p object's vtable carries the RTTI name @p mangled.
-         * @note Setup/control-plane only: the RTTI walk takes the loader lock.
-         */
-        [[nodiscard]] bool object_has_type(std::uintptr_t object, std::string_view mangled) noexcept
-        {
-            const auto vtable = DMK::memory::read<std::uintptr_t>(DMK::Address{object});
-            return vtable && *vtable != 0 && DMK::rtti::vtable_is_type(DMK::Address{*vtable}, mangled);
-        }
-
         /** @brief True when @p object (an IShader pointer) is a CShader. Any thread. */
         [[nodiscard]] bool is_shader(std::uintptr_t object) noexcept
         {
@@ -3606,7 +3563,7 @@ namespace TPVCamera
 
         [[nodiscard]] std::string lower_text(std::string text)
         {
-            std::transform(text.begin(), text.end(), text.begin(), lower);
+            std::transform(text.begin(), text.end(), text.begin(), ascii_lower);
             return text;
         }
 
@@ -3724,7 +3681,7 @@ namespace TPVCamera
                 return std::nullopt;
             }
             std::string name(wide.size(), '\0');
-            std::ranges::transform(wide, name.begin(), [](wchar_t c) { return lower(static_cast<char>(c)); });
+            std::ranges::transform(wide, name.begin(), [](wchar_t c) { return ascii_lower(static_cast<char>(c)); });
             if (!name.starts_with(blobs::k_file_prefix))
             {
                 return std::nullopt;
@@ -4810,7 +4767,7 @@ namespace TPVCamera
                 {
                     for (std::size_t n = 0; n < prefix; ++n)
                     {
-                        stock_name[n] = lower(twin.source_name[n]);
+                        stock_name[n] = ascii_lower(twin.source_name[n]);
                     }
                     std::memcpy(stock_name.data() + prefix, suffix, suffix_length + 1);
                     const ResourceName key{prefix + suffix_length, stock_name.size(), stock_name.data()};
