@@ -95,6 +95,12 @@ namespace TPVCamera
         EntitySystem,
         /// CShaderResources, a material's shader resources (textures and constants such as its opacity).
         ShaderResources,
+        /// CShader, a shader instance (a stock shader the shader twins copy, or a twin).
+        Shader,
+        /// CStandardGraphicsPipeline, the game view's pipeline, whose per-view upload carries the tree see-through.
+        StandardPipeline,
+        /// CActorSystem, whose EntityId lookup distinguishes actors from animated props.
+        ActorSystem,
         /// Enumerator count. Not a class.
         Count,
     };
@@ -105,7 +111,7 @@ namespace TPVCamera
      *        lives in WHGame.dll.
      * @details Initialization calls serialize. A repeated call preserves the published tables because query threads
      *          read them without a lock. After an allocation failure, a retry completes the unpublished prefix.
-     *          Worker threads resolve identities before publication to keep initial sweeps off the render thread.
+     *          Worker threads resolve identities before publication to keep initial sweeps off the main thread.
      *          Queries use direct RTTI until publication.
      * @throws std::invalid_argument If the range is empty or differs from the first accepted range.
      * @note Setup only. Call from init() after the module range resolves, outside the loader lock.

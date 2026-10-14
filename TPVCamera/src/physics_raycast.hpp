@@ -46,6 +46,8 @@ namespace TPVCamera
      * @brief Resolves RayWorldIntersection and the p_physical_world slot.
      * @details Best-effort: on a pattern miss the raycast features simply no-op (the camera
      *          still works), so callers treat a false return as "raycast unavailable".
+     * @param module_base Base address of the game module (WHGame.dll); a world vtable and its PWI slot must lie in it.
+     * @param module_size Size of the game module image, in bytes.
      * @param g_env Resolved SSystemGlobalEnvironment base, or 0 when it did not resolve; the
      *              p_physical_world slot is taken from g_env + PHYSICAL_WORLD_OFFSET (no second
      *              hardcoded address).
@@ -73,15 +75,18 @@ namespace TPVCamera
      * @details Sweeps a sphere of the given radius from @p origin along @p sweep and returns the
      *          distance the sphere centre can travel before first contact. Unlike a thin ray, the
      *          contact distance is continuous as the sweep grazes edges, so the camera does not pump
-     *          in dense geometry. The PWI function is resolved from the LIVE physical-world vtable
-     *          each call (the static global is unreliable); the call is SEH-guarded and returns
+     *          in dense geometry. The PWI function is resolved from the physical-world vtable
+     *          each call (the world is gEnv->pPhysicalWorld, read fresh); the call is SEH-guarded and returns
      *          std::nullopt on any fault, an unresolved world, or a miss, so the caller falls back to
      *          the thin ray. Only the float return value (distance) is used. The centre stops @p radius
      *          short of the surface it meets, so that surface lies @p radius beyond the returned distance.
      * @param origin Sphere centre at the start of the sweep, world space.
      * @param radius Sphere radius, world units.
      * @param sweep Sweep vector; its length is the maximum sweep distance (not normalized).
-     * @param objtypes entity_query_flags mask (which entity classes block the sphere).
+     * @param objtypes entity_query_flags mask (which entity classes block the sphere), written to SPWIParams
+     *        entTypes (+0x98) with the rwi_queue bit cleared.
+     * @param p_skip_ents Optional array of IPhysicalEntity* the sweep ignores (nullptr = none).
+     * @param n_skip_ents Count of @p p_skip_ents.
      * @return The hit distance and point, or std::nullopt on a miss / fault / unavailable.
      */
     [[nodiscard]] std::optional<RayHit> sphere_world_sweep(const Vector3 &origin, float radius, const Vector3 &sweep,
@@ -98,7 +103,8 @@ namespace TPVCamera
      *          from OUTSIDE and reports it. A collider the
      *          world-only cast (@p objtypes_world) does NOT see at the same range is a non-world entity (player
      *          body, worn gear, NPC) and is collected to skip; world geometry appears in both casts at the same
-     *          range and is never collected. Output is capped at @p max_out (SPWIParams nSkipEnts clamps to 4).
+     *          range and is never collected. Output is capped at @p max_out (the caller's buffer; the synchronous PWI
+     *          walks every nSkipEnts entry, only its queued path clamps to 4).
      * @return Count of distinct non-world physics entities written to @p out_skip.
      */
     [[nodiscard]] int resolve_player_physics_skip(const Vector3 &origin, const Vector3 &sweep, float radius,
@@ -110,9 +116,9 @@ namespace TPVCamera
      * @details Casts the centre ray plus four rays offset perpendicular to the sweep by @p radius (a square
      *          tube of half-width radius) and returns the NEAREST hit across all five. This approximates a
      *          swept sphere's edge-catching - so the camera distance does not pump as a single thin ray grazes
-     *          edges - while keeping the CORRECT object-type filtering: RWI takes @p objtypes as a plain
-     *          function argument (honoured), unlike PrimitiveWorldIntersection whose fork SPWIParams entTypes
-     *          offset is mis-mapped (it queried ent_all and collided with the player's own articulated gear).
+     *          edges - with the same object-type filtering as the PWI sphere (RWI takes @p objtypes as a plain
+     *          argument; PWI reads entTypes from SPWIParams +0x98). Unlike the sphere wrapper, which returns only a
+     *          distance, each fan hit carries its collider and surface normal.
      * @param origin Sweep start (the camera pivot), world space.
      * @param sweep Sweep vector (pivot -> camera); its length is the max distance (not normalized).
      * @param radius Half-width of the ray tube, world units (the swept-sphere radius / standoff).
@@ -127,45 +133,21 @@ namespace TPVCamera
                                                       const uintptr_t *skip_ents = nullptr, int n_skip_ents = 0);
 
     /**
-     * @brief Fraction (0..1) of the character's silhouette occluded by WORLD geometry as seen from @p camera.
-     * @details Samples a small grid over the character body (four vertical levels head->shins x three columns
-     *          across the shoulders, relative to @p pivot at ~eye height) and casts a ray from @p camera to each;
-     *          a sample counts as occluded when world geometry lies before it. The player body is ent_living and
-     *          must be excluded by a world-only @p objtypes (ent_static | ent_terrain), so the character never
-     *          occludes itself. Used to gate camera collision: a thin pole / rail that hides little of the
-     *          character returns a low fraction (ignore it, no camera jump); a wall or a near post that hides
-     *          most of it returns a high fraction (collide). Distance-aware by construction (a closer obstacle
-     *          of the same size hides more), which a fixed width / size threshold cannot capture.
-     * @return Occluded fraction in [0, 1]; 0 if no samples were valid.
-     */
-    [[nodiscard]] float character_occluded_fraction(const Vector3 &camera, const Vector3 &pivot, int objtypes,
-                                                    unsigned int flags);
-
-    /**
      * @brief The visible render node (IRenderNode) a physics collider belongs to, via its foreign data.
-     * @details A static-world collision hit carries the brush it came from in m_pForeignData
-     *          (CPhysicalEntity + PHYS_ENTITY_FOREIGN_DATA_OFFSET) when m_iForeignData
-     *          (+ PHYS_ENTITY_FOREIGN_TYPE_OFFSET) is PHYS_FOREIGN_ID_STATIC. This is the EXACT brush the ray
-     *          hit, so the caller can measure that brush's visible coverage instead of guessing from a box.
-     *          SEH-guarded; returns 0 when the collider is null / not a static-brush owner / unreadable.
+     * @details A brush the engine physicalizes at runtime (on demand or from a heap, e.g. a basket or furniture)
+     *          and a tree (its trunk collider links the CVegetation) carry their node in m_pForeignData
+     *          (CPhysicalEntity + PHYS_ENTITY_FOREIGN_DATA_OFFSET) with m_iForeignData (the low word at
+     *          + PHYS_ENTITY_FOREIGN_TYPE_OFFSET) == PHYS_FOREIGN_ID_STATIC. Most static world geometry is baked: with
+     *          wh_e_PernamentPhysicalization on, the level loader creates its physics once with the same type but a
+     *          NULL m_pForeignData, and the brush itself gets no physics of its own. Such a hit is still an ordinary
+     *          visible CBrush in the render octree, it just has no link. occluder_node_for_collider takes the link as
+     *          the exact owner of a hit for the step-past and the fade, and the collision trace log uses it to name
+     *          the hit. SEH-guarded; returns 0 when the collider is null / baked (no link) / not a static-brush owner /
+     *          unreadable.
      * @param collider The RayHit::m_collider of a hit (the IPhysicalEntity pointer).
      * @return The IRenderNode pointer, or 0 when unavailable.
      */
     [[nodiscard]] uintptr_t static_brush_render_node(uintptr_t collider) noexcept;
-
-    /**
-     * @brief Larger horizontal (X / Y) extent of a physics collider's world AABB (m_BBox), in meters.
-     * @details The fallback classifier for a foreign-null collider whose render-mesh coverage cannot be measured
-     *          (an entity post / HLOD-baked prop). A post is small in BOTH horizontal axes (small footprint); a
-     *          wall is large in at least one (large footprint) even when thin in depth - so this separates a thin
-     *          POST (the body is visible past it, skip) from a thin WALL (collide), which the minimum-extent metric
-     *          cannot. Any owned collider (static brush OR placed entity, foreignType != 0) carries a sane AABB
-     *          here; terrain / unowned geom (foreignType == 0, degenerate bbox) returns -1. SEH-guarded.
-     * @param collider The RayHit::m_collider of a hit (the IPhysicalEntity pointer).
-     * @return max(x-extent, y-extent), or -1 when the collider is null / unowned (terrain, foreignType == 0) /
-     *         the AABB is unreadable or degenerate (the caller treats < 0 as "unknown - not a post").
-     */
-    [[nodiscard]] float collider_horizontal_footprint(uintptr_t collider) noexcept;
 
 } // namespace TPVCamera
 

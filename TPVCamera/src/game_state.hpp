@@ -6,7 +6,7 @@
  * Every signal is read from a discrete selector UPSTREAM of the camera pose smoother, so a state
  * edge is exact and does not lag like a smoothed value would. Combat, dialogue and minigame are
  * read from the active wh::game camera class (via RTTI on the camera manager's active-camera
- * pointer); mount from a per-actor flag on the player; menu and overlay from the existing UI hooks.
+ * pointer); mount from a per-actor flag on the player; menu and overlay from the UI menu and overlay hooks.
  */
 #ifndef TPVCAMERA_GAME_STATE_HPP
 #define TPVCAMERA_GAME_STATE_HPP
@@ -166,7 +166,7 @@ namespace TPVCamera
      *          C_ActorModel STANCE enum (mounted = 5, crouch = 6). Every
      *          engine read is SEH-guarded, so a failed read omits that bit rather than faulting. Intended
      *          to be called once per frame
-     *          from the camera detour (the render thread); the camera classification cache is a plain
+     *          from the camera detour (the game's main thread); the camera classification cache is a plain
      *          static and is therefore not safe to call concurrently.
      * @param c_player Live C_Player address used for the mount read, or 0 to skip the mount bit.
      * @return The raw (un-debounced) GameState bit mask.
@@ -192,7 +192,7 @@ namespace TPVCamera
     /**
      * @brief The distraction stone in the player's hand while the distraction minigame runs, or a zero decoy.
      * @details ready is set only in the held-ready state, not while the stone is being taken, thrown or put back.
-     *          Render thread only, like poll_game_state.
+     *          Main thread only, like poll_game_state.
      */
     [[nodiscard]] HeldDecoy player_held_decoy(uintptr_t c_player) noexcept;
 
@@ -208,7 +208,7 @@ namespace TPVCamera
      * @brief Applies per-bit hysteresis to a raw state mask so brief flicker does not pop the camera.
      * @details A bit must differ from the stable value for at least @p hold_seconds before it flips,
      *          so a momentary combat or dialogue transition cannot toggle a forced view on and off.
-     *          Holds file-scope state and so must be called from a single thread (the render thread).
+     *          Holds file-scope state and so must be called from a single thread (the game's main thread).
      * @param raw_mask Raw mask from poll_game_state().
      * @param delta_seconds Seconds elapsed since the previous call.
      * @param hold_seconds Dwell time a bit must hold its new value before it flips; <= 0 disables it.

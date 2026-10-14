@@ -44,6 +44,11 @@ Step 2 - Install the mod:
   Extract this archive directly into that SAME binary folder, next to WHGame.dll
   and the loader DLL, without an extra archive-named subfolder.
   KCD2_TPVCamera.asi is the mod; KCD2_TPVCamera.ini contains the settings.
+  The camera rules, which set how the camera treats each object in the world
+  (which ones stop it, fade or open in the see-through window), are built into
+  the mod. Put your own changes in KCD2_TPVCamera_rules_User.txt, which you
+  create. ExportRules = true in the INI writes the built-in rules, with notes
+  that explain them, to KCD2_TPVCamera_rules.default.txt.
   KCD2_TPVCamera_presets.json is created on first run, not included in the archive.
   Nothing goes into the Mods folder.
 
@@ -64,6 +69,7 @@ FOLDER LAYOUT (Steam):
   |-- dinput8.dll                        (ASI loader; see KCSE note above)
   |-- KCD2_TPVCamera.asi                  (this mod)
   |-- KCD2_TPVCamera.ini                  (settings)
+  |-- KCD2_TPVCamera_rules_User.txt       (your own camera rules; optional)
   |-- KCD2_TPVCamera_presets.json         (created on first run)
   \-- KCD2_TPVCamera.log                  (created when the mod loads)
   With KCSE, dinput8.dll belongs to KCSE; your ASI loader, version.dll or
@@ -72,7 +78,17 @@ FOLDER LAYOUT (Steam):
 UPDATING:
   Back up your customized INI before extracting the new archive, then reapply
   your settings to the supplied INI. Keep KCD2_TPVCamera_presets.json to retain
-  your saved camera presets.
+  your saved camera presets. An update brings its camera rules built in and
+  never touches KCD2_TPVCamera_rules_User.txt. If you replaced the built-in
+  rules with a KCD2_TPVCamera_rules.txt of your own, that file stays in force,
+  and the rules of an update reach you only once you delete it.
+
+UNINSTALLING:
+  Delete every file whose name starts with KCD2_TPVCamera beside WHGame.dll.
+  Delete the ASI loader DLL only if no other mod uses it. Optionally, also
+  delete the files starting with kcd2_tpvcamera_ in the game's shader cache,
+  usually %USERPROFILE%\Saved Games\kingdomcome2\shaders\cache\d3d12\, and in
+  its cg...shaders subfolders. Leave the game's own files there alone.
 
 LINUX / STEAM DECK (WINE/PROTON):
   In Steam's Properties -> Launch Options, add an override for your loader:

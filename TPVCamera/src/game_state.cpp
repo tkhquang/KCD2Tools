@@ -35,7 +35,7 @@ namespace TPVCamera
          * @brief Classifies an active-camera vtable into the combat / dialogue state bits.
          * @details Caches the last vtable and its classification so the steady state (the active camera
          *          unchanged frame to frame) costs one pointer compare with no RTTI walk; a camera switch
-         *          re-walks once. Render-thread only, so the cache is a plain static. Minigames are NOT read
+         *          re-walks once. Main-thread only, so the cache is a plain static. Minigames are NOT read
          *          from the camera (only dice swaps the active camera to C_CameraMinigame; lockpicking, reading
          *          and the rest stay first-person), so they are detected separately in poll_active_minigame.
          * @param vtable Runtime vtable pointer of the active camera object.
@@ -117,7 +117,7 @@ namespace TPVCamera
         /**
          * @brief Classifies an active-minigame vtable into its child GameState bit (0 when unrecognized).
          * @details Mirrors classify_camera_vtable: caches the last vtable so the steady state inside a minigame
-         *          is one pointer compare with no RTTI walk. Render-thread only, so the cache is a plain static.
+         *          is one pointer compare with no RTTI walk. Main-thread only, so the cache is a plain static.
          * @param vtable Runtime vtable pointer of the active wh::playermodule::C_Minigame subclass.
          */
         [[nodiscard]] uint32_t classify_minigame_vtable(uintptr_t vtable) noexcept

@@ -49,7 +49,7 @@ namespace TPVCamera
     };
     static constexpr size_t k_move_count = k_move_actions.size();
 
-    // One latched |value| per movement action, written on the input thread and read on the render thread.
+    // One latched |value| per movement action, written on the input thread and read on the main thread.
     // Value-initialized to 0; relaxed atomics suffice (a one-frame-stale signal is harmless).
     static std::atomic<float> s_move_values[k_move_count]{};
 

@@ -45,7 +45,7 @@ namespace TPVCamera
      * @struct RuntimeOffsets
      * @brief Live (possibly healed) copies of the in-scope pointer-chain field offsets.
      * @details Each field is an rtti::HealedSlot: a single-producer seqlock channel publishing the offset,
-     *          the resolving image generation, and a validity, so the render thread can read it per frame
+     *          the resolving image generation, and a validity, so the main thread can read it per frame
      *          while a heal writes it once. Every field is seeded with its constants.hpp nominal at
      *          construction (Unverified, generation 0), so before any heal the cache reproduces the
      *          hardcoded build exactly while still reporting that the value carries no evidence. Writes
@@ -87,7 +87,7 @@ namespace TPVCamera
 
     /**
      * @brief Advances the self-heal scheduler by one frame.
-     * @details Render-thread only, once per frame. Every un-latched group whose gate passes and whose retry
+     * @details Main-thread only, once per frame. Every un-latched group whose gate passes and whose retry
      *          interval is due runs its scan; a group that resolves latches and stops being scanned. A no-op
      *          before start_offset_heal() and after every group has latched.
      */

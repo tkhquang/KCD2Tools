@@ -19,3 +19,7 @@ PizzleYanked/src/**/*.pak
 !/**/.gitkeep
 tools/*
 **/docs/analysis/*
+
+# Python bytecode
+__pycache__/
+*.pyc

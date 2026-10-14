@@ -1,12 +1,12 @@
 /**
  * @file preset_runtime.hpp
- * @brief Render-thread resolver that selects the active preset by game state (or an
+ * @brief Main-thread resolver that selects the active preset by game state (or an
  *        editing pin), eases toward it, and applies it to the live settings.
  *
  * @details The UI/init thread publishes an immutable StateBindingTable snapshot via an
- *          atomic shared_ptr swap; the render thread reads it with one atomic shared_ptr load each
+ *          atomic shared_ptr swap; the main thread reads it with one atomic shared_ptr load each
  *          frame inside the frustum-builder detour (a spinlock-guarded refcount bump on MSVC, no heap
- *          allocation). The render thread NEVER touches the PresetStore.
+ *          allocation). The main thread NEVER touches the PresetStore.
  *          Each preset binds to a SET of game-state bits (its mask). The resolver picks the bound
  *          preset whose mask is the most specific subset of the active state (most bits wins); equal-
  *          specificity ties break by a fixed bit priority
@@ -19,7 +19,7 @@
  *          member each group uses. Three writers publish: the store (presets, masks, pin) and the overlay's
  *          group panel (picks) on the UI thread, and the cycle hotkeys (picks) on the input thread. Every
  *          publish is a compare-exchange on the one snapshot that carries the other writers' part over from
- *          the live table, so no update is lost and the render thread always reads presets and picks that
+ *          the live table, so no update is lost and the main thread always reads presets and picks that
  *          belong together.
  */
 #ifndef TPVCAMERA_PRESETS_PRESET_RUNTIME_HPP
@@ -57,7 +57,7 @@ namespace TPVCamera::Presets
     /**
      * @struct StateBindingTable
      * @brief Parallel preset/mask vectors for every bound preset, the cycle picks, and an optional editing-pin
-     *        override, published as an immutable snapshot for the render thread.
+     *        override, published as an immutable snapshot for the main thread.
      */
     struct StateBindingTable
     {
@@ -126,7 +126,7 @@ namespace TPVCamera::Presets
      * @details The most-specific binding whose mask is a subset of @p active_state wins: specificity (set-bit
      *          count) dominates, and equal-specificity ties break by a fixed bit priority (Aiming > Crouch >
      *          Combat > Mount > Lying > Sitting > Kneel > Cart). cycle_group_entry then picks the member of the
-     *          winning mask's group. Shared by the render resolver, the cycle hotkeys and the overlay's
+     *          winning mask's group. Shared by the main-thread resolver, the cycle hotkeys and the overlay's
      *          active-preset highlight, so the three cannot drift.
      * @param table The published snapshot.
      * @param active_state The debounced GameState mask for this frame.
@@ -153,7 +153,7 @@ namespace TPVCamera::Presets
     [[nodiscard]] std::vector<std::size_t> cycle_group_members(const StateBindingTable &table, std::uint32_t mask);
 
     /**
-     * @brief Publishes the store's presets, masks and pin as the new snapshot for the render thread.
+     * @brief Publishes the store's presets, masks and pin as the new snapshot for the main thread.
      * @details Called by the PresetStore on the UI/init thread whenever presets, the editing selection, or the
      *          pin state change. The store does not own the cycle picks: the call carries them over from the live
      *          snapshot and passes them through @p edit_picks. If a cycle hotkey publishes in between, the
@@ -164,7 +164,7 @@ namespace TPVCamera::Presets
      */
     void publish_table(StateBindingTable table, const std::function<void(std::vector<CyclePick> &)> &edit_picks);
 
-    /** @brief The snapshot the render thread resolves from, or nullptr before the first publish. */
+    /** @brief The snapshot the main thread resolves from, or nullptr before the first publish. */
     [[nodiscard]] std::shared_ptr<const StateBindingTable> published_table() noexcept;
 
     /**
@@ -180,14 +180,14 @@ namespace TPVCamera::Presets
      *          the camera uses now. A group with one member is left unchanged. Safe on any thread, concurrently with
      *          the store's publishes.
      * @param step +1 for the next member, -1 for the previous one.
-     * @param state The debounced GameState mask the render thread last published.
+     * @param state The debounced GameState mask the main thread last published.
      * @return The cycled group and the member it now uses, or std::nullopt before the first publish.
      */
     [[nodiscard]] std::optional<CycleStep> step_cycle(int step, std::uint32_t state);
 
     /**
      * @brief Resolves the target preset for @p state, eases toward it, and applies it live.
-     * @details Render-thread only. No-op until a binding table has been published. Reads the preset
+     * @details Main-thread only. No-op until a binding table has been published. Reads the preset
      *          blend speed from LiveSettings.
      * @param state Debounced GameState mask for this frame.
      * @param delta_seconds Seconds since the previous active frame.
@@ -196,7 +196,7 @@ namespace TPVCamera::Presets
 
     /**
      * @brief Adds @p offset to the follow distance the preset ease currently holds.
-     * @details Render-thread only. A zoom reset hands its offset over here: the camera keeps its distance on the
+     * @details Main-thread only. A zoom reset hands its offset over here: the camera keeps its distance on the
      *          reset frame and then eases to the preset's own distance at PresetBlendSpeed instead of jumping by
      *          the zoom. Before the first applied frame, or when the next frame snaps, the offset is dropped.
      */
@@ -204,7 +204,7 @@ namespace TPVCamera::Presets
 
     /**
      * @brief Marks the next active frame to SNAP (skip easing) instead of blending.
-     * @details Render-thread only. Called when the offset goes inactive so resuming the
+     * @details Main-thread only. Called when the offset goes inactive so resuming the
      *          third-person view does not ease across a suppression gap from a stale pose.
      */
     void reset_transition() noexcept;

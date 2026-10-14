@@ -622,12 +622,16 @@ namespace TPVCamera
         }
 
         /**
-         * @brief Logs the carried items at Info when the set changed since the last report: each with its socket path
+         * @brief Logs the carried items at Trace when the set changed since the last report: each with its socket path
          *        (a bow's arrow as weapon_bow>arrow), entity name, EntityId, render node and kind, plus what was added
          *        and removed, so a fade that misses an item is identifiable from the log.
          */
         void log_carried_change(const CharacterNodes &nodes) noexcept
         {
+            if (!DMK::log().is_enabled(DMK::LogLevel::Trace))
+            {
+                return;
+            }
             const auto logged_end = s_logged_nodes.begin() + std::max(s_logged_count, 0);
             int added = 0;
             for (int i = 0; i < nodes.count; ++i)
@@ -645,10 +649,6 @@ namespace TPVCamera
             }
             std::copy_n(nodes.nodes.begin() + 1, nodes.count, s_logged_nodes.begin());
             s_logged_count = nodes.count;
-            if (!DMK::log().is_enabled(DMK::LogLevel::Info))
-            {
-                return;
-            }
             try
             {
                 std::string text;
@@ -670,7 +670,7 @@ namespace TPVCamera
                                         name[0] != '\0' ? name : "?", item.id, item.node,
                                         item.character ? "character" : "static");
                 }
-                (void)DMK::log().try_log(DMK::LogLevel::Info,
+                (void)DMK::log().try_log(DMK::LogLevel::Trace,
                                          "CloseUpFade: carried set ({}{}, walk {:.1f} us): {} (added {}, removed {})",
                                          nodes.count, nodes.truncated ? ", more not listed" : "", nodes.walk_us,
                                          nodes.count == 0 ? std::string{"nothing"} : text, added, removed);
@@ -703,6 +703,7 @@ namespace TPVCamera
 
     bool collect_character_nodes(std::uintptr_t entity, CharacterNodes &out) noexcept
     {
+        DMK_PROFILE_SCOPE("character.attachment_walk");
         LARGE_INTEGER started{};
         QueryPerformanceCounter(&started);
         out = CharacterNodes{};
@@ -778,7 +779,7 @@ namespace TPVCamera
                 {
                     s_tested_entity = entity;
                     s_tested_system = system;
-                    (void)DMK::log().try_log(DMK::LogLevel::Info,
+                    (void)DMK::log().try_log(DMK::LogLevel::Debug,
                                              "CloseUpFade: entity lookup self-test passed (id {:#x} -> CEntity {:#x}, "
                                              "entity system {:#x})",
                                              id, entity, system);

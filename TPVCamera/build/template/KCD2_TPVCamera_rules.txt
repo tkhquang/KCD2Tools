@@ -1,0 +1,1009 @@
+# =====================================================================================================================
+# KCD2_TPVCamera_rules.txt - how TPVCamera's third-person camera treats each object in the world
+#
+# These rules are built into TPVCamera, which needs no file for them and does not ship this one. Every file named here
+# sits beside KCD2_TPVCamera.asi, and "this file" means the rules in force: the built-in ones, or your own copy.
+# What the rules say is final: nothing in the mod adds to them or overrides them. An object that no rule matches gets
+# the @default rule (in the "Everything else" group below). Without a @default line, TPVCamera leaves such an object
+# alone, as if its rule said exclude, and KCD2_TPVCamera.log warns about it. The rules cannot change which collision
+# the camera meets in the first place (see WHAT THE RULES CANNOT CHANGE).
+#
+# TO READ THEM: [Advanced] ExportRules = true in KCD2_TPVCamera.ini writes them to KCD2_TPVCamera_rules.default.txt,
+#   line for line, a copy TPVCamera never reads. In the log, 'built-in KCD2_TPVCamera_rules.txt:295' is its line 295.
+# TO CHANGE THEM: write your lines in KCD2_TPVCamera_rules_User.txt (see YOUR OWN FILE AND PATCHES). Updates never
+#   touch it, and at the same level its lines win over this file's, whatever the length of their match.
+# TO REPLACE THEM: rename that copy to KCD2_TPVCamera_rules.txt. TPVCamera then reads it instead, and it is final: the
+#   built-in rules of later updates no longer reach you. Delete it to go back to them, also while the game runs. If it
+#   cannot be read, TPVCamera uses the built-in rules and says so in KCD2_TPVCamera.log.
+# ---------------------------------------------------------------------------------------------------------------------
+# ONE RULE PER LINE
+#
+#     <match> = <behaviour> [options]
+#
+#   Text after # is a comment. Upper and lower case are the same. Write model paths with / as the game does. A match
+#   cannot hold a space. Save the file as UTF-8, ANSI or UTF-16 text (Notepad's "Unicode" works too).
+#
+# MATCH (model paths as the game names them: objects/manmade/vehicles/wagons/wagon_c_hay.cgf)
+#   objects/natural/stones/                    a folder: every model under it
+#   objects/manmade/structures/logistical/fences/stone_fence
+#                                              the start of a file name: stone_fence_a.cgf, stone_fence_b_lod1.cgf ...
+#   objects/manmade/vehicles/wagons/wagon_c_hay.cgf
+#                                              one model (a match that ends in .cgf, .cga, .chr, .cdf or .skin)
+#   *hlod*                                     every model whose path contains this text
+#   @actor  @animated  @nodraw  @merged  @unnamed
+#                                              what the game says the object is (see "Object states")
+#   @animated objects/mymod/windmill.cgf       a state, for these models only (@actor, @animated and @nodraw)
+#   @default                                   everything that no other rule matches (one line, in this file or in
+#                                              KCD2_TPVCamera_rules_User.txt)
+#
+# BEHAVIOUR
+#   collide    the camera stops at its collision, as at a wall. It never fades.
+#   fade       the camera passes through it, and it dithers out while it hides your character (when it is wider than
+#              a post).
+#   tree       the camera passes through it. The see-through window opens it in front of your character. It never
+#              fades whole.
+#   bush       like tree, but it also fades whole when the camera ends up inside it.
+#   grass      like tree (the log says grass).
+#   frame      the camera passes through it. It never fades. Only the part right at the lens thins away.
+#   pass       the camera passes through it, and nothing else (invisible collision boxes).
+#   character  the camera passes through it. It never fades (people, animals and what they carry).
+#   exclude    TPVCamera leaves it out. It never fades, never opens in the window and never thins at the lens, and its
+#              collision stops the camera like any collision TPVCamera knows nothing about. For a model that must
+#              always stop the camera, write collide: an excluded model also gives up its claim on the level collision
+#              around it, and a model next to it can take that collision over.
+#
+# OPTIONS (after the behaviour)
+#   mesh             where the rule ends in collide, the camera also stops at the drawn model where it has no
+#                    collision (cloth canopies, thatch under the roof collision), and passes through collision where
+#                    the model draws nothing (the invisible canvas walls of a tent). For buildings, not for rocks or
+#                    ground.
+#   if-wall=<b>      measured in game: a model taller than 1.8 m whose upper part no one sees through gets <b>. A low
+#                    or open one keeps the behaviour. Until it is measured, or when it cannot be measured, <b>.
+#   if-bare=<b>      a model that draws no cloth (no two-sided part) gets <b>. A model that draws cloth keeps the
+#                    behaviour. A rule takes if-wall or if-bare, not both. <b> is one of collide, fade, tree, bush,
+#                    grass, frame and pass.
+#   only=<kinds>     the rule counts only for objects placed as these kinds (a comma list):
+#                      brush       level scenery            movable     movable level scenery
+#                      entity      game objects (drivable carts, doors, chests ...)
+#                      vegetation  placed with the vegetation tool
+#   twins=character  prepare the close-up fade's shaders for the materials of these models at the next pause or
+#                    loading screen. It applies whatever rule decides the camera for the model.
+#
+# WHAT THE RULES CANNOT CHANGE
+#   The camera meets only collision fixed in the world, and the ground. Objects the game moves by physics (crates and
+#   barrels, and probably the drivable carts) never stop it, whatever their rule: collide only
+#   keeps them from fading (with mesh the camera may stop at their drawn model), and exclude
+#   lets the camera through them. A person or an animal has no body the camera meets, only a few small static
+#   colliders (about 0.3 to 0.7 m across) that the camera's rays meet now and then. With @actor = collide the camera
+#   would stop at a person only where a ray happens to meet one of those. The @actor line of this file says
+#   character, which lets the camera pass them.
+#   Collision built into the level is matched to its model by its box, and tree, bush, grass and character models
+#   never take that match. A model placed as level scenery (brush) with one of those words still stops the camera at
+#   its built-in collision. Plants placed with the vegetation tool and game objects (entity) carry their own
+#   collision, and the camera passes them as their rule says.
+#
+# WHICH RULE WINS: the first of these that matches the object.
+#   1. a state with a model path   (@animated objects/...)      in one file, the longest path wins
+#   2. @actor or @animated         (people, animals, what they carry, objects that play an animation)
+#   3. a text match                (*...*)                      in one file, the longest text wins
+#   4. any other state             (@nodraw, @merged, @unnamed)
+#   5. a model path                                             in one file, the longest path wins
+#   6. @default
+#   A text match beats every model path, even the path of one whole model, so keep text matches rare. A level always
+#   comes first, whatever the file: a model path in your own file never beats this file's @nodraw, @actor or @animated
+#   line, its @nodraw tents line or its text matches (*hlod*, *designer_*). At the same level, a later file wins over
+#   an earlier one, whatever the length of its match: a folder line in your own file changes every model under that
+#   folder, the models this file names by their whole path included. In one file, the longest match wins, then a rule
+#   with only= for fewer kinds, then the later line. KCD2_TPVCamera.log names both lines when a line repeats a match
+#   or a later file overrides one, names each model path a text match takes over, and says how many longer lines of
+#   earlier files a line of a later file overrides.
+#
+# MIXED GAME FOLDERS: ONE LINE PER MODEL
+#   Most of the game's folders hold one kind of object, and one folder line decides them all. A few folders hold big
+#   structures and small props together (pillory platforms with pillory posts, broad haystacks with drying poles,
+#   covered wagons with loose wheels, stone walls with wooden fences). Such a folder has no plain folder line: every
+#   model in it has a line with its whole path, and no model line overrides a line of its own folder. A model such a
+#   folder holds but this file does not list (one a mod or a game update adds) falls back to the line of its nearest
+#   parent folder that has one:
+#     objects/manmade/structures/municipal/law_and_order/            objects/manmade/ = collide mesh
+#     objects/manmade/structures/industrial/hay/                     objects/manmade/ = collide mesh
+#     objects/manmade/vehicles/wagons/                               objects/manmade/vehicles/ = fade
+#     objects/manmade/structures/scafolding/                         objects/manmade/ = collide mesh
+#     objects/manmade/structures/logistical/fences/                  objects/manmade/ = collide mesh
+#     objects/manmade/structures/logistical/gate/                    objects/manmade/ = collide mesh
+#     objects/manmade/structures/living/tents/                       objects/manmade/ = collide mesh
+#     objects/manmade/structures/logistical/grandstands/             objects/manmade/ = collide mesh
+#     objects/manmade/task_specific_props/metal_industry/mining/     objects/manmade/task_specific_props/ = fade
+#     objects/manmade/task_specific_props/wood_industry/loggingcamp/ objects/manmade/task_specific_props/ = fade
+#     objects/manmade/task_specific_props/household/firewood/        objects/manmade/task_specific_props/ = fade
+#     objects/manmade/task_specific_props/construction/              objects/manmade/task_specific_props/ = fade
+#     objects/manmade/task_specific_props/construction/cranes/       objects/manmade/task_specific_props/ = fade
+#     objects/manmade/task_specific_props/household/washing/         objects/manmade/task_specific_props/ = fade
+#     objects/manmade/quest_specific_props/                          objects/manmade/ = collide mesh
+#     objects/natural/animal/                                        @default = collide
+#   Under objects/manmade/ = collide mesh a model's line counts for every kind of placement, so a game object
+#   (entity) copy of a model listed as collide collides too. To keep such copies fading, add the same path with
+#   = fade only=entity,movable,vegetation to KCD2_TPVCamera_rules_User.txt. The lines with only=brush (wagons, wood
+#   piles, cranes, the washing pier) leave entity copies to the fade line of a parent folder.
+#   To give an unlisted model its own behaviour, write its whole path in KCD2_TPVCamera_rules_User.txt or in the
+#   mod's patch:   objects/manmade/structures/industrial/hay/my_hay_pile.cgf = fade
+#   To change a whole mixed folder, write its folder line there: a later file wins at the same level, whatever the
+#   length of its match, so the line takes every model of the folder and its subfolders, the models listed here
+#   included. KCD2_TPVCamera.log then says how many lines of this file it overrides (26 for hay/):
+#     objects/manmade/structures/industrial/hay/ = fade
+#   The comment on a model line says what the model is and gives its size in metres: x by y by height.
+#
+# HOW TO FIND THE PATH OF A MODEL
+#   Set LogLevel = TRACE in KCD2_TPVCamera.ini, start the game and go up to the object. KCD2_TPVCamera.log then has a
+#   line for each model near the camera, once per model:
+#     Rules: <model path> [<kind>] -> <behaviour> (<file>:<line> '<match>')
+#   It gives the full path, how the object is placed and which rule decided it. TRACE writes a lot, so set LogLevel
+#   back to INFO afterwards. What to write in KCD2_TPVCamera_rules_User.txt depends on the match that decided:
+#     a model path or @default       the model's path                  objects/x/y.cgf = fade
+#     a state ('@animated', '@nodraw objects/...'; the kind shows it too, as in [entity, animated])
+#                                    the same state, then the path     @animated objects/x/y.cgf = fade
+#                                    A model path alone never beats a state.
+#     a text match ('*hlod*')        a text match, such as the whole path between stars:
+#                                                                      *objects/x/y.cgf* = collide
+#                                    A model path never beats a text match.
+#   @merged and @unnamed objects have no model path: only those two state lines change them.
+#
+# SHADER TWINS: a model or material whose rule can end in tree, bush or grass gets the see-through window's shaders
+#   prepared at the next pause or loading screen. One whose rule can end in frame gets the lens-cut shader. Only a rule
+#   with a model path or a text match prepares shaders. A plant you add by its path needs nothing else, as long as its
+#   material uses the game's Vegetation or Illum shader. A plant the window cannot open still gets the camera
+#   behaviour of its rule.
+#
+# YOUR OWN FILE AND PATCHES: rules in other files beside KCD2_TPVCamera.asi, in the same syntax, add to these.
+#   KCD2_TPVCamera_rules_<Name>.txt   patches, from other mods or from you. TPVCamera reads them after this file, in
+#                                     name order (upper and lower case alike). At the same level, a later name wins
+#                                     over this file and the earlier names, whatever the length of their match.
+#   KCD2_TPVCamera_rules_User.txt     your own file. TPVCamera reads it last, and at the same level it wins over every
+#                                     other file, whatever the length of their match and whatever their only= says.
+#   A mod that ships a patch: copy its KCD2_TPVCamera_rules_<Name>.txt beside KCD2_TPVCamera.asi yourself, and delete
+#   it when you remove that mod. Mod managers neither put it there nor remove it. A @default line belongs in this file
+#   or in KCD2_TPVCamera_rules_User.txt (TPVCamera ignores one in a patch). Every TPVCamera file here starts with
+#   KCD2_TPVCamera, so deleting KCD2_TPVCamera* removes them all.
+#
+# EDITING WHILE THE GAME RUNS: save KCD2_TPVCamera_rules.txt, a patch or your own file, and TPVCamera reads them all
+#   again within about a second. The edit applies only when no line in a file you changed has an error. Until then
+#   KCD2_TPVCamera.log lists the lines with an error and the rules in force stay. A line with an error in a file you
+#   did not change (a mod's patch written for a later TPVCamera, say) is skipped, as at start. The log names the
+#   rules that changed. A model that an edit makes tree, bush, grass or frame opens in the window, or thins at the lens,
+#   after the next pause (the Esc menu) or loading screen, where its shaders are prepared.
+#
+# THE INI STILL APPLIES: UseOccluderFade = false makes the camera stop at everything that has collision.
+#   UseTreeSeeThrough = false shuts the window. Menus and conversations shut the window and the lens cut.
+#
+# EXAMPLES (lines for KCD2_TPVCamera_rules_User.txt)
+#   objects/manmade/vehicles/wagons/wagon_c_hay.cgf = fade                    the covered hay wagon fades
+#   objects/manmade/structures/industrial/hay/ = collide mesh                 all hay stops the camera
+#   objects/manmade/structures/logistical/fences/fence_4rod_01.cgf = collide mesh     one fence always stops the camera
+#   objects/manmade/common_furniture/beds/bed_warmer_fancy.cgf = exclude              one model left out of the mod
+#   objects/mymod/trees/ = tree                                               a mod's trees open in the window
+# =====================================================================================================================
+
+# ---- Object states -------------------------------------------------------------------------------------------------
+# These come from the game, not from the model's folder. An object is in at most one state.
+
+@merged             = grass                            # grass and small plants the engine merges into ~16 m patches
+@unnamed            = tree                             # vegetation whose model path cannot be read
+@nodraw             = pass                             # scenery drawn with one no-draw or collision-proxy material
+@actor              = character                        # people, animals, and anything attached to them (a carried bow)
+@animated           = collide                          # game objects that play an animation (doors, mills) collide
+*hlod*              = exclude     only=brush,movable   # HLOD stand-ins: coarse far copies of whole town blocks
+*designer_*         = pass        only=brush,movable   # the level designers' invisible collision boxes
+
+
+# ---- Everything else -----------------------------------------------------------------------------------------------
+# Buildings and everything not listed below stop the camera. Man-made models use their drawn mesh too.
+
+@default                = collide                      # terrain meshes, rocks, cliffs, banks, level scenery, unknown
+objects/manmade/        = collide     mesh             # houses, walls, churches, castles, sheds, bridges, stairs ...
+objects/intermediates/  = collide     mesh             # building pieces (walls, roofs, beams, roof finials)
+
+
+# ---- Trees ---------------------------------------------------------------------------------------------------------
+# The lumberjack's standing beech and its stumps are listed with the logging camp, under the work props.
+
+objects/natural/vegetation/trees/           = tree     # trees, stumps, roots, fallen trunks
+
+
+# ---- Bushes and plants ---------------------------------------------------------------------------------------------
+# The logging camp's branch debris (the same meshes as vegetation/branches/) is listed with the logging camp.
+
+objects/natural/vegetation/                 = bush     # bushes, branches, ferns, vines, plants, grass meshes
+objects/natural/wall_deco/                  = bush     # climbing plants on walls (the folder holds only them)
+
+
+# ---- Grass ---------------------------------------------------------------------------------------------------------
+
+objects/natural/special/                    = grass    # grass meshes placed as one object
+objects/natural/special/m01_fake_terrain/   = collide  # a far terrain mesh filed beside them: not grass
+
+
+# ---- Furniture, decorations, lamps, tools, ladders -----------------------------------------------------------------
+
+objects/manmade/common_furniture/           = fade
+objects/manmade/common_decorations/         = fade     # (ground_deco/ is ground, below)
+objects/manmade/common_illumination/        = fade
+objects/manmade/common_tools/               = fade
+objects/manmade/common_fixtures/ladders/    = fade     # other fixtures (doors, windows, chimneys, stairs) collide
+
+
+# ---- Ground: stones, ground decoration, water decoration -----------------------------------------------------------
+# Ground meshes collide like the terrain and the rocks (@default): their own collision, where they have any, stops the
+# camera, and they never fade. No mesh: a decal, a mound or a flat stone has no wall that its drawn mesh should add.
+# The camp ground around tents, the animals' mounds and the dirt mounds of construction/ are ground too (listed with
+# the tents, the animal traces and the work props below).
+
+objects/natural/stones/                             = collide   # stones and boulders up to 1.5 m
+objects/natural/terrain_deco/                       = collide   # field banks, road stones, leaf piles, puddles, roots
+objects/natural/water_deco/                         = collide   # duckweed and leaves on water, swamp soil patches
+objects/manmade/common_decorations/ground_deco/     = collide   # floor stones, rubble mounds, plank curbs, drains
+
+
+# ---- Wagons and carts ----------------------------------------------------------------------------------------------
+# Open carts and wagons fade. The covered wagons, the noble coach and the wagons loaded high with hay stop the camera
+# like a wall where they stand as level scenery (only=brush). The same bodies on a drivable cart (an entity) fade
+# through the vehicles/ line. To make them all fade too, write objects/manmade/vehicles/wagons/ = fade in
+# KCD2_TPVCamera_rules_User.txt; for one of them, its model's line, as in
+# objects/manmade/vehicles/wagons/wagon_c_hay.cgf = fade. To make the bodies on drivable carts stop the camera too,
+# write the model's line there with = collide mesh and no only=: they then stop fading, and the camera may stop at
+# their drawn body.
+
+objects/manmade/vehicles/                   = fade     # carts, barrows, rafts, and any vehicle model not listed below
+
+# objects/manmade/vehicles/wagons/: covered and hay-laden wagons and the noble coach stand among open wagons, axles
+# and wheels. Every model has its own line; a model not listed here gets objects/manmade/vehicles/ = fade.
+objects/manmade/vehicles/wagons/broken_wagon_axle_a.cgf         = fade                     # axle, 1.65x4.67x0.26 m
+objects/manmade/vehicles/wagons/broken_wagon_seat.cgf           = fade                     # broken wagon part, 1.55x1.33x0.46 m
+objects/manmade/vehicles/wagons/broken_wagon_side_a.cgf         = fade                     # broken wagon part, 1.46x4.56x0.30 m
+objects/manmade/vehicles/wagons/broken_wagon_side_b.cgf         = fade                     # broken wagon part, 1.33x4.59x0.18 m
+objects/manmade/vehicles/wagons/carriage_noble01.cgf            = collide mesh only=brush  # noble coach, 6.83x2.01x3.27 m
+objects/manmade/vehicles/wagons/wagon_a.cgf                     = fade                     # open wagon, 1.94x4.63x1.81 m
+objects/manmade/vehicles/wagons/wagon_a_axel.cgf                = fade                     # axle, 0.24x3.62x0.53 m
+objects/manmade/vehicles/wagons/wagon_a_body.cgf                = fade                     # open wagon body, 1.67x3.65x1.30 m
+objects/manmade/vehicles/wagons/wagon_a_covered.cgf             = collide mesh only=brush  # covered wagon, 2.20x4.75x2.62 m
+objects/manmade/vehicles/wagons/wagon_a_covered_axel.cgf        = fade                     # axle, 0.21x3.21x0.44 m
+objects/manmade/vehicles/wagons/wagon_a_covered_body.cgf        = collide mesh only=brush  # covered wagon body, 1.77x3.65x2.38 m
+objects/manmade/vehicles/wagons/wagon_b.cdf                     = fade                     # wagon character (drivable cart)
+objects/manmade/vehicles/wagons/wagon_b.cgf                     = fade                     # open wagon, 1.87x4.11x1.82 m
+objects/manmade/vehicles/wagons/wagon_b_axel.cgf                = fade                     # axle, 1.65x4.58x1.10 m
+objects/manmade/vehicles/wagons/wagon_b_axel_lowered.cgf        = fade                     # axle, 1.65x4.65x0.70 m
+objects/manmade/vehicles/wagons/wagon_b_bench.cdf               = fade                     # wagon character (drivable cart)
+objects/manmade/vehicles/wagons/wagon_b_bench.cgf               = fade                     # open wagon, 1.87x4.11x1.82 m
+objects/manmade/vehicles/wagons/wagon_b_bench_axel.cgf          = fade                     # axle, 0.21x3.22x0.39 m
+objects/manmade/vehicles/wagons/wagon_b_bench_noshaft.cdf       = fade                     # wagon character (drivable cart)
+objects/manmade/vehicles/wagons/wagon_b_bench_only.cgf          = fade                     # wagon bench, 1.32x2.27x0.09 m
+objects/manmade/vehicles/wagons/wagon_b_body.cgf                = fade                     # open wagon body, 1.72x3.91x1.42 m
+objects/manmade/vehicles/wagons/wagon_b_body_empty.cgf          = fade                     # open wagon body, 1.72x3.91x1.42 m
+objects/manmade/vehicles/wagons/wagon_b_broken.cgf              = fade                     # broken open wagon, 2.93x7.56x2.42 m
+objects/manmade/vehicles/wagons/wagon_b_broken_cover.cgf        = collide mesh only=brush  # covered wagon body, broken, 1.66x3.50x1.53 m
+objects/manmade/vehicles/wagons/wagon_b_covered.cgf             = collide mesh only=brush  # covered wagon, 1.99x4.11x2.92 m
+objects/manmade/vehicles/wagons/wagon_b_covered_axel.cgf        = fade                     # axle, 0.21x3.22x0.39 m
+objects/manmade/vehicles/wagons/wagon_b_covered_body.cgf        = collide mesh only=brush  # covered wagon body, 1.91x3.91x2.52 m
+objects/manmade/vehicles/wagons/wagon_b_covered_wheel_left.cgf  = fade                     # wheel, 0.35x1.21x1.21 m
+objects/manmade/vehicles/wagons/wagon_b_covered_wheel_right.cgf = fade                     # wheel, 0.35x1.21x1.21 m
+objects/manmade/vehicles/wagons/wagon_b_wheel_left.cgf          = fade                     # wheel, 0.35x1.21x1.21 m
+objects/manmade/vehicles/wagons/wagon_b_wheel_right.cgf         = fade                     # wheel, 0.35x1.21x1.21 m
+objects/manmade/vehicles/wagons/wagon_c.cgf                     = fade                     # open wagon, 2.02x4.74x1.96 m
+objects/manmade/vehicles/wagons/wagon_c_axel.cgf                = fade                     # axle, 0.12x3.05x0.56 m
+objects/manmade/vehicles/wagons/wagon_c_body.cgf                = fade                     # open wagon body, 1.78x4.17x1.44 m
+objects/manmade/vehicles/wagons/wagon_c_broken.cgf              = fade                     # broken open wagon, 3.98x6.53x3.14 m
+objects/manmade/vehicles/wagons/wagon_c_covered_body.cgf        = collide mesh only=brush  # covered wagon body, 1.81x4.18x2.40 m
+objects/manmade/vehicles/wagons/wagon_c_hay.cgf                 = collide mesh only=brush  # wagon loaded high with hay, 2.71x5.14x3.70 m
+objects/manmade/vehicles/wagons/wagon_c_hay_axel.cgf            = fade                     # axle, 0.97x4.51x0.73 m
+objects/manmade/vehicles/wagons/wagon_c_no_wheel.cgf            = fade                     # open wagon without a wheel, 2.02x4.74x1.96 m
+objects/manmade/vehicles/wagons/wagon_collision_triangle.cgf    = fade                     # collision helper, 0.16x0.25x0.02 m
+objects/manmade/vehicles/wagons/wagon_hay_big.cgf               = collide mesh only=brush  # wagon loaded high with hay, 2.48x3.62x3.24 m
+objects/manmade/vehicles/wagons/wagon_hay_medium.cgf            = collide mesh only=brush  # wagon loaded high with hay, 2.06x3.58x2.55 m
+objects/manmade/vehicles/wagons/wagon_hay_small.cgf             = fade                     # wagon with low hay, 1.49x3.86x1.54 m
+objects/manmade/vehicles/wagons/wagon_kcd2.chr                  = fade                     # wagon character (drivable cart)
+objects/manmade/vehicles/wagons/wagon_wheel_polygonal_left.cgf  = fade                     # wheel, 0.35x1.21x1.21 m
+objects/manmade/vehicles/wagons/wagon_wheel_polygonal_right.cgf = fade                     # wheel, 0.35x1.21x1.21 m
+
+
+# ---- Haystacks and hay ---------------------------------------------------------------------------------------------
+# The broad haystacks and the hay barrack stacked as high as a person stop the camera, and so do the barrack roofs
+# (like a tent canopy). Drying poles and frames, sheaves and low piles fade. The straw decals are ground.
+
+# objects/manmade/structures/industrial/hay/: broad haystacks and hay-barrack roofs stand among drying poles, sheaves,
+# low piles and straw decals. Every model has its own line; a model not listed here gets objects/manmade/ = collide
+# mesh.
+objects/manmade/structures/industrial/hay/decal_straw_a.cgf        = collide       # straw decal on the ground, 2.03x1.94x0.00 m
+objects/manmade/structures/industrial/hay/decal_straw_a_burned.cgf = collide       # straw decal on the ground, 2.03x1.94x0.00 m
+objects/manmade/structures/industrial/hay/hay_barrack_a.cgf        = collide mesh  # pole barrack stacked with hay, 2.76x2.75x5.61 m
+objects/manmade/structures/industrial/hay/hay_barrack_b.cgf        = fade          # pole barrack with low hay, 2.56x2.48x4.07 m
+objects/manmade/structures/industrial/hay/hay_barrack_roof_a.cgf   = collide mesh  # thatch roof on four poles, 5.42x5.25x5.25 m
+objects/manmade/structures/industrial/hay/hay_barrack_roof_b.cgf   = collide mesh  # thatch roof, 2.90x3.10x1.22 m
+objects/manmade/structures/industrial/hay/hay_feeder_a.cgf         = fade          # hay rack, 3.26x0.90x1.92 m
+objects/manmade/structures/industrial/hay/hay_pile_a.cgf           = fade          # low hay pile, 4.05x4.18x0.96 m
+objects/manmade/structures/industrial/hay/hay_pile_b.cgf           = fade          # low hay pile, 3.81x3.79x1.16 m
+objects/manmade/structures/industrial/hay/hay_pile_b_half.cgf      = fade          # low hay pile, 3.87x3.00x1.27 m
+objects/manmade/structures/industrial/hay/hay_sheaf_a.cgf          = fade          # hay sheaf, 0.67x0.76x1.40 m
+objects/manmade/structures/industrial/hay/hay_sheaf_b.cgf          = fade          # hay sheaf, 0.86x0.77x1.54 m
+objects/manmade/structures/industrial/hay/hay_small_pile_a.cgf     = fade          # loose hay on the ground, 1.11x1.07x0.27 m
+objects/manmade/structures/industrial/hay/hay_small_pile_b.cgf     = fade          # loose hay on the ground, 0.88x0.82x0.11 m
+objects/manmade/structures/industrial/hay/hay_small_pile_c.cgf     = fade          # loose hay on the ground, 0.88x0.82x0.11 m
+objects/manmade/structures/industrial/hay/hay_stand_aa.cgf         = fade          # bare drying pole, 1.00x0.98x3.17 m
+objects/manmade/structures/industrial/hay/hay_stand_ab.cgf         = fade          # drying pole, low hay, 1.44x1.50x2.99 m
+objects/manmade/structures/industrial/hay/hay_stand_ac.cgf         = fade          # drying pole, hay cone to head height, 2.00x2.12x2.98 m
+objects/manmade/structures/industrial/hay/hay_stand_ad.cgf         = collide mesh  # broad haystack, 2.75x2.80x3.41 m
+objects/manmade/structures/industrial/hay/hay_stand_ba.cgf         = fade          # bare drying frame, 2.61x2.24x2.87 m
+objects/manmade/structures/industrial/hay/hay_stand_bb.cgf         = fade          # drying frame, hay to head height, 2.62x2.33x2.87 m
+objects/manmade/structures/industrial/hay/hay_stand_bb_green.cgf   = fade          # drying frame, hay to head height, 2.62x2.33x2.87 m
+objects/manmade/structures/industrial/hay/hay_stand_bc.cgf         = collide mesh  # broad haystack, 2.97x2.69x2.87 m
+objects/manmade/structures/industrial/hay/hay_stand_ca.cgf         = fade          # bare drying frame, 2.42x2.47x2.95 m
+objects/manmade/structures/industrial/hay/hay_stand_cb.cgf         = fade          # drying frame, low hay, 2.83x3.07x2.95 m
+objects/manmade/structures/industrial/hay/hay_stand_cc.cgf         = collide mesh  # broad haystack, 2.60x2.86x2.95 m
+
+
+# ---- Fences, gates and barriers ------------------------------------------------------------------------------------
+# Measured in game: a wooden fence or gate that no one sees over stops the camera, and a low or open one fades.
+# Stone walls, the carved stone balustrade and masonry gateways always stop the camera. Lone posts, loose rails and
+# planks fade (the measurement reads a post as a wall, because a post fills its own box). To make one fence always
+# stop the camera, put its model in KCD2_TPVCamera_rules_User.txt:
+#   objects/manmade/structures/logistical/fences/<model>.cgf = collide mesh
+
+# objects/manmade/structures/logistical/fences/: dry-stone walls stand among wooden fences, their posts and loose
+# rails. Every model has its own line; a model not listed here gets objects/manmade/ = collide mesh.
+objects/manmade/structures/logistical/fences/fence_4rod_01.cgf                     = fade if-wall=collide mesh  # rail fence, 0.27x3.79x2.45 m
+objects/manmade/structures/logistical/fences/fence_4rod_02.cgf                     = fade if-wall=collide mesh  # rail fence, 0.28x4.02x2.59 m
+objects/manmade/structures/logistical/fences/fence_4rod_03.cgf                     = fade if-wall=collide mesh  # rail fence, 0.33x4.19x2.41 m
+objects/manmade/structures/logistical/fences/fence_4rod_beam.cgf                   = fade                       # loose rail, 0.18x3.78x0.12 m
+objects/manmade/structures/logistical/fences/fence_4rod_end.cgf                    = fade                       # post, 0.21x0.22x2.34 m
+objects/manmade/structures/logistical/fences/fence_4rod_gate_01.cgf                = fade if-wall=collide mesh  # fence gate, 0.32x2.40x2.62 m
+objects/manmade/structures/logistical/fences/fence_4rod_gate_02.cgf                = fade if-wall=collide mesh  # fence gate, 0.36x4.03x2.12 m
+objects/manmade/structures/logistical/fences/fence_beams_a_fancy.cgf               = fade if-wall=collide mesh  # beam fence, 1.11x2.98x4.00 m
+objects/manmade/structures/logistical/fences/fence_beams_a_fancy_sandstone.cgf     = fade if-wall=collide mesh  # beam fence, 1.11x2.92x4.00 m
+objects/manmade/structures/logistical/fences/fence_beams_a_shabby.cgf              = fade if-wall=collide mesh  # beam fence, 1.07x3.25x3.96 m
+objects/manmade/structures/logistical/fences/fence_beams_b_fancy.cgf               = fade if-wall=collide mesh  # beam fence, 1.07x3.17x4.00 m
+objects/manmade/structures/logistical/fences/fence_beams_b_shabby.cgf              = fade if-wall=collide mesh  # beam fence, 1.06x2.03x4.02 m
+objects/manmade/structures/logistical/fences/fence_beams_c_fancy.cgf               = fade if-wall=collide mesh  # beam fence, 1.09x5.51x4.03 m
+objects/manmade/structures/logistical/fences/fence_beams_c_shabby.cgf              = fade if-wall=collide mesh  # beam fence, 1.13x5.79x5.40 m
+objects/manmade/structures/logistical/fences/fence_beams_corner_fancy.cgf          = fade if-wall=collide mesh  # beam fence, 2.43x2.22x4.02 m
+objects/manmade/structures/logistical/fences/fence_beams_corner_shabby.cgf         = fade if-wall=collide mesh  # beam fence, 2.52x2.15x4.02 m
+objects/manmade/structures/logistical/fences/fence_beams_corner_wb.cgf             = fade if-wall=collide mesh  # beam fence, 1.07x1.83x3.64 m
+objects/manmade/structures/logistical/fences/fence_beams_roof.cgf                  = fade if-wall=collide mesh  # beam fence, 1.06x4.76x0.82 m
+objects/manmade/structures/logistical/fences/fence_crisscross_a.cgf                = fade if-wall=collide mesh  # lattice fence, 0.49x3.89x2.72 m
+objects/manmade/structures/logistical/fences/fence_crisscross_b.cgf                = fade if-wall=collide mesh  # lattice fence, 0.46x3.89x2.64 m
+objects/manmade/structures/logistical/fences/fence_crisscross_end.cgf              = fade                       # post, 0.21x0.22x2.03 m
+objects/manmade/structures/logistical/fences/fence_crisscross_gate.cgf             = fade if-wall=collide mesh  # fence gate, 0.26x1.54x2.54 m
+objects/manmade/structures/logistical/fences/fence_planks_a_01.cgf                 = fade if-wall=collide mesh  # plank fence, 0.16x1.27x3.21 m
+objects/manmade/structures/logistical/fences/fence_planks_a_02.cgf                 = fade if-wall=collide mesh  # plank fence, 0.24x2.04x3.20 m
+objects/manmade/structures/logistical/fences/fence_planks_a_03.cgf                 = fade if-wall=collide mesh  # plank fence, 0.28x3.87x3.22 m
+objects/manmade/structures/logistical/fences/fence_planks_a_04.cgf                 = fade if-wall=collide mesh  # plank fence, 0.23x3.89x3.21 m
+objects/manmade/structures/logistical/fences/fence_planks_a_05.cgf                 = fade if-wall=collide mesh  # plank fence, 0.23x3.87x3.22 m
+objects/manmade/structures/logistical/fences/fence_planks_a_06.cgf                 = fade if-wall=collide mesh  # plank fence, 0.19x3.99x4.31 m
+objects/manmade/structures/logistical/fences/fence_planks_a_07.cgf                 = fade if-wall=collide mesh  # plank fence, 0.20x3.88x3.72 m
+objects/manmade/structures/logistical/fences/fence_planks_a_08.cgf                 = fade if-wall=collide mesh  # plank fence, 0.20x3.90x3.63 m
+objects/manmade/structures/logistical/fences/fence_planks_a_09.cgf                 = fade if-wall=collide mesh  # plank fence, 0.61x3.89x3.20 m
+objects/manmade/structures/logistical/fences/fence_planks_a_10.cgf                 = fade if-wall=collide mesh  # plank fence, 0.59x3.95x3.49 m
+objects/manmade/structures/logistical/fences/fence_planks_a_end.cgf                = fade                       # plank fence end post, 0.21x0.22x4.27 m
+objects/manmade/structures/logistical/fences/fence_planks_a_gate.cgf               = fade if-wall=collide mesh  # fence gate, 0.20x1.24x3.21 m
+objects/manmade/structures/logistical/fences/fence_planks_a_gate_flipped.cgf       = fade if-wall=collide mesh  # fence gate, 0.20x1.24x3.21 m
+objects/manmade/structures/logistical/fences/fence_polish_a_01.cgf                 = fade if-wall=collide mesh  # woven fence, 0.28x4.49x2.84 m
+objects/manmade/structures/logistical/fences/fence_polish_a_02.cgf                 = fade if-wall=collide mesh  # woven fence, 0.28x4.49x2.32 m
+objects/manmade/structures/logistical/fences/fence_polish_a_03.cgf                 = fade if-wall=collide mesh  # woven fence, 0.27x4.49x2.16 m
+objects/manmade/structures/logistical/fences/fence_polish_a_04.cgf                 = fade if-wall=collide mesh  # woven fence, 2.88x3.02x2.13 m
+objects/manmade/structures/logistical/fences/fence_polish_a_end.cgf                = fade                       # post, 0.15x0.15x2.36 m
+objects/manmade/structures/logistical/fences/fence_polish_a_long.cgf               = fade if-wall=collide mesh  # woven fence, 0.32x19.03x2.90 m
+objects/manmade/structures/logistical/fences/fence_polish_a_nosticks.cgf           = fade if-wall=collide mesh  # woven fence, 0.28x4.38x1.17 m
+objects/manmade/structures/logistical/fences/fence_polish_a_nosticks_b.cgf         = fade if-wall=collide mesh  # woven fence, 0.28x4.38x1.17 m
+objects/manmade/structures/logistical/fences/fence_polish_a_nosticks_c.cgf         = fade if-wall=collide mesh  # woven fence, 0.27x4.38x1.20 m
+objects/manmade/structures/logistical/fences/fence_polish_tall_1.cgf               = fade if-wall=collide mesh  # woven fence, 0.28x4.57x2.84 m
+objects/manmade/structures/logistical/fences/fence_polish_tall_2.cgf               = fade if-wall=collide mesh  # woven fence, 0.28x4.56x2.19 m
+objects/manmade/structures/logistical/fences/fence_polish_tall_3.cgf               = fade if-wall=collide mesh  # woven fence, 0.31x4.57x2.33 m
+objects/manmade/structures/logistical/fences/fence_rural_a.cgf                     = fade if-wall=collide mesh  # rail fence, 0.13x1.85x1.43 m
+objects/manmade/structures/logistical/fences/fence_rural_b.cgf                     = fade if-wall=collide mesh  # rail fence, 0.14x1.84x1.53 m
+objects/manmade/structures/logistical/fences/fence_rural_broken_a.cgf              = fade if-wall=collide mesh  # rail fence, 0.14x1.53x1.23 m
+objects/manmade/structures/logistical/fences/fence_rural_broken_b.cgf              = fade if-wall=collide mesh  # rail fence, 0.16x1.78x1.37 m
+objects/manmade/structures/logistical/fences/fence_rural_c.cgf                     = fade if-wall=collide mesh  # rail fence, 0.13x1.85x1.35 m
+objects/manmade/structures/logistical/fences/fence_rural_plank_a.cgf               = fade                       # loose plank, 0.06x1.72x0.13 m
+objects/manmade/structures/logistical/fences/fence_rural_post_a.cgf                = fade                       # post, 0.11x0.14x1.38 m
+objects/manmade/structures/logistical/fences/fence_rural_post_b.cgf                = fade                       # post, 0.11x0.14x1.34 m
+objects/manmade/structures/logistical/fences/fence_sticks_a_01.cgf                 = fade if-wall=collide mesh  # stick fence, 0.33x2.51x2.50 m
+objects/manmade/structures/logistical/fences/fence_sticks_a_02.cgf                 = fade if-wall=collide mesh  # stick fence, 0.19x3.04x1.87 m
+objects/manmade/structures/logistical/fences/fence_sticks_a_03.cgf                 = fade if-wall=collide mesh  # stick fence, 0.22x2.67x1.90 m
+objects/manmade/structures/logistical/fences/fence_sticks_a_04.cgf                 = fade if-wall=collide mesh  # stick fence, 0.30x2.95x2.74 m
+objects/manmade/structures/logistical/fences/fence_sticks_a_05.cgf                 = fade if-wall=collide mesh  # stick fence, 0.20x1.96x2.70 m
+objects/manmade/structures/logistical/fences/fence_sticks_a_06.cgf                 = fade if-wall=collide mesh  # stick fence, 0.34x4.92x2.78 m
+objects/manmade/structures/logistical/fences/fence_sticks_a_07.cgf                 = fade if-wall=collide mesh  # stick fence, 0.37x9.69x3.01 m
+objects/manmade/structures/logistical/fences/fence_sticks_a_08.cgf                 = fade if-wall=collide mesh  # stick fence, 0.33x8.82x2.84 m
+objects/manmade/structures/logistical/fences/fence_sticks_b_01.cgf                 = fade if-wall=collide mesh  # stick fence, 0.27x2.91x1.67 m
+objects/manmade/structures/logistical/fences/fence_sticks_b_01_burned.cgf          = fade if-wall=collide mesh  # stick fence, 0.34x2.91x1.67 m
+objects/manmade/structures/logistical/fences/fence_sticks_b_02.cgf                 = fade if-wall=collide mesh  # stick fence, 0.27x2.91x1.68 m
+objects/manmade/structures/logistical/fences/fence_sticks_b_02_burned.cgf          = fade if-wall=collide mesh  # stick fence, 0.57x2.91x1.67 m
+objects/manmade/structures/logistical/fences/fence_sticks_b_03.cgf                 = fade if-wall=collide mesh  # stick fence, 0.27x1.35x1.68 m
+objects/manmade/structures/logistical/fences/fence_sticks_b_03_burned.cgf          = fade if-wall=collide mesh  # stick fence, 0.33x1.34x1.69 m
+objects/manmade/structures/logistical/fences/fence_sticks_c_01.cgf                 = fade if-wall=collide mesh  # stick fence, 0.22x0.86x1.18 m
+objects/manmade/structures/logistical/fences/fence_sticks_c_02.cgf                 = fade if-wall=collide mesh  # stick fence, 0.32x1.62x1.16 m
+objects/manmade/structures/logistical/fences/fence_sticks_c_03.cgf                 = fade if-wall=collide mesh  # stick fence, 0.33x1.64x1.16 m
+objects/manmade/structures/logistical/fences/fence_sticks_c_04.cgf                 = fade if-wall=collide mesh  # stick fence, 0.33x2.03x1.21 m
+objects/manmade/structures/logistical/fences/fence_sticks_c_05.cgf                 = fade if-wall=collide mesh  # stick fence, 0.33x2.06x1.21 m
+objects/manmade/structures/logistical/fences/fence_sticks_c_06.cgf                 = fade if-wall=collide mesh  # stick fence, 0.21x2.12x1.24 m
+objects/manmade/structures/logistical/fences/fence_sticks_c_07.cgf                 = fade if-wall=collide mesh  # stick fence, 0.21x2.03x1.21 m
+objects/manmade/structures/logistical/fences/fence_sticks_c_end.cgf                = fade                       # post, 0.18x0.19x1.18 m
+objects/manmade/structures/logistical/fences/fence_sticks_c_gate.cgf               = fade if-wall=collide mesh  # fence gate, 0.18x1.35x1.29 m
+objects/manmade/structures/logistical/fences/fence_sticks_c_gatepost.cgf           = fade if-wall=collide mesh  # fence gate, 0.25x1.50x1.22 m
+objects/manmade/structures/logistical/fences/fence_sticks_d_01.cgf                 = fade if-wall=collide mesh  # stick fence, 0.33x3.95x1.97 m
+objects/manmade/structures/logistical/fences/fence_sticks_d_02.cgf                 = fade if-wall=collide mesh  # stick fence, 0.33x4.14x1.96 m
+objects/manmade/structures/logistical/fences/fence_sticks_d_03.cgf                 = fade if-wall=collide mesh  # stick fence, 0.34x3.91x1.89 m
+objects/manmade/structures/logistical/fences/fence_sticks_d_end.cgf                = fade                       # post, 0.24x0.26x1.89 m
+objects/manmade/structures/logistical/fences/fence_sticks_d_gate_01.cgf            = fade if-wall=collide mesh  # fence gate, 0.39x2.27x2.38 m
+objects/manmade/structures/logistical/fences/fence_sticks_d_gate_02.cgf            = fade if-wall=collide mesh  # fence gate, 0.36x2.31x2.47 m
+objects/manmade/structures/logistical/fences/fence_stone_a_01.cgf                  = collide mesh               # carved stone balustrade, 3.60x0.40x0.94 m
+objects/manmade/structures/logistical/fences/fence_stone_a_02.cgf                  = collide mesh               # carved stone balustrade, 0.30x0.40x0.93 m
+objects/manmade/structures/logistical/fences/fence_stone_a_03.cgf                  = collide mesh               # carved stone balustrade, 0.53x0.54x0.94 m
+objects/manmade/structures/logistical/fences/fence_vitis_a.cgf                     = fade if-wall=collide mesh  # vineyard fence, 2.98x0.16x1.16 m
+objects/manmade/structures/logistical/fences/fence_vitis_b.cgf                     = fade if-wall=collide mesh  # vineyard fence, 2.98x0.16x1.16 m
+objects/manmade/structures/logistical/fences/polish_fence_burned_a.cgf             = fade if-wall=collide mesh  # woven fence, 4.53x0.41x1.39 m
+objects/manmade/structures/logistical/fences/polish_fence_burned_b.cgf             = fade if-wall=collide mesh  # woven fence, 4.52x0.44x1.74 m
+objects/manmade/structures/logistical/fences/polish_fence_burned_c.cgf             = fade if-wall=collide mesh  # woven fence, 4.56x0.56x1.48 m
+objects/manmade/structures/logistical/fences/polish_fence_burned_d.cgf             = fade if-wall=collide mesh  # woven fence, 2.48x0.51x1.30 m
+objects/manmade/structures/logistical/fences/stone_fence_16m.cgf                   = collide mesh               # dry-stone wall, 17.57x2.90x4.38 m
+objects/manmade/structures/logistical/fences/stone_fence_16m_bend.cgf              = collide mesh               # dry-stone wall, 17.50x5.03x5.92 m
+objects/manmade/structures/logistical/fences/stone_fence_16m_bend_noterrain.cgf    = collide mesh               # dry-stone wall, 17.27x3.24x5.92 m
+objects/manmade/structures/logistical/fences/stone_fence_16m_noterrain.cgf         = collide mesh               # dry-stone wall, 16.87x1.22x4.26 m
+objects/manmade/structures/logistical/fences/stone_fence_16m_noterrain_b.cgf       = collide mesh               # dry-stone wall, 16.90x1.27x4.32 m
+objects/manmade/structures/logistical/fences/stone_fence_16m_noterrain_cropped.cgf = collide mesh               # dry-stone wall, 16.71x1.36x0.83 m
+objects/manmade/structures/logistical/fences/stone_fence_5m.cgf                    = collide mesh               # dry-stone wall, 6.21x2.53x4.30 m
+objects/manmade/structures/logistical/fences/stone_fence_5m_b.cgf                  = collide mesh               # dry-stone wall, 6.21x2.52x4.30 m
+objects/manmade/structures/logistical/fences/stone_fence_5m_noterrain.cgf          = collide mesh               # dry-stone wall, 5.27x0.88x4.20 m
+objects/manmade/structures/logistical/fences/stone_fence_5m_noterrain_b.cgf        = collide mesh               # dry-stone wall, 5.25x0.84x4.17 m
+objects/manmade/structures/logistical/fences/stone_fence_5m_noterrain_cropped.cgf  = collide mesh               # dry-stone wall, 5.31x0.91x0.65 m
+objects/manmade/structures/logistical/fences/stone_fence_end_left.cgf              = collide mesh               # dry-stone wall, 4.36x2.53x4.20 m
+objects/manmade/structures/logistical/fences/stone_fence_end_left_noterrain.cgf    = collide mesh               # dry-stone wall, 3.94x0.87x4.05 m
+objects/manmade/structures/logistical/fences/stone_fence_end_right.cgf             = collide mesh               # dry-stone wall, 4.34x2.53x4.20 m
+objects/manmade/structures/logistical/fences/stone_fence_pillar.cgf                = collide mesh               # dry-stone wall, 0.91x2.04x3.56 m
+objects/manmade/structures/logistical/fences/stone_fence_pillar_b.cgf              = collide mesh               # dry-stone wall, 0.89x2.08x3.54 m
+objects/manmade/structures/logistical/fences/wall_ruined_piece_a.cgf               = collide mesh               # ruined stone wall, 6.79x1.16x4.50 m
+
+# objects/manmade/structures/logistical/gate/: masonry gateways stand among wooden gates, gate frames and gate leaves.
+# Every model has its own line; a model not listed here gets objects/manmade/ = collide mesh.
+objects/manmade/structures/logistical/gate/gate_beams_a.cgf             = fade if-wall=collide mesh  # gate frame, 7.96x1.55x4.37 m
+objects/manmade/structures/logistical/gate/gate_beams_a_door_left.cgf   = fade if-wall=collide mesh  # gate leaf, 1.67x0.24x3.26 m
+objects/manmade/structures/logistical/gate/gate_beams_a_door_right.cgf  = fade if-wall=collide mesh  # gate leaf, 1.68x0.23x3.26 m
+objects/manmade/structures/logistical/gate/gate_plaster_a.cgf           = collide mesh               # masonry gateway, 4.73x1.72x4.60 m
+objects/manmade/structures/logistical/gate/gate_plaster_b.cgf           = collide mesh               # masonry gateway, 3.98x0.76x4.22 m
+objects/manmade/structures/logistical/gate/gate_plaster_b_monastery.cgf = collide mesh               # masonry wall with gateway, 9.38x1.17x4.37 m
+objects/manmade/structures/logistical/gate/gate_wooden_a.cgf            = fade if-wall=collide mesh  # wooden gate, 3.68x1.67x3.56 m
+objects/manmade/structures/logistical/gate/gate_wooden_a_burned.cgf     = fade if-wall=collide mesh  # wooden gate, 3.41x1.75x3.57 m
+objects/manmade/structures/logistical/gate/gate_wooden_b.cgf            = fade if-wall=collide mesh  # wooden gate, 4.45x1.06x5.54 m
+objects/manmade/structures/logistical/gate/gate_wooden_c.cgf            = fade if-wall=collide mesh  # wooden gate, 4.46x1.06x5.03 m
+objects/manmade/structures/logistical/gate/gate_wooden_d.cgf            = fade if-wall=collide mesh  # wooden gate, 3.13x1.75x5.01 m
+objects/manmade/structures/logistical/gate/gate_wooden_d_closed.cgf     = fade if-wall=collide mesh  # wooden gate, 3.13x0.59x5.01 m
+objects/manmade/structures/logistical/gate/gate_wooden_d_portal.cgf     = fade if-wall=collide mesh  # gate frame, 3.13x1.75x5.01 m
+objects/manmade/structures/logistical/gate/gate_wooden_d_wing_left.cgf  = fade if-wall=collide mesh  # gate leaf, 0.13x1.41x3.21 m
+objects/manmade/structures/logistical/gate/gate_wooden_d_wing_right.cgf = fade if-wall=collide mesh  # gate leaf, 0.14x1.39x2.41 m
+objects/manmade/structures/logistical/gate/gate_wooden_e.cgf            = fade if-wall=collide mesh  # wooden gate, 3.50x1.06x5.45 m
+
+objects/manmade/structures/logistical/gate/horse_racing/        = fade     if-wall=collide mesh
+objects/manmade/structures/logistical/gate/unique/              = fade     if-wall=collide mesh
+objects/manmade/structures/logistical/barriers/                 = fade     if-wall=collide mesh
+
+
+# ---- Tents and canopies --------------------------------------------------------------------------------------------
+# A tent, canopy or curtain that draws cloth stops the camera, and its cloth check makes it a frame the camera passes
+# while its cloth is hidden. Bare frames, poles, pegs and ropes are frames. Hanging decorations without collision
+# (pennants, draped cloth) fade. The camp ground, roads, straw and turf around the tents are ground.
+# The @nodraw line gives a tent model drawn with one no-draw material the cloth check of the tent lines below. It also
+# prepares the lens-cut shaders of every tent material and LOD file by name: keep its match if you override it.
+
+objects/manmade/structures/living/tents/terrains/               = collide              # ground around the tents
+@nodraw objects/manmade/structures/living/tents/                = collide  mesh  if-bare=frame
+
+# objects/manmade/structures/living/tents/: cloth tents, canopies and curtains lie among bare frames, poles, pegs,
+# ropes and hanging decorations. Every model has its own line; a model not listed here gets objects/manmade/ = collide
+# mesh.
+objects/manmade/structures/living/tents/canopy_forest_a.cgf                              = collide mesh if-bare=frame  # canopy, 11.43x14.19x4.43 m
+objects/manmade/structures/living/tents/canopy_forest_a_norope.cgf                       = collide mesh if-bare=frame  # canopy, 7.67x10.39x2.40 m
+objects/manmade/structures/living/tents/canopy_forest_b.cgf                              = collide mesh if-bare=frame  # canopy, 11.61x14.47x5.80 m
+objects/manmade/structures/living/tents/canopy_forest_b_norope.cgf                       = collide mesh if-bare=frame  # canopy, 5.47x8.52x3.61 m
+objects/manmade/structures/living/tents/canopy_forest_c.cgf                              = collide mesh if-bare=frame  # canopy, 10.72x5.40x5.37 m
+objects/manmade/structures/living/tents/canopy_forest_c_norope.cgf                       = collide mesh if-bare=frame  # canopy, 7.14x3.64x3.69 m
+objects/manmade/structures/living/tents/canopy_small_rustic_a.cgf                        = collide mesh if-bare=frame  # canopy, 3.75x1.15x2.87 m
+objects/manmade/structures/living/tents/canopy_tent_big_a.cgf                            = collide mesh if-bare=frame  # canopy, 7.89x4.36x5.43 m
+objects/manmade/structures/living/tents/canopy_tent_cover_a.cgf                          = collide mesh if-bare=frame  # canopy, 3.00x4.04x4.89 m
+objects/manmade/structures/living/tents/canopy_tent_cover_a_merlon.cgf                   = fade                        # hanging cloth strip, no collision, 0.34x3.81x0.81 m
+objects/manmade/structures/living/tents/canopy_tent_cover_a_nosticks.cgf                 = collide mesh if-bare=frame  # canopy, 2.98x4.04x0.84 m
+objects/manmade/structures/living/tents/canopy_tent_cover_b.cgf                          = collide mesh if-bare=frame  # canopy, 3.01x4.04x5.05 m
+objects/manmade/structures/living/tents/curtain_a.cgf                                    = collide mesh if-bare=frame  # curtain, 4.03x0.37x3.92 m
+objects/manmade/structures/living/tents/curtain_a_bare.cgf                               = collide mesh if-bare=frame  # curtain, 3.99x0.22x3.17 m
+objects/manmade/structures/living/tents/curtain_a_color1.cgf                             = collide mesh if-bare=frame  # curtain, 4.03x0.37x3.92 m
+objects/manmade/structures/living/tents/curtain_a_dark.cgf                               = collide mesh if-bare=frame  # curtain, 4.03x0.37x3.92 m
+objects/manmade/structures/living/tents/curtain_a_slope_a.cgf                            = collide mesh if-bare=frame  # curtain, 4.03x0.37x3.92 m
+objects/manmade/structures/living/tents/curtain_a_slope_b.cgf                            = collide mesh if-bare=frame  # curtain, 4.03x0.37x4.15 m
+objects/manmade/structures/living/tents/curtain_a_slope_c.cgf                            = collide mesh if-bare=frame  # curtain, 4.03x0.37x4.06 m
+objects/manmade/structures/living/tents/curtain_a_slope_d.cgf                            = collide mesh if-bare=frame  # curtain, 4.03x0.37x4.70 m
+objects/manmade/structures/living/tents/curtain_a_v2.cgf                                 = collide mesh if-bare=frame  # curtain, 4.09x0.30x3.92 m
+objects/manmade/structures/living/tents/curtain_a_v2_bare.cgf                            = collide mesh if-bare=frame  # curtain, 3.99x0.22x3.17 m
+objects/manmade/structures/living/tents/curtain_a_v2_color1.cgf                          = collide mesh if-bare=frame  # curtain, 4.09x0.30x3.92 m
+objects/manmade/structures/living/tents/curtain_a_v2_color2.cgf                          = collide mesh if-bare=frame  # curtain, 4.09x0.30x3.92 m
+objects/manmade/structures/living/tents/curtain_a_v2_color3.cgf                          = collide mesh if-bare=frame  # curtain, 4.09x0.30x3.92 m
+objects/manmade/structures/living/tents/curtain_a_v2_slope_a.cgf                         = collide mesh if-bare=frame  # curtain, 4.03x0.37x3.92 m
+objects/manmade/structures/living/tents/curtain_a_v2_slope_b.cgf                         = collide mesh if-bare=frame  # curtain, 4.08x0.29x4.15 m
+objects/manmade/structures/living/tents/curtain_a_v2_slope_c.cgf                         = collide mesh if-bare=frame  # curtain, 4.03x0.37x4.01 m
+objects/manmade/structures/living/tents/curtain_a_v2_slope_d.cgf                         = collide mesh if-bare=frame  # curtain, 4.08x0.29x4.70 m
+objects/manmade/structures/living/tents/curtain_end_a.cgf                                = collide mesh if-bare=frame  # curtain, 0.50x0.25x4.52 m
+objects/manmade/structures/living/tents/curtain_pole_a.cgf                               = frame                       # curtain pole, 0.10x0.19x3.90 m
+objects/manmade/structures/living/tents/curtain_pole_b.cgf                               = frame                       # curtain pole, 0.09x0.10x4.85 m
+objects/manmade/structures/living/tents/curtain_pole_cloth.cgf                           = fade                        # cloth wrapped on a pole, no collision, 0.17x0.16x0.43 m
+objects/manmade/structures/living/tents/gypsy_tent_a.cgf                                 = collide mesh if-bare=frame  # tent, 5.23x4.31x3.48 m
+objects/manmade/structures/living/tents/gypsy_tent_a_wb.cgf                              = collide mesh if-bare=frame  # tent, 2.40x3.13x1.94 m
+objects/manmade/structures/living/tents/gypsy_tent_b_wb.cgf                              = collide mesh if-bare=frame  # tent, 2.17x5.05x1.97 m
+objects/manmade/structures/living/tents/gypsy_tent_big_a.cgf                             = collide mesh if-bare=frame  # tent, 8.31x7.01x7.03 m
+objects/manmade/structures/living/tents/gypsy_tent_big_b.cgf                             = collide mesh if-bare=frame  # tent, 3.96x4.14x6.10 m
+objects/manmade/structures/living/tents/gypsy_tent_c.cgf                                 = collide mesh if-bare=frame  # tent, 4.36x2.88x3.35 m
+objects/manmade/structures/living/tents/gypsy_tent_d.cgf                                 = collide mesh if-bare=frame  # tent, 9.22x6.37x3.84 m
+objects/manmade/structures/living/tents/gypsy_tent_e.cgf                                 = collide mesh if-bare=frame  # tent, 4.54x3.36x3.19 m
+objects/manmade/structures/living/tents/gypsy_tent_main.cgf                              = collide mesh if-bare=frame  # tent, 9.36x7.60x4.87 m
+objects/manmade/structures/living/tents/gypsy_trees_cloth_wb.cgf                         = collide mesh if-bare=frame  # cloth between trees, 1.82x4.54x4.87 m
+objects/manmade/structures/living/tents/gypsycamp_tent_a.cgf                             = collide mesh if-bare=frame  # tent, 4.58x7.33x4.55 m
+objects/manmade/structures/living/tents/gypsycamp_tent_b.cgf                             = collide mesh if-bare=frame  # tent, 5.11x3.29x2.77 m
+objects/manmade/structures/living/tents/rope_around_tree.cgf                             = frame                       # rope around a tree, 0.31x0.30x0.44 m
+objects/manmade/structures/living/tents/shelter_medium_forest_a.cgf                      = collide mesh if-bare=frame  # shelter, 8.63x4.76x4.25 m
+objects/manmade/structures/living/tents/tent_big_fancy_a.cgf                             = collide mesh if-bare=frame  # tent, 11.69x8.44x7.27 m
+objects/manmade/structures/living/tents/tent_big_fancy_a_color1.cgf                      = collide mesh if-bare=frame  # tent, 11.69x8.43x7.27 m
+objects/manmade/structures/living/tents/tent_big_fancy_a_color2.cgf                      = collide mesh if-bare=frame  # tent, 11.69x8.43x7.27 m
+objects/manmade/structures/living/tents/tent_big_fancy_a_color3.cgf                      = collide mesh if-bare=frame  # tent, 11.69x8.43x7.27 m
+objects/manmade/structures/living/tents/tent_big_fancy_a_hungarien_green.cgf             = collide mesh if-bare=frame  # tent, 11.69x8.43x7.27 m
+objects/manmade/structures/living/tents/tent_big_fancy_a_hungarien_red.cgf               = collide mesh if-bare=frame  # tent, 11.69x8.43x7.27 m
+objects/manmade/structures/living/tents/tent_big_fancy_a_hungarien_red_simple.cgf        = collide mesh if-bare=frame  # tent, 11.69x8.43x7.27 m
+objects/manmade/structures/living/tents/tent_big_fancy_a_occ.cgf                         = collide mesh if-bare=frame  # occluder copy of a tent, 10.77x5.70x5.73 m
+objects/manmade/structures/living/tents/tent_big_fancy_a_open.cgf                        = collide mesh if-bare=frame  # tent, 11.39x5.70x7.27 m
+objects/manmade/structures/living/tents/tent_big_fancy_a_open_color1.cgf                 = collide mesh if-bare=frame  # tent, 11.39x5.70x7.27 m
+objects/manmade/structures/living/tents/tent_big_fancy_a_open_color2.cgf                 = collide mesh if-bare=frame  # tent, 11.39x5.70x7.27 m
+objects/manmade/structures/living/tents/tent_big_fancy_a_open_color3.cgf                 = collide mesh if-bare=frame  # tent, 11.39x5.70x7.27 m
+objects/manmade/structures/living/tents/tent_big_fancy_a_open_hungarien_green.cgf        = collide mesh if-bare=frame  # tent, 11.39x5.70x7.27 m
+objects/manmade/structures/living/tents/tent_big_fancy_a_open_hungarien_red.cgf          = collide mesh if-bare=frame  # tent, 11.39x5.70x7.27 m
+objects/manmade/structures/living/tents/tent_big_fancy_a_open_hungarien_red_simple.cgf   = collide mesh if-bare=frame  # tent, 11.39x5.70x7.27 m
+objects/manmade/structures/living/tents/tent_big_fancy_a_open_occ.cgf                    = collide mesh if-bare=frame  # occluder copy of a tent, 10.60x5.15x5.63 m
+objects/manmade/structures/living/tents/tent_big_jurt_a.cgf                              = collide mesh if-bare=frame  # tent, 5.89x5.72x4.16 m
+objects/manmade/structures/living/tents/tent_big_jurt_a_hungarien.cgf                    = collide mesh if-bare=frame  # tent, 5.89x5.72x4.16 m
+objects/manmade/structures/living/tents/tent_big_jurt_a_occ.cgf                          = collide mesh if-bare=frame  # occluder copy of a tent, 5.63x5.63x3.43 m
+objects/manmade/structures/living/tents/tent_big_jurt_a_red.cgf                          = collide mesh if-bare=frame  # tent, 5.89x5.72x4.16 m
+objects/manmade/structures/living/tents/tent_big_jurt_a_white.cgf                        = collide mesh if-bare=frame  # tent, 5.89x5.72x4.16 m
+objects/manmade/structures/living/tents/tent_big_rectangle_a.cgf                         = collide mesh if-bare=frame  # tent, 8.63x4.50x4.90 m
+objects/manmade/structures/living/tents/tent_big_rectangle_a_nocloth.cgf                 = frame                       # tent frame, 8.63x4.16x4.88 m
+objects/manmade/structures/living/tents/tent_big_rectangle_a_occ.cgf                     = collide mesh if-bare=frame  # occluder copy of a tent, 7.95x0.05x2.22 m
+objects/manmade/structures/living/tents/tent_big_rope_a.cgf                              = frame                       # rope, 0.11x1.63x3.61 m
+objects/manmade/structures/living/tents/tent_big_rope_b.cgf                              = frame                       # rope, 0.06x1.58x3.56 m
+objects/manmade/structures/living/tents/tent_big_rope_c.cgf                              = frame                       # rope, 0.13x1.62x3.60 m
+objects/manmade/structures/living/tents/tent_big_round_a.cgf                             = collide mesh if-bare=frame  # tent, 4.52x4.43x5.48 m
+objects/manmade/structures/living/tents/tent_big_round_a_color1.cgf                      = collide mesh if-bare=frame  # tent, 4.52x4.43x5.48 m
+objects/manmade/structures/living/tents/tent_big_round_a_color2.cgf                      = collide mesh if-bare=frame  # tent, 4.52x4.43x5.48 m
+objects/manmade/structures/living/tents/tent_big_round_a_color3.cgf                      = collide mesh if-bare=frame  # tent, 4.52x4.43x5.48 m
+objects/manmade/structures/living/tents/tent_big_round_a_construction_a.cgf              = frame                       # tent frame, 3.76x3.85x5.46 m
+objects/manmade/structures/living/tents/tent_big_round_a_construction_b.cgf              = collide mesh if-bare=frame  # tent frame with cloth, 2.82x3.23x2.47 m
+objects/manmade/structures/living/tents/tent_big_round_a_curtain_a.cgf                   = collide mesh if-bare=frame  # curtain, 0.14x1.42x2.90 m
+objects/manmade/structures/living/tents/tent_big_round_a_curtain_b.cgf                   = collide mesh if-bare=frame  # curtain, 0.46x0.75x2.89 m
+objects/manmade/structures/living/tents/tent_big_round_a_curtain_fancy_left.cgf          = collide mesh if-bare=frame  # curtain, 0.47x0.76x2.96 m
+objects/manmade/structures/living/tents/tent_big_round_a_curtain_fancy_right.cgf         = collide mesh if-bare=frame  # curtain, 0.14x1.42x2.97 m
+objects/manmade/structures/living/tents/tent_big_round_a_dark.cgf                        = collide mesh if-bare=frame  # tent, 4.52x4.43x5.48 m
+objects/manmade/structures/living/tents/tent_big_round_a_hungarien_green.cgf             = collide mesh if-bare=frame  # tent, 4.52x4.43x5.48 m
+objects/manmade/structures/living/tents/tent_big_round_a_hungarien_green_a.cgf           = collide mesh if-bare=frame  # tent, 4.52x4.43x5.48 m
+objects/manmade/structures/living/tents/tent_big_round_a_hungarien_green_b.cgf           = collide mesh if-bare=frame  # tent, 4.52x4.43x5.48 m
+objects/manmade/structures/living/tents/tent_big_round_a_hungarien_red_a.cgf             = collide mesh if-bare=frame  # tent, 4.52x4.43x5.48 m
+objects/manmade/structures/living/tents/tent_big_round_a_hungarien_red_b.cgf             = collide mesh if-bare=frame  # tent, 4.52x4.43x5.48 m
+objects/manmade/structures/living/tents/tent_big_round_a_hungarien_red_c.cgf             = collide mesh if-bare=frame  # tent, 4.52x4.43x5.48 m
+objects/manmade/structures/living/tents/tent_big_round_a_hungarien_red_merlon.cgf        = collide mesh if-bare=frame  # tent, 4.52x4.43x5.48 m
+objects/manmade/structures/living/tents/tent_big_round_a_hungarien_yellow_red.cgf        = collide mesh if-bare=frame  # tent, 4.52x4.43x5.48 m
+objects/manmade/structures/living/tents/tent_big_round_a_hungarien_yellow_red_merlon.cgf = collide mesh if-bare=frame  # tent, 4.52x4.43x5.48 m
+objects/manmade/structures/living/tents/tent_big_round_a_merlon.cgf                      = collide mesh if-bare=frame  # tent, 4.52x4.43x5.48 m
+objects/manmade/structures/living/tents/tent_big_round_a_occ.cgf                         = collide mesh if-bare=frame  # occluder copy of a tent, 4.04x3.86x4.82 m
+objects/manmade/structures/living/tents/tent_big_round_a_rope_a.cgf                      = frame                       # rope, 1.25x1.64x3.09 m
+objects/manmade/structures/living/tents/tent_big_round_a_rope_b.cgf                      = frame                       # rope, 1.30x1.62x3.07 m
+objects/manmade/structures/living/tents/tent_big_round_b.cgf                             = collide mesh if-bare=frame  # tent, 4.94x4.41x5.99 m
+objects/manmade/structures/living/tents/tent_big_round_b_occ.cgf                         = collide mesh if-bare=frame  # occluder copy of a tent, 4.33x3.98x5.16 m
+objects/manmade/structures/living/tents/tent_big_round_b_rope_a.cgf                      = frame                       # rope, 1.34x1.65x3.08 m
+objects/manmade/structures/living/tents/tent_big_royal_a.cgf                             = collide mesh if-bare=frame  # tent, 18.09x13.07x8.95 m
+objects/manmade/structures/living/tents/tent_big_royal_a_color1.cgf                      = collide mesh if-bare=frame  # tent, 18.09x13.07x8.95 m
+objects/manmade/structures/living/tents/tent_big_royal_a_occ.cgf                         = collide mesh if-bare=frame  # occluder copy of a tent, 17.30x8.87x7.10 m
+objects/manmade/structures/living/tents/tent_big_royal_a_open.cgf                        = collide mesh if-bare=frame  # tent, 15.52x9.16x8.84 m
+objects/manmade/structures/living/tents/tent_big_royal_a_open_occ.cgf                    = collide mesh if-bare=frame  # occluder copy of a tent, 14.78x8.31x6.97 m
+objects/manmade/structures/living/tents/tent_big_royal_b.cgf                             = collide mesh if-bare=frame  # tent, 18.09x13.08x8.95 m
+objects/manmade/structures/living/tents/tent_big_royal_b_occ.cgf                         = collide mesh if-bare=frame  # occluder copy of a tent, 17.30x8.87x7.10 m
+objects/manmade/structures/living/tents/tent_big_square_a.cgf                            = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_color1.cgf                     = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_color2.cgf                     = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_color3.cgf                     = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_color4.cgf                     = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_color5.cgf                     = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_color6.cgf                     = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_color7.cgf                     = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_color8.cgf                     = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_construction.cgf               = frame                       # tent frame, 2.62x3.86x6.54 m
+objects/manmade/structures/living/tents/tent_big_square_a_curtain_a.cgf                  = collide mesh if-bare=frame  # curtain, 3.84x3.78x3.26 m
+objects/manmade/structures/living/tents/tent_big_square_a_hungarien_green_a.cgf          = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_hungarien_green_b.cgf          = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_hungarien_green_c.cgf          = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_hungarien_green_d.cgf          = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_hungarien_green_e.cgf          = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_hungarien_green_f.cgf          = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_hungarien_green_g.cgf          = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_hungarien_red_a.cgf            = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_hungarien_red_b.cgf            = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_hungarien_red_c.cgf            = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_hungarien_red_d.cgf            = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_hungarien_red_e.cgf            = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_merlon.cgf                     = collide mesh if-bare=frame  # tent, 4.06x4.17x6.59 m
+objects/manmade/structures/living/tents/tent_big_square_a_natural_b.cgf                  = collide mesh if-bare=frame  # tent, 4.06x4.17x6.58 m
+objects/manmade/structures/living/tents/tent_big_square_a_occ.cgf                        = collide mesh if-bare=frame  # occluder copy of a tent, 3.79x3.75x5.73 m
+objects/manmade/structures/living/tents/tent_big_square_a_rope_a.cgf                     = frame                       # rope, 1.02x1.37x3.66 m
+objects/manmade/structures/living/tents/tent_big_square_b.cgf                            = collide mesh if-bare=frame  # tent, 4.01x4.11x4.52 m
+objects/manmade/structures/living/tents/tent_big_square_b_color1.cgf                     = collide mesh if-bare=frame  # tent, 4.01x4.11x4.52 m
+objects/manmade/structures/living/tents/tent_big_square_b_color2.cgf                     = collide mesh if-bare=frame  # tent, 4.01x4.11x4.52 m
+objects/manmade/structures/living/tents/tent_big_square_b_dark.cgf                       = collide mesh if-bare=frame  # tent, 4.01x4.11x4.52 m
+objects/manmade/structures/living/tents/tent_big_square_b_hanger_a.cgf                   = frame                       # hanger pole, 0.18x4.15x0.30 m
+objects/manmade/structures/living/tents/tent_big_square_b_hanger_b.cgf                   = frame                       # hanger frame, 3.79x0.11x0.48 m
+objects/manmade/structures/living/tents/tent_big_square_b_hanger_c.cgf                   = frame                       # hanger frame, 3.78x3.79x0.61 m
+objects/manmade/structures/living/tents/tent_big_square_b_hungarien_green.cgf            = collide mesh if-bare=frame  # tent, 4.01x4.11x4.52 m
+objects/manmade/structures/living/tents/tent_big_square_b_hungarien_green_merlon.cgf     = collide mesh if-bare=frame  # tent, 4.01x4.11x4.52 m
+objects/manmade/structures/living/tents/tent_big_square_b_hungarien_red_merlon.cgf       = collide mesh if-bare=frame  # tent, 4.01x4.11x4.52 m
+objects/manmade/structures/living/tents/tent_big_square_b_hungarien_yellow_merlon.cgf    = collide mesh if-bare=frame  # tent, 4.01x4.11x4.52 m
+objects/manmade/structures/living/tents/tent_big_square_b_occ.cgf                        = collide mesh if-bare=frame  # occluder copy of a tent, 3.76x3.75x3.33 m
+objects/manmade/structures/living/tents/tent_big_square_b_rope_a.cgf                     = frame                       # rope, 0.96x1.32x3.60 m
+objects/manmade/structures/living/tents/tent_big_square_b_rope_b.cgf                     = frame                       # rope, 0.96x1.32x3.66 m
+objects/manmade/structures/living/tents/tent_big_square_b_v2.cgf                         = collide mesh if-bare=frame  # tent, 4.01x4.01x4.58 m
+objects/manmade/structures/living/tents/tent_big_square_b_v3.cgf                         = collide mesh if-bare=frame  # tent, 4.01x4.10x4.62 m
+objects/manmade/structures/living/tents/tent_big_square_b_v3_occ.cgf                     = collide mesh if-bare=frame  # occluder copy of a tent, 3.72x3.75x3.33 m
+objects/manmade/structures/living/tents/tent_big_square_b_v4.cgf                         = collide mesh if-bare=frame  # tent, 4.01x4.10x4.62 m
+objects/manmade/structures/living/tents/tent_big_square_b_v4_occ.cgf                     = collide mesh if-bare=frame  # occluder copy of a tent, 3.74x3.75x3.33 m
+objects/manmade/structures/living/tents/tent_big_square_b_v5.cgf                         = collide mesh if-bare=frame  # tent, 4.11x4.01x4.52 m
+objects/manmade/structures/living/tents/tent_big_square_b_v5_occ.cgf                     = collide mesh if-bare=frame  # occluder copy of a tent, 3.76x3.78x3.34 m
+objects/manmade/structures/living/tents/tent_big_square_c.cgf                            = collide mesh if-bare=frame  # tent, 6.74x13.89x6.76 m
+objects/manmade/structures/living/tents/tent_big_square_c_color1.cgf                     = collide mesh if-bare=frame  # tent, 6.74x13.89x6.76 m
+objects/manmade/structures/living/tents/tent_big_square_c_hungarien_green_a.cgf          = collide mesh if-bare=frame  # tent, 6.74x13.89x6.76 m
+objects/manmade/structures/living/tents/tent_big_square_c_hungarien_green_b.cgf          = collide mesh if-bare=frame  # tent, 6.74x13.89x6.76 m
+objects/manmade/structures/living/tents/tent_big_square_c_hungarien_red.cgf              = collide mesh if-bare=frame  # tent, 6.74x13.89x6.76 m
+objects/manmade/structures/living/tents/tent_big_square_c_musa.cgf                       = collide mesh if-bare=frame  # tent, 6.74x13.89x6.76 m
+objects/manmade/structures/living/tents/tent_big_square_c_occ.cgf                        = collide mesh if-bare=frame  # occluder copy of a tent, 6.41x5.37x3.56 m
+objects/manmade/structures/living/tents/tent_burned_a.cgf                                = collide mesh if-bare=frame  # burned tent, 4.24x4.33x7.33 m
+objects/manmade/structures/living/tents/tent_burned_b.cgf                                = collide mesh if-bare=frame  # burned tent, 4.19x4.19x5.70 m
+objects/manmade/structures/living/tents/tent_burned_c.cgf                                = collide mesh if-bare=frame  # burned tent, 4.79x4.61x4.60 m
+objects/manmade/structures/living/tents/tent_burned_d.cgf                                = collide mesh if-bare=frame  # burned tent, 6.16x7.06x5.40 m
+objects/manmade/structures/living/tents/tent_center_column_a.cgf                         = frame                       # pole, 0.34x0.33x0.24 m
+objects/manmade/structures/living/tents/tent_center_column_b.cgf                         = frame                       # pole, 0.24x0.24x0.22 m
+objects/manmade/structures/living/tents/tent_cuman_small_v3.cgf                          = collide mesh if-bare=frame  # tent, 3.14x2.54x1.94 m
+objects/manmade/structures/living/tents/tent_cuman_small_v4.cgf                          = collide mesh if-bare=frame  # tent, 3.06x2.56x1.54 m
+objects/manmade/structures/living/tents/tent_decoration_a.cgf                            = fade                        # pennant string, no collision, 1.50x0.03x0.38 m
+objects/manmade/structures/living/tents/tent_peg_grass_a.cgf                             = frame                       # peg, 0.46x0.41x0.14 m
+objects/manmade/structures/living/tents/tent_peg_metal_a.cgf                             = frame                       # peg, 0.01x0.08x0.25 m
+objects/manmade/structures/living/tents/tent_pole_hanger_a.cgf                           = frame                       # rope knot on a pole, 0.29x0.15x0.30 m
+objects/manmade/structures/living/tents/tent_small_a.cgf                                 = collide mesh if-bare=frame  # tent, 1.93x3.03x2.00 m
+objects/manmade/structures/living/tents/tent_small_a_abandoned.cgf                       = collide mesh if-bare=frame  # tent frame with cloth, 1.93x3.02x2.00 m
+objects/manmade/structures/living/tents/tent_small_a_cloth_a.cgf                         = fade                        # draped cloth, no collision, 0.43x0.57x0.40 m
+objects/manmade/structures/living/tents/tent_small_a_cloth_b.cgf                         = fade                        # draped cloth, no collision, 0.58x0.66x0.76 m
+objects/manmade/structures/living/tents/tent_small_a_construction.cgf                    = frame                       # tent frame, 1.87x3.23x1.82 m
+objects/manmade/structures/living/tents/tent_small_a_green.cgf                           = collide mesh if-bare=frame  # tent, 1.93x3.02x2.00 m
+objects/manmade/structures/living/tents/tent_small_a_old.cgf                             = collide mesh if-bare=frame  # tent, 1.93x3.02x2.00 m
+objects/manmade/structures/living/tents/tent_small_a_red.cgf                             = collide mesh if-bare=frame  # tent, 1.93x3.02x2.00 m
+objects/manmade/structures/living/tents/tent_small_abandoned_a.cgf                       = frame                       # tent frame, 4.09x2.16x1.99 m
+objects/manmade/structures/living/tents/tent_small_abandoned_b.cgf                       = frame                       # tent frame, 3.43x1.74x1.51 m
+objects/manmade/structures/living/tents/tent_small_abandoned_c.cgf                       = frame                       # fallen tent poles, 2.83x1.22x0.58 m
+objects/manmade/structures/living/tents/tent_small_b.cgf                                 = collide mesh if-bare=frame  # tent, 2.40x3.13x1.94 m
+objects/manmade/structures/living/tents/tent_small_b_damaged.cgf                         = collide mesh if-bare=frame  # tent, 1.98x2.57x2.21 m
+objects/manmade/structures/living/tents/tent_small_b_dark.cgf                            = collide mesh if-bare=frame  # tent, 2.40x3.13x1.94 m
+objects/manmade/structures/living/tents/tent_small_b_yellow.cgf                          = collide mesh if-bare=frame  # tent, 2.40x3.13x1.94 m
+objects/manmade/structures/living/tents/tent_small_forest_a.cgf                          = collide mesh if-bare=frame  # tent, 2.92x2.38x2.61 m
+objects/manmade/structures/living/tents/tent_small_forest_b.cgf                          = collide mesh if-bare=frame  # tent, 3.66x1.84x2.56 m
+objects/manmade/structures/living/tents/tent_small_forest_c.cgf                          = collide mesh if-bare=frame  # tent, 4.17x2.59x2.71 m
+objects/manmade/structures/living/tents/tent_small_forest_d.cgf                          = collide mesh if-bare=frame  # tent, 4.25x2.85x2.74 m
+objects/manmade/structures/living/tents/tent_small_rustic_a.cgf                          = collide mesh if-bare=frame  # tent, 4.67x3.05x3.21 m
+objects/manmade/structures/living/tents/tent_small_shabby_a.cgf                          = collide mesh if-bare=frame  # tent, 3.14x1.61x2.42 m
+objects/manmade/structures/living/tents/tent_small_wagon_a.cgf                           = collide mesh if-bare=frame  # tent, 4.02x5.46x2.09 m
+objects/manmade/structures/living/tents/tent_small_wagon_b.cgf                           = collide mesh if-bare=frame  # tent, 1.80x3.10x1.93 m
+objects/manmade/structures/living/tents/tent_support_peg.cgf                             = frame                       # peg, 0.13x0.06x0.47 m
+objects/manmade/structures/living/tents/tent_support_rope.cgf                            = frame                       # rope, 2.44x0.06x3.99 m
+objects/manmade/structures/living/tents/tent_support_stick.cgf                           = frame                       # pole, 0.09x0.08x4.15 m
+
+
+# ---- Tournament grandstands ----------------------------------------------------------------------------------------
+# The decks, stairs and railings stop the camera. The flags, banners and pennants hung on them have no collision and
+# fade.
+
+# objects/manmade/structures/logistical/grandstands/: tournament grandstands stand among their collision-less flags,
+# banners and pennants. Every model has its own line; a model not listed here gets objects/manmade/ = collide mesh.
+objects/manmade/structures/logistical/grandstands/flag_plank.cgf                             = fade          # flag board, no collision, 0.60x0.11x0.06 m
+objects/manmade/structures/logistical/grandstands/flag_tournament_a.cgf                      = fade          # tournament flag, no collision, 0.60x0.26x0.80 m
+objects/manmade/structures/logistical/grandstands/flag_tournament_b.cgf                      = fade          # tournament flag, no collision, 0.60x0.25x0.81 m
+objects/manmade/structures/logistical/grandstands/flag_tournament_c.cgf                      = fade          # tournament flag, no collision, 0.60x0.25x0.79 m
+objects/manmade/structures/logistical/grandstands/grandstand_torunament_a.cgf                = collide mesh  # grandstand, 9.99x3.68x4.64 m
+objects/manmade/structures/logistical/grandstands/grandstand_torunament_a_cloth.cgf          = collide mesh  # cloth drape with fabric collision, 4.21x0.73x1.04 m
+objects/manmade/structures/logistical/grandstands/grandstand_torunament_a_nocloth.cgf        = collide mesh  # grandstand, 8.29x3.15x4.67 m
+objects/manmade/structures/logistical/grandstands/grandstand_torunament_a_stairs.cgf         = collide mesh  # grandstand stairs, 2.98x1.49x1.91 m
+objects/manmade/structures/logistical/grandstands/grandstand_torunament_b.cgf                = collide mesh  # grandstand deck, 11.46x7.32x1.88 m
+objects/manmade/structures/logistical/grandstands/grandstand_torunament_b_railing.cgf        = collide mesh  # grandstand railing, 8.69x0.26x2.96 m
+objects/manmade/structures/logistical/grandstands/grandstand_torunament_b_railing_flag_a.cgf = fade          # railing flag, no collision, 0.84x0.41x1.69 m
+objects/manmade/structures/logistical/grandstands/grandstand_tournament_banner_b.cgf         = fade          # banner, no collision, 1.01x0.59x2.01 m
+objects/manmade/structures/logistical/grandstands/tournament_decoration_a.cgf                = fade          # pennant string, no collision, 1.92x0.32x0.63 m
+objects/manmade/structures/logistical/grandstands/tournament_decoration_a_green.cgf          = fade          # pennant string, no collision, 1.92x0.32x0.63 m
+
+
+# ---- Scaffolding, graves, crosses, shrines, pillories, columbaria --------------------------------------------------
+# Scaffold decks, floors and ramps, and the pillory and gallows platforms, are walkable: they stop the camera. Loose
+# beams, poles, railings, posts and stocks fade.
+
+# objects/manmade/structures/scafolding/: walkable scaffold decks, floors and ramps stand among loose beams, poles and
+# railings. Every model has its own line; a model not listed here gets objects/manmade/ = collide mesh.
+objects/manmade/structures/scafolding/scaffolding_b_a.cgf                 = collide mesh  # scaffold deck with railing, 2.33x1.92x2.63 m
+objects/manmade/structures/scafolding/scaffolding_b_b.cgf                 = collide mesh  # scaffold deck with railing, 2.32x2.07x2.75 m
+objects/manmade/structures/scafolding/scaffolding_b_end.cgf               = collide mesh  # scaffold deck with railing, 2.40x2.04x2.75 m
+objects/manmade/structures/scafolding/scaffolding_b_start.cgf             = collide mesh  # scaffold deck with railing, 2.40x2.03x2.72 m
+objects/manmade/structures/scafolding/scaffolding_beam_only_a.cgf         = fade          # scaffold beam, 3.03x0.29x3.11 m
+objects/manmade/structures/scafolding/scaffolding_beam_only_b.cgf         = fade          # scaffold beam, 3.01x0.33x5.74 m
+objects/manmade/structures/scafolding/scaffolding_beam_only_c.cgf         = fade          # scaffold beam, 2.83x0.32x5.45 m
+objects/manmade/structures/scafolding/scaffolding_beam_only_d.cgf         = fade          # scaffold beam, 2.94x0.27x5.72 m
+objects/manmade/structures/scafolding/scaffolding_beam_only_e.cgf         = fade          # scaffold beam, 1.22x0.50x1.11 m
+objects/manmade/structures/scafolding/scaffolding_beam_only_end.cgf       = fade          # scaffold beam, 0.34x1.97x0.17 m
+objects/manmade/structures/scafolding/scaffolding_beam_only_f.cgf         = fade          # scaffold beam, 1.22x0.53x1.11 m
+objects/manmade/structures/scafolding/scaffolding_beam_support_a.cgf      = fade          # scaffold brace, 2.13x2.43x5.47 m
+objects/manmade/structures/scafolding/scaffolding_beam_support_b.cgf      = fade          # scaffold brace, 2.15x2.42x5.47 m
+objects/manmade/structures/scafolding/scaffolding_floor_only_a.cgf        = collide mesh  # scaffold floor, 2.70x2.12x0.43 m
+objects/manmade/structures/scafolding/scaffolding_floor_only_b.cgf        = collide mesh  # scaffold floor, 2.69x2.07x0.51 m
+objects/manmade/structures/scafolding/scaffolding_floor_only_c.cgf        = collide mesh  # scaffold floor, 2.71x2.04x0.48 m
+objects/manmade/structures/scafolding/scaffolding_floor_only_d.cgf        = collide mesh  # scaffold floor, 2.71x2.06x0.51 m
+objects/manmade/structures/scafolding/scaffolding_floor_only_e.cgf        = collide mesh  # scaffold floor, 2.85x2.14x0.47 m
+objects/manmade/structures/scafolding/scaffolding_floor_only_f.cgf        = collide mesh  # scaffold floor, 2.69x2.09x0.50 m
+objects/manmade/structures/scafolding/scaffolding_floor_only_ladder_a.cgf = collide mesh  # scaffold floor with ladder hole, 2.70x2.04x0.57 m
+objects/manmade/structures/scafolding/scaffolding_floor_only_ladder_b.cgf = collide mesh  # scaffold floor with ladder hole, 2.69x2.07x0.53 m
+objects/manmade/structures/scafolding/scaffolding_handrail_a.cgf          = fade          # scaffold railing, 2.79x0.28x0.94 m
+objects/manmade/structures/scafolding/scaffolding_handrail_b.cgf          = fade          # scaffold railing, 2.73x0.27x0.37 m
+objects/manmade/structures/scafolding/scaffolding_handrail_c.cgf          = fade          # scaffold railing, 2.97x0.39x2.96 m
+objects/manmade/structures/scafolding/scaffolding_handrail_d.cgf          = fade          # scaffold railing, 2.93x0.39x2.96 m
+objects/manmade/structures/scafolding/scaffolding_main_beam_a.cgf         = fade          # scaffold pole, 0.32x1.67x13.73 m
+objects/manmade/structures/scafolding/scaffolding_main_beam_b.cgf         = fade          # scaffold pole, 0.20x1.61x7.95 m
+objects/manmade/structures/scafolding/scaffolding_main_beam_c.cgf         = fade          # scaffold pole, 0.21x1.62x6.49 m
+objects/manmade/structures/scafolding/scaffolding_pulley.cgf              = fade          # pulley on a beam, 0.34x1.70x3.38 m
+objects/manmade/structures/scafolding/scaffolding_ramp_a.cgf              = collide mesh  # scaffold ramp, 5.68x1.98x4.13 m
+objects/manmade/structures/scafolding/scaffolding_ramp_b.cgf              = collide mesh  # scaffold ramp, 5.68x1.98x4.13 m
+objects/manmade/structures/scafolding/scaffolding_ramp_c.cgf              = collide mesh  # scaffold ramp, 5.50x1.98x2.74 m
+objects/manmade/structures/scafolding/scaffolding_ramp_d.cgf              = collide mesh  # scaffold ramp, 5.52x1.95x2.76 m
+
+objects/manmade/structures/theological/graves/                  = fade
+objects/manmade/structures/theological/conciliation_crosses/    = fade
+objects/manmade/structures/theological/shrines/                 = fade
+objects/manmade/structures/municipal/columbarium/               = fade
+
+# objects/manmade/structures/municipal/law_and_order/: pillory platforms and the Kutna Hora gallows stand among
+# pillory posts, stocks and gallows frames. Every model has its own line; a model not listed here gets
+# objects/manmade/ = collide mesh.
+objects/manmade/structures/municipal/law_and_order/gallows_a.cgf                 = fade          # two-post gallows frame, 4.54x0.49x4.84 m
+objects/manmade/structures/municipal/law_and_order/gallows_b.cgf                 = fade          # gallows frame, 3.62x2.10x3.21 m
+objects/manmade/structures/municipal/law_and_order/gallows_kh.cgf                = collide mesh  # gallows platform with stairs, 9.67x9.29x8.86 m
+objects/manmade/structures/municipal/law_and_order/pillory_a.cgf                 = collide mesh  # pillory platform, 8.10x5.07x2.34 m
+objects/manmade/structures/municipal/law_and_order/pillory_a_burned.cgf          = collide mesh  # burned pillory platform, 8.73x5.31x4.20 m
+objects/manmade/structures/municipal/law_and_order/pillory_b.cgf                 = collide mesh  # pillory platform, 4.68x7.32x2.24 m
+objects/manmade/structures/municipal/law_and_order/pillory_c.cgf                 = collide mesh  # pillory platform, 3.78x2.56x2.34 m
+objects/manmade/structures/municipal/law_and_order/pillory_d.cgf                 = fade          # upright log post, 0.65x0.54x2.10 m
+objects/manmade/structures/municipal/law_and_order/pillory_holder.cgf            = fade          # stocks, 1.18x1.08x1.42 m
+objects/manmade/structures/municipal/law_and_order/pillory_holder_upper_part.cgf = fade          # stocks bar, 1.18x0.05x0.18 m
+objects/manmade/structures/municipal/law_and_order/pillory_log.cgf               = fade          # pillory pole, 0.24x0.24x3.69 m
+objects/manmade/structures/municipal/law_and_order/pillory_wheel.cgf             = fade          # breaking wheel on a pole, 2.18x2.18x5.10 m
+objects/manmade/structures/municipal/law_and_order/witch_stake.cgf               = fade          # stake with brushwood, 2.62x2.84x5.05 m
+
+
+# ---- Work, quest and everyday props --------------------------------------------------------------------------------
+# The open mining sheds, the treadwheel cranes, the log and wood piles taller than a person (top 1.8 m or more), the
+# washing pier and the trebuchet's ground mesh are structures filed among props. The dirt mounds of construction/ are
+# ground. The lumberjack's beech, its stumps and its branch debris are plants.
+
+objects/manmade/task_specific_props/                                    = fade
+objects/manmade/weapons/                                                = fade
+objects/manmade/food/                                                   = fade
+objects/manmade/stashes/                                                = fade
+
+# objects/manmade/task_specific_props/metal_industry/mining/: two open-sided sheds stand among the miners' tools,
+# buckets and barrows. Every model has its own line; a model not listed here gets objects/manmade/task_specific_props/
+# = fade.
+objects/manmade/task_specific_props/metal_industry/mining/bucket_large.cgf            = fade          # bucket, 0.61x0.58x0.59 m
+objects/manmade/task_specific_props/metal_industry/mining/leather_sack.cgf            = fade          # sack, 0.43x0.41x0.61 m
+objects/manmade/task_specific_props/metal_industry/mining/leather_sack_silver.cgf     = fade          # sack, 0.35x0.35x0.32 m
+objects/manmade/task_specific_props/metal_industry/mining/mining_barrow.cga           = fade          # wheelbarrow, 0.80x2.23x0.63 m
+objects/manmade/task_specific_props/metal_industry/mining/mining_barrow.cgf           = fade          # wheelbarrow, 0.80x2.23x0.63 m
+objects/manmade/task_specific_props/metal_industry/mining/mining_hammer.cgf           = fade          # hammer, 0.04x0.23x0.40 m
+objects/manmade/task_specific_props/metal_industry/mining/mining_hoe.cgf              = fade          # hoe, 0.20x0.32x1.08 m
+objects/manmade/task_specific_props/metal_industry/mining/mining_tool.cgf             = fade          # tool, 0.04x0.34x0.39 m
+objects/manmade/task_specific_props/metal_industry/mining/mining_washtub.cgf          = fade          # wash tub, 1.76x0.88x0.51 m
+objects/manmade/task_specific_props/metal_industry/mining/mining_winch.cgf            = fade          # windlass over a shaft, 3.45x3.79x4.43 m
+objects/manmade/task_specific_props/metal_industry/mining/opened_shed_a.cgf           = collide mesh  # open-sided shed, 4.85x4.36x4.23 m
+objects/manmade/task_specific_props/metal_industry/mining/opened_shed_b.cgf           = collide mesh  # open-sided shed, 7.18x6.09x3.65 m
+objects/manmade/task_specific_props/metal_industry/mining/pick.cgf                    = fade          # pick, 0.08x0.48x1.01 m
+objects/manmade/task_specific_props/metal_industry/mining/water_bucket.cgf            = fade          # bucket, 0.48x0.47x0.52 m
+objects/manmade/task_specific_props/metal_industry/mining/water_bucket_handledown.cgf = fade          # bucket, 0.48x0.47x0.39 m
+
+# objects/manmade/task_specific_props/wood_industry/loggingcamp/: the lumberjack's beech, its stumps and branch debris
+# (plants) lie among a tied log pile taller than a person, lower log piles and logs. Every model has its own line; a
+# model not listed here gets objects/manmade/task_specific_props/ = fade.
+objects/manmade/task_specific_props/wood_industry/loggingcamp/logging_dry_debris_a.cgf          = bush                     # dry branch debris, 1.53x2.97x0.89 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/logging_dry_debris_b.cgf          = bush                     # dry branch debris, 1.79x2.60x0.59 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/logging_dry_debris_c.cgf          = bush                     # dry branch debris, 2.22x3.16x0.66 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/logging_dry_debris_d.cgf          = bush                     # dry branch debris, 2.22x2.95x0.73 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/logging_dry_debris_pile_a.cgf     = bush                     # dry branch debris, 3.25x3.27x0.70 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/logging_dry_debris_pile_b.cgf     = bush                     # dry branch debris, 2.81x1.88x0.64 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/logging_dry_debris_pile_big.cgf   = bush                     # dry branch debris, 5.78x5.70x2.05 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/logging_dry_debris_pile_c.cgf     = bush                     # dry branch debris, 2.91x2.80x0.44 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/logging_green_debris_a.cgf        = bush                     # green branch debris, 4.34x4.62x0.84 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/logging_green_debris_b.cgf        = bush                     # green branch debris, 4.04x4.78x0.78 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/logging_green_debris_c.cgf        = bush                     # green branch debris, 4.32x4.96x0.80 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/logging_green_debris_pile_a.cgf   = bush                     # green branch debris, 3.64x3.16x0.62 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/logging_green_debris_pile_b.cgf   = bush                     # green branch debris, 3.94x3.70x0.59 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/logging_green_debris_pile_big.cgf = bush                     # green branch debris, 7.25x6.17x0.90 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/logging_green_debris_pile_c.cgf   = bush                     # green branch debris, 4.20x4.03x0.69 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/logging_tree_fagus.cgf            = tree                     # the lumberjack's standing beech, 15.01x14.63x31.11 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/loggingcamp_log_a.cgf             = fade                     # log, 0.65x9.65x0.65 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/loggingcamp_log_b.cgf             = fade                     # log, 0.59x9.79x0.58 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/loggingcamp_log_b_floating.cga    = fade                     # log, 0.59x9.79x0.58 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/loggingcamp_logsled.cgf           = fade                     # log sled, 4.44x7.83x0.72 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/logpile_a.cgf                     = fade                     # log pile, top 1.58 m, 4.50x11.06x1.72 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/logpile_b.cgf                     = fade                     # low log pile, top 0.85 m, 1.93x9.41x0.94 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/logpile_c.cgf                     = fade                     # log pile, top 1.55 m, 4.83x11.06x1.82 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/logpile_tied_a.cgf                = collide mesh only=brush  # tied log pile, top 1.86 m, 3.39x11.20x2.41 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/stump_fagus_sylvatica_a.cgf       = tree                     # beech stump, 1.20x1.12x1.09 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/stump_fagus_sylvatica_b.cgf       = tree                     # beech stump, 1.28x1.48x1.12 m
+objects/manmade/task_specific_props/wood_industry/loggingcamp/stump_fagus_sylvatica_c.cgf       = tree                     # beech stump, 1.61x1.78x1.31 m
+
+# objects/manmade/task_specific_props/household/firewood/: stacked woodpiles taller than a person (top 1.8 m or more)
+# stand among lower piles, a brushwood heap, logs, chips and baskets (its subfolder branches/ has no line of its own:
+# objects/manmade/task_specific_props/ = fade decides it). Every model has its own line; a model not listed here gets
+# objects/manmade/task_specific_props/ = fade.
+objects/manmade/task_specific_props/household/firewood/basket_a_woodblocks.cgf             = fade                     # basket of wood, 0.61x0.60x0.57 m
+objects/manmade/task_specific_props/household/firewood/basket_a_woodblocks_half_full.cgf   = fade                     # basket of wood, 0.61x0.60x0.55 m
+objects/manmade/task_specific_props/household/firewood/basket_a_woodchips.cgf              = fade                     # basket of wood, 0.61x0.60x0.55 m
+objects/manmade/task_specific_props/household/firewood/basket_a_woodchips_half_full.cgf    = fade                     # basket of wood, 0.61x0.60x0.55 m
+objects/manmade/task_specific_props/household/firewood/basket_a_woodsticks.cgf             = fade                     # basket of wood, 0.61x0.72x0.67 m
+objects/manmade/task_specific_props/household/firewood/basket_a_woodsticks_half_full.cgf   = fade                     # basket of wood, 0.61x0.60x0.67 m
+objects/manmade/task_specific_props/household/firewood/firewood_chips_a.cgf                = fade                     # wood chips, 0.38x1.64x0.61 m
+objects/manmade/task_specific_props/household/firewood/firewood_chips_b.cgf                = fade                     # wood chips, 0.71x1.65x0.62 m
+objects/manmade/task_specific_props/household/firewood/firewood_chips_basket_a.cgf         = fade                     # basket of wood, 0.33x0.70x0.60 m
+objects/manmade/task_specific_props/household/firewood/firewood_chips_basket_b.cgf         = fade                     # basket of wood, 0.34x0.70x0.60 m
+objects/manmade/task_specific_props/household/firewood/firewood_chips_c.cgf                = fade                     # wood chips, 0.68x1.45x0.15 m
+objects/manmade/task_specific_props/household/firewood/firewood_chips_hand.cgf             = fade                     # wood chips, 0.69x0.50x0.41 m
+objects/manmade/task_specific_props/household/firewood/firewood_chips_single.cgf           = fade                     # wood chips, 0.62x0.14x0.09 m
+objects/manmade/task_specific_props/household/firewood/firewood_chopped_a.cgf              = fade                     # stacked woodpile, top 1.39 m, 1.53x5.17x1.44 m
+objects/manmade/task_specific_props/household/firewood/firewood_chopped_b.cgf              = fade                     # stacked woodpile, top 1.01 m, 1.21x5.22x1.04 m
+objects/manmade/task_specific_props/household/firewood/firewood_chopped_c.cgf              = fade                     # stacked woodpile, top 0.49 m, 0.69x2.70x0.50 m
+objects/manmade/task_specific_props/household/firewood/firewood_chopped_covered.cgf        = fade                     # stacked woodpile, top 0.59 m, 1.84x2.67x0.61 m
+objects/manmade/task_specific_props/household/firewood/firewood_chopped_d.cgf              = fade                     # stacked woodpile, top 0.87 m, 0.97x2.35x0.91 m
+objects/manmade/task_specific_props/household/firewood/firewood_chopped_e.cgf              = fade                     # stacked woodpile, top 0.64 m, 0.98x1.42x0.64 m
+objects/manmade/task_specific_props/household/firewood/firewood_chopped_f.cgf              = collide mesh only=brush  # stacked woodpile, top 2.23 m, 0.93x4.74x2.24 m
+objects/manmade/task_specific_props/household/firewood/firewood_chopped_g.cgf              = collide mesh only=brush  # stacked woodpile, top 3.76 m, 1.64x6.71x3.95 m
+objects/manmade/task_specific_props/household/firewood/firewood_hand_1pc.cgf               = fade                     # log, 0.08x0.06x0.26 m
+objects/manmade/task_specific_props/household/firewood/firewood_hand_1pc_full.cgf          = fade                     # log, 0.14x0.13x0.27 m
+objects/manmade/task_specific_props/household/firewood/firewood_hand_2pc.cgf               = fade                     # log, 0.15x0.09x0.28 m
+objects/manmade/task_specific_props/household/firewood/firewood_hand_3pc.cgf               = fade                     # log, 0.15x0.12x0.28 m
+objects/manmade/task_specific_props/household/firewood/firewood_logs_basket_decorative.cgf = fade                     # basket of wood, 0.82x1.00x0.87 m
+objects/manmade/task_specific_props/household/firewood/firewood_logs_long_a.cgf            = fade                     # stacked woodpile, top 1.31 m, 2.33x5.24x1.35 m
+objects/manmade/task_specific_props/household/firewood/firewood_logs_long_b.cgf            = collide mesh only=brush  # stacked woodpile, top 2.42 m, 2.34x6.00x2.44 m
+objects/manmade/task_specific_props/household/firewood/firewood_logs_long_single_a.cgf     = fade                     # log, 2.05x0.19x0.20 m
+objects/manmade/task_specific_props/household/firewood/firewood_logs_long_single_b.cgf     = fade                     # log, 2.05x0.15x0.15 m
+objects/manmade/task_specific_props/household/firewood/firewood_logs_short_a.cgf           = collide mesh only=brush  # stacked woodpile, top 2.15 m, 1.07x7.26x2.20 m
+objects/manmade/task_specific_props/household/firewood/firewood_logs_short_b.cgf           = fade                     # stacked woodpile, top 1.68 m, 0.99x6.93x1.68 m
+objects/manmade/task_specific_props/household/firewood/firewood_logs_short_c.cgf           = fade                     # stacked woodpile, top 1.02 m, 0.97x6.03x1.03 m
+objects/manmade/task_specific_props/household/firewood/firewood_logs_short_d.cgf           = fade                     # stacked woodpile, top 1.24 m, 0.96x5.13x1.27 m
+objects/manmade/task_specific_props/household/firewood/firewood_logs_short_prefab.cgf      = fade                     # stacked woodpile, top 0.74 m, 0.92x4.64x0.77 m
+objects/manmade/task_specific_props/household/firewood/firewood_logs_short_single_a.cgf    = fade                     # log, 0.82x0.23x0.24 m
+objects/manmade/task_specific_props/household/firewood/firewood_logs_short_single_b.cgf    = fade                     # log, 0.85x0.54x0.30 m
+objects/manmade/task_specific_props/household/firewood/firewood_pile_a.cgf                 = fade                     # brushwood heap about 1 m high with two stakes, 1.00x3.70x1.91 m
+objects/manmade/task_specific_props/household/firewood/log_cut.cgf                         = fade                     # log, 0.12x0.13x0.26 m
+objects/manmade/task_specific_props/household/firewood/log_cut_half.cgf                    = fade                     # log, 0.12x0.07x0.26 m
+objects/manmade/task_specific_props/household/firewood/log_quarter.cgf                     = fade                     # log, 0.08x0.06x0.26 m
+
+# objects/manmade/task_specific_props/construction/: two dirt mounds (ground) lie among beams, planks, nails, shingles
+# and hanging straw (its subfolder cranes/ is listed below). Every model has its own line; a model not listed here
+# gets objects/manmade/task_specific_props/ = fade.
+objects/manmade/task_specific_props/construction/bench_shingles.cgf               = fade     # shingle-making bench, 1.80x0.45x0.90 m
+objects/manmade/task_specific_props/construction/construction_beam_a.cgf          = fade     # beam on the ground, 0.24x2.89x0.21 m
+objects/manmade/task_specific_props/construction/construction_beam_b.cgf          = fade     # beam on the ground, 0.22x3.94x0.21 m
+objects/manmade/task_specific_props/construction/construction_beam_rotten_a.cgf   = fade     # rotten beam, 0.37x3.02x0.36 m
+objects/manmade/task_specific_props/construction/construction_beam_rotten_b.cgf   = fade     # rotten beam, 0.44x3.97x0.33 m
+objects/manmade/task_specific_props/construction/construction_beams_ground_a.cgf  = fade     # beams on the ground, 6.18x1.33x0.62 m
+objects/manmade/task_specific_props/construction/construction_planks_ground_a.cgf = fade     # planks on the ground, 2.40x0.65x0.12 m
+objects/manmade/task_specific_props/construction/construction_planks_rotten_a.cgf = fade     # rotten planks, 0.76x2.77x0.13 m
+objects/manmade/task_specific_props/construction/construction_planks_rotten_b.cgf = fade     # rotten planks, 1.73x2.47x0.17 m
+objects/manmade/task_specific_props/construction/construction_planks_rotten_c.cgf = fade     # rotten planks, 1.80x2.48x0.17 m
+objects/manmade/task_specific_props/construction/nail.cgf                         = fade     # nail, 0.09x0.02x0.02 m
+objects/manmade/task_specific_props/construction/nails_bag_a.cgf                  = fade     # bag of nails, 0.24x0.18x0.20 m
+objects/manmade/task_specific_props/construction/nails_bag_b.cgf                  = fade     # bag of nails, 0.25x0.18x0.23 m
+objects/manmade/task_specific_props/construction/plank_rotten_a.cgf               = fade     # rotten plank, 0.27x3.68x0.12 m
+objects/manmade/task_specific_props/construction/plank_rotten_b.cgf               = fade     # rotten plank, 0.35x3.78x0.10 m
+objects/manmade/task_specific_props/construction/plank_rough_a.cgf                = fade     # plank, 0.41x2.12x0.08 m
+objects/manmade/task_specific_props/construction/plank_rough_b.cgf                = fade     # plank, 0.39x2.11x0.11 m
+objects/manmade/task_specific_props/construction/plank_rough_c.cgf                = fade     # plank, 0.37x2.20x0.10 m
+objects/manmade/task_specific_props/construction/plank_rough_d.cgf                = fade     # plank, 0.30x2.10x0.09 m
+objects/manmade/task_specific_props/construction/plank_rough_e.cgf                = fade     # plank, 0.28x2.11x0.07 m
+objects/manmade/task_specific_props/construction/ruller.cgf                       = fade     # ruler, 0.15x0.22x0.01 m
+objects/manmade/task_specific_props/construction/shingles_pile_a.cgf              = fade     # pile of shingles, 0.88x1.18x0.40 m
+objects/manmade/task_specific_props/construction/shingles_pile_b.cgf              = fade     # pile of shingles, 0.88x1.53x0.27 m
+objects/manmade/task_specific_props/construction/soil_pile_a.cgf                  = collide  # dirt mound, 6.14x4.03x1.29 m
+objects/manmade/task_specific_props/construction/soil_pile_b.cgf                  = collide  # dirt mound, 5.13x2.62x0.91 m
+objects/manmade/task_specific_props/construction/straw_hanging_a.cgf              = fade     # hanging straw, no collision, 3.17x0.28x0.55 m
+objects/manmade/task_specific_props/construction/straw_hanging_b.cgf              = fade     # hanging straw, no collision, 0.80x0.27x0.73 m
+objects/manmade/task_specific_props/construction/straw_hanging_c.cgf              = fade     # hanging straw, no collision, 1.06x0.36x1.04 m
+objects/manmade/task_specific_props/construction/straw_hanging_d.cgf              = fade     # hanging straw, no collision, 1.78x0.36x1.15 m
+objects/manmade/task_specific_props/construction/thatch_rotten_hanging_a.cgf      = fade     # hanging rotten thatch, no collision, 0.79x0.26x1.62 m
+objects/manmade/task_specific_props/construction/thatch_rotten_hanging_aa.cgf     = fade     # hanging rotten thatch, no collision, 0.56x0.74x1.30 m
+objects/manmade/task_specific_props/construction/thatch_rotten_mossy_a.cgf        = fade     # mossy thatch on the ground, no collision, 2.35x2.64x0.53 m
+objects/manmade/task_specific_props/construction/triangle_ruller.cgf              = fade     # set square, 0.35x0.71x0.03 m
+
+# objects/manmade/task_specific_props/construction/cranes/: two treadwheel cranes stand with a small A-frame hoist and
+# a pulley. Every model has its own line; a model not listed here gets objects/manmade/task_specific_props/ = fade.
+objects/manmade/task_specific_props/construction/cranes/crane_big_a.cgf    = collide mesh only=brush  # treadwheel crane, 9.98x7.38x22.59 m
+objects/manmade/task_specific_props/construction/cranes/crane_medium_a.cgf = collide mesh only=brush  # treadwheel crane, 7.02x5.39x10.10 m
+objects/manmade/task_specific_props/construction/cranes/crane_small_a.cgf  = fade                     # A-frame hoist, 3.66x2.36x3.29 m
+objects/manmade/task_specific_props/construction/cranes/pulley_a.cgf       = fade                     # pulley on a beam, 0.22x3.28x3.40 m
+
+# objects/manmade/task_specific_props/household/washing/: a walkable washing pier and a washing stone lie among
+# laundry props. Every model has its own line; a model not listed here gets objects/manmade/task_specific_props/ =
+# fade.
+objects/manmade/task_specific_props/household/washing/laundry_bundle.cgf = fade                     # laundry bundle, 0.18x0.12x0.09 m
+objects/manmade/task_specific_props/household/washing/smacker_a.cgf      = fade                     # laundry beater, 0.14x0.40x0.03 m
+objects/manmade/task_specific_props/household/washing/washing_pier.cgf   = collide mesh only=brush  # washing pier, 1.54x2.83x1.41 m
+objects/manmade/task_specific_props/household/washing/washing_stone.cgf  = collide                  # washing stone at the water, 1.15x1.35x0.95 m
+
+objects/manmade/quest_specific_props/albiks_walking_staff/              = fade
+objects/manmade/quest_specific_props/altar_plank_cutscene/              = fade
+objects/manmade/quest_specific_props/astrolabe_parchment/               = fade     # a material only
+objects/manmade/quest_specific_props/dlc2_rubble_pile/                  = fade
+objects/manmade/quest_specific_props/dlc3_reliquary/                    = fade
+objects/manmade/quest_specific_props/dlc3_sarcophagus/                  = fade
+objects/manmade/quest_specific_props/drone/                             = fade
+objects/manmade/quest_specific_props/sign_wall_blacksmith/              = fade
+objects/manmade/quest_specific_props/suchdol_trench_passage/            = collide  mesh
+
+# objects/manmade/quest_specific_props/: the trebuchet site's terrain mesh lies among small quest props (its
+# subfolders have their own folder lines, above). Every model has its own line; a model not listed here gets
+# objects/manmade/ = collide mesh.
+objects/manmade/quest_specific_props/hanging_shorts.cgf     = fade          # hanging laundry, no collision, 0.88x0.28x0.98 m
+objects/manmade/quest_specific_props/helmet_cs.cgf          = fade          # helmet, 0.28x0.30x0.34 m
+objects/manmade/quest_specific_props/padlock_broken.cgf     = fade          # padlock, 0.12x0.06x0.02 m
+objects/manmade/quest_specific_props/trebuchet_terrain.cgf  = collide mesh  # terrain mesh of the trebuchet site, no collision, 118.00x199.00x17.46 m
+objects/manmade/quest_specific_props/water_tub_wide_low.cgf = fade          # water tub, 1.82x1.22x0.70 m
+
+
+# ---- Natural props: animal traces ----------------------------------------------------------------------------------
+# Anthills, molehills, burrows, wallows and manure are ground. Nests, clams and spider webs fade.
+
+# objects/natural/animal/: anthills, molehills, burrows, wallows and manure (ground) lie among nests, clams and spider
+# webs. Every model has its own line; a model not listed here gets @default = collide.
+objects/natural/animal/anthill.cgf                      = collide  # anthill, 2.28x2.30x0.87 m
+objects/natural/animal/anthill_wb.cgf                   = collide  # anthill, 2.42x2.42x0.74 m
+objects/natural/animal/bird_nest.cgf                    = fade     # bird's nest, 0.76x0.72x0.48 m
+objects/natural/animal/feathers_black.cgf               = collide  # feathers on the ground, 0.90x0.85x0.04 m
+objects/natural/animal/mole_hill.cgf                    = collide  # molehill, 0.88x0.85x0.16 m
+objects/natural/animal/pearl_clams_closed.cgf           = fade     # clam, 0.24x0.12x0.10 m
+objects/natural/animal/pearl_clams_opened.cgf           = fade     # clam, 0.24x0.12x0.12 m
+objects/natural/animal/pig_pasture.cgf                  = collide  # pig wallow, 4.01x4.21x1.16 m
+objects/natural/animal/pig_pasture_nograss.cgf          = collide  # pig wallow, 3.89x3.92x0.30 m
+objects/natural/animal/pig_pasture_nograss_smoother.cgf = collide  # pig wallow, 3.89x3.92x0.27 m
+objects/natural/animal/pile_of_manure_a.cgf             = collide  # manure heap, 5.30x4.78x1.40 m
+objects/natural/animal/pile_of_manure_b.cgf             = collide  # manure, 1.01x0.75x0.15 m
+objects/natural/animal/pile_of_manure_c.cgf             = collide  # manure, 0.52x0.60x0.07 m
+objects/natural/animal/pile_of_manure_d.cgf             = collide  # manure, 1.37x0.86x0.16 m
+objects/natural/animal/rabbit_burrow_a.cgf              = collide  # rabbit burrow, 2.08x2.43x0.79 m
+objects/natural/animal/rabbit_burrow_b.cgf              = collide  # rabbit burrow, 2.04x1.96x0.56 m
+objects/natural/animal/spider.cgf                       = fade     # spider, 0.10x0.02x0.10 m
+objects/natural/animal/spider_web_a.cgf                 = fade     # spider web, no collision, 1.36x2.19x0.76 m
+objects/natural/animal/spider_web_b.cgf                 = fade     # spider web, no collision, 1.89x2.23x0.81 m
+objects/natural/animal/spider_web_c.cgf                 = fade     # spider web, no collision, 1.00x0.00x1.00 m
+objects/natural/animal/spider_web_d.cgf                 = fade     # spider web, no collision, 1.00x0.00x1.00 m
+objects/natural/animal/spider_web_e.cgf                 = fade     # spider web, no collision, 1.76x0.19x0.43 m
+objects/natural/animal/stork_nest.cgf                   = fade     # stork's nest, 2.12x2.20x0.98 m
+
+
+# ---- Quest items and animation props -------------------------------------------------------------------------------
+# The Skalice quest houses are structures.
+
+objects/quest_items/                = fade
+objects/quest_items/skalice/        = collide
+objects/animation_props/            = fade
+
+
+# ---- Character models ----------------------------------------------------------------------------------------------
+# Character models collide like any model not listed (@actor above tells people and animals apart). Their materials
+# get the close-up fade's shaders prepared, also under a more specific rule you add for them.
+
+objects/characters/     = collide   twins=character
+characters/             = collide   twins=character

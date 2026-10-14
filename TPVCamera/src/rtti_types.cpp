@@ -62,6 +62,9 @@ namespace TPVCamera
             Constants::C_ENTITY_ATTACHMENT_RTTI_NAME,
             Constants::C_ENTITY_SYSTEM_RTTI_NAME,
             Constants::CSHADER_RESOURCES_RTTI_NAME,
+            Constants::CSHADER_RTTI_NAME,
+            Constants::C_STANDARD_PIPELINE_RTTI_NAME,
+            Constants::C_ACTOR_SYSTEM_RTTI_NAME,
         }};
 
         // A TypeIdentity is pinned, so a std::vector cannot hold one: a reallocation has to move its
@@ -73,8 +76,8 @@ namespace TPVCamera
         std::mutex s_init_mutex;
         DMK::Region s_image{};
 
-        // Published with release once both deques are complete, and read with acquire, so a render thread
-        // either sees no table and takes the direct RTTI walk, or sees a complete one.
+        // Published with release once both deques are complete, and read with acquire, so a query thread (the
+        // main thread or a render thread) either sees no table and takes the direct RTTI walk, or sees a complete one.
         std::atomic<bool> s_ready{false};
 
         /**

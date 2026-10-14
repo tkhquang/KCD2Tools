@@ -103,7 +103,7 @@ namespace TPVCamera::Presets
 
     /**
      * @brief Stores every preset-owned field of @p preset into the live atomics (relaxed).
-     * @details Called on the render thread by the runtime resolver each active frame. Only
+     * @details Called on the main thread by the runtime resolver each active frame. Only
      *          the preset-owned atomics are written; state-policy globals are left alone.
      */
     void apply_to_live(const CameraPreset &preset, LiveSettings &settings) noexcept;

@@ -122,7 +122,11 @@ endif()
 
 # --- Source Files ---
 set(COMMON_SOURCES
+  src/dev/hook_profile.cpp
+  src/dev/see_through_trace.cpp
   src/aob_resolver.cpp
+  src/camera_rules.cpp
+  src/camera_rules_files.cpp
   src/character_attachments.cpp
   src/config.cpp
   src/game_interface.cpp
@@ -141,8 +145,11 @@ set(COMMON_SOURCES
   src/hooks/ui_menu_hooks.cpp
   src/hooks/ui_overlay_hooks.cpp
   src/hooks/interaction_hook.cpp
+  src/hooks/occluder_fade.cpp
   src/hooks/player_onaction_hook.cpp
   src/hooks/shader_twins.cpp
+  src/hooks/twin_inventory.cpp
+  src/hooks/twin_clone.cpp
   src/overlay/overlay.cpp
   src/overlay/dx_overlay.cpp
   src/overlay/overlay_ui.cpp
@@ -152,6 +159,19 @@ set(COMMON_SOURCES
   src/presets/preset_store.cpp
 )
 
+# --- Camera rules: the built-in copy ---
+# build/template/KCD2_TPVCamera_rules.txt is the copy built into the mod, in force unless a KCD2_TPVCamera_rules.txt is
+# beside the ASI. The release zip leaves it out ([Advanced] ExportRules writes these bytes beside the ASI instead), so
+# the file here is the only source: configure embeds its bytes as a C array, one trailing zero, 16 bytes per line.
+# Editing the file re-runs configure on the next build, and file(CONFIGURE) rewrites the array only when it changed.
+set(_rules_source "${CMAKE_CURRENT_SOURCE_DIR}/build/template/KCD2_TPVCamera_rules.txt")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_rules_source}")
+file(READ "${_rules_source}" _rules_hex HEX)
+string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _rules_bytes "${_rules_hex}")
+string(REPEAT "0x[0-9a-f][0-9a-f]," 16 _rules_row)
+string(REGEX REPLACE "(${_rules_row})" "\\1\n" _rules_bytes "${_rules_bytes}")
+file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/default_rules.inc" CONTENT "${_rules_bytes}0x00\n")
+
 # Applies the settings shared by the production ASI and the dev logic DLL: include
 # paths, link libraries, and the Release speed/opt flags. /O2 favors speed: the
 # overlay renders through a software WARP device with a per-pixel premultiply loop
@@ -160,7 +180,7 @@ set(COMMON_SOURCES
 # /OPT:ICF still let the linker drop and fold unused functions and data.
 function(configure_logic_target target)
   target_compile_options(${target} PRIVATE /W4)
-  target_include_directories(${target} PRIVATE src)
+  target_include_directories(${target} PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}/generated")
   # imgui_lib brings the ImGui + Win32/DX11 backend include paths transitively.
   # d3d11/dxgi back the private WARP device; gdi32 backs the layered-window
   # composite; winmm backs timeBeginPeriod (also pinned via #pragma comment).

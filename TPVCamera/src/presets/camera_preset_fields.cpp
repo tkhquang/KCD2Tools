@@ -133,9 +133,9 @@ namespace TPVCamera::Presets
                        "or terrain.",
                        "Collision", &CameraPreset::enable_collision),
             float_field("collision_skin", "Collision Skin",
-                        "Gap kept between the camera and a surface it pulls in against, in meters, whether the rays "
-                        "or the sphere found it. Larger keeps the camera further off walls. At 0.05 or less a pull-in "
-                        "snaps instead of easing.",
+                        "Gap kept between the camera and a surface it pulls in against, in meters, whichever probe "
+                        "found it. Larger keeps the camera further off walls. At 0.05 or less a pull-in snaps "
+                        "instead of easing.",
                         "Collision", &CameraPreset::collision_skin, 0.0f, 1.0f, 0.01f),
             float_field("collision_return_speed", "Collision Return Speed",
                         "How fast the camera eases back out once the obstruction clears. Lower is smoother, higher "
