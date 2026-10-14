@@ -1368,7 +1368,7 @@ namespace TPVCamera
                                                "48 85 C9 [2-6] 83 C8 FF F0 0F C1 41 1C")),
         };
 #if defined(TPVCAMERA_DEV_BUILD)
-        // The DEV-only HW shader factory anchors (hooks/twin_clone.cpp).
+        // The DEV-only HW shader factory anchors (dev/twin_clone/twin_clone.cpp).
         // CHWShader::mfForName entry (sub_1807E8740; GOG 0x18080D8D0, Game Pass 0x180860E3C), a direct entry hook. It
         // owns one returned reference, which the parser transfers to the new pass. P1 is the prologue through the
         // frame allocation. P2 is the stack-argument loads and register moves after the stack cookie, then the name
@@ -1397,7 +1397,7 @@ namespace TPVCamera
                                                "?? 48 8B F8 48 85 C0 0F 85 ?? ?? ?? ?? B9 38 01 00 00")),
         };
 
-        // The DEV twin clone's layout proofs (hooks/twin_clone.cpp), never read through or hooked: its dry-run reads
+        // The DEV twin clone's layout proofs (dev/twin_clone/twin_clone.cpp), never read through or hooked: its dry-run reads
         // the SShaderTechnique, CShader, CBaseResource and CHWShader_D3D fields Constants describes only while all of
         // them match, and every offset it reads lies on a store one of them pins. Each rung matched once in the
         // executable sections of Steam 1.5.6, GOG 1.5 and Game Pass 1.4, with the same bytes on all three, and both

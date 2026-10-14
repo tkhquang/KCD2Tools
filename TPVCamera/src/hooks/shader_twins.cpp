@@ -66,7 +66,7 @@
 #include "shader_twins.hpp"
 #include "twin_inventory.hpp"
 #if defined(TPVCAMERA_DEV_BUILD)
-#include "twin_clone.hpp"
+#include "dev/twin_clone/twin_clone.hpp"
 #endif
 #include "aob_resolver.hpp"
 #include "camera_rules_files.hpp"

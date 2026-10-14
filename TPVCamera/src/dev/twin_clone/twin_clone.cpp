@@ -1,5 +1,5 @@
 /**
- * @file hooks/twin_clone.cpp
+ * @file dev/twin_clone/twin_clone.cpp
  * @brief Implementation of the DEV twin clone's dry-run (see twin_clone.hpp). A release build compiles none of it.
  *
  * @details Every engine read copies plain bytes into the mod's own memory under SEH, so a layout drift or an object the

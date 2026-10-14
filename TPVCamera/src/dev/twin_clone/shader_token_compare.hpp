@@ -1,4 +1,4 @@
-/** @file hooks/shader_token_compare.hpp
+/** @file dev/twin_clone/shader_token_compare.hpp
  *  @brief Bounded comparison of native CHWShader token maps, without allocation or hashing proofs.
  */
 #ifndef TPVCAMERA_HOOKS_SHADER_TOKEN_COMPARE_HPP

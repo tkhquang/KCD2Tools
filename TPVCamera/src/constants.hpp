@@ -951,7 +951,7 @@ namespace Constants
     constexpr ptrdiff_t SHADER_MAN_SHADERS_PATH_OFFSET = 0x1F8;
     constexpr std::string_view SHADER_MAN_SHADERS_PATH = "Shaders/HWScripts/";
 
-    // The DEV twin clone (hooks/twin_clone.cpp, a read-only dry-run): what it reads of a stock CShader, its techniques
+    // The DEV twin clone (dev/twin_clone/twin_clone.cpp, a read-only dry-run): what it reads of a stock CShader, its techniques
     // and their CHWShader_D3D objects to plan a plant or frame twin without parsing it, and of the twin the engine
     // parsed to compare the plan with. Addresses are Steam 1.5.6's, and a value given "at runtime" is what
     // stock/twin instance pairs (Vegetation, Illum and Frame) hold in the running game. Release builds read none of it.
@@ -1030,7 +1030,7 @@ namespace Constants
     // WASGENERATED, is set at runtime by 0x1816896FC on a cache miss, so it is never compared), the binary CRC at
     // +0xC4, the type at +0xC8, the token map at +0xD0 (a std::string: its data, or the inline buffer while the
     // capacity is at most 15, the size at +0xE0 and the capacity at +0xE8; mfStoreCacheTokenMap's layout, see
-    // hooks/shader_token_compare.hpp) and the cache object at +0xF0. The factory writes the token map only under its
+    // dev/twin_clone/shader_token_compare.hpp) and the cache object at +0xF0. The factory writes the token map only under its
     // SRWLOCK, taken exclusively (HardwareShaderLockSite).
     constexpr std::size_t HW_SHADER_SIZE = 0x138;
     constexpr ptrdiff_t HW_SHADER_KEY_OFFSET = 0x68;
