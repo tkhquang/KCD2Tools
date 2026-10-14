@@ -152,6 +152,7 @@ set(COMMON_SOURCES
   src/hooks/ui_menu_hooks.cpp
   src/hooks/ui_overlay_hooks.cpp
   src/hooks/interaction_hook.cpp
+  src/hooks/native_turn_hooks.cpp
   src/hooks/occluder_fade.cpp
   src/hooks/player_onaction_hook.cpp
   src/hooks/shader_twins.cpp

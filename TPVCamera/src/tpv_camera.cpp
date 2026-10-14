@@ -20,6 +20,7 @@
 #include "version.hpp"
 #include "hooks/ranged_hook.hpp"
 #include "hooks/camera_hook.hpp"
+#include "hooks/native_turn_hooks.hpp"
 #include "hooks/ui_overlay_hooks.hpp"
 #include "hooks/ui_menu_hooks.hpp"
 #include "hooks/interaction_hook.hpp"
