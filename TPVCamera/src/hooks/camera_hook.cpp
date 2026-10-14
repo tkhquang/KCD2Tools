@@ -45,6 +45,7 @@
 #include "hooks/ranged_hook.hpp"
 #include "hooks/vtable_slots.hpp"
 #include "hooks/character_fade.hpp"
+#include "hooks/head_visibility.hpp"
 #include "hooks/occluder_fade.hpp"
 #include "hooks/shader_twins.hpp"
 #include "hooks/ui_menu_hooks.hpp"
@@ -212,10 +213,6 @@ namespace TPVCamera
         return nearest;
     }
 
-    // Head-visibility setter: SetHeadHidden(this /*rcx*/, bool hide_head /*dl*/, char flags /*r8b*/).
-    // hide_head == false keeps the head rendered.
-    using SetHeadVisibilityFunc = void(__fastcall *)(uintptr_t entity, bool hide_head, char flags);
-
     // Generic input-event dispatcher: void __fastcall(controller /*rcx*/, event /*rdx*/,
     // char /*r8b*/). Every input event funnels through here; hooking it lets free-look
     // capture mouse-look deltas and freeze the player by not dispatching while orbiting.
@@ -238,7 +235,6 @@ namespace TPVCamera
     // Trampoline slots. Each install stores its slot with release order before the hook arms. Each detour reads its
     // slot with acquire order, so a detour never chains through a slot it cannot see.
     static std::atomic<FrustumBuildFunc> s_frustum_build_original{nullptr};
-    static std::atomic<SetHeadVisibilityFunc> s_set_head_visibility_original{nullptr};
     static std::atomic<InputDispatchFunc> s_input_dispatch_original{nullptr};
     static std::atomic<IsThirdPersonFunc> s_is_third_person_original{nullptr};
     static std::atomic<UpdatePhysEntMovementFunc> s_phys_ent_movement_original{nullptr};
@@ -373,19 +369,6 @@ namespace TPVCamera
     // using the RTTI type name (not a hardcoded address) keeps the gate working across game patches.
     static uintptr_t s_cview_vtable_runtime = 0;
 
-    // Latched from the head-visibility setter (or adopted from the player's stored setter
-    // arguments, see adopt_head_state) so the per-frame re-assert can drive the head without
-    // waiting for the game to call the setter again (toggling the offset does not make the
-    // game call it, so without the re-assert the head would stay hidden after an FPV/TPV
-    // switch). The setter only ever runs for the player (it toggles the FirstPersonView
-    // rig), so the entity is the player. s_head_was_active tracks the offset's active state
-    // across frames so the head is restored to the game's intended value exactly once when
-    // the offset turns off.
-    static std::atomic<uintptr_t> s_head_entity{0};
-    static std::atomic<uint8_t> s_head_flags{0};
-    static std::atomic<bool> s_game_intended_hide_head{false};
-    static std::atomic<bool> s_head_was_active{false};
-
     // The offset's effective active state (effective_tpv && should_apply_view), published by the
     // frustum detour each frame. The head-visibility detour and the free-look input gate read it so
     // they mirror the live offset state without recomputing the whole forced-view policy themselves.
@@ -395,16 +378,6 @@ namespace TPVCamera
     {
         return s_offset_active.load(std::memory_order_relaxed);
     }
-
-    // First-person fallback, published by the offset each frame: true while the camera has no room behind the player
-    // (the arm is shorter than HeadClearance) and sits at the eye, so the head must be hidden like in first person or
-    // the view would be inside it. Read by the head re-assert and the head-visibility detour.
-    static std::atomic<bool> s_head_fallback{false};
-    // Set while the close-up fade has the character mostly dithered out and the eye fade is not ready, since the stock
-    // Eye shader ignores the dissolve, or with it ready once his face is gone, since the eyelashes and the eye film
-    // ignore it too: the head is hidden like in first person. Read with s_head_fallback by the head re-assert and the
-    // head-visibility detour; unlike it, it leaves the camera where it is.
-    static std::atomic<bool> s_head_close_fade{false};
 
     // Published by the frustum detour each game-view frame: true while the game is showing the OS cursor
     // (a UI is up). The free-look input gate reads it to FREEZE the orbit - hold its angles and ignore
@@ -2897,8 +2870,8 @@ namespace TPVCamera
         // collision put it and the character dithers out instead, as far as CloseUpFadeMinOpacity lets him from
         // HeadClearance of arm and starting k_close_fade_band before it, so the view never jumps; when his eyes and
         // hair cannot fade with him, his head is hidden like in first person once he is mostly faded
-        // (s_head_close_fade). Otherwise (or without the character fade hook), below HeadClearance the camera eases
-        // onto the real eye and the head is hidden by the game's own first-person rig (s_head_fallback, read by the
+        // (set_head_close_fade()). Otherwise (or without the character fade hook), below HeadClearance the camera eases
+        // onto the real eye and the head is hidden by the game's own first-person rig (set_head_fallback(), read by the
         // head re-assert and the head-visibility detour), so the view is plain first person until there is room again.
         // The arm is measured after collision, so a close zoom counts too. The margin keeps a doorway from switching
         // the first-person view on and off as the arm hovers around the threshold.
@@ -2934,15 +2907,14 @@ namespace TPVCamera
                 }
                 if (all_fade)
                 {
-                    s_head_close_fade.store(false, std::memory_order_relaxed);
+                    set_head_close_fade(false);
                 }
                 else
                 {
                     const float hide_on = eyes_fade ? k_close_fade_faded_head_hide_on : k_close_fade_head_hide_on;
                     const float hide_off = eyes_fade ? k_close_fade_faded_head_hide_off : k_close_fade_head_hide_off;
-                    const bool head_was_hidden = s_head_close_fade.load(std::memory_order_relaxed);
-                    s_head_close_fade.store(close_amount >= hide_on || (head_was_hidden && close_amount >= hide_off),
-                                            std::memory_order_relaxed);
+                    const bool head_was_hidden = head_close_fade();
+                    set_head_close_fade(close_amount >= hide_on || (head_was_hidden && close_amount >= hide_off));
                 }
             }
             if (clearance <= 0.0f || close_fade)
@@ -2970,7 +2942,7 @@ namespace TPVCamera
             }
             // The head hides as soon as the fallback starts (the camera is already close to it) and shows again only
             // once the camera is back out past halfway.
-            s_head_fallback.store(cam.head_fallback || cam.head_fallback_blend > 0.5f, std::memory_order_relaxed);
+            set_head_fallback(cam.head_fallback || cam.head_fallback_blend > 0.5f);
             if (cam.head_fallback_blend > 0.0f)
             {
                 camera_position = camera_position + (fpv_position - camera_position) * cam.head_fallback_blend;
@@ -3093,92 +3065,6 @@ namespace TPVCamera
                 .forward = {screen_forward.x, screen_forward.y, screen_forward.z},
             });
         }
-    }
-
-    /**
-     * @brief Calls the head-visibility setter on the player entity.
-     * @details Invokes the original (the trampoline, so this does not re-enter our detour).
-     *          Faults are caught by the frustum detour's SEH wrapper this runs under. Runs on
-     *          the view-update thread, the same thread the engine drives the setter on.
-     * @param entity Player entity (C_Player).
-     * @param hide_head Desired hide state (false = head shown).
-     * @param flags The setter's third argument.
-     */
-    static void call_head_visibility(uintptr_t entity, bool hide_head, uint8_t flags)
-    {
-        if (const SetHeadVisibilityFunc original = s_set_head_visibility_original.load(std::memory_order_acquire))
-        {
-            original(entity, hide_head, static_cast<char>(flags));
-        }
-    }
-
-    /**
-     * @brief Latches @p player as if the game had just called the head-visibility setter on it.
-     * @details The setter stores its hide value at OFFSET_ENTITY_HIDE_HEAD_FLAG and its third
-     *          argument at OFFSET_ENTITY_HIDE_HEAD_ARG, and the game re-applies the head from
-     *          exactly those two fields. A player the detour has not seen a call on (a new level,
-     *          or a freshly loaded generation) is adopted from them before the re-assert first
-     *          changes the head. Turning the offset off then restores what the game applied, not
-     *          the default of a never-latched state, which would show the head in first person.
-     * @param player The live C_Player.
-     * @return False when either field cannot be read; nothing is latched then.
-     */
-    static bool adopt_head_state(uintptr_t player)
-    {
-        const auto hide_head =
-            DMK::memory::read<uint8_t>(DMK::Address{player + Constants::OFFSET_ENTITY_HIDE_HEAD_FLAG});
-        const auto flags = DMK::memory::read<uint8_t>(DMK::Address{player + Constants::OFFSET_ENTITY_HIDE_HEAD_ARG});
-        if (!hide_head || !flags)
-        {
-            return false;
-        }
-        s_head_entity.store(player, std::memory_order_relaxed);
-        s_head_flags.store(*flags, std::memory_order_relaxed);
-        s_game_intended_hide_head.store(*hide_head != 0, std::memory_order_relaxed);
-        return true;
-    }
-
-    /**
-     * @brief Keeps the player head in sync with the offset state once per frame.
-     * @details While the offset is active the head must stay shown (hidden only during the first-person fallback,
-     *          when the camera sits at the eye, and once the close-up fade has the character mostly dithered out while
-     *          the eye fade is not ready, or his face gone while it is, since the stock eyes, eyelashes and eye film
-     *          ignore the dither), but the engine only sets head visibility on its own transitions, so re-call the
-     *          setter whenever the live hide flag disagrees. When the offset has just turned off, restore the game's
-     *          intended hide value exactly once so the first-person rig hides the head again. The hide flag is re-read
-     *          rather than cached so this self-heals regardless of who last changed it, and a call is issued only on a
-     *          mismatch so the engine is not driven every frame. The player is the live C_Player resolved this frame
-     *          when there is one, else the one the setter was last called on. A live player that differs from the
-     *          latched one is adopted first (adopt_head_state), because a freshly loaded generation or a new level has
-     *          no call latched until the game next switches the view itself.
-     * @param active Whether the offset is being applied to the game view this frame.
-     * @param c_player The live C_Player (vtable-validated), or 0.
-     */
-    static void reassert_head_visibility(bool active, uintptr_t c_player)
-    {
-        const uintptr_t latched = s_head_entity.load(std::memory_order_relaxed);
-        const uintptr_t entity = c_player != 0 ? c_player : latched;
-        if (entity != 0 && DMK::memory::is_plausible_ptr(DMK::Address{entity}) &&
-            (entity == latched || adopt_head_state(entity)))
-        {
-            const uint8_t flags = s_head_flags.load(std::memory_order_relaxed);
-            if (active)
-            {
-                const bool want_hidden = s_head_fallback.load(std::memory_order_relaxed) ||
-                                         s_head_close_fade.load(std::memory_order_relaxed);
-                const auto hide_flag =
-                    DMK::memory::read<uint8_t>(DMK::Address{entity + Constants::OFFSET_ENTITY_HIDE_HEAD_FLAG});
-                if (hide_flag && (*hide_flag != 0) != want_hidden)
-                {
-                    call_head_visibility(entity, want_hidden, flags);
-                }
-            }
-            else if (s_head_was_active.load(std::memory_order_relaxed))
-            {
-                call_head_visibility(entity, s_game_intended_hide_head.load(std::memory_order_relaxed), flags);
-            }
-        }
-        s_head_was_active.store(active, std::memory_order_relaxed);
     }
 
     /**
@@ -3748,14 +3634,13 @@ namespace TPVCamera
         // configured the policy must run every game-view frame to catch the state-change EDGES that
         // trigger a one-time forced switch, so only skip when the player is in manual first person with
         // no forced states configured and the head has already been restored (the head-restore branch
-        // keeps running for one frame after a toggle-off, while s_head_was_active is still set).
+        // keeps running for one frame after a toggle-off, while head_was_active() still holds).
         // The native turn animation must also be off (it lets the body follow the look again on the frame the view
         // disengages).
         // A pending arrow keeps the full path too, so a first-person shot is still followed and drawn, and so does a
         // distraction stone in hand while the aim preview is on, so its landing is still shown.
-        if (!cam.applying.load(std::memory_order_relaxed) && (forced_fpv | forced_tpv) == 0 &&
-            !s_head_was_active.load(std::memory_order_relaxed) && cam.view_blend <= 1e-3f &&
-            s_native_turn_actor.load(std::memory_order_relaxed) == 0 &&
+        if (!cam.applying.load(std::memory_order_relaxed) && (forced_fpv | forced_tpv) == 0 && !head_was_active() &&
+            cam.view_blend <= 1e-3f && s_native_turn_actor.load(std::memory_order_relaxed) == 0 &&
             !ranged_wants_frame(cfg.ranged_show_aim_preview.load(std::memory_order_relaxed) ? resolve_c_player() : 0))
         {
             // Even while idle (first person, no forced state), probe for the player until the world is
@@ -3886,8 +3771,7 @@ namespace TPVCamera
         // The body's native turn-in-place animation follows the offset too (it follows the look again once the view is
         // back at the eye), and is off while the view rides the first-person eye (the head fallback, or an Eye Height 0
         // preset anchored to it). No turn starts under free-look.
-        const bool eye_anchored =
-            s_head_fallback.load(std::memory_order_relaxed) || cfg.eye_height.load(std::memory_order_relaxed) <= 0.0f;
+        const bool eye_anchored = head_fallback() || cfg.eye_height.load(std::memory_order_relaxed) <= 0.0f;
         update_native_turn(c_player, offset_engaged, state, eye_anchored,
                            !cam.orbit_active.load(std::memory_order_relaxed), delta_time);
 
@@ -3918,8 +3802,8 @@ namespace TPVCamera
             cam.collision_hold_timer = 0.0f;
             cam.head_fallback = false;
             cam.head_fallback_blend = 0.0f;
-            s_head_fallback.store(false, std::memory_order_relaxed);
-            s_head_close_fade.store(false, std::memory_order_relaxed);
+            set_head_fallback(false);
+            set_head_close_fade(false);
             // Faded objects go solid at once (they are behind the first-person eye), and the next third-person frame
             // starts from an empty fade set instead of node addresses from before the gap.
             reset_occluder_fade();
@@ -4037,58 +3921,6 @@ namespace TPVCamera
         const uintptr_t result = original ? original(camera) : 0;
         profile.finish();
         return result;
-    }
-
-    /**
-     * @brief Runs the head-visibility latch and the original setter under SEH.
-     * @details Apart from the detour, because the detour's DetourScope needs C++ object unwinding, which a __try
-     *          frame cannot hold.
-     */
-    static void set_head_visibility_guarded(SetHeadVisibilityFunc original, uintptr_t entity, bool hide_head,
-                                            char flags) noexcept
-    {
-        __try
-        {
-            // Latch the player entity, the flags, and the game's intended hide value so
-            // the per-frame re-assert can keep the head shown while the offset is active
-            // and restore the game's value when it turns off. This is the player because
-            // the setter only toggles the FirstPersonView rig.
-            s_head_entity.store(entity, std::memory_order_relaxed);
-            s_head_flags.store(static_cast<uint8_t>(flags), std::memory_order_relaxed);
-            s_game_intended_hide_head.store(hide_head, std::memory_order_relaxed);
-
-            // Mirror the head to the offset's effective active state (published by the frustum
-            // detour) rather than the raw toggle, so a forced-FPV/TPV state shows or hides the head
-            // to match the view the player actually sees. The first-person fallback (camera at the
-            // eye, no room behind) hides it like first person does, and so does a close-up fade far
-            // enough along that the eyes would float in the dithered face (when the eye fade is not
-            // ready), or the eyelashes and eye film once the face is gone (when it is).
-            const bool active = s_offset_active.load(std::memory_order_relaxed);
-            const bool final_hide_head = active ? (s_head_fallback.load(std::memory_order_relaxed) ||
-                                                   s_head_close_fade.load(std::memory_order_relaxed))
-                                                : hide_head;
-            original(entity, final_hide_head, flags);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            // Swallow: a layout change in the head setter must never crash the game.
-        }
-    }
-
-    /**
-     * @brief Head-visibility detour: keep the player head while the offset is rendering.
-     * @details The first-person rig hides the head so it does not clip the eye camera.
-     *          While the third-person view is active, force hide_head to false
-     *          so the player is not headless from behind. Otherwise pass the game's
-     *          intended value through unchanged.
-     */
-    static void __fastcall detour_set_head_visibility(uintptr_t entity, bool hide_head, char flags) noexcept
-    {
-        const DetourScope in_flight;
-        if (const SetHeadVisibilityFunc original = s_set_head_visibility_original.load(std::memory_order_acquire))
-        {
-            set_head_visibility_guarded(original, entity, hide_head, flags);
-        }
     }
 
     /**
@@ -4960,36 +4792,7 @@ namespace TPVCamera
             return std::unexpected(armed.error());
         }
 
-        // The head-visibility hook is best-effort: if it fails the camera still works,
-        // the player just appears headless from behind, so a miss is a warning.
-        const uintptr_t head_addr = gated_anchor_address(Feature::HeadVisibility, AnchorId::HeadVisibility);
-        if (head_addr == 0)
-        {
-            logger.warning("Camera: Head visibility cascade unresolved; player may appear headless from behind");
-        }
-        else
-        {
-            auto head_result = DMK::hook::inline_at(
-                DMK::hook::InlineRequest{.name = "SetHeadVisibility", .target = DMK::Address{head_addr}},
-                detour_set_head_visibility);
-
-            if (!head_result.has_value())
-            {
-                logger.warning("Camera: Head visibility hook failed ({}); player may appear headless from behind",
-                               head_result.error().message());
-            }
-            else
-            {
-                s_set_head_visibility_original.store(head_result->original<SetHeadVisibilityFunc>(),
-                                                     std::memory_order_release);
-                if (auto armed = hooks.push(std::move(*head_result)).enable(); !armed.has_value())
-                {
-                    logger.warning("Camera: Head visibility hook could not be armed ({}); player may appear "
-                                   "headless from behind",
-                                   armed.error().message());
-                }
-            }
-        }
+        install_head_visibility_hook(hooks);
 
         // The input-dispatcher hook powers free-look orbit. Best-effort: a miss only
         // disables orbit, the offset camera still works. The detour is inert until the
