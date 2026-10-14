@@ -216,6 +216,12 @@ namespace TPVCamera
      */
     [[nodiscard]] uint32_t debounce_game_state(uint32_t raw_mask, float delta_seconds, float hold_seconds) noexcept;
 
+    /**
+     * @brief Seconds the bit that debounce_game_state() flipped last had differed from the stable mask when it flipped.
+     * @details 0 while the debounce is disabled. Main thread only, like debounce_game_state().
+     */
+    [[nodiscard]] float last_debounce_wait_seconds() noexcept;
+
 } // namespace TPVCamera
 
 #endif // TPVCAMERA_GAME_STATE_HPP

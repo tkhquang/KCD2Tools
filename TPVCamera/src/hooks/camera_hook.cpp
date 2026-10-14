@@ -45,6 +45,7 @@
 #include "hooks/ui_menu_hooks.hpp"
 #include "hooks/player_onaction_hook.hpp"
 #include "presets/preset_runtime.hpp"
+#include "presets/switch_log.hpp"
 
 #include <DetourModKit.hpp>
 
@@ -86,6 +87,14 @@ namespace TPVCamera
     // k_lens_near_max) is held this far short of the ground or a building.
     constexpr float k_lens_near_margin = 0.05f;
 
+    /** @brief Which way one collision ease step moved the camera along its arm. */
+    enum class EaseMotion : std::uint8_t
+    {
+        Settled,
+        PullIn,
+        Release,
+    };
+
     /**
      * @brief Eases the camera collision distance toward @p target: a fast pull-in, so a wall is never clipped, and a
      *        critically damped return-out.
@@ -103,9 +112,11 @@ namespace TPVCamera
      * @param target Allowed distance this frame.
      * @param desired Uncollided distance this frame.
      * @param pull_slack Most the pull-in can trail @p target by (meters).
+     * @return Whether the step pulled the camera in, released it outward, or left it where the shortfall had it.
      */
-    static void ease_collision_toward(CameraState &cam, float target, float desired, float delta_time,
-                                      float return_speed, float pull_slack) noexcept
+    [[nodiscard]] static EaseMotion ease_collision_toward(CameraState &cam, float target, float desired,
+                                                          float delta_time, float return_speed,
+                                                          float pull_slack) noexcept
     {
         if (!cam.collision_valid)
         {
@@ -113,7 +124,7 @@ namespace TPVCamera
             cam.collision_desired = desired;
             cam.collision_speed = 0.0f;
             cam.collision_valid = true;
-            return;
+            return EaseMotion::Settled;
         }
         constexpr float k_pull_in_speed = 25.0f; // near-instant but still smooth
         const bool clear = target >= desired - k_collision_clear_slack;
@@ -154,6 +165,38 @@ namespace TPVCamera
         cam.collision_distance = next;
         cam.collision_speed = speed_next;
         cam.collision_desired = desired;
+        // Measured against where the ease started from, so a zoom that moves the desired distance with no shortfall
+        // counts as neither a pull-in nor a release.
+        constexpr float k_motion_epsilon = 1e-4f;
+        return next < from - k_motion_epsilon   ? EaseMotion::PullIn
+               : next > from + k_motion_epsilon ? EaseMotion::Release
+                                                : EaseMotion::Settled;
+    }
+
+    // When the collision last pulled the camera in, and when its latest release (an ease back out) began, as
+    // GetTickCount64 values (0 = not since the module loaded), for the walk trace. Main thread only.
+    static std::uint64_t s_pull_in_ms = 0;
+    static std::uint64_t s_release_ms = 0;
+
+    /** @brief Notes @p motion, the result of one collision ease step, for the pull-in and release ages. */
+    static void note_collision_motion(EaseMotion motion) noexcept
+    {
+        const std::uint64_t now = GetTickCount64();
+        if (motion == EaseMotion::PullIn)
+        {
+            s_pull_in_ms = now;
+            s_release_ms = 0;
+        }
+        else if (motion == EaseMotion::Release && s_release_ms == 0)
+        {
+            s_release_ms = now;
+        }
+    }
+
+    /** @brief Seconds since @p stamp_ms (a GetTickCount64 value), or -1 when it is 0 (never). */
+    [[nodiscard]] static float age_seconds(std::uint64_t stamp_ms) noexcept
+    {
+        return stamp_ms == 0 ? -1.0f : static_cast<float>(GetTickCount64() - stamp_ms) / 1000.0f;
     }
 
     // The close-up fade: the band (meters of arm above HeadClearance) over which the character fades out. What it
@@ -313,8 +356,11 @@ namespace TPVCamera
                                     s.node != nullptr ? name : "unmatched",
                                     s.node != nullptr ? occluder_class_name(s.cls) : "-", s.distance);
             }
-            (void)DMK::log().try_log(DMK::LogLevel::Trace, "Camera walk of {:.2f} m: {}", desired_distance,
-                                     n == 0 ? std::string{"open"} : text);
+            (void)DMK::log().try_log(DMK::LogLevel::Trace,
+                                     "Camera walk of {:.2f} m: {} (pulled in {:.2f} s ago, released {:.2f} s ago; "
+                                     "-1 = never)",
+                                     desired_distance, n == 0 ? std::string{"open"} : text, age_seconds(s_pull_in_ms),
+                                     age_seconds(s_release_ms));
         }
         catch (...)
         {
@@ -2923,8 +2969,9 @@ namespace TPVCamera
                     // walk / sphere / sightline computation below. A result that held nothing in stays the live
                     // desired distance, so a zoom between recomputes is not held to the stale one.
                     const float return_speed = cfg.collision_return_speed.load(std::memory_order_relaxed);
-                    ease_collision_toward(cam, s_cached_held_in ? s_cached_allowed : desired_distance, desired_distance,
-                                          delta_time, return_speed, pull_slack);
+                    note_collision_motion(
+                        ease_collision_toward(cam, s_cached_held_in ? s_cached_allowed : desired_distance,
+                                              desired_distance, delta_time, return_speed, pull_slack));
                     camera_position = pivot + ray_dir * cam.collision_distance;
                     // The hold drains here too; when it runs out the next frame recomputes, so the release starts.
                     if (cam.collision_hold_timer > 0.0f)
@@ -3346,7 +3393,8 @@ namespace TPVCamera
                 // Ease toward the allowed distance (fast pull-IN so a wall is never clipped, a critically damped
                 // return-OUT), via the shared helper the throttle bypass also uses.
                 const float return_speed = cfg.collision_return_speed.load(std::memory_order_relaxed);
-                ease_collision_toward(cam, allowed_distance, desired_distance, delta_time, return_speed, pull_slack);
+                note_collision_motion(ease_collision_toward(cam, allowed_distance, desired_distance, delta_time,
+                                                            return_speed, pull_slack));
 
                 camera_position = pivot + ray_dir * cam.collision_distance;
 
@@ -3762,10 +3810,19 @@ namespace TPVCamera
 
         if (forced_view != s_prev_forced_view)
         {
+            const bool view_before = cam.applying.load(std::memory_order_relaxed);
+            Presets::SwitchEvent event{
+                .kind = Presets::SwitchKind::Policy,
+                .mask = state & (forced_view == 0   ? forced_fpv_mask
+                                 : forced_view == 1 ? forced_tpv_mask
+                                                    : 0u),
+            };
+            Presets::copy_switch_text(event.from, view_before ? "third person" : "first person");
             if (forced_view == -1)
             {
                 // Left every forced state: restore the pre-force view, but only if the player did not
                 // switch the view themselves during the state (otherwise their choice stands).
+                Presets::copy_switch_text(event.reason, s_policy_owns ? "forced view restore" : "forced view release");
                 if (s_policy_owns)
                 {
                     cam.applying.store(s_saved_applying, std::memory_order_relaxed);
@@ -3783,7 +3840,11 @@ namespace TPVCamera
                 }
                 cam.applying.store(forced_view == 1, std::memory_order_relaxed);
                 s_policy_owns = true;
+                Presets::copy_switch_text(event.reason, forced_view == 1 ? "forced tpv" : "forced fpv");
             }
+            Presets::copy_switch_text(event.to,
+                                      cam.applying.load(std::memory_order_relaxed) ? "third person" : "first person");
+            Presets::record_switch(event);
             s_prev_forced_view = forced_view;
         }
         else if (forced_view != -1 && s_policy_owns &&
@@ -3830,6 +3891,13 @@ namespace TPVCamera
             return false;
         }
         bool suspended_now = false;
+        Presets::SwitchEvent event{
+            .kind = Presets::SwitchKind::Policy,
+            .mask = state & orbit_exclude_mask,
+        };
+        Presets::copy_switch_text(event.from,
+                                  cam.orbit_active.load(std::memory_order_relaxed) ? "free-look on" : "free-look off");
+        Presets::copy_switch_text(event.reason, excluded ? "orbit exclude" : "orbit exclude end");
         if (excluded)
         {
             // Entering an excluded state (combat, dialogue, minigame) swaps the action map, which can swallow a
@@ -3859,6 +3927,9 @@ namespace TPVCamera
                 cam.orbit_active.store(false);
             }
         }
+        Presets::copy_switch_text(event.to,
+                                  cam.orbit_active.load(std::memory_order_relaxed) ? "free-look on" : "free-look off");
+        Presets::record_switch(event);
         s_prev_excluded = excluded;
         return suspended_now;
     }

@@ -729,6 +729,17 @@ namespace TPVCamera
         return mask;
     }
 
+    namespace
+    {
+        // Main thread only: the dwell of the bit debounce_game_state() flipped last.
+        float s_last_debounce_wait = 0.0f;
+    } // namespace
+
+    float last_debounce_wait_seconds() noexcept
+    {
+        return s_last_debounce_wait;
+    }
+
     uint32_t debounce_game_state(uint32_t raw_mask, float delta_seconds, float hold_seconds) noexcept
     {
         static uint32_t s_stable_mask = 0;
@@ -740,6 +751,7 @@ namespace TPVCamera
             // re-enable does not flip a bit early off a stale, partially-accumulated timer.
             s_stable_mask = raw_mask;
             s_bit_timer.fill(0.0f);
+            s_last_debounce_wait = 0.0f;
             return raw_mask;
         }
 
@@ -760,6 +772,7 @@ namespace TPVCamera
                 if (s_bit_timer[i] >= hold_seconds)
                 {
                     s_stable_mask ^= bit;
+                    s_last_debounce_wait = s_bit_timer[i];
                     s_bit_timer[i] = 0.0f;
                 }
             }

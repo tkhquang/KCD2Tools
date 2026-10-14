@@ -158,6 +158,7 @@ set(COMMON_SOURCES
   src/presets/camera_preset_fields.cpp
   src/presets/preset_runtime.cpp
   src/presets/preset_store.cpp
+  src/presets/switch_log.cpp
 )
 
 # --- Camera rules: the built-in copy ---
