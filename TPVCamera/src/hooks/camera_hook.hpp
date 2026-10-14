@@ -64,16 +64,6 @@ namespace TPVCamera
     void release_zoom_binding_tokens() noexcept;
 
     /**
-     * @brief Stops the native turn animation, so the body follows the look again, before the hooks are removed.
-     * @details The locomotion action keeps the LockBodyTurn reference it took while the mod reported third person, so
-     *          unloading without this would leave the body free of the look (not following it) until the player's next
-     *          step. The switch-off runs on the game thread, in the next game-view frames; this waits for it, bounded
-     *          to about half a second for a game that renders no frame (minimized, loading). Idempotent.
-     * @note Call from shutdown while the camera hooks are still installed.
-     */
-    void release_native_turn_animation() noexcept;
-
-    /**
      * @brief Starts a camera-relative free-look move on the press of a movement key: the look and the body turn to the
      *        camera heading at the press.
      * @details The input dispatch runs at the start of the frame on the game thread, before the job-system movement

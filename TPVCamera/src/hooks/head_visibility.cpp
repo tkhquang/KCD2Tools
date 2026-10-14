@@ -142,7 +142,6 @@ namespace TPVCamera
                 set_head_visibility_guarded(original, entity, hide_head, flags);
             }
         }
-
     } // namespace
 
     void install_head_visibility_hook(HookSet &hooks)
