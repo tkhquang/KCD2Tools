@@ -6,6 +6,7 @@
 #include "preset_runtime.hpp"
 #include "config.hpp"
 #include "game_state.hpp"
+#include "switch_log.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -29,6 +30,27 @@ namespace TPVCamera::Presets
         CameraPreset s_stage1; // intermediate state of the 2-stage critically-damped preset blend (see below)
         bool s_have_applied = false;
         bool s_snap_next = false;
+
+        // Main-thread switch tracking for the switch ring: the target resolved last, and how much of the framing
+        // change of the last switch the blend has still to close.
+        std::array<char, 48> s_target_name{};
+        std::uint32_t s_target_mask = 0;
+        bool s_target_pinned = false;
+        // The address of the table the target came from, compared only to label a republish (a cycle pick or an
+        // edit), never dereferenced.
+        std::uintptr_t s_target_table = 0;
+        float s_settle_from = 0.0f;
+        float s_settle_age = 0.0f;
+        bool s_settle_pending = false;
+
+        // The two cascaded critically damped stages reach 95% of a step at k*t = 4.7439, where 1 - (1 + kt)e^-kt =
+        // 0.95. The blend runs at k = 1.6 * PresetBlendSpeed.
+        constexpr float k_two_stage_t95 = 4.7439f;
+        constexpr float k_blend_rate_scale = 1.6f;
+        // A framing change smaller than this (meters, or tens of degrees) settles at once.
+        constexpr float k_settle_min_change = 1e-3f;
+        // Follow angles count in units of this many degrees against the meters of the distance and offsets.
+        constexpr float k_settle_degrees_per_meter = 10.0f;
 
         /// Trims leading and trailing ASCII whitespace from a view (no allocation).
         [[nodiscard]] std::string_view trim_token(std::string_view text) noexcept
@@ -166,25 +188,119 @@ namespace TPVCamera::Presets
             }
         }
 
+        /** @brief The preset the blend eases toward, the bind mask that selected it, and whether it is the pin. */
+        struct Target
+        {
+            const CameraPreset *preset = nullptr;
+            std::uint32_t mask = 0;
+            bool pinned = false;
+        };
+
         /**
          * @brief Resolves the active preset target for @p state: the editing pin wins, otherwise the entry
          *        resolve_active_entry picks.
          * @details Falls back to a neutral preset only if the table is empty, which cannot happen once the store
          *          has published since DEFAULT is always bindable.
          */
-        [[nodiscard]] const CameraPreset &select_target(const StateBindingTable &table, std::uint32_t state) noexcept
+        [[nodiscard]] Target select_target(const StateBindingTable &table, std::uint32_t state) noexcept
         {
             if (table.has_pin)
             {
-                return table.pinned;
+                return Target{
+                    .preset = &table.pinned,
+                    .pinned = true,
+                };
             }
             const int index = resolve_active_entry(table, state);
             if (index >= 0)
             {
-                return table.presets[static_cast<std::size_t>(index)];
+                return Target{
+                    .preset = &table.presets[static_cast<std::size_t>(index)],
+                    .mask = table.masks[static_cast<std::size_t>(index)],
+                };
             }
             static const CameraPreset s_fallback{};
-            return s_fallback;
+            return Target{
+                .preset = &s_fallback,
+            };
+        }
+
+        /**
+         * @brief How far @p applied frames the view from @p target: the follow distance, offsets and eye height in
+         *        meters, plus the follow angles in tens of degrees.
+         */
+        [[nodiscard]] float framing_error(const CameraPreset &applied, const CameraPreset &target) noexcept
+        {
+            return std::fabs(applied.follow_distance - target.follow_distance) +
+                   std::fabs(applied.offset_up - target.offset_up) +
+                   std::fabs(applied.offset_right - target.offset_right) +
+                   std::fabs(applied.eye_height - target.eye_height) +
+                   (std::fabs(applied.follow_yaw - target.follow_yaw) +
+                    std::fabs(applied.follow_pitch - target.follow_pitch)) /
+                       k_settle_degrees_per_meter;
+        }
+
+        /**
+         * @brief Records a switch when the target preset differs from the one resolved last, with its cause, and
+         *        starts measuring how long the blend takes to settle on it.
+         * @param snap Whether this frame snaps to the target instead of easing.
+         * @param speed The preset blend speed in force.
+         */
+        void note_target(const StateBindingTable &table, const Target &target, bool snap, float speed) noexcept
+        {
+            const std::string_view name = target.preset->name;
+            const std::string_view last(s_target_name.data());
+            const bool renamed = name.substr(0, s_target_name.size() - 1) != last;
+            if (s_have_applied && !renamed && target.pinned == s_target_pinned)
+            {
+                s_target_mask = target.mask;
+                s_target_table = reinterpret_cast<std::uintptr_t>(&table);
+                return;
+            }
+            const char *cause = !s_have_applied                    ? "start"
+                                : target.pinned != s_target_pinned ? (target.pinned ? "pin" : "unpin")
+                                : s_snap_next                      ? "resume"
+                                : target.mask != s_target_mask     ? "state"
+                                : reinterpret_cast<std::uintptr_t>(&table) != s_target_table ? "republish"
+                                                                                             : "state";
+            SwitchEvent event{
+                .kind = SwitchKind::Preset,
+                .mask = target.mask,
+                .hold_s = target.mask != s_target_mask ? last_debounce_wait_seconds() : 0.0f,
+                .expected_settle_s = snap ? 0.0f : k_two_stage_t95 / (k_blend_rate_scale * speed),
+            };
+            copy_switch_text(event.from, s_have_applied ? last : std::string_view("-"));
+            copy_switch_text(event.to, name);
+            copy_switch_text(event.reason, cause);
+            record_switch(event);
+
+            copy_switch_text(s_target_name, name);
+            s_target_mask = target.mask;
+            s_target_pinned = target.pinned;
+            s_target_table = reinterpret_cast<std::uintptr_t>(&table);
+            s_settle_from = s_have_applied ? framing_error(s_applied, *target.preset) : 0.0f;
+            s_settle_age = 0.0f;
+            s_settle_pending = true;
+            if (snap || s_settle_from < k_settle_min_change)
+            {
+                s_settle_pending = false;
+                note_switch_settled(0.0f);
+            }
+        }
+
+        /** @brief Advances the settle measurement of the last switch by @p dt and reports it once 95% is closed. */
+        void track_settle(const CameraPreset &target, float dt) noexcept
+        {
+            if (!s_settle_pending)
+            {
+                return;
+            }
+            s_settle_age += dt;
+            if (framing_error(s_applied, target) <= 0.05f * s_settle_from)
+            {
+                s_settle_pending = false;
+                note_switch_settled(s_settle_age);
+            }
         }
 
     } // namespace
@@ -457,7 +573,8 @@ namespace TPVCamera::Presets
         if (!table)
             return;
 
-        const CameraPreset &target = select_target(*table, state);
+        const Target resolved = select_target(*table, state);
+        const CameraPreset &target = *resolved.preset;
 
         // Frame-rate-independent preset blend. A SINGLE exponential low-pass starts at full speed and decays,
         // so transitions lurch off the mark (no ease-in). Cascading TWO low-passes makes a critically-damped
@@ -465,7 +582,14 @@ namespace TPVCamera::Presets
         // and out. Snap on the first frame and after a suppression gap so the view does not ease across stale
         // state. The 1.6x rate compensates for the 2-stage's slower rise so PresetBlendSpeed keeps its feel.
         const float speed = cfg.preset_blend_speed.load(std::memory_order_relaxed);
-        if (!s_have_applied || s_snap_next || speed <= 0.0f)
+        const bool snap = !s_have_applied || s_snap_next || speed <= 0.0f;
+        const float dt = (delta_seconds > 0.0f && delta_seconds < 1.0f) ? delta_seconds : 0.0f;
+        if (dt > 0.0f)
+        {
+            count_switch_frame();
+        }
+        note_target(*table, resolved, snap, speed);
+        if (snap)
         {
             s_applied = target;
             s_stage1 = target;
@@ -474,11 +598,11 @@ namespace TPVCamera::Presets
         }
         else
         {
-            const float dt = (delta_seconds > 0.0f && delta_seconds < 1.0f) ? delta_seconds : 0.0f;
-            const float alpha = 1.0f - std::exp(-speed * 1.6f * dt);
+            const float alpha = 1.0f - std::exp(-speed * k_blend_rate_scale * dt);
             ease_toward(s_stage1, target, alpha);    // stage 1: low-pass the target
             ease_toward(s_applied, s_stage1, alpha); // stage 2: low-pass stage 1 -> ease-in and out
         }
+        track_settle(target, dt);
 
         apply_to_live(s_applied, cfg);
     }
