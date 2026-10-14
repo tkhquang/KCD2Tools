@@ -642,6 +642,7 @@ namespace HenrySenses
             options.render_always =
                 s.render_always.load(std::memory_order_relaxed) && s.see_through.load(std::memory_order_relaxed);
             options.player_position = player_position;
+            options.camera_position = main_camera_position();
             return options;
         }
 

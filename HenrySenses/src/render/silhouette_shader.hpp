@@ -16,8 +16,8 @@
 namespace HenrySenses
 {
     /**
-     * @brief Loads the composite shader, once per session: writes henrysensessilhouette.cfxb into the user shader cache
-     *        when the file there differs, then asks CShaderMan::mfForName for it.
+     * @brief Loads the composite shader, once per mod generation: writes its .cfxb into the user shader cache
+     *        when the embedded prefix differs, preserving engine-appended data, then asks CShaderMan::mfForName for it.
      * @details Later calls return at once. Gated on Feature::SilhouetteShader; a failure is logged once and leaves the
      *          stock technique in use.
      * @note Main thread (file I/O and the shader manager).

@@ -144,6 +144,11 @@ namespace HenrySenses
         bool render_always{false};
         /// Player position for the distance fade; no fade without it.
         std::optional<game_structures::Vec3f> player_position{};
+        /**
+         * @brief The main view camera's position, which the engine measures draw distances from (it can sit well
+         *        behind the player in third person); empty before the first frame is recorded.
+         */
+        std::optional<game_structures::Vec3f> camera_position{};
     };
 
     /**
