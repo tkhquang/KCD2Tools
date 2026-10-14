@@ -85,7 +85,7 @@ namespace TPVCamera
                     }
                     const float along = walked + h->m_distance;
                     void *node = nullptr;
-                    OccluderClass cls = OccluderClass::Structure;
+                    Rules::Behaviour cls = Rules::Behaviour::Collide;
                     if (classify_probe_hit(QueryLedger::Tag::Lens, *h, along, std::span<const Vector3>(&ray.from, 1),
                                            unit, &node, &cls) == ProbeVerdict::Stop)
                     {

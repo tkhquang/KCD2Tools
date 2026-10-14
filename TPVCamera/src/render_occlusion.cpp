@@ -603,7 +603,7 @@ namespace TPVCamera
         // The node's vtable when it was scanned. A node that no longer carries it was freed and is skipped.
         uintptr_t vtable = 0;
         float bbox[6] = {}; // world AABB {min.xyz, max.xyz}
-        OccluderClass cls = OccluderClass::Structure;
+        Rules::Behaviour cls = Rules::Behaviour::Collide;
         // An entity's render proxy (a cart, a door, a sign, a character): a prop one fades only on an exact mesh
         // crossing.
         bool entity = false;
@@ -657,32 +657,6 @@ namespace TPVCamera
     static WallVerdict s_wall_verdicts[k_wall_verdicts];
     static int s_wall_next = 0;
     static int s_wall_cursor = 0;
-
-    /** @brief The class the scan stores for a camera rule's behaviour (Exclude is never stored: it is not scanned). */
-    static OccluderClass class_of(Rules::Behaviour behaviour) noexcept
-    {
-        switch (behaviour)
-        {
-        case Rules::Behaviour::Fade:
-            return OccluderClass::Prop;
-        case Rules::Behaviour::Bush:
-            return OccluderClass::Vegetation;
-        case Rules::Behaviour::Tree:
-            return OccluderClass::Tree;
-        case Rules::Behaviour::Grass:
-            return OccluderClass::Grass;
-        case Rules::Behaviour::Frame:
-            return OccluderClass::Frame;
-        case Rules::Behaviour::Pass:
-            return OccluderClass::Invisible;
-        case Rules::Behaviour::Character:
-            return OccluderClass::Character;
-        case Rules::Behaviour::Collide:
-        case Rules::Behaviour::Exclude:
-            break;
-        }
-        return OccluderClass::Structure;
-    }
 
     /**
      * @brief Whether render mesh @p rmesh has a piece drawn two-sided (MTL_FLAG_2SIDED: a sheet of cloth), or its piece
@@ -784,30 +758,6 @@ namespace TPVCamera
         }
     }
 
-    const char *occluder_class_name(OccluderClass cls) noexcept
-    {
-        switch (cls)
-        {
-        case OccluderClass::Prop:
-            return "prop";
-        case OccluderClass::Vegetation:
-            return "vegetation";
-        case OccluderClass::Tree:
-            return "tree";
-        case OccluderClass::Grass:
-            return "grass";
-        case OccluderClass::Frame:
-            return "frame";
-        case OccluderClass::Character:
-            return "character";
-        case OccluderClass::Invisible:
-            return "invisible";
-        case OccluderClass::Structure:
-            break;
-        }
-        return "structure";
-    }
-
     // The cached scan. Main-thread only (the camera frame), so plain statics are race-free.
     static ScannedNode s_scan[Constants::OCCLUDER_SCAN_MAX];
     static int s_scan_count = 0;
@@ -855,21 +805,22 @@ namespace TPVCamera
     /**
      * @brief The class scanned node @p node takes from its rule's verdict: the behaviour, or the outcome when the check
      *        the rule asks for fires (a fence or gate no one sees over is a wall; a tent model that draws no cloth is a
-     *        frame, a pole or a rope). POD body: the checks run under their own SEH frames.
+     *        frame, a pole or a rope). Never Exclude: an excluded node is not scanned, and no check's outcome is
+     *        Exclude. POD body: the checks run under their own SEH frames.
      * @param wall_slot Receives the fence verdict slot of a wall check (see fence_is_wall_guarded()), else -1.
      */
-    static OccluderClass resolve_class(void *node, const Rules::Verdict &verdict, int &wall_slot) noexcept
+    static Rules::Behaviour resolve_class(void *node, const Rules::Verdict &verdict, int &wall_slot) noexcept
     {
         wall_slot = -1;
         if (verdict.check == Rules::Check::Wall)
         {
-            return class_of(fence_is_wall_guarded(node, wall_slot) ? verdict.outcome : verdict.behaviour);
+            return fence_is_wall_guarded(node, wall_slot) ? verdict.outcome : verdict.behaviour;
         }
         if (verdict.check == Rules::Check::Bare)
         {
-            return class_of(draws_two_sided_guarded(node) ? verdict.behaviour : verdict.outcome);
+            return draws_two_sided_guarded(node) ? verdict.behaviour : verdict.outcome;
         }
-        return class_of(verdict.behaviour);
+        return verdict.behaviour;
     }
 
     /** @brief Copies the C string @p name (at most 159 bytes) into @p out. POD body. */
@@ -1180,7 +1131,7 @@ namespace TPVCamera
                         continue;
                     }
                     int wall_slot = -1;
-                    const OccluderClass cls = resolve_class(node, verdict, wall_slot);
+                    const Rules::Behaviour cls = resolve_class(node, verdict, wall_slot);
                     ScannedNode &s = out[n++];
                     s.wall_slot = wall_slot;
                     s.node = node;
@@ -1382,7 +1333,7 @@ namespace TPVCamera
         }
     }
 
-    void *occluder_node_for_collider(uintptr_t collider, OccluderClass *cls) noexcept
+    void *occluder_node_for_collider(uintptr_t collider, Rules::Behaviour *cls) noexcept
     {
         if (collider == 0 || !s_scan_valid || s_scan_count == 0)
         {
@@ -1458,8 +1409,8 @@ namespace TPVCamera
         for (int i = 0; i < s_scan_count; ++i)
         {
             const ScannedNode &s = s_scan[i];
-            if (s.cls == OccluderClass::Vegetation || s.cls == OccluderClass::Tree || s.cls == OccluderClass::Grass ||
-                s.cls == OccluderClass::Character)
+            if (s.cls == Rules::Behaviour::Bush || s.cls == Rules::Behaviour::Tree ||
+                s.cls == Rules::Behaviour::Grass || s.cls == Rules::Behaviour::Character)
             {
                 continue;
             }
@@ -2671,7 +2622,7 @@ namespace TPVCamera
                     // A cache slot may have been reused while scanning. Recheck the node's full key before
                     // applying the result, including its current model, scale and hidden parts.
                     int current = -1;
-                    const OccluderClass cls = resolve_class(s.node, s.verdict, current);
+                    const Rules::Behaviour cls = resolve_class(s.node, s.verdict, current);
                     s.wall_slot = current;
                     changed = changed || s.cls != cls;
                     s.cls = cls;
@@ -2741,7 +2692,7 @@ namespace TPVCamera
         for (int i = 0; i < s_scan_count && n < cap; ++i)
         {
             const ScannedNode &s = s_scan[i];
-            if (s.cls != OccluderClass::Frame)
+            if (s.cls != Rules::Behaviour::Frame)
             {
                 continue;
             }
@@ -2764,7 +2715,7 @@ namespace TPVCamera
         {
             s = (s_scan[i].node == node) ? &s_scan[i] : nullptr;
         }
-        if (s == nullptr || s->cls != OccluderClass::Structure || !s->verdict.mesh || !node_alive(*s) ||
+        if (s == nullptr || s->cls != Rules::Behaviour::Collide || !s->verdict.mesh || !node_alive(*s) ||
             lines == nullptr || n_lines <= 0)
         {
             return true;
@@ -2782,7 +2733,7 @@ namespace TPVCamera
         for (int i = 0; i < s_scan_count && budget > 0; ++i)
         {
             const ScannedNode &t = s_scan[i];
-            if (t.node == node || t.cls != OccluderClass::Structure || !t.verdict.mesh)
+            if (t.node == node || t.cls != Rules::Behaviour::Collide || !t.verdict.mesh)
             {
                 continue;
             }
@@ -2814,7 +2765,7 @@ namespace TPVCamera
             const ScannedNode &s = s_scan[i];
             // Only a prop fades for hiding the character. A tree, a bush or a grass patch opens the tree see-through
             // window instead (see trees_in_window), so a leaf on a sightline never fades a whole plant.
-            if (s.cls != OccluderClass::Prop || skipped(s.node))
+            if (s.cls != Rules::Behaviour::Fade || skipped(s.node))
             {
                 continue;
             }
@@ -2885,7 +2836,7 @@ namespace TPVCamera
         for (int i = 0; i < s_scan_count && n < cap && budget > 0; ++i)
         {
             const ScannedNode &s = s_scan[i];
-            if ((s.cls != OccluderClass::Prop && s.cls != OccluderClass::Vegetation) || s.entity || eye.x < s.bbox[0] ||
+            if ((s.cls != Rules::Behaviour::Fade && s.cls != Rules::Behaviour::Bush) || s.entity || eye.x < s.bbox[0] ||
                 eye.x > s.bbox[3] || eye.y < s.bbox[1] || eye.y > s.bbox[4] || eye.z < s.bbox[2] || eye.z > s.bbox[5] ||
                 skipped(s.node) || !node_alive(s))
             {
@@ -2973,10 +2924,11 @@ namespace TPVCamera
                     verdict = found[k].buried ? "buried" : "sightline";
                 }
             }
-            text += std::format(
-                "{}{}({}{}, {}, {})", i == 0 ? "" : ", ", name[0] != '\0' ? name : "?",
-                s != nullptr ? occluder_class_name(s->cls) : "?", (s != nullptr && s->entity) ? " entity" : "", verdict,
-                (s != nullptr && s_scan_rules != nullptr) ? s_scan_rules->where(s->verdict.rule) : std::string{"?"});
+            text += std::format("{}{}({}{}, {}, {})", i == 0 ? "" : ", ", name[0] != '\0' ? name : "?",
+                                s != nullptr ? Rules::behaviour_name(s->cls) : "?",
+                                (s != nullptr && s->entity) ? " entity" : "", verdict,
+                                (s != nullptr && s_scan_rules != nullptr) ? s_scan_rules->where(s->verdict.rule)
+                                                                          : std::string{"?"});
         }
         (void)DMK::log().try_log(DMK::LogLevel::Trace, "RenderOcclusion: around the camera: {}",
                                  n_near == 0 ? std::string{"nothing"} : text);
@@ -3088,8 +3040,8 @@ namespace TPVCamera
             for (int i = 0; i < s_scan_count; ++i)
             {
                 const ScannedNode &s = s_scan[i];
-                if ((s.cls != OccluderClass::Tree && s.cls != OccluderClass::Vegetation &&
-                     s.cls != OccluderClass::Grass) ||
+                if ((s.cls != Rules::Behaviour::Tree && s.cls != Rules::Behaviour::Bush &&
+                     s.cls != Rules::Behaviour::Grass) ||
                     !meets_solid(s.bbox) || segment_hits_box(centre_from, centre_to, s.bbox) != (pass == 0) ||
                     !node_alive(s))
                 {
@@ -3146,7 +3098,7 @@ namespace TPVCamera
         for (int i = 0; i < s_scan_count && budget > 0; ++i)
         {
             const ScannedNode &s = s_scan[i];
-            if (s.cls != OccluderClass::Structure || !s.verdict.mesh)
+            if (s.cls != Rules::Behaviour::Collide || !s.verdict.mesh)
             {
                 continue;
             }
@@ -3354,8 +3306,8 @@ namespace TPVCamera
             // A fence's wall check reads only measured meshes (measure_wall_row_guarded). A pending fence holds its
             // rule's outcome, and no camera test reads the mesh of some outcomes (a collide without mesh), so a fence
             // is measured here whatever class it holds.
-            if (!((s.cls == OccluderClass::Structure && s.verdict.mesh) || s.cls == OccluderClass::Prop ||
-                  s.cls == OccluderClass::Frame || s.verdict.check == Rules::Check::Wall) ||
+            if (!((s.cls == Rules::Behaviour::Collide && s.verdict.mesh) || s.cls == Rules::Behaviour::Fade ||
+                  s.cls == Rules::Behaviour::Frame || s.verdict.check == Rules::Check::Wall) ||
                 std::find(s_done, s_done + s_done_count, s.node) != s_done + s_done_count)
             {
                 continue;

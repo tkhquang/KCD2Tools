@@ -3,7 +3,7 @@
  * @brief Camera collision along the arm from the pivot to the camera, and the occluder fade set it feeds.
  *
  * @details The arm runs from the pivot (a safe point inside the player) to where the rig puts the camera. Each object
- *          the arm meets is classed by its camera rule (see OccluderClass). Terrain, buildings and their wall, door and
+ *          the arm meets is classed by its camera rule (see Rules::Behaviour). Terrain, buildings and their wall, door and
  *          window pieces, walls, rocks, and anything that matches no scanned render node stop the camera: it pulls in
  *          at once to just short of the surface and eases back out once the obstruction clears, so the camera stays
  *          inside the room the player stands in. A prop (a fence, a cart, a lamp), a bush or a tree is stepped past
@@ -60,11 +60,11 @@ namespace TPVCamera
      * @param line_starts The start of each probe line (at most 9): the arm's five, or one lens ray.
      * @param dir The lines' common unit direction.
      * @param node Receives the matched render node, or nullptr.
-     * @param cls Receives the matched node's class (Structure when there is none).
+     * @param cls Receives the matched node's class (Collide when there is none).
      */
     [[nodiscard]] ProbeVerdict classify_probe_hit(QueryLedger::Tag tag, const RayHit &hit, float along,
                                                   std::span<const Vector3> line_starts, const Vector3 &dir, void **node,
-                                                  OccluderClass *cls);
+                                                  Rules::Behaviour *cls);
 
     /**
      * @brief The collision and occluder fade carry-over between camera frames.

@@ -15,6 +15,7 @@
 #ifndef TPVCAMERA_RENDER_OCCLUSION_HPP
 #define TPVCAMERA_RENDER_OCCLUSION_HPP
 
+#include "camera_rules.hpp"
 #include "math_utils.hpp"
 #include "query_ledger.hpp"
 
@@ -52,52 +53,9 @@ namespace TPVCamera
     };
 
     /**
-     * @brief What the camera does with an object: the behaviour of its camera rule (camera_rules.hpp), or the outcome
-     *        when the rule's check fires. The examples are what the shipped rules give each class.
-     */
-    enum class OccluderClass : std::uint8_t
-    {
-        // collide. Stops the camera and never fades: buildings, their wall, door and window pieces, walls, rocks,
-        // terrain meshes, anything no other rule matches, and the covered wagons, the coach, the wagons loaded high
-        // with hay and the broad haystacks placed as brushes.
-        Structure,
-        // fade. The camera passes through it and it fades while it hides the character: furniture, open carts and
-        // wagons, fences, gates, lamps, tools, low hay, scaffolding.
-        Prop,
-        // bush. Bushes and the other plants outside the trees folder (bushes, branches, ferns, vines, plants),
-        // whatever their size: the camera passes through them, and like a tree a bush never fades as a whole for
-        // hiding the character (the tree see-through window opens it in front of him). Only a bush the camera is
-        // buried in fades as a whole, down to OccluderFadeMinOpacity, since leaves all around the lens fill the view.
-        Vegetation,
-        // tree. Trees (the trees folder: trees, stumps, roots, fallen trunks): the camera passes through the trunk,
-        // but a tree is never faded, since fading the whole tree for a branch or a leaf in the way is worse than the
-        // branch; the leaves near the lens thin away in the near cut while the tree is listed for the see-through
-        // window, and the ones right at the lens are cut by the near clip plane.
-        Tree,
-        // grass. Grass and the small plants the engine merges into patches (merged meshes, about 16 m across), and
-        // the grass meshes placed as one object: the camera passes through them and they never fade as objects; only
-        // the tree see-through window opens them in front of the character.
-        Grass,
-        // pass. The level's invisible collision volumes (designer boxes, and brushes drawn with a collision-proxy or
-        // no-draw material): passed through, never faded (a dissolved no-draw material draws as a grey box).
-        Invisible,
-        // frame. A tent model that draws no cloth (the shipped if-bare=frame): a bare tent frame, a centre column, a
-        // support stick, a peg, a rope. The camera passes through it and it never fades: a pole in front of the
-        // character stays, and a beam close in front of the lens thins away in the near cut (frames_near()).
-        Frame,
-        // character. A registered actor or an entity attached to one: a person, an animal, a carried bow or
-        // crossbow. Its body has no physics the camera probes see, and a collider its entity owns (the box of a
-        // townsman's load) is passed through too; it never fades.
-        Character,
-    };
-
-    /** @brief A short lower-case name of @p cls, for the log. */
-    [[nodiscard]] const char *occluder_class_name(OccluderClass cls) noexcept;
-
-    /**
      * @brief Refreshes the cached list of visible brushes, vegetation and entity proxies around @p points.
      * @details Queries the octree in the box around the points plus OCCLUDER_SCAN_MARGIN, keeping the nodes that are
-     *          drawn (not ERF_HIDDEN) and that no camera rule excludes, each with its rule's verdict and OccluderClass.
+     *          drawn (not ERF_HIDDEN) and that no camera rule excludes, each with its rule's verdict and Rules::Behaviour.
      *          The list is reused while every point stays inside the scanned box, it is younger than
      *          OCCLUDER_SCAN_MAX_AGE of real time, the rule set in force is the one it was classified with and no
      *          scanned brush changed its model, model revision or material. A reuse refreshes the boxes of entities and
@@ -120,7 +78,7 @@ namespace TPVCamera
      * @param collider The RayHit::m_collider of a hit (the IPhysicalEntity pointer).
      * @param cls Receives the node's class; left untouched when nullptr is returned. May be nullptr.
      */
-    [[nodiscard]] void *occluder_node_for_collider(uintptr_t collider, OccluderClass *cls) noexcept;
+    [[nodiscard]] void *occluder_node_for_collider(uintptr_t collider, Rules::Behaviour *cls) noexcept;
 
     /**
      * @brief Whether a man-made structure is drawn where the physics of scanned structure @p node was hit.
@@ -147,7 +105,7 @@ namespace TPVCamera
     [[nodiscard]] bool spans_tube(void *node, const Sightline *tube) noexcept;
 
     /**
-     * @brief Collects the scanned bare frames (OccluderClass::Frame) whose world box comes within @p reach meters of
+     * @brief Collects the scanned bare frames (Rules::Behaviour::Frame) whose world box comes within @p reach meters of
      *        @p point, for the near cut (see hooks/shader_twins.hpp).
      * @details A broad phase like trees_in_window(): the shader decides per pixel, so no mesh is read. Main thread
      *          only.
@@ -248,8 +206,8 @@ namespace TPVCamera
      *          solid's own box or outside one of its planes (the four sides and the two ends). The test is
      *          conservative: a box beside an edge can be listed without meeting the solid, which shows nothing, since
      *          the shader opens only the pixels inside the window and nearer than the character. No mesh is read and
-     *          nothing is measured for coverage. Only plants are listed (OccluderClass::Tree,
-     *          OccluderClass::Vegetation and OccluderClass::Grass): props keep the per-object fade. The nodes whose box
+     *          nothing is measured for coverage. Only plants are listed (Rules::Behaviour::Tree,
+     *          Rules::Behaviour::Bush and Rules::Behaviour::Grass): props keep the per-object fade. The nodes whose box
      *          the centre line from the near end to the window passes through come first, so when more than @p cap
      *          meet the solid, the ones straight between the camera and the character are kept. Main thread only.
      * @param near_end The near end's corners, in the same order as @p far_end.

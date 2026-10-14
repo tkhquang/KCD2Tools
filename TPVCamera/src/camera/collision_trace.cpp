@@ -131,7 +131,7 @@ namespace TPVCamera
                 const char *name = mesh_file_name(s.node, path);
                 text += std::format("{}{} {}({}) at {:.2f}", i == 0 ? "" : ", ", s.what,
                                     s.node != nullptr ? name : "unmatched",
-                                    s.node != nullptr ? occluder_class_name(s.cls) : "-", s.distance);
+                                    s.node != nullptr ? Rules::behaviour_name(s.cls) : "-", s.distance);
             }
             (void)DMK::log().try_log(DMK::LogLevel::Trace,
                                      "Camera walk of {:.2f} m: {} (pulled in {:.2f} s ago, released {:.2f} s ago; "

@@ -24,18 +24,47 @@
 namespace TPVCamera::Rules
 {
 
-    /** @brief What the camera does with an object: the behaviour words of the rules file. */
+    /**
+     * @brief What the camera does with an object: the behaviour words of the rules file. A scanned node's class is its
+     *        rule's behaviour, or the outcome when the rule's check fires. The examples are what the shipped rules give
+     *        each behaviour.
+     */
     enum class Behaviour : std::uint8_t
     {
+        // Stops the camera and never fades: buildings, their wall, door and window pieces, walls, rocks, terrain
+        // meshes, anything no other rule matches, and the covered wagons, the coach, the wagons loaded high with hay
+        // and the broad haystacks placed as brushes.
         Collide,
+        // The camera passes through it and it fades while it hides the character: furniture, open carts and wagons,
+        // fences, gates, lamps, tools, low hay, scaffolding.
         Fade,
+        // Bushes and the other plants outside the trees folder (bushes, branches, ferns, vines, plants), whatever their
+        // size: the camera passes through them, and like a tree a bush never fades as a whole for hiding the character
+        // (the tree see-through window opens it in front of him). Only a bush the camera is buried in fades as a
+        // whole, down to OccluderFadeMinOpacity, since leaves all around the lens fill the view.
         Bush,
+        // Trees (the trees folder: trees, stumps, roots, fallen trunks): the camera passes through the trunk, but a
+        // tree is never faded, since fading the whole tree for a branch or a leaf in the way is worse than the branch;
+        // the leaves near the lens thin away in the near cut while the tree is listed for the see-through window, and
+        // the ones right at the lens are cut by the near clip plane.
         Tree,
+        // Grass and the small plants the engine merges into patches (merged meshes, about 16 m across), and the grass
+        // meshes placed as one object: the camera passes through them and they never fade as objects; only the tree
+        // see-through window opens them in front of the character.
         Grass,
+        // A tent model that draws no cloth (the shipped if-bare=frame): a bare tent frame, a centre column, a support
+        // stick, a peg, a rope. The camera passes through it and it never fades: a pole in front of the character
+        // stays, and a beam close in front of the lens thins away in the near cut (frames_near()).
         Frame,
+        // The level's invisible collision volumes (designer boxes, and brushes drawn with a collision-proxy or no-draw
+        // material): passed through, never faded (a dissolved no-draw material draws as a grey box).
         Pass,
+        // A registered actor or an entity attached to one: a person, an animal, a carried bow or crossbow. Its body has
+        // no physics the camera probes see, and a collider its entity owns (the box of a townsman's load) is passed
+        // through too; it never fades.
         Character,
         // Not scanned at all: no fade, no window, no lens cut, no twins; its physics collides as plain collision.
+        // Never a scanned node's class, and never a check's outcome.
         Exclude,
     };
 
