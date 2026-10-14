@@ -97,24 +97,6 @@ namespace TPVCamera
                                                            const uintptr_t *p_skip_ents = nullptr, int n_skip_ents = 0);
 
     /**
-     * @brief Resolves the player's / actors' physics entities to skip during camera collision, via the physics
-     *        world (NOT the engine entity/character API - the KCD2 fork shifted those vtable slots, and the
-     *        skeleton physics is not a reachable data offset on C_Player).
-     * @details The camera pivot sits INSIDE the player body, so a FORWARD (pivot->camera) ray exits through the
-     *          body's back-face and never registers it, so the probe casts its rays in REVERSE: from the camera
-     *          end (origin + sweep) back toward the pivot, so each ray strikes the body / any in-between actor
-     *          from OUTSIDE and reports it. A collider the
-     *          world-only cast (@p objtypes_world) does NOT see at the same range is a non-world entity (player
-     *          body, worn gear, NPC) and is collected to skip; world geometry appears in both casts at the same
-     *          range and is never collected. Output is capped at @p max_out (the caller's buffer; the synchronous PWI
-     *          walks every nSkipEnts entry, only its queued path clamps to 4).
-     * @return Count of distinct non-world physics entities written to @p out_skip.
-     */
-    [[nodiscard]] int resolve_player_physics_skip(const Vector3 &origin, const Vector3 &sweep, float radius,
-                                                  int objtypes_all, int objtypes_world, unsigned int flags,
-                                                  uintptr_t *out_skip, int max_out);
-
-    /**
      * @brief Multi-ray "fan" approximation of a swept sphere, built on RayWorldIntersection.
      * @details Casts the centre ray plus four rays offset perpendicular to the sweep by @p radius (a square
      *          tube of half-width radius) and returns the NEAREST hit across all five. This approximates a

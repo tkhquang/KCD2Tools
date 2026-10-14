@@ -252,8 +252,8 @@ namespace TPVCamera
         // Broad collision-type mask so the sphere stops on any solid surface (mirrors the RWI colltype_any
         // intent). A wrong value here only changes which parts block (functional, not a safety issue).
         *reinterpret_cast<int *>(params + Constants::SPWI_OFF_GEOMFLAGSANY) = Constants::SPWI_GEOMFLAGS_ANY_SOLID;
-        // Skip the entities the caller lists (the player's own physics from resolve_player_physics_skip, and the
-        // faded occluders the camera steps past), so the sweep reports a clean WORLD distance. The synchronous PWI
+        // Skip the entities the caller lists (the faded occluders the camera steps past), so the sweep reports a
+        // clean WORLD distance. The synchronous PWI
         // walks every nSkipEnts entry (only its queued path clamps the count to 4); a negative count would make
         // pSkipEnts the candidate list and skip the world, so only a positive count is written. The PWI implementation
         // reads both offsets, and pSkipEnts as pSkipEnts[i] (an array of IPhysicalEntity*).
@@ -358,75 +358,6 @@ namespace TPVCamera
             return 0;
         }
         return *node;
-    }
-
-    int resolve_player_physics_skip(const Vector3 &origin, const Vector3 &sweep, float radius, int objtypes_all,
-                                    int objtypes_world, unsigned int flags, uintptr_t *out_skip, int max_out)
-    {
-        if (out_skip == nullptr || max_out <= 0)
-        {
-            return 0;
-        }
-        const float len = sweep.magnitude();
-        // Written so a NaN length also returns: a NaN ray must never reach the engine.
-        if (!(len >= 1e-4f))
-        {
-            return 0;
-        }
-        const Vector3 dir = sweep / len;
-        const Vector3 seed = (std::fabs(dir.z) < 0.9f) ? Vector3{0.0f, 0.0f, 1.0f} : Vector3{1.0f, 0.0f, 0.0f};
-        Vector3 right = dir.cross(seed);
-        const float rlen = right.magnitude();
-        Vector3 up{0.0f, 0.0f, 0.0f};
-        if (rlen >= 1e-4f)
-        {
-            right = right / rlen;
-            up = right.cross(dir);
-        }
-        else
-        {
-            right = Vector3{0.0f, 0.0f, 0.0f};
-        }
-        // REVERSE probe: cast from the camera end back toward the pivot. The pivot is inside the body, so a
-        // forward ray exits through a back-face and misses the body; a reverse ray hits it from outside. Same
-        // square-tube fan offsets as the sweep so coverage matches the sphere's footprint.
-        const Vector3 camera = origin + sweep;
-        const Vector3 back = sweep * -1.0f; // camera -> pivot, length = |sweep|
-        const Vector3 offsets[5] = {Vector3{0.0f, 0.0f, 0.0f}, right * radius, right * (-radius), up * radius,
-                                    up * (-radius)};
-        int n = 0;
-        for (const Vector3 &off : offsets)
-        {
-            const Vector3 o = camera + off;
-            const auto h_all = ray_world_intersection(QueryLedger::Tag::SkipResolver, o, back, objtypes_all, flags);
-            if (!h_all.has_value() || h_all->m_collider == 0)
-            {
-                continue;
-            }
-            // A non-world entity (player body, worn gear, NPC) is invisible to the world-only mask: collect it
-            // only when the all-types hit is nearer than the world hit (or the world ray misses). World geometry
-            // appears in BOTH casts at the same range, so it is never collected - we must not skip the world.
-            const auto h_world = ray_world_intersection(QueryLedger::Tag::SkipResolver, o, back, objtypes_world, flags);
-            const bool is_non_world = !h_world.has_value() || h_all->m_distance < h_world->m_distance - 0.02f;
-            if (!is_non_world)
-            {
-                continue;
-            }
-            bool seen = false;
-            for (int i = 0; i < n; ++i)
-            {
-                if (out_skip[i] == h_all->m_collider)
-                {
-                    seen = true;
-                    break;
-                }
-            }
-            if (!seen && n < max_out)
-            {
-                out_skip[n++] = h_all->m_collider;
-            }
-        }
-        return n;
     }
 
 } // namespace TPVCamera
