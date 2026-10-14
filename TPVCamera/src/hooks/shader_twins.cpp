@@ -64,7 +64,6 @@
  */
 
 #include "shader_twins.hpp"
-#include "shader_token_compare.hpp"
 #include "twin_inventory.hpp"
 #if defined(TPVCAMERA_DEV_BUILD)
 #include "twin_clone.hpp"
@@ -173,38 +172,8 @@ namespace TPVCamera
             const char *data;
         };
         using ResourceLookupFn = std::uintptr_t(__fastcall *)(const std::uint32_t *, const ResourceName *, bool);
-#if defined(TPVCAMERA_DEV_BUILD)
-        // CHWShader::mfForName, including the unused ninth ABI slot. Its result owns one pass reference.
-        using HardwareForNameFn = std::uintptr_t(__fastcall *)(const char *, const char *, std::uint32_t, const char *,
-                                                               std::uint8_t, const void *, const void *, std::uint32_t,
-                                                               std::uintptr_t, std::uint64_t, std::uint64_t);
-        std::atomic<HardwareForNameFn> s_hardware_for_name_original{nullptr};
-        ResourceLookupFn s_vertex_resource_lookup = nullptr;
-        PSRWLOCK s_hardware_shader_lock = nullptr;
-        enum class VertexReuse : std::size_t
-        {
-            Shared,
-            Missing,
-            Metadata,
-            Tokens,
-            Busy,
-            Fault,
-            Count
-        };
-        std::array<std::atomic<std::uint64_t>, static_cast<std::size_t>(VertexReuse::Count)> s_vertex_results{};
-        std::atomic<std::uint64_t> s_vertex_checks{0}, s_vertex_check_us{0}, s_vertex_max_us{0};
-        std::uint64_t s_vertex_logged_checks = 0; // main-thread only
-#endif
 
-        // DEV builds also keep a few non-merged plants swapped by their native render-data association (stable
-        // bindings), independently of the camera's target list. They have capacity of their own, so they never
-        // displace one of the TREE_HOLE_MAX_NODES targets the camera lists.
-#if defined(TPVCAMERA_DEV_BUILD)
-        constexpr int k_stable_plant_limit = 8;
-#else
-        constexpr int k_stable_plant_limit = 0;
-#endif
-        constexpr int k_max_nodes = Constants::TREE_HOLE_MAX_NODES + k_stable_plant_limit;
+        constexpr int k_max_nodes = Constants::TREE_HOLE_MAX_NODES;
         constexpr int k_max_sources = Constants::SHADER_TWIN_MAX_SOURCES;
         // The stock shaders with a twin (blobs::k_twins), indexed by kind.
         constexpr int k_kinds = static_cast<int>(std::size(blobs::k_twins));
@@ -234,20 +203,12 @@ namespace TPVCamera
                                                      std::uint8_t *object, const std::uint8_t *pass, int list,
                                                      int after_water);
 
-        /** @brief A borrowed native render-data association; neither pointer extends an engine lifetime. */
-        struct BindingIdentity
-        {
-            std::uintptr_t temp = 0;
-            std::uintptr_t vtable = 0;
-        };
-
         /** @brief One published frame of the swap: the nodes, and each source instance with its twin. */
         struct SwapSet
         {
             std::uint64_t stamp_ms = 0;
             int node_count = 0;
             std::array<std::uintptr_t, k_max_nodes> nodes{};
-            std::array<BindingIdentity, k_max_nodes> bindings{};
             // A merged grass patch (its render objects name no node) and its origin, which they carry instead.
             std::array<bool, k_max_nodes> merged{};
             std::array<std::array<float, 3>, k_max_nodes> origins{};
@@ -486,7 +447,6 @@ namespace TPVCamera
         struct Track
         {
             std::uintptr_t node = 0;
-            BindingIdentity binding{}; // nonzero only for a DEV stable binding (k_stable_plant_limit)
             float hold = 0.0f;         // seconds left before an unlisted node is swapped back
             bool seen = false;         // listed by the camera this frame
             bool fresh = false;        // newly observed; activation waits for a ready twin of this scope
@@ -506,10 +466,6 @@ namespace TPVCamera
             std::array<float, 3> origin{}; // the patch's m_pos
             bool frame = false;            // a bare frame (TwinScope::ListedFrames)
             std::array<char, 96> name{};
-            // For a DEV stable binding: whether the camera rules of generation plant_scope_rules scope the node's
-            // asset as a plant (update_tracks()).
-            std::uint64_t plant_scope_rules = UINT64_MAX;
-            bool plant_scope = false;
         };
 
         /** @brief A PsoRecord the main thread holds, and when it first arrived for its compiled object. */
@@ -1275,47 +1231,6 @@ namespace TPVCamera
             }
         }
 
-        /** @brief Captures a live native association. A missing/replaced association cannot retain a binding. */
-        [[nodiscard]] BindingIdentity binding_identity_guarded(std::uintptr_t node) noexcept
-        {
-            __try
-            {
-                const auto temp =
-                    *reinterpret_cast<const std::uintptr_t *>(node + Constants::RENDERNODE_TEMP_DATA_OFFSET);
-                if (temp != 0 &&
-                    *reinterpret_cast<const std::uintptr_t *>(temp + Constants::RENDER_TEMP_DATA_OWNER_OFFSET) == node)
-                {
-                    return {temp, *reinterpret_cast<const std::uintptr_t *>(node)};
-                }
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-            }
-            return {};
-        }
-
-        [[nodiscard]] bool binding_matches(std::uintptr_t node, BindingIdentity expected) noexcept
-        {
-            const BindingIdentity current = binding_identity_guarded(node);
-            return expected.temp != 0 && current.temp == expected.temp && current.vtable == expected.vtable;
-        }
-
-        /**
-         * @brief Main-thread retention check. Also rechecks the asset name, since native addresses can be recycled.
-         * @details This is a conservative association check, not an owning or generational handle. Loading explicitly
-         *          retires the cohort; render jobs independently check the association on their live render object.
-         */
-        [[nodiscard]] bool stable_track_live(const Track &track) noexcept
-        {
-            if (!binding_matches(track.node, track.binding))
-            {
-                return false;
-            }
-            std::array<char, 96> name{};
-            render_node_name(reinterpret_cast<void *>(track.node), name.data(), static_cast<int>(name.size()));
-            return name[0] != '\0' && name == track.name;
-        }
-
         /**
          * @brief Checks that the four rows of every view in the upload are still zero, then writes @p values into
          *        them.
@@ -1471,10 +1386,6 @@ namespace TPVCamera
                 if (set.nodes[slot] == node)
                 {
                     matched_node = node;
-                    if (set.bindings[slot].temp != 0 && !binding_matches(node, set.bindings[slot]))
-                    {
-                        return false;
-                    }
                     if (set.frames[slot])
                     {
                         scope = blobs::TwinScope::ListedFrames;
@@ -3305,172 +3216,6 @@ namespace TPVCamera
             }
         }
 
-#if defined(TPVCAMERA_DEV_BUILD)
-        /** @brief Read a bounded native std::string token map; caller owns the HW resource and factory lock. */
-        [[nodiscard]] std::span<const std::uint8_t> hardware_tokens(std::uintptr_t shader) noexcept
-        {
-            const auto size = *reinterpret_cast<const std::size_t *>(shader + 0xE0);
-            const auto capacity = *reinterpret_cast<const std::size_t *>(shader + 0xE8);
-            if (size < 4 || size > ShaderTokens::k_max_bytes || size > capacity)
-            {
-                return {};
-            }
-            const auto data = capacity > 15 ? *reinterpret_cast<const std::uintptr_t *>(shader + 0xD0) : shader + 0xD0;
-            return {reinterpret_cast<const std::uint8_t *>(data), size};
-        }
-
-        /** @brief Obtain an owned stock vertex reference, then prove its program matches. No mod mutex is taken. */
-        [[nodiscard]] VertexReuse find_equivalent_vertex_guarded(std::uintptr_t twin, const blobs::Twin &kind,
-                                                                 std::uintptr_t &stock) noexcept
-        {
-            __try
-            {
-                constexpr std::uint32_t vertex_class_crc = 0xE972D859; // CRC32("chwshader_vs")
-                const char *key = *reinterpret_cast<const char *const *>(twin + 0x68);
-                const auto prefix = std::strlen(kind.twin_name);
-                const auto source_length = std::strlen(kind.source_name);
-                if (key == nullptr || !starts_with_nocase(key, kind.twin_name) || key[prefix] != '@')
-                {
-                    return VertexReuse::Metadata;
-                }
-                const auto suffix_length = strnlen_s(key + prefix, 512);
-                char stock_key[512]{};
-                if (suffix_length == 512 || source_length + suffix_length >= sizeof(stock_key))
-                {
-                    return VertexReuse::Metadata;
-                }
-                std::memcpy(stock_key, kind.source_name, source_length);
-                std::memcpy(stock_key + source_length, key + prefix, suffix_length + 1);
-                for (std::size_t i = 0; i < source_length; ++i)
-                {
-                    if (stock_key[i] >= 'A' && stock_key[i] <= 'Z')
-                    {
-                        stock_key[i] += 'a' - 'A';
-                    }
-                }
-                const ResourceName name{source_length + suffix_length, sizeof(stock_key) - 1, stock_key};
-                stock = s_vertex_resource_lookup(&vertex_class_crc, &name, true);
-                if (stock == 0)
-                {
-                    return VertexReuse::Missing;
-                }
-                // Native factory identity uses entry/platform/HW gen mask, not the unmasked FX gen mask (+A8).
-                // Require the other immutable inputs too. WASGENERATED is the one ignored runtime flag.
-                constexpr std::uint32_t was_generated = 0x200;
-                if (stock == twin ||
-                    *reinterpret_cast<const std::uintptr_t *>(stock) !=
-                        *reinterpret_cast<const std::uintptr_t *>(twin) ||
-                    *reinterpret_cast<const std::uint8_t *>(stock + 0x78) != 0 ||
-                    *reinterpret_cast<const std::uint8_t *>(twin + 0x78) != 0 ||
-                    *reinterpret_cast<const std::uint32_t *>(stock + 0xC4) != kind.source_crc ||
-                    *reinterpret_cast<const std::uint32_t *>(stock + 0xC8) !=
-                        *reinterpret_cast<const std::uint32_t *>(twin + 0xC8) ||
-                    ((*reinterpret_cast<const std::uint32_t *>(stock + 0xC0) ^
-                      *reinterpret_cast<const std::uint32_t *>(twin + 0xC0)) &
-                     ~was_generated) != 0 ||
-                    std::memcmp(reinterpret_cast<const void *>(stock + 0x90),
-                                reinterpret_cast<const void *>(twin + 0x90), 24) != 0)
-                {
-                    return VertexReuse::Metadata;
-                }
-                return ShaderTokens::equivalent(hardware_tokens(stock), hardware_tokens(twin)) ? VertexReuse::Shared
-                                                                                               : VertexReuse::Tokens;
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                return VertexReuse::Fault;
-            }
-        }
-
-        /** @brief Drops one reference to a CHWShader, outside the factory SRWLOCK; 0 is skipped. */
-        void release_hardware_reference(std::uintptr_t shader) noexcept
-        {
-            // CBaseResource::Release is slot 4 for CHWShader.
-            if (shader != 0)
-            {
-                const auto release = image_slot(shader, 4 * 8);
-                if (release == 0 || !resource_ref_guarded(release, shader))
-                {
-                    s_vertex_results[static_cast<std::size_t>(VertexReuse::Fault)].fetch_add(1,
-                                                                                             std::memory_order_relaxed);
-                }
-            }
-        }
-
-        /**
-         * @brief CHWShader::mfForName detour: hands a twin's new vertex pass the stock's equivalent vertex shader.
-         * @details Substitutes only the owned return before a new pass stores it; no published pass is edited.
-         * @note Raw arbitrary-signature detour (DMK [B-84]): it must not throw, and every call in it is noexcept.
-         */
-        std::uintptr_t __fastcall hardware_for_name_detour(const char *name, const char *source, std::uint32_t crc,
-                                                           const char *entry, std::uint8_t shader_class,
-                                                           const void *tokens, const void *table,
-                                                           std::uint32_t shader_type, std::uintptr_t reserved,
-                                                           std::uint64_t hardware_mask, std::uint64_t fx_mask) noexcept
-        {
-            const DetourScope in_flight;
-            const auto original = s_hardware_for_name_original.load(std::memory_order_acquire);
-            const auto twin = original(name, source, crc, entry, shader_class, tokens, table, shader_type, reserved,
-                                       hardware_mask, fx_mask);
-            if (shader_class != 0 || twin == 0 || name == nullptr || !s_available.load(std::memory_order_acquire) ||
-                s_disabled.load(std::memory_order_acquire) || !s_loading_finalizing.load(std::memory_order_acquire))
-            {
-                return twin;
-            }
-            for (const auto &kind : blobs::k_twins)
-            {
-                if (!starts_with_nocase(name, kind.twin_name) || name[std::strlen(kind.twin_name)] != '@')
-                {
-                    continue;
-                }
-                const auto start = std::chrono::steady_clock::now();
-                std::uintptr_t stock = 0;
-                auto result = VertexReuse::Busy;
-                // Do not add a wait on another parse. Native factory writes use this lock exclusively.
-                if (TryAcquireSRWLockShared(s_hardware_shader_lock))
-                {
-                    result = find_equivalent_vertex_guarded(twin, kind, stock);
-                    ReleaseSRWLockShared(s_hardware_shader_lock);
-                }
-                release_hardware_reference(result == VertexReuse::Shared ? twin : stock);
-                const auto elapsed = static_cast<std::uint64_t>(
-                    std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start)
-                        .count());
-                s_vertex_check_us.fetch_add(elapsed, std::memory_order_relaxed);
-                auto maximum = s_vertex_max_us.load(std::memory_order_relaxed);
-                while (maximum < elapsed &&
-                       !s_vertex_max_us.compare_exchange_weak(maximum, elapsed, std::memory_order_relaxed))
-                {
-                }
-                s_vertex_results[static_cast<std::size_t>(result)].fetch_add(1, std::memory_order_relaxed);
-                s_vertex_checks.fetch_add(1, std::memory_order_release);
-                return result == VertexReuse::Shared ? stock : twin;
-            }
-            return twin;
-        }
-
-        /** @brief Logs the DEV vertex-shader reuse counters when a check ran since the last line. Main thread. */
-        void log_vertex_reuse() noexcept
-        {
-            const auto checks = s_vertex_checks.load(std::memory_order_acquire);
-            if (checks == s_vertex_logged_checks)
-            {
-                return;
-            }
-            s_vertex_logged_checks = checks;
-            const auto count = [](VertexReuse result) -> std::uint64_t
-            { return s_vertex_results[static_cast<std::size_t>(result)].load(std::memory_order_relaxed); };
-            (void)DMK::log().try_log(
-                DMK::LogLevel::Debug,
-                "ShaderTwins: DEV vertex reuse: {} checked, {} shared, {} stock missing, {} metadata mismatch, "
-                "{} token mismatch/unavailable, {} lock busy, {} faults; comparison/lookup/release total {} us, "
-                "max {} us",
-                checks, count(VertexReuse::Shared), count(VertexReuse::Missing), count(VertexReuse::Metadata),
-                count(VertexReuse::Tokens), count(VertexReuse::Busy), count(VertexReuse::Fault),
-                s_vertex_check_us.load(std::memory_order_relaxed), s_vertex_max_us.load(std::memory_order_relaxed));
-        }
-#endif
-
         /** @brief Drops one reference to a CShader (IShader::Release, vtable slot 3); nothing for another type. */
         void release_candidate_shader(std::uintptr_t shader) noexcept
         {
@@ -4335,20 +4080,13 @@ namespace TPVCamera
          */
         Invalidate refill(Track &track, trace::RefillReason reason) noexcept
         {
-            trace_event(trace::Event::RefillBegin, track.node, track.binding.temp, 0, 0,
-                        static_cast<std::uint64_t>(reason));
+            trace_event(trace::Event::RefillBegin, track.node, 0, 0, 0, static_cast<std::uint64_t>(reason));
             track.retry = false;
             track.deferred = false;
             drop_records(track.node);
-            if (track.binding.temp != 0 && !stable_track_live(track))
-            {
-                trace_event(trace::Event::RefillEnd, track.node, track.binding.temp, 0, 0,
-                            static_cast<std::uint64_t>(reason), static_cast<std::uint64_t>(Invalidate::NotTheNode));
-                return Invalidate::NotTheNode;
-            }
             const Invalidate result = invalidate_node_guarded(track.node);
-            trace_event(trace::Event::RefillEnd, track.node, track.binding.temp, 0, 0,
-                        static_cast<std::uint64_t>(reason), static_cast<std::uint64_t>(result));
+            trace_event(trace::Event::RefillEnd, track.node, 0, 0, 0, static_cast<std::uint64_t>(reason),
+                        static_cast<std::uint64_t>(result));
             if (result == Invalidate::Fault)
             {
                 s_guard_faults.fetch_add(1, std::memory_order_relaxed);
@@ -4359,7 +4097,7 @@ namespace TPVCamera
         /** @brief Swaps the track's node back: unpublished by the caller, then refilled with the stock shader. */
         void release_track(Track &track, std::uint64_t now, const char *why) noexcept
         {
-            trace_event(trace::Event::TrackReleased, track.node, track.binding.temp, 0, 0, track.activated);
+            trace_event(trace::Event::TrackReleased, track.node, 0, 0, 0, track.activated);
             if (!track.activated)
             {
                 drop_records(track.node);
@@ -5962,7 +5700,6 @@ namespace TPVCamera
                                              coverage.missing > 0 ? "; missing " : "", coverage.missing_text.data());
                 }
 #if defined(TPVCAMERA_DEV_BUILD)
-                log_vertex_reuse();
                 // The DEV clone dry-run of the ready plant and frame twins, inside the boundary and with every mod
                 // mutex released (it takes the HW shader factory's lock without waiting and calls the resource lookup).
                 // What its budget leaves goes on in the next pause with nothing left to create. A failed flush that
@@ -6851,14 +6588,6 @@ namespace TPVCamera
                 if (valid && !s_loading_finalizing.load(std::memory_order_acquire))
                 {
                     opening = state >= 1 && state <= 9;
-                    if constexpr (k_stable_plant_limit > 0)
-                    {
-                        if (opening && !s_level_loading.load(std::memory_order_acquire))
-                        {
-                            const std::lock_guard lock(s_main_mutex);
-                            release_all(GetTickCount64(), "level loading");
-                        }
-                    }
                     if (!opening)
                     {
                         s_level_loading.store(false, std::memory_order_release);
@@ -6909,11 +6638,6 @@ namespace TPVCamera
             } scope{admitted, admitted ? s_loading_save_manager.exchange(manager, std::memory_order_acq_rel) : 0};
             if (admitted)
             {
-                if constexpr (k_stable_plant_limit > 0)
-                {
-                    const std::lock_guard lock(s_main_mutex);
-                    release_all(GetTickCount64(), "save loading");
-                }
                 s_load_epoch.fetch_add(1, std::memory_order_relaxed);
             }
             const bool result = original(manager, chunk, save_path);
@@ -6948,29 +6672,10 @@ namespace TPVCamera
         void update_tracks(std::span<void *const> trees, std::span<void *const> frames, float delta_time,
                            std::uint64_t now) noexcept
         {
-            int stable_count = 0;
-            int live_count = 0;
             for (int i = 0; i < s_track_count; ++i)
             {
-                Track &track = s_tracks[static_cast<std::size_t>(i)];
-                if (track.binding.temp != 0)
-                {
-                    if (!stable_track_live(track))
-                    {
-                        trace_event(trace::Event::BindingExpired, track.node, track.binding.temp);
-                        drop_records(track.node);
-                        // The old association is gone. Do not invalidate a replacement object's render data.
-                        (void)DMK::log().try_log(DMK::LogLevel::Debug,
-                                                 "ShaderTwins: stable binding expired {} (node {:#x}, temp {:#x})",
-                                                 track.name.data(), track.node, track.binding.temp);
-                        continue;
-                    }
-                    ++stable_count;
-                }
-                track.seen = false;
-                s_tracks[static_cast<std::size_t>(live_count++)] = track;
+                s_tracks[static_cast<std::size_t>(i)].seen = false;
             }
-            s_track_count = live_count;
             std::array<void *, Constants::TREE_HOLE_MAX_NODES> nodes{};
             const std::size_t n_frames = std::min(frames.size(), nodes.size());
             const std::size_t listed = n_frames + std::min(trees.size(), nodes.size() - n_frames);
@@ -6988,7 +6693,6 @@ namespace TPVCamera
                 {
                     // The camera rules moved the node between a plant and a frame (a rule whose check gives the other
                     // kind, or new rules), so its twin kind changed: it is swapped off and taken again below.
-                    stable_count -= track.binding.temp != 0 ? 1 : 0;
                     queue_release(track, "kind changed");
                     const auto at = s_tracks.begin() + static_cast<std::ptrdiff_t>(found);
                     std::copy(at + 1, s_tracks.begin() + static_cast<std::ptrdiff_t>(s_track_count), at);
@@ -7014,8 +6718,7 @@ namespace TPVCamera
                     continue;
                 }
                 int slot = -1;
-                // Unclaimed cohort slots must not become extra transient capacity in the comparison.
-                if (s_track_count < Constants::TREE_HOLE_MAX_NODES + stable_count)
+                if (s_track_count < Constants::TREE_HOLE_MAX_NODES)
                 {
                     slot = s_track_count++;
                 }
@@ -7024,7 +6727,7 @@ namespace TPVCamera
                     for (int t = 0; t < s_track_count; ++t)
                     {
                         const Track &candidate = s_tracks[static_cast<std::size_t>(t)];
-                        if (!candidate.seen && candidate.binding.temp == 0 &&
+                        if (!candidate.seen &&
                             (slot < 0 || candidate.hold < s_tracks[static_cast<std::size_t>(slot)].hold))
                         {
                             slot = t;
@@ -7059,50 +6762,11 @@ namespace TPVCamera
                 trace::label(node, track.name.data());
             }
 
-            // Selection can precede native render-data allocation during loading. Retry admission for current
-            // targets without repeating their activation or forcing a refill. A track asks the camera rules whether
-            // its asset is a plant once per rules generation.
-            if constexpr (k_stable_plant_limit > 0)
-            {
-                const std::uint64_t rules = Rules::current_generation();
-                for (int i = 0; i < s_track_count && stable_count < k_stable_plant_limit; ++i)
-                {
-                    Track &track = s_tracks[static_cast<std::size_t>(i)];
-                    if (!track.seen || track.binding.temp != 0 || track.frame || track.merged)
-                    {
-                        continue;
-                    }
-                    if (track.plant_scope_rules != rules)
-                    {
-                        track.plant_scope_rules = rules;
-                        track.plant_scope = (twin_asset_scopes(track.name.data()) & k_scope_plants) != 0;
-                    }
-                    if (!track.plant_scope)
-                    {
-                        continue;
-                    }
-                    track.binding = binding_identity_guarded(track.node);
-                    if (track.binding.temp != 0 && stable_track_live(track))
-                    {
-                        trace_event(trace::Event::BindingAdmitted, track.node, track.binding.temp,
-                                    track.binding.vtable);
-                        ++stable_count;
-                        (void)DMK::log().try_log(DMK::LogLevel::Debug,
-                                                 "ShaderTwins: stable binding admitted {} (node {:#x}, temp {:#x})",
-                                                 track.name.data(), track.node, track.binding.temp);
-                    }
-                    else
-                    {
-                        track.binding = {};
-                    }
-                }
-            }
-
             int kept = 0;
             for (int i = 0; i < s_track_count; ++i)
             {
                 Track &track = s_tracks[static_cast<std::size_t>(i)];
-                if (!track.seen && track.binding.temp == 0)
+                if (!track.seen)
                 {
                     track.hold -= delta_time;
                     if (track.hold <= 0.0f)
@@ -7877,7 +7541,6 @@ namespace TPVCamera
             {
                 const Track &track = s_tracks[static_cast<std::size_t>(i)];
                 set.nodes[static_cast<std::size_t>(i)] = track.node;
-                set.bindings[static_cast<std::size_t>(i)] = track.binding;
                 set.merged[static_cast<std::size_t>(i)] = track.merged;
                 set.origins[static_cast<std::size_t>(i)] = track.origin;
                 set.frames[static_cast<std::size_t>(i)] = track.frame;
@@ -8120,25 +7783,8 @@ namespace TPVCamera
                 return;
             }
             s_last_log_ms = now;
-#if defined(TPVCAMERA_DEV_BUILD)
-            log_vertex_reuse();
-#endif
             log_render_misses();
             log_pause_waits(now);
-            if constexpr (k_stable_plant_limit > 0)
-            {
-                int stable = 0;
-                int outside = 0;
-                for (int i = 0; i < s_track_count; ++i)
-                {
-                    const Track &track = s_tracks[static_cast<std::size_t>(i)];
-                    stable += track.binding.temp != 0 ? 1 : 0;
-                    outside += track.binding.temp != 0 && !track.seen ? 1 : 0;
-                }
-                (void)DMK::log().try_log(DMK::LogLevel::Debug,
-                                         "ShaderTwins: stable bindings {}/{}, {} outside camera list; {} total tracks",
-                                         stable, k_stable_plant_limit, outside, s_track_count);
-            }
             const std::uint32_t swaps = s_item_swaps.exchange(0, std::memory_order_relaxed);
             const std::uint32_t rest_swaps = s_rest_swaps.exchange(0, std::memory_order_relaxed);
             std::array<std::uint32_t, k_kinds> kind_swaps{};
@@ -8401,29 +8047,6 @@ namespace TPVCamera
         DMK_TRY_VOID(
             install_inline_hook(hooks, "ShaderGenLoad", shader_gen, s_shader_gen_original, shader_gen_load_detour));
 #if defined(TPVCAMERA_DEV_BUILD)
-        const auto hardware_factory = gated_anchor_address(Feature::VertexShaderReuse, AnchorId::HardwareShaderForName);
-        const auto hardware_lock_site =
-            gated_anchor_address(Feature::VertexShaderReuse, AnchorId::HardwareShaderLockSite);
-        s_vertex_resource_lookup = reinterpret_cast<ResourceLookupFn>(
-            gated_anchor_address(Feature::VertexShaderReuse, AnchorId::ResourceLookup));
-        if (hardware_factory != 0 && hardware_lock_site != 0 && s_vertex_resource_lookup != nullptr &&
-            site_in_function(hardware_lock_site, hardware_factory))
-        {
-            const auto lock = DMK::scan::resolve_rip_relative(DMK::Address{hardware_lock_site}, 3, 7);
-            if (lock && in_game_image(lock->raw()) && lock->raw() % alignof(SRWLOCK) == 0 &&
-                DMK::memory::is_writable(DMK::Region{*lock, sizeof(SRWLOCK)}))
-            {
-                s_hardware_shader_lock = reinterpret_cast<PSRWLOCK>(lock->raw());
-                DMK_TRY_VOID(install_inline_hook(hooks, "TwinVertexShaderFactory", hardware_factory,
-                                                 s_hardware_for_name_original, hardware_for_name_detour));
-                logger.info("ShaderTwins: DEV vertex reuse enabled for new loading-boundary passes; "
-                            "exact native tokens required; existing parsed passes remain unchanged");
-            }
-        }
-        if (s_hardware_shader_lock == nullptr)
-        {
-            logger.info("ShaderTwins: DEV vertex reuse unavailable; native twin vertex shaders retained");
-        }
         TwinClone::initialize_twin_clone();
 #endif
         DMK_TRY_VOID(install_inline_hook(hooks, "CreatePipelineStates", create_psos, s_create_psos_original,
@@ -8504,12 +8127,6 @@ namespace TPVCamera
                     "clock (under the game menu, a UI overlay or neither), never a dialogue, from {} ms into it, one "
                     "at a time at least {} ms apart, each parse finished by a render-command barrier inside the pause",
                     Constants::SHADER_TWIN_PAUSE_DWELL_MS, Constants::SHADER_TWIN_PAUSE_SPACING_MS);
-        if constexpr (k_stable_plant_limit > 0)
-        {
-            logger.info("ShaderTwins: DEV stable bindings: at most {} non-merged plants outside the camera's target "
-                        "list, with every PSO readiness check",
-                        k_stable_plant_limit);
-        }
         return {};
     }
 

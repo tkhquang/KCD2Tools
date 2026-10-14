@@ -1476,7 +1476,7 @@ namespace TPVCamera::TwinClone
                 }
                 if (stock_pass == twin_pass)
                 {
-                    continue; // the parsed twin shares the stock's object (the DEV vertex reuse)
+                    continue; // the HW shader factory handed the twin the stock's own pass object
                 }
                 const std::pair<std::uintptr_t, std::uintptr_t> key_pair{stock_pass, twin_pass};
                 const auto end = stock_passes.begin() + static_cast<std::ptrdiff_t>(stock_pass_count);

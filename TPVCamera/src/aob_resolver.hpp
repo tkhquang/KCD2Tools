@@ -1368,7 +1368,7 @@ namespace TPVCamera
                                                "48 85 C9 [2-6] 83 C8 FF F0 0F C1 41 1C")),
         };
 #if defined(TPVCAMERA_DEV_BUILD)
-        // The DEV-only HW shader factory anchors (hooks/shader_twins.cpp vertex reuse and hooks/twin_clone.cpp).
+        // The DEV-only HW shader factory anchors (hooks/twin_clone.cpp).
         // CHWShader::mfForName entry (sub_1807E8740; GOG 0x18080D8D0, Game Pass 0x180860E3C), a direct entry hook. It
         // owns one returned reference, which the parser transfers to the new pass. P1 is the prologue through the
         // frame allocation. P2 is the stack-argument loads and register moves after the stack cookie, then the name
@@ -1620,7 +1620,7 @@ namespace TPVCamera
         VegetationGroups,         // the global that holds CObjManager (the level inventory's vegetation groups)
         LevelBrushTables,         // proof of C3DEngine's level statobj and brush material table offsets (not read)
 #if defined(TPVCAMERA_DEV_BUILD)
-        HardwareShaderForName,  // CHWShader::mfForName (DEV vertex reuse and the twin clone's factory)
+        HardwareShaderForName,  // CHWShader::mfForName (the DEV twin clone's factory)
         HardwareShaderLockSite, // the HW shader factory's SRWLOCK lea (an instruction site the consumer decodes)
         TechniqueLayout,        // DEV twin clone: proof of SShaderTechnique's layout (an instruction site, not read)
         ShaderLayout,           // DEV twin clone: proof of CShader's size and layout (an instruction site, not read)
@@ -1678,8 +1678,6 @@ namespace TPVCamera
         TwinInventory,        // Genv, VegetationGroups, LevelBrushTables: the level inventory at loading boundaries
                               // (needs ShaderTwins; without it the twins come from captured materials only)
 #if defined(TPVCAMERA_DEV_BUILD)
-        VertexShaderReuse,    // HardwareShaderForName, HardwareShaderLockSite, ResourceLookup: a new pass reuses an
-                              // identical stock vertex program through the resource registry (needs ShaderTwins)
         TwinCloneDryRun,      // the layout proofs (TechniqueLayout to HardwareShaderCache), the HW shader factory and
                               // its lock, ResourceLookup: the twin clone's read-only dry-run (needs ShaderTwins)
 #endif

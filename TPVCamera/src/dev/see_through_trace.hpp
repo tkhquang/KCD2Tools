@@ -27,8 +27,6 @@ namespace TPVCamera::SeeThroughTrace
         UpdateSkipped,
         TrackAdded,
         TrackRejected,
-        BindingAdmitted,
-        BindingExpired,
         TrackReleased,
         SourceRequest,
         SourceResult,

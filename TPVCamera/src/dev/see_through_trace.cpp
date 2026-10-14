@@ -24,16 +24,13 @@ namespace TPVCamera::SeeThroughTrace
         constexpr std::size_t k_events_per_stream = 8192;
         constexpr std::size_t k_descriptors_per_thread = 2048, k_descriptor_probes = 16;
         constexpr std::array k_names = {
-            "candidate.begin",   "candidate.end",      "candidate.cancelled", "camera.window",
-            "update.skipped",    "track.added",        "track.rejected",      "binding.admitted",
-            "binding.expired",   "track.released",     "source.request",      "source.result",
-            "source.state",      "item.stock",         "item.twin",           "submit.twin.returned",
-            "build.begin",       "compiled.binding",   "build.end",           "build.deferred",
-            "pso.selected.twin", "pso.selected.stock", "record.queued",       "record.lost",
-            "record.received",   "record.replaced",    "record.dropped",      "record.state",
-            "retry.scheduled",   "deferred.scheduled", "refill.begin",        "refill.end",
-            "set.published",     "rows.published",     "rows.disabled",       "rows.write",
-            "pso.slot_state"};
+            "candidate.begin",  "candidate.end",   "candidate.cancelled", "camera.window",        "update.skipped",
+            "track.added",      "track.rejected",  "track.released",      "source.request",       "source.result",
+            "source.state",     "item.stock",      "item.twin",           "submit.twin.returned", "build.begin",
+            "compiled.binding", "build.end",       "build.deferred",      "pso.selected.twin",    "pso.selected.stock",
+            "record.queued",    "record.lost",     "record.received",     "record.replaced",      "record.dropped",
+            "record.state",     "retry.scheduled", "deferred.scheduled",  "refill.begin",         "refill.end",
+            "set.published",    "rows.published",  "rows.disabled",       "rows.write",           "pso.slot_state"};
         static_assert(k_names.size() == static_cast<std::size_t>(Event::Count));
         constexpr bool is_lifecycle(Event event) noexcept
         {
@@ -44,8 +41,6 @@ namespace TPVCamera::SeeThroughTrace
             case Event::CandidateCancelled:
             case Event::TrackAdded:
             case Event::TrackRejected:
-            case Event::BindingAdmitted:
-            case Event::BindingExpired:
             case Event::TrackReleased:
             case Event::SourceRequest:
             case Event::SourceResult:
