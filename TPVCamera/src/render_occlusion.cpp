@@ -270,6 +270,68 @@ namespace TPVCamera
         return static_cast<int>(std::min(count, static_cast<uintptr_t>(Constants::SUBOBJ_MAX)));
     }
 
+    /** @brief How for_each_drawn_submesh() ended. */
+    enum class SubmeshWalk : std::uint8_t
+    {
+        Done,       // every drawn sub-mesh was visited
+        Stopped,    // the visitor stopped the walk
+        Unreadable, // the sub-object vector is implausible: nothing was visited
+        Oversized,  // the vector holds more than SUBOBJ_MAX sub-objects and the whole of it was asked for
+    };
+
+    /**
+     * @brief Visits each drawn sub-mesh of compound statobj @p statobj (one whose root carries no render mesh: a fence
+     *        or gate whose parts are child statobjs) as @p node places it.
+     * @details A sub-object counts when its child statobj is a plausible pointer of the root's class (the same vtable:
+     *          a sub-object that points elsewhere is no mesh part), it is drawn on @p node (subobj_drawn(): not hidden,
+     *          not a shadow proxy, not masked off by the node's hide mask), and its child has a render mesh. At most
+     *          SUBOBJ_MAX sub-objects are walked. POD body: runs in the caller's SEH frame, so @p visit must hold
+     *          nothing that needs unwinding.
+     * @param whole Report a vector longer than SUBOBJ_MAX as Oversized instead of walking its first SUBOBJ_MAX: a
+     *        test that must see every part cannot prove anything from some of them.
+     * @param visit Called as visit(child, child_rmesh, sub_object) for each drawn sub-mesh; true stops the walk.
+     */
+    template <typename Visit>
+    static SubmeshWalk for_each_drawn_submesh(void *node, void *statobj, bool whole, Visit &&visit) noexcept
+    {
+        auto *sb = static_cast<std::byte *>(statobj);
+        const uintptr_t self_vt = *reinterpret_cast<uintptr_t *>(sb);
+        const uintptr_t begin = *reinterpret_cast<uintptr_t *>(sb + Constants::STATOBJ_SUBOBJ_BEGIN_OFFSET);
+        const uintptr_t end = *reinterpret_cast<uintptr_t *>(sb + Constants::STATOBJ_SUBOBJ_END_OFFSET);
+        if (begin == 0 || end <= begin || !DMK::memory::is_plausible_ptr(DMK::Address{begin}) ||
+            (end - begin) % Constants::SUBOBJ_STRIDE != 0)
+        {
+            return SubmeshWalk::Unreadable;
+        }
+        if (whole && (end - begin) / Constants::SUBOBJ_STRIDE > Constants::SUBOBJ_MAX)
+        {
+            return SubmeshWalk::Oversized;
+        }
+        const int count = subobj_count(begin, end);
+        const HideMask mask = hide_mask_of(node);
+        for (int i = 0; i < count; ++i)
+        {
+            auto *so = reinterpret_cast<std::byte *>(begin + static_cast<uintptr_t>(i) * Constants::SUBOBJ_STRIDE);
+            void *child = *reinterpret_cast<void **>(so + Constants::SUBOBJ_PSTATOBJ_OFFSET);
+            if (child == nullptr || !DMK::memory::is_plausible_ptr(DMK::Address{reinterpret_cast<uintptr_t>(child)}) ||
+                *reinterpret_cast<uintptr_t *>(child) != self_vt || !subobj_drawn(so, child, i, mask))
+            {
+                continue;
+            }
+            void *child_rmesh =
+                *reinterpret_cast<void **>(static_cast<std::byte *>(child) + Constants::STATOBJ_RENDERMESH_OFFSET);
+            if (child_rmesh == nullptr)
+            {
+                continue;
+            }
+            if (visit(child, child_rmesh, so))
+            {
+                return SubmeshWalk::Stopped;
+            }
+        }
+        return SubmeshWalk::Done;
+    }
+
     // Compose two row-major Matrix34 affine transforms (each 12 floats, [R|t] with the translation in column 3):
     // out applies b then a, so out * v == a * (b * v). Folds a compound statobj's sub-object local transform
     // into the parent brush world transform before a sub-mesh's vertices are projected.
@@ -684,39 +746,13 @@ namespace TPVCamera
             {
                 return mesh_two_sided(rmesh);
             }
-            const uintptr_t self_vt = *reinterpret_cast<uintptr_t *>(sb);
-            const uintptr_t begin = *reinterpret_cast<uintptr_t *>(sb + Constants::STATOBJ_SUBOBJ_BEGIN_OFFSET);
-            const uintptr_t end = *reinterpret_cast<uintptr_t *>(sb + Constants::STATOBJ_SUBOBJ_END_OFFSET);
-            if (begin == 0 || end <= begin || (end - begin) % Constants::SUBOBJ_STRIDE != 0)
-            {
-                return true;
-            }
-            const int count = subobj_count(begin, end);
-            const HideMask mask = hide_mask_of(node);
             bool drawn = false;
-            for (int i = 0; i < count; ++i)
+            const auto two_sided = [&drawn](void *, void *child_rmesh, const std::byte *)
             {
-                const auto *so =
-                    reinterpret_cast<const std::byte *>(begin + static_cast<uintptr_t>(i) * Constants::SUBOBJ_STRIDE);
-                void *child = *reinterpret_cast<void *const *>(so + Constants::SUBOBJ_PSTATOBJ_OFFSET);
-                if (child == nullptr || *reinterpret_cast<uintptr_t *>(child) != self_vt ||
-                    !subobj_drawn(so, child, i, mask))
-                {
-                    continue;
-                }
-                const auto *child_rmesh = *reinterpret_cast<const std::byte *const *>(
-                    reinterpret_cast<std::byte *>(child) + Constants::STATOBJ_RENDERMESH_OFFSET);
-                if (child_rmesh == nullptr)
-                {
-                    continue;
-                }
                 drawn = true;
-                if (mesh_two_sided(child_rmesh))
-                {
-                    return true;
-                }
-            }
-            return !drawn;
+                return mesh_two_sided(static_cast<const std::byte *>(child_rmesh));
+            };
+            return for_each_drawn_submesh(node, statobj, false, two_sided) != SubmeshWalk::Done || !drawn;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -2193,42 +2229,17 @@ namespace TPVCamera
             }
             return mesh_crosses(statobj, rmesh, local, n, budget, mod_lo, mod_hi, nearest, limit);
         }
-        // Compound statobj: test each child sub-mesh under the node matrix folded with the sub-object transform.
-        auto *sb = reinterpret_cast<std::byte *>(statobj);
-        const uintptr_t self_vt = *reinterpret_cast<uintptr_t *>(sb);
-        const uintptr_t begin = *reinterpret_cast<uintptr_t *>(sb + Constants::STATOBJ_SUBOBJ_BEGIN_OFFSET);
-        const uintptr_t end = *reinterpret_cast<uintptr_t *>(sb + Constants::STATOBJ_SUBOBJ_END_OFFSET);
-        if (begin == 0 || end <= begin || !DMK::memory::is_plausible_ptr(DMK::Address{begin}) ||
-            (end - begin) % Constants::SUBOBJ_STRIDE != 0)
-        {
-            return -1;
-        }
-        const int count = subobj_count(begin, end);
-        if (limit != nullptr && (end - begin) / Constants::SUBOBJ_STRIDE > Constants::SUBOBJ_MAX)
-        {
-            limit->incomplete = true;
-            return -1;
-        }
-        const HideMask mask = hide_mask_of(node);
+        // Compound statobj: test each child sub-mesh under the node matrix folded with the sub-object transform. With
+        // a limit (the fence measurement) every part must be tested for the result to prove anything, so a part that
+        // cannot be tested, an oversized vector or the spent limit abandons the test as incomplete.
         int result = -1;
-        for (int i = 0; i < count; ++i)
+        bool abandoned = false;
+        const auto test_part = [&](void *child, void *child_rmesh, const std::byte *so)
         {
             if (mesh_limit_reached(limit))
             {
-                return -1;
-            }
-            auto *so = reinterpret_cast<std::byte *>(begin + static_cast<uintptr_t>(i) * Constants::SUBOBJ_STRIDE);
-            void *child = *reinterpret_cast<void **>(so + Constants::SUBOBJ_PSTATOBJ_OFFSET);
-            if (child == nullptr || !DMK::memory::is_plausible_ptr(DMK::Address{reinterpret_cast<uintptr_t>(child)}) ||
-                *reinterpret_cast<uintptr_t *>(child) != self_vt || !subobj_drawn(so, child, i, mask))
-            {
-                continue;
-            }
-            void *child_rmesh =
-                *reinterpret_cast<void **>(reinterpret_cast<std::byte *>(child) + Constants::STATOBJ_RENDERMESH_OFFSET);
-            if (child_rmesh == nullptr)
-            {
-                continue;
+                abandoned = true;
+                return true;
             }
             float sub_world[12];
             mat34_compose(world, reinterpret_cast<const float *>(so + Constants::SUBOBJ_TM_OFFSET), sub_world);
@@ -2237,23 +2248,28 @@ namespace TPVCamera
                 if (limit != nullptr)
                 {
                     limit->incomplete = true;
-                    return -1;
+                    abandoned = true;
+                    return true;
                 }
-                continue;
+                return false;
             }
             const int r = mesh_crosses(child, child_rmesh, local, n, budget, mod_lo, mod_hi, nearest, limit);
             if (limit != nullptr && (r < 0 || budget <= 0))
             {
                 limit->incomplete = true;
-                return -1;
-            }
-            if (r == 1 && nearest == nullptr)
-            {
-                return 1;
+                abandoned = true;
+                return true;
             }
             result = std::max(result, r);
+            return r == 1 && nearest == nullptr;
+        };
+        const SubmeshWalk walk = for_each_drawn_submesh(node, statobj, limit != nullptr, test_part);
+        if (walk == SubmeshWalk::Oversized)
+        {
+            limit->incomplete = true;
+            return -1;
         }
-        return result;
+        return (walk == SubmeshWalk::Unreadable || abandoned) ? -1 : result;
     }
 
     /** @brief Tests each current visible slot. Unreadable / animated geometry cannot prove an opening. */
@@ -3265,39 +3281,14 @@ namespace TPVCamera
         {
             return measure_mesh(statobj, rmesh, s_mod_lo, s_mod_hi);
         }
-        const uintptr_t self_vt = *reinterpret_cast<uintptr_t *>(sb);
-        const uintptr_t begin = *reinterpret_cast<uintptr_t *>(sb + Constants::STATOBJ_SUBOBJ_BEGIN_OFFSET);
-        const uintptr_t end = *reinterpret_cast<uintptr_t *>(sb + Constants::STATOBJ_SUBOBJ_END_OFFSET);
-        if (begin == 0 || end <= begin || (end - begin) % Constants::SUBOBJ_STRIDE != 0)
-        {
-            return -1;
-        }
-        const int count = subobj_count(begin, end);
-        const HideMask mask = hide_mask_of(node);
         int result = -1;
-        for (int i = 0; i < count; ++i)
+        const auto measure_part = [&result](void *child, void *child_rmesh, const std::byte *)
         {
-            auto *so = reinterpret_cast<std::byte *>(begin + static_cast<uintptr_t>(i) * Constants::SUBOBJ_STRIDE);
-            void *child = *reinterpret_cast<void **>(so + Constants::SUBOBJ_PSTATOBJ_OFFSET);
-            if (child == nullptr || *reinterpret_cast<uintptr_t *>(child) != self_vt ||
-                !subobj_drawn(so, child, i, mask))
-            {
-                continue;
-            }
-            void *child_rmesh = *reinterpret_cast<void **>(reinterpret_cast<std::byte *>(child) +
-                                                           Constants::STATOBJ_RENDERMESH_OFFSET);
-            if (child_rmesh == nullptr)
-            {
-                continue;
-            }
             const int r = measure_mesh(child, child_rmesh, s_mod_lo, s_mod_hi);
-            if (r == 1)
-            {
-                return 1;
-            }
             result = std::max(result, r);
-        }
-        return result;
+            return r == 1;
+        };
+        return for_each_drawn_submesh(node, statobj, false, measure_part) == SubmeshWalk::Unreadable ? -1 : result;
     }
 
     /**
