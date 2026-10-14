@@ -627,6 +627,8 @@ namespace HenrySenses::constants
     // shadow-map pass. Only the general pass receives the silhouette word.
     inline constexpr std::ptrdiff_t PASS_INFO_RECURSION_OFFSET = 0x01;
     inline constexpr std::ptrdiff_t PASS_INFO_SHADOW_OFFSET = 0x02;
+    // bool: the pass renders an auxiliary window (the stock IsGeneralPass test excludes it with the two above).
+    inline constexpr std::ptrdiff_t PASS_INFO_AUX_WINDOW_OFFSET = 0x2D;
     // i32 frame id (CStatObj::RenderInternal stores it as the statobj's last rendered frame).
     inline constexpr std::ptrdiff_t PASS_INFO_FRAME_ID_OFFSET = 0x0C;
     // const CCamera * of the pass. The camera's world position is the translation column of its Matrix34 at +0

@@ -2894,6 +2894,40 @@ namespace HenrySenses
             return true;
         }
 
+        // The main view camera's position, recorded once per frame from a general pass (see main_camera_position()).
+        std::atomic<std::int32_t> s_camera_frame{-1};
+        std::atomic<float> s_camera_x{0.0f};
+        std::atomic<float> s_camera_y{0.0f};
+        std::atomic<float> s_camera_z{0.0f};
+        std::atomic<std::uint64_t> s_camera_stamp_ms{0};
+
+        /**
+         * @brief Records the pass camera's position the first time a general pass of a new frame reaches the hook.
+         * @details Two threads may both record the same frame; they store the same values. Lock-free, no SEH: the pass
+         *          info is engine-owned and valid for the call, and the camera is read through the guarded reader.
+         */
+        void record_main_camera(const std::uint8_t *pass) noexcept
+        {
+            const auto frame = *reinterpret_cast<const std::int32_t *>(pass + constants::PASS_INFO_FRAME_ID_OFFSET);
+            if (s_camera_frame.load(std::memory_order_relaxed) == frame)
+            {
+                return;
+            }
+            s_camera_frame.store(frame, std::memory_order_relaxed);
+            const auto camera = *reinterpret_cast<const std::uintptr_t *>(pass + constants::PASS_INFO_CAMERA_OFFSET);
+            const auto x = DMK::memory::read<float>(DMK::Address{camera + constants::CAMERA_POSITION_X_OFFSET});
+            const auto y = DMK::memory::read<float>(DMK::Address{camera + constants::CAMERA_POSITION_Y_OFFSET});
+            const auto z = DMK::memory::read<float>(DMK::Address{camera + constants::CAMERA_POSITION_Z_OFFSET});
+            if (!x || !y || !z || !std::isfinite(*x) || !std::isfinite(*y) || !std::isfinite(*z))
+            {
+                return;
+            }
+            s_camera_x.store(*x, std::memory_order_relaxed);
+            s_camera_y.store(*y, std::memory_order_relaxed);
+            s_camera_z.store(*z, std::memory_order_relaxed);
+            s_camera_stamp_ms.store(GetTickCount64(), std::memory_order_release);
+        }
+
         /**
          * @brief P3: adds the silhouette flags to every entity's SRendParams for the general pass, and the node's
          *        silhouette word when it has one.
@@ -2921,6 +2955,10 @@ namespace HenrySenses
                     herb_outline_on_render(pass_info);
                 }
                 return;
+            }
+            if (pass[constants::PASS_INFO_AUX_WINDOW_OFFSET] == 0)
+            {
+                record_main_camera(pass);
             }
             const auto base = reinterpret_cast<std::uintptr_t>(params);
             auto *const slot =
@@ -4997,6 +5035,21 @@ namespace HenrySenses
     std::uint64_t focus_coverage_frames() noexcept
     {
         return s_focus_frames.load(std::memory_order_relaxed);
+    }
+
+    std::optional<game_structures::Vec3f> main_camera_position() noexcept
+    {
+        constexpr std::uint64_t max_age_ms = 500;
+        const std::uint64_t stamp = s_camera_stamp_ms.load(std::memory_order_acquire);
+        if (stamp == 0 || GetTickCount64() - stamp > max_age_ms)
+        {
+            return std::nullopt;
+        }
+        return game_structures::Vec3f{
+            s_camera_x.load(std::memory_order_relaxed),
+            s_camera_y.load(std::memory_order_relaxed),
+            s_camera_z.load(std::memory_order_relaxed)
+        };
     }
 
     void publish_silhouette_params(const SilhouetteFrameParams &params) noexcept

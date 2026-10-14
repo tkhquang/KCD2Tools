@@ -24,6 +24,7 @@
 #ifndef HENRYSENSES_ENGINE_SILHOUETTE_HPP
 #define HENRYSENSES_ENGINE_SILHOUETTE_HPP
 
+#include "game_structures.hpp"
 #include "hooks/hook_set.hpp"
 
 #include <DetourModKit/error.hpp>
@@ -31,6 +32,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 
@@ -152,6 +154,17 @@ namespace HenrySenses
 
     /** @brief Frames the focus coverage mask was drawn in (diagnostics). */
     [[nodiscard]] std::uint64_t focus_coverage_frames() noexcept;
+
+    /**
+     * @brief The main view camera's world position, recorded by the entity render hook once per frame.
+     * @details The engine measures a node's draw distance from this camera, which a third-person camera mod can put
+     *          many metres behind the player. Empty before the first general pass, or when the last record is older
+     *          than half a second (no entity rendered, or the hook is disarmed). The three coordinates are separate
+     *          atomics, so a read that races a record can mix two consecutive frames; the camera moves far less than a
+     *          metre between them.
+     * @note Any thread.
+     */
+    [[nodiscard]] std::optional<game_structures::Vec3f> main_camera_position() noexcept;
 
     /**
      * @brief Logs the pipeline, stage, hook and counter state (the state report).

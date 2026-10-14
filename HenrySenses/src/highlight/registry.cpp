@@ -77,9 +77,13 @@ namespace HenrySenses
         std::unordered_set<EntityId> s_wanted_ids;
         std::unordered_map<EntityId, std::size_t> s_entry_slots;
 
-        // The engine measures a node's draw distance from the camera, which sits behind the player in third person. The
-        // marker starts this many metres early, so a camera up to that far back never shows a culled mesh without it.
-        constexpr float REACH_MARGIN = 5.0f;
+        // The engine measures a node's draw distance from the main view camera to the node's box (times the pass zoom,
+        // 1 on the main pass), and a third-person camera mod puts that camera wherever it likes: up to 12 m behind the
+        // eye in TPVCamera's presets. The reach check measures from the recorded camera, and this margin only covers
+        // the camera moving between its record and the batch.
+        constexpr float REACH_MARGIN = 1.0f;
+        // Without a recorded camera the player's distance stands in, plus the farthest a third-person camera sits back.
+        constexpr float REACH_MARGIN_FROM_PLAYER = 13.0f;
 
         // Number of fade steps; a word changes (and a persistent render object is invalidated) only on a step change.
         constexpr float FADE_STEPS = 8.0f;
@@ -313,22 +317,41 @@ namespace HenrySenses
         }
 
         /**
+         * @brief Returns the main view camera's distance to an entity.
+         * @return The distance in metres, negative when the camera position or the entity position is unknown.
+         */
+        [[nodiscard]] float camera_distance(std::uintptr_t entity, const ApplyOptions &options) noexcept
+        {
+            if (!options.camera_position.has_value())
+            {
+                return -1.0f;
+            }
+            const std::optional<game_structures::Vec3f> position = entity_world_position(entity);
+            return position.has_value() ? distance_between(*options.camera_position, *position) : -1.0f;
+        }
+
+        /**
          * @brief Reads again whether an entry's mesh is past the engine's draw distance, and logs a change.
          * @details A silhouette shows only on a mesh that the engine draws, and update_render_node_overrides() raises
          *          the draw distance of every outlined node past any radius. The check catches a node that the raise
          *          does not reach, such as a node that the engine keeps in its own always-visible list. Such an entry
          *          shows its marker. The engine measures from the camera to the node's box, scaled by the zoom. The
-         *          player's distance to the entity plus REACH_MARGIN stands in for that measure.
+         *          camera's distance to the entity plus REACH_MARGIN stands in for that measure, or the player's
+         *          distance plus REACH_MARGIN_FROM_PLAYER before a camera position is recorded.
          * @param entry The entry.
          * @param node Its node, resolved this tick (0: none).
          * @param distance The player's distance to the entity, negative when unknown.
+         * @param from_camera The camera's distance to the entity, negative when unknown.
          * @param outlined The entry shows a silhouette: words are written and its group's Style is not Box.
          * @note Main thread only.
          */
-        void note_reach(Entry &entry, std::uintptr_t node, float distance, bool outlined)
+        void note_reach(Entry &entry, std::uintptr_t node, float distance, float from_camera, bool outlined)
         {
+            const float measured = from_camera >= 0.0f
+                                       ? from_camera + REACH_MARGIN
+                                       : (distance >= 0.0f ? distance + REACH_MARGIN_FROM_PLAYER : -1.0f);
             const std::optional<float> reach =
-                outlined && node != 0 && distance >= 0.0f ? read_max_view_dist(node) : std::nullopt;
+                outlined && node != 0 && measured >= 0.0f ? read_max_view_dist(node) : std::nullopt;
             if (!reach.has_value())
             {
                 // Nothing to measure (no silhouette, no node, no distance): the other marker reasons decide.
@@ -336,7 +359,7 @@ namespace HenrySenses
                 return;
             }
             // A reach that is not a number is never compared true, so it shows the marker too.
-            const bool beyond = !(distance + REACH_MARGIN <= *reach);
+            const bool beyond = !(measured <= *reach);
             if (beyond == entry.beyond_reach)
             {
                 return;
@@ -355,7 +378,7 @@ namespace HenrySenses
                 entity != 0 ? entity_name(entity) : std::string{"-"},
                 beyond ? "past" : "back within",
                 *reach,
-                distance,
+                measured,
                 beyond ? "marker" : "outline"
             );
         }
@@ -496,7 +519,7 @@ namespace HenrySenses
                 always_result = update_render_node_overrides(node, entry.overrides, wants);
             }
             entry.node = node;
-            note_reach(entry, node, entry.distance, words);
+            note_reach(entry, node, entry.distance, camera_distance(entity, options), words);
 
             if (created)
             {
@@ -602,6 +625,7 @@ namespace HenrySenses
                             entry,
                             render_node_of(entity),
                             player_distance(entity, options),
+                            camera_distance(entity, options),
                             options.write_words && entry.style != GroupStyle::Box
                         );
                     }

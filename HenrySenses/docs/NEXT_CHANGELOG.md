@@ -1,5 +1,4 @@
-## [Title for next release]
+## Third-Person Camera Fixes
 
-- New feature
-- Bug fix
-- Improvement
+- Fixed outlines turning into markers on items inside the radius while a third-person camera sits behind Henry.
+- Fixed the game preparing the outline shader again at every start.

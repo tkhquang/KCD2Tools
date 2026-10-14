@@ -24,7 +24,6 @@
 #include <format>
 #include <fstream>
 #include <ios>
-#include <iterator>
 #include <optional>
 #include <string>
 #include <system_error>
@@ -123,17 +122,21 @@ namespace HenrySenses
         }
 
         /**
-         * @brief Writes the embedded binary to @p path unless the file there already holds exactly it.
+         * @brief Writes the embedded binary to @p path unless the file already starts with it.
+         * @details CryEngine appends its parsed parameter data after the binary's string table, so a file the engine
+         *          already loaded is longer than the binary. Only that prefix is compared, and a match keeps the file
+         *          with its appended cache: a rewrite would make the engine parse the shader again at every start.
          * @return An empty string on success, else what went wrong.
          */
         [[nodiscard]] std::string write_binary(const std::filesystem::path &path)
         {
             std::error_code error;
-            if (std::filesystem::file_size(path, error) == SILHOUETTE_SHADER_CFXB.size() && !error)
+            if (const std::uintmax_t size = std::filesystem::file_size(path, error);
+                !error && size >= SILHOUETTE_SHADER_CFXB.size())
             {
                 std::ifstream existing(path, std::ios::binary);
-                const std::vector<char> bytes{std::istreambuf_iterator<char>(existing), {}};
-                if (bytes.size() == SILHOUETTE_SHADER_CFXB.size() &&
+                std::vector<char> bytes(SILHOUETTE_SHADER_CFXB.size());
+                if (existing.read(bytes.data(), static_cast<std::streamsize>(bytes.size())) &&
                     std::equal(
                         bytes.begin(),
                         bytes.end(),
