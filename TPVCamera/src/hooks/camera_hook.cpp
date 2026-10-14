@@ -95,10 +95,10 @@ namespace TPVCamera
      *          the target. The per-frame ease and the static-world throttle bypass share this helper, so the two
      *          cannot drift. While nothing holds the camera in (@p target reaches @p desired), the ease runs on the
      *          shortfall an earlier obstruction left, measured from @p desired, so a zoom or a preset blend moves the
-     *          camera with the desired distance on the same frame. An ease of the distance itself trails the zoom
-     *          along the pivot-to-camera ray, which carries the shoulder offset, so the camera leaves its view axis
-     *          and slides back onto it. A @p delta_time of 0 (the frame's second build) advances no ease, so only
-     *          the pull-in limit and a change of @p desired can move the camera.
+     *          camera with the desired distance on the same frame. The ease does not run on the distance itself
+     *          because that would trail the zoom along the pivot-to-camera ray, which carries the shoulder offset, and
+     *          move the camera off its view axis and back. A @p delta_time of 0 (the frame's second build) advances no
+     *          ease, so only the pull-in limit and a change of @p desired can move the camera.
      * @param target Allowed distance this frame.
      * @param desired Uncollided distance this frame.
      * @param pull_slack Most the pull-in can trail @p target by (meters).
@@ -3095,13 +3095,12 @@ namespace TPVCamera
                 {
                     // The sweep's entTypes (SPWIParams +0x98) is the same 0x101 = static|terrain mask, which the
                     // real PWI (1.5.6 sub_180811680) hands to GetEntitiesAround, so the player's living entity and its
-                    // skeleton / worn-gear articulated entity are not candidates. The player's physics is still
-                    // resolved and skipped as a second guard: a static-class entity the sweep starts inside (with a
-                    // shield on the back) can stop the sphere a few centimeters out while the fan is clear. The probe
-                    // casts in REVERSE (camera -> pivot) because the pivot is inside the body and a
-                    // forward ray exits through a back-face and misses it. The colliders the fan stepped past are
-                    // skipped too, so the sphere does not stop at a faded post. The buffer is our own cap (the
-                    // synchronous PWI walks every nSkipEnts entry).
+                    // skeleton / worn-gear articulated entity are not candidates (the impl passes +0x98 as EAX = 0x101
+                    // at 0x180811D8F). The player's physics resolved below is therefore never a candidate either, so
+                    // skipping it changes no result. The probe casts in REVERSE (camera -> pivot) because the pivot is
+                    // inside the body and a forward ray exits through a back-face and misses it. The colliders the fan
+                    // stepped past are skipped too, so the sphere does not stop at a faded post. The buffer is our own
+                    // cap (the synchronous PWI walks every nSkipEnts entry).
                     uintptr_t skip_ents[4 + Constants::COLLISION_FADE_SKIP_MAX];
                     int n_skip = resolve_player_physics_skip(pivot, to_camera, collision_radius, 0x11F /*ent_all*/,
                                                              Constants::RWI_OBJTYPES_CAMERA,

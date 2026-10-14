@@ -1396,7 +1396,8 @@ namespace TPVCamera
         {
             s_logged_truncation = true;
             DMK::log().warning("RenderOcclusion: the occluder scan around the camera holds more render nodes than it "
-                               "keeps ({} kept); some objects there may not fade",
+                               "keeps ({} kept); an object left out may not fade, a plant or prop left out stops "
+                               "the camera like a wall, and the see-through may miss it",
                                s_scan_count);
         }
     }

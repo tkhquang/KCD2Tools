@@ -23,6 +23,15 @@
 //   row 3: x = near cut strength (0 none, 1 full), y = view depth (metres) nearer than which a pixel goes, z = view
 //          depth beyond which it stays; in between the cut fades out
 //
+// Pass consistency: each listed item reads the rows in exactly one depth-writing pass, and the rows are uploaded once
+// per main-view generation. A prepassed plant reads them only in the Z prepass, and its G-buffer pass is stock with a
+// depth-EQUAL test, so a row change can never leave the depth and the opaque passes disagreeing on a pixel.
+//
+// The only stock reader of the rows is the AA debug technique DebugPostAA, which reads .z of rows 0 and 1 as the
+// projection jitter, so only that debug view shows a wrong subpixel shift. A transposed perspective fill by the engine
+// would zero both gates (row 0 .w and row 3 .x) and leave the hole off. An off-centre orthographic fill would not (its
+// row 0 .w is -(r+l)/(r-l)), which is why the mod checks that every row is still zero before it writes.
+//
 // Only symbols from Common.cfi, FXConstantDefs.cfi and ShadeLib.cfi are used, so the copies need no other include.
 // Each function has a single return (early returns inside branches make fxc warn about an uninitialized result).
 // The amount is precise, like the position it comes from, so the compiler cannot reorder its math differently in

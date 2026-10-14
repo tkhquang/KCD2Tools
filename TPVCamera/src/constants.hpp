@@ -316,8 +316,10 @@ namespace Constants
     //
     // The high word adds an explicit geometry collide-type request: geom_colltype_ray (0x8000 << 16 = 0x80000000) |
     // geom_colltype_player (geom_colltype1 = 0x0002 << 16 = 0x00020000). Fabric tent/awning/stall ROOFS in KCD2 are
-    // static collision-PROXY meshes flagged geom_colltype_player but NOT geom_colltype_ray (MTL_FLAG_COLLISION_PROXY),
-    // so a plain colltype_any ray passes straight through them. Requesting ray|player colltype makes
+    // static collision-PROXY meshes: a render node carrying the ERF_COLLISION_PROXY render flag (0x400000) gets its
+    // physics parts flagged 0x100A (brush) or 0xA (entity) when its physical materials update, which includes
+    // geom_colltype_player but NOT geom_colltype_ray, so a plain colltype_any ray passes straight through them.
+    // Requesting ray|player colltype makes
     // RayWorldIntersection report those proxies, so the camera stops at the cloth: a tent is a structure (objtypes stay
     // RWI_OBJTYPES_CAMERA 0x101).
     // Side effect: the player bit also admits the level's INVISIBLE designer collision volumes (Brush/designer_*.cgf,
@@ -374,8 +376,10 @@ namespace Constants
     // the impl reads +0x9C, the padding before ppcontact.
     constexpr ptrdiff_t SPWI_OFF_ENTTYPES = 0x98;
     constexpr ptrdiff_t SPWI_OFF_PPCONTACT = 0xA0;    // geom_contact** OUT   (CONFIRMED, engine writes *ppcontact)
-    constexpr ptrdiff_t SPWI_OFF_GEOMFLAGSALL = 0xA8; // int                  (tentative: filtering only)
-    constexpr ptrdiff_t SPWI_OFF_GEOMFLAGSANY = 0xAC; // int                  (tentative: filtering only)
+    // int geomFlagsAll / geomFlagsAny (CONFIRMED in 1.5.6: the impl loads +0xA8 with `mov edx,[rsi+0A8h]` at
+    // 0x180811FB3 and tests +0xAC with `test [rsi+0ACh],eax` at 0x180811FE7 against each part's flags; filtering only)
+    constexpr ptrdiff_t SPWI_OFF_GEOMFLAGSALL = 0xA8;
+    constexpr ptrdiff_t SPWI_OFF_GEOMFLAGSANY = 0xAC;
     // int (CONFIRMED: the synchronous path walks all n; only the queued 0x800 path clamps to 4; n<0 = pSkipEnts is the
     // candidate list)
     constexpr ptrdiff_t SPWI_OFF_NSKIPENTS = 0xB8;

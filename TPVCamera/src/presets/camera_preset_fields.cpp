@@ -111,8 +111,9 @@ namespace TPVCamera::Presets
                         "left it.",
                         "Orbit", &CameraPreset::orbit_return_speed, 0.0f, 20.0f, 0.01f),
             float_field("orbit_smoothing", "Orbit Smoothing",
-                        "Smooths the free-look mouse motion (0 = raw/instant, higher = smoother but more lag). "
-                        "Free-look bypasses the engine's own look smoothing, so this adds it back.",
+                        "Smooths free-look motion from the mouse and the gamepad (0 = raw/instant, higher = smoother "
+                        "but more lag). Free-look bypasses the engine's own look smoothing, so this adds it back. It "
+                        "is not applied while you move in free-look.",
                         "Orbit", &CameraPreset::orbit_smoothing, 0.0f, 1.0f, 0.01f),
             bool_field("orbit_level_aim", "Orbit Level Aim",
                        "While free-looking, keep your character's real aim/head level (forward) instead of "
