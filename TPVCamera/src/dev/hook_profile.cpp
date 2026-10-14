@@ -6,9 +6,12 @@
 #include "hook_profile.hpp"
 
 #if defined(TPVCAMERA_DEV_BUILD) && defined(DMK_ENABLE_PROFILING)
+#include "query_ledger.hpp"
+
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <nlohmann/json.hpp>
@@ -24,12 +27,33 @@ namespace TPVCamera::HookProfile
         constexpr std::size_t k_slow_capacity = 4096;
         constexpr std::int64_t k_slow_threshold_us = 1000;
         constexpr std::size_t k_paths = static_cast<std::size_t>(Path::Count);
-        constexpr std::array k_names = {"render.add",          "render.upload",           "pso.dispatch",
-                                        "engine.add.stock",    "engine.add.twin",         "engine.pso.stock",
-                                        "engine.pso.twin",     "engine.pso.passthrough",  "camera.other",
-                                        "engine.camera.other", "engine.pso.twin.forward", "camera.game",
-                                        "engine.camera.game",  "twins.clone.dryrun"};
+        constexpr std::array k_names = {
+            "render.add",
+            "render.upload",
+            "pso.dispatch",
+            "engine.add.stock",
+            "engine.add.twin",
+            "engine.pso.stock",
+            "engine.pso.twin",
+            "engine.pso.passthrough",
+            "camera.other",
+            "engine.camera.other",
+            "engine.pso.twin.forward",
+            "camera.game",
+            "engine.camera.game",
+            "twins.clone.dryrun",
+            "camera.game.repeat",
+            "engine.camera.game.repeat",
+        };
         static_assert(k_names.size() == k_paths);
+        constexpr std::size_t k_counters = static_cast<std::size_t>(Counter::Count);
+        constexpr std::array k_counter_names = {
+            "render.scan_truncated",
+            "twins.untwinned_retry",
+            "collision.sphere_win",
+            "twins.char_build_over_budget",
+        };
+        static_assert(k_counter_names.size() == k_counters);
 
         struct Metric
         {
@@ -75,6 +99,7 @@ namespace TPVCamera::HookProfile
         std::array<std::atomic<DWORD>, k_threads> s_owners{};
         std::atomic<std::size_t> s_claimed{0};
         std::atomic<std::uint64_t> s_unmeasured{0};
+        std::array<std::atomic<std::uint64_t>, k_counters> s_counters{};
         std::int64_t s_frequency = 0;
         std::int64_t s_started = 0;
 
@@ -186,6 +211,71 @@ namespace TPVCamera::HookProfile
             }
             return result;
         }
+
+        /**
+         * @brief The query ledger's totals per tag and kind, and per motion class the frame count, the per-frame
+         *        physics query percentiles and the slowest frame's physics time.
+         */
+        nlohmann::json ledger_json()
+        {
+            const QueryLedger::Snapshot snap = QueryLedger::snapshot();
+            auto totals = nlohmann::json::object();
+            for (std::size_t t = 0; t < QueryLedger::TAG_COUNT; ++t)
+            {
+                auto kinds = nlohmann::json::object();
+                for (std::size_t k = 0; k < QueryLedger::KIND_COUNT; ++k)
+                {
+                    const QueryLedger::TagStats &stats = snap.totals[t][k];
+                    if (stats.calls == 0)
+                    {
+                        continue;
+                    }
+                    kinds[QueryLedger::kind_name(static_cast<QueryLedger::Kind>(k))] = {
+                        {"calls", stats.calls},
+                        {"ticks", stats.ticks},
+                        {"max_ticks", stats.max_ticks},
+                    };
+                }
+                if (!kinds.empty())
+                {
+                    totals[QueryLedger::tag_name(static_cast<QueryLedger::Tag>(t))] = std::move(kinds);
+                }
+            }
+            auto frames = nlohmann::json::object();
+            for (std::size_t m = 0; m < QueryLedger::MOTION_COUNT; ++m)
+            {
+                const auto &bins = snap.physics_per_frame[m];
+                const std::uint64_t count = snap.frames[m];
+                // The smallest bin whose cumulative share reaches the percentile; the last bin is open-ended.
+                const auto percentile = [&](double share) -> std::size_t
+                {
+                    const auto needed = static_cast<std::uint64_t>(std::ceil(share * static_cast<double>(count)));
+                    std::uint64_t seen = 0;
+                    for (std::size_t bin = 0; bin < bins.size(); ++bin)
+                    {
+                        seen += bins[bin];
+                        if (seen >= needed && needed > 0)
+                        {
+                            return bin;
+                        }
+                    }
+                    return 0;
+                };
+                frames[QueryLedger::motion_name(static_cast<QueryLedger::Motion>(m))] = {
+                    {"frames", count},
+                    {"physics_p50", percentile(0.5)},
+                    {"physics_p99", percentile(0.99)},
+                    {"physics_max_bin", percentile(1.0)},
+                    {"max_physics_ticks", snap.max_physics_ticks_per_frame[m]},
+                    {"physics_per_frame_bins", bins},
+                };
+            }
+            return {
+                {"totals", std::move(totals)},
+                {"frames", std::move(frames)},
+                {"frame_query_bins", QueryLedger::FRAME_QUERY_BINS},
+            };
+        }
     } // namespace
 
     void initialize() noexcept
@@ -214,10 +304,32 @@ namespace TPVCamera::HookProfile
         record(Path::EngineOtherFrustum, original, end, 0, 0);
     }
 
-    void record_game_frustum(std::int64_t start, std::int64_t original, std::int64_t end) noexcept
+    void record_game_frustum(std::int64_t start, std::int64_t original, std::int64_t end, bool repeat) noexcept
     {
-        record(Path::GameFrustum, start, end, end - original, 0);
-        record(Path::EngineGameFrustum, original, end, 0, 0);
+        record(repeat ? Path::GameFrustumRepeat : Path::GameFrustum, start, end, end - original, 0);
+        record(repeat ? Path::EngineGameFrustumRepeat : Path::EngineGameFrustum, original, end, 0, 0);
+    }
+
+    void count(Counter counter) noexcept
+    {
+        const auto index = static_cast<std::size_t>(counter);
+        if (index < k_counters)
+        {
+            s_counters[index].fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+
+    std::int64_t stamp() noexcept
+    {
+        return now();
+    }
+
+    void count_slower_than(Counter counter, std::int64_t started, std::int64_t limit_us) noexcept
+    {
+        if (s_frequency > 0 && now() - started > s_frequency * limit_us / 1000000)
+        {
+            count(counter);
+        }
     }
 
     Scope::~Scope() noexcept
@@ -241,7 +353,7 @@ namespace TPVCamera::HookProfile
         {
             const auto ended = now();
             nlohmann::json result = {
-                {"schema", 2},
+                {"schema", 3},
                 {"qpc_frequency", s_frequency},
                 {"start_qpc", s_started},
                 {"end_qpc", ended},
@@ -269,6 +381,13 @@ namespace TPVCamera::HookProfile
                   {"twins.clone.dryrun", {"exact", "allowed", "mismatch", "not_compared"}},
                   {"engine.*", {"success", "failure"}}}},
                 {"threads", nlohmann::json::array()}};
+            auto counters = nlohmann::json::object();
+            for (std::size_t i = 0; i < k_counters; ++i)
+            {
+                counters[k_counter_names[i]] = s_counters[i].load(std::memory_order_relaxed);
+            }
+            result["counters"] = std::move(counters);
+            result["query_ledger"] = ledger_json();
             for (std::size_t i = 0; i < k_threads; ++i)
             {
                 // A thread claims the slot its id probes to, so the claimed slots are scattered.

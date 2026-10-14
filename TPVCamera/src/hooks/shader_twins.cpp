@@ -1530,6 +1530,7 @@ namespace TPVCamera
             {
                 return;
             }
+            HookProfile::count(HookProfile::Counter::UntwinnedRetry);
             (void)collect_candidate(item, kind, 2, false);
         }
 
@@ -2901,6 +2902,7 @@ namespace TPVCamera
                                                       std::uintptr_t root) noexcept
         {
             DMK_PROFILE_SCOPE("twins.warming_build");
+            const std::int64_t build_started = HookProfile::stamp();
             const std::uintptr_t twin_shader =
                 s_warm_twins[static_cast<std::size_t>(slot)].load(std::memory_order_relaxed);
             const std::uintptr_t source = *reinterpret_cast<const std::uintptr_t *>(desc);
@@ -2911,6 +2913,8 @@ namespace TPVCamera
             }
             const PsoPair pair =
                 build_pair(original, pipeline, psos, desc, cache, twin_shader, source, PairUse::Character);
+            HookProfile::count_slower_than(HookProfile::Counter::CharBuildOverBudget, build_started,
+                                           Constants::TREE_HOLE_TWIN_BUILD_BUDGET_US);
             s_warming_builds.fetch_add(1, std::memory_order_relaxed);
             PsoRecord record = hold_record(psos, desc, twin_shader, root, pair);
             record.origin = WarmOrigin::Warming;
@@ -2959,6 +2963,7 @@ namespace TPVCamera
             case Claim::New:
             {
                 DMK_PROFILE_SCOPE("twins.fade_ahead_build");
+                const std::int64_t build_started = HookProfile::stamp();
                 std::array<std::uint8_t, Constants::PSO_DESC_SIZE> stock_desc = twin_desc;
                 std::memcpy(stock_desc.data(), &source, sizeof(source));
                 PsoRecord record{
@@ -2980,6 +2985,8 @@ namespace TPVCamera
                     const auto at = static_cast<std::size_t>(i);
                     record.slots |= (record.twin[at] != 0 || record.stock[at] != 0) ? (1u << i) : 0u;
                 }
+                HookProfile::count_slower_than(HookProfile::Counter::CharBuildOverBudget, build_started,
+                                               Constants::TREE_HOLE_TWIN_BUILD_BUDGET_US);
                 s_ahead_builds.fetch_add(1, std::memory_order_relaxed);
                 hand_over_warm_record(record);
                 break;

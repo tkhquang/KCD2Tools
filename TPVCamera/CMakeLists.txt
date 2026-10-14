@@ -123,6 +123,7 @@ endif()
 # --- Source Files ---
 set(COMMON_SOURCES
   src/dev/hook_profile.cpp
+  src/dev/query_ledger.cpp
   src/dev/see_through_trace.cpp
   src/aob_resolver.cpp
   src/camera_rules.cpp

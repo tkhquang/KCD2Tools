@@ -81,8 +81,9 @@ namespace TPVCamera
         }
     }
 
-    std::optional<RayHit> ray_world_intersection(const Vector3 &origin, const Vector3 &direction, int objtypes,
-                                                 unsigned int flags, const uintptr_t *skip_ents, int n_skip_ents)
+    std::optional<RayHit> ray_world_intersection(QueryLedger::Tag tag, const Vector3 &origin, const Vector3 &direction,
+                                                 int objtypes, unsigned int flags, const uintptr_t *skip_ents,
+                                                 int n_skip_ents)
     {
         if (s_ray_world_intersection == nullptr || s_physical_world_global_addr == 0)
         {
@@ -99,9 +100,11 @@ namespace TPVCamera
         alignas(16) std::byte hit_buffer[Constants::RAY_HIT_SIZE];
         std::memset(hit_buffer, 0, sizeof(hit_buffer));
 
+        const std::int64_t ledger_started = QueryLedger::begin();
         const int hit_count = ray_world_intersection_guarded(
             reinterpret_cast<void *>(*world_value), &origin, &direction, objtypes, flags, hit_buffer,
             const_cast<uintptr_t *>(skip_ents), (skip_ents != nullptr) ? n_skip_ents : 0);
+        QueryLedger::end(tag, QueryLedger::Kind::Physics, ledger_started);
         if (hit_count < 1)
         {
             return std::nullopt;
@@ -160,8 +163,9 @@ namespace TPVCamera
         }
     }
 
-    std::optional<RayHit> sphere_world_sweep(const Vector3 &origin, float radius, const Vector3 &sweep, int objtypes,
-                                             const uintptr_t *p_skip_ents, int n_skip_ents)
+    std::optional<RayHit> sphere_world_sweep(QueryLedger::Tag tag, const Vector3 &origin, float radius,
+                                             const Vector3 &sweep, int objtypes, const uintptr_t *p_skip_ents,
+                                             int n_skip_ents)
     {
         DMK_PROFILE_SCOPE("phys.pwi_sphere");
         // One-time resolution diagnostics so the verify log can tell "PWI unavailable" (call path broken)
@@ -261,7 +265,9 @@ namespace TPVCamera
         *reinterpret_cast<int *>(params + Constants::SPWI_OFF_LOCK_IACTIVE) = 0;
         *reinterpret_cast<void **>(params + Constants::SPWI_OFF_LOCK_PRW) = params + Constants::SPWI_OFF_LOCK_IACTIVE;
 
+        const std::int64_t ledger_started = QueryLedger::begin();
         const float distance = primitive_world_intersection_guarded(fn, reinterpret_cast<void *>(world), params);
+        QueryLedger::end(tag, QueryLedger::Kind::Physics, ledger_started);
 
         // Release the WriteLockCond exactly as the engine's own caller does: InterlockedAdd(prw, -iActive),
         // reading both back from the struct AFTER the call. If the engine took a real (global) lock it
@@ -286,8 +292,8 @@ namespace TPVCamera
         return hit;
     }
 
-    std::optional<RayHit> ray_fan_sweep(const Vector3 &origin, const Vector3 &sweep, float radius, int objtypes,
-                                        unsigned int flags, const uintptr_t *skip_ents, int n_skip_ents)
+    std::optional<RayHit> ray_fan_sweep(QueryLedger::Tag tag, const Vector3 &origin, const Vector3 &sweep, float radius,
+                                        int objtypes, unsigned int flags, const uintptr_t *skip_ents, int n_skip_ents)
     {
         DMK_PROFILE_SCOPE("phys.ray_fan");
         const float len = sweep.magnitude();
@@ -310,7 +316,7 @@ namespace TPVCamera
         if (rlen < 1e-4f)
         {
             // Degenerate: fall back to the single centre ray.
-            return ray_world_intersection(origin, sweep, objtypes, flags, skip_ents, n_skip_ents);
+            return ray_world_intersection(tag, origin, sweep, objtypes, flags, skip_ents, n_skip_ents);
         }
         right = right / rlen;
         const Vector3 up = right.cross(dir); // already unit (right and dir are orthonormal)
@@ -322,7 +328,7 @@ namespace TPVCamera
         std::optional<RayHit> best;
         for (const Vector3 &off : offsets)
         {
-            const auto h = ray_world_intersection(origin + off, sweep, objtypes, flags, skip_ents, n_skip_ents);
+            const auto h = ray_world_intersection(tag, origin + off, sweep, objtypes, flags, skip_ents, n_skip_ents);
             if (h.has_value() && (!best.has_value() || h->m_distance < best->m_distance))
             {
                 best = h;
@@ -392,7 +398,7 @@ namespace TPVCamera
         for (const Vector3 &off : offsets)
         {
             const Vector3 o = camera + off;
-            const auto h_all = ray_world_intersection(o, back, objtypes_all, flags);
+            const auto h_all = ray_world_intersection(QueryLedger::Tag::SkipResolver, o, back, objtypes_all, flags);
             if (!h_all.has_value() || h_all->m_collider == 0)
             {
                 continue;
@@ -400,7 +406,7 @@ namespace TPVCamera
             // A non-world entity (player body, worn gear, NPC) is invisible to the world-only mask: collect it
             // only when the all-types hit is nearer than the world hit (or the world ray misses). World geometry
             // appears in BOTH casts at the same range, so it is never collected - we must not skip the world.
-            const auto h_world = ray_world_intersection(o, back, objtypes_world, flags);
+            const auto h_world = ray_world_intersection(QueryLedger::Tag::SkipResolver, o, back, objtypes_world, flags);
             const bool is_non_world = !h_world.has_value() || h_all->m_distance < h_world->m_distance - 0.02f;
             if (!is_non_world)
             {
