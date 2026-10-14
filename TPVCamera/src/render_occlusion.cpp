@@ -67,7 +67,7 @@ namespace TPVCamera
      * @brief Selects the octree query for the engine vtable @p p3d_vtable: the typed one when its slot sits next to
      *        the resolved GetObjectsInBox, else the untyped one.
      * @details The typed query visits only the requested node type instead of every render node in the box; the
-     *          occluder scan issues one per type it keeps, the hit trace one for brushes. Its slot is trusted only
+     *          occluder scan issues one per type it keeps. Its slot is trusted only
      *          while the neighbouring GetObjectsInBox slot holds the anchored entry, since that pins the slot
      *          numbering; both slots must lie in the game image. The decision is logged when it changes. Called
      *          outside any structured-exception frame, before the guarded queries.
@@ -156,12 +156,6 @@ namespace TPVCamera
                                          : s_get_objects_in_box(p3d, bbox, nodes);
         QueryLedger::end(tag, QueryLedger::Kind::Octree, ledger_started, 2);
         return (copied < k_capacity) ? copied : k_capacity;
-    }
-
-    /** @brief query_nodes for brushes (EERType 1). */
-    static std::uint32_t query_brush_nodes(QueryLedger::Tag tag, void *p3d, const float *bbox, void **nodes) noexcept
-    {
-        return query_nodes(tag, p3d, static_cast<std::uint32_t>(Constants::EERTYPE_BRUSH), bbox, nodes);
     }
 
     bool initialize_render_occlusion(uintptr_t module_base, size_t module_size, uintptr_t g_env)
@@ -329,110 +323,6 @@ namespace TPVCamera
         {
             out[0] = '\0';
         }
-    }
-
-    // True if brush @p node's render mesh has a vertex within @p eps of the world-space @p hit. Confirms a
-    // candidate brush is the one a physics ray ACTUALLY hit (its mesh is there), not merely a neighbour whose
-    // bbox contains the point. Reads the render mesh's decoded position buffer (GetPosPtr slot, FSL_READ),
-    // transforms by the CBrush world matrix, scans EVERY vertex with an early-out (a sampled scan can miss a thin
-    // pole's nearest vertex between the sampled indices; the reads are raw, so a full scan is cheap).
-    static bool mesh_has_vertex_near(void *rmesh, const float *M, Vector3 hit, float eps2, uintptr_t mod_lo,
-                                     uintptr_t mod_hi) noexcept
-    {
-        if (rmesh == nullptr)
-        {
-            return false;
-        }
-        const int n_verts =
-            *reinterpret_cast<int *>(reinterpret_cast<std::byte *>(rmesh) + Constants::RENDERMESH_NVERTS_OFFSET);
-        if (n_verts <= 0 || n_verts > Constants::RENDER_OCCLUSION_VERT_MAX)
-        {
-            return false;
-        }
-        void **rm_vt = *reinterpret_cast<void ***>(rmesh);
-        const auto get_pos = reinterpret_cast<GetPosPtrFn>(rm_vt[Constants::RENDERMESH_VTABLE_GETPOSPTR_OFFSET / 8]);
-        const auto get_pos_addr = reinterpret_cast<uintptr_t>(get_pos);
-        if (get_pos_addr < mod_lo || get_pos_addr >= mod_hi)
-        {
-            return false;
-        }
-        int stride = 0;
-        const std::uint8_t *pos = get_pos(rmesh, &stride, Constants::IRENDERMESH_FSL_READ, 0);
-        if (pos == nullptr)
-        {
-            return false;
-        }
-        if (stride <= 0)
-        {
-            stride = 12;
-        }
-        for (int v = 0; v < n_verts; ++v)
-        {
-            const auto *lp = reinterpret_cast<const float *>(pos + static_cast<size_t>(v) * stride);
-            const float lx = lp[0], ly = lp[1], lz = lp[2];
-            const float wx = M[0] * lx + M[1] * ly + M[2] * lz + M[3];
-            const float wy = M[4] * lx + M[5] * ly + M[6] * lz + M[7];
-            const float wz = M[8] * lx + M[9] * ly + M[10] * lz + M[11];
-            const float dx = wx - hit.x, dy = wy - hit.y, dz = wz - hit.z;
-            if (dx * dx + dy * dy + dz * dz < eps2)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // Confirms a candidate brush is the one a physics ray ACTUALLY hit (its mesh is there), not merely a neighbour
-    // whose bbox contains the point. Transforms the brush's verts to world and looks for one within @p eps of the
-    // hit; for a compound statobj (null root mesh) it checks the child sub-meshes the same way (see
-    // the sub-object walk node_crosses uses). POD body (runs in the caller's SEH frame).
-    static bool mesh_near_point(void *node, Vector3 hit, float eps, uintptr_t mod_lo, uintptr_t mod_hi) noexcept
-    {
-        auto *bytes = reinterpret_cast<std::byte *>(node);
-        void *statobj = *reinterpret_cast<void **>(bytes + Constants::CBRUSH_STATOBJ_OFFSET);
-        if (statobj == nullptr)
-        {
-            return false;
-        }
-        const float eps2 = eps * eps;
-        const float *brush_m = reinterpret_cast<const float *>(bytes + Constants::CBRUSH_MATRIX_OFFSET);
-        void *rmesh =
-            *reinterpret_cast<void **>(reinterpret_cast<std::byte *>(statobj) + Constants::STATOBJ_RENDERMESH_OFFSET);
-        if (rmesh != nullptr)
-        {
-            return mesh_has_vertex_near(rmesh, brush_m, hit, eps2, mod_lo, mod_hi);
-        }
-        // Compound statobj: scan the child sub-meshes (same vector layout node_crosses walks).
-        auto *sb = reinterpret_cast<std::byte *>(statobj);
-        const uintptr_t self_vt = *reinterpret_cast<uintptr_t *>(sb);
-        const uintptr_t begin = *reinterpret_cast<uintptr_t *>(sb + Constants::STATOBJ_SUBOBJ_BEGIN_OFFSET);
-        const uintptr_t end = *reinterpret_cast<uintptr_t *>(sb + Constants::STATOBJ_SUBOBJ_END_OFFSET);
-        if (begin == 0 || end <= begin || !DMK::memory::is_plausible_ptr(DMK::Address{begin}) ||
-            (end - begin) % Constants::SUBOBJ_STRIDE != 0)
-        {
-            return false;
-        }
-        const int count = subobj_count(begin, end);
-        const HideMask mask = hide_mask_of(node);
-        for (int i = 0; i < count; ++i)
-        {
-            auto *so = reinterpret_cast<std::byte *>(begin + static_cast<uintptr_t>(i) * Constants::SUBOBJ_STRIDE);
-            void *child = *reinterpret_cast<void **>(so + Constants::SUBOBJ_PSTATOBJ_OFFSET);
-            if (child == nullptr || !DMK::memory::is_plausible_ptr(DMK::Address{reinterpret_cast<uintptr_t>(child)}) ||
-                *reinterpret_cast<uintptr_t *>(child) != self_vt || !subobj_drawn(so, child, i, mask))
-            {
-                continue;
-            }
-            void *child_rmesh =
-                *reinterpret_cast<void **>(reinterpret_cast<std::byte *>(child) + Constants::STATOBJ_RENDERMESH_OFFSET);
-            float world_m[12];
-            mat34_compose(brush_m, reinterpret_cast<const float *>(so + Constants::SUBOBJ_TM_OFFSET), world_m);
-            if (mesh_has_vertex_near(child_rmesh, world_m, hit, eps2, mod_lo, mod_hi))
-            {
-                return true;
-            }
-        }
-        return false;
     }
 
     // IRenderNode::GetEntityStatObj(this, sub-part, Matrix34A* world, bool only_visible) -> IStatObj* (see
@@ -3618,7 +3508,7 @@ namespace TPVCamera
     }
 
     // Bounded C-string copy into a fixed buffer (null-terminates, no <cstring> dependency). A free function, not a
-    // lambda, so it is safe to call inside render_hit_info's structured-exception (__try) frame.
+    // lambda, so it is safe to call inside a structured-exception (__try) frame.
     static void copy_cstr(char *dst, int dst_sz, const char *src) noexcept
     {
         if (dst == nullptr || dst_sz <= 0)
@@ -3633,213 +3523,34 @@ namespace TPVCamera
         dst[k] = '\0';
     }
 
-    /** @brief render_hit_info()'s body, with the rule set in force (or null) for telling excluded brushes apart. */
-    static bool render_hit_info_guarded(const Vector3 &hit_point, void *node, char *out_name, int out_sz, float ext[3],
-                                        int *out_kind, const Rules::RuleSet *rules) noexcept
+    void occluder_rule_where(void *node, char *out, int cap) noexcept
     {
-        if (out_name != nullptr && out_sz > 0)
+        if (out == nullptr || cap <= 0)
         {
-            out_name[0] = '\0';
+            return;
         }
-        ext[0] = ext[1] = ext[2] = 0.0f;
-        if (out_kind != nullptr)
+        out[0] = '\0';
+        if (node == nullptr || s_scan_rules == nullptr)
         {
-            *out_kind = 0; // 0 none, 1 foreign-linked, 2 prop (mesh at hit), 3 solid (bbox only), 4 excluded
+            return;
         }
-        // Resolve the render-engine pointer up front (memory::read is itself guarded); keeping its Result local
-        // out of the structured-exception frame below avoids object-unwinding (MSVC C2712) in the __try.
-        void *p3d_ptr = nullptr;
-        if (s_get_objects_in_box != nullptr && s_p3d_engine_slot_addr != 0)
+        for (int i = 0; i < s_scan_count; ++i)
         {
-            const auto p3d = DMK::memory::read<uintptr_t>(DMK::Address{s_p3d_engine_slot_addr});
-            if (p3d && *p3d != 0 && DMK::memory::is_plausible_ptr(DMK::Address{*p3d}))
+            if (s_scan[i].node != node)
             {
-                const auto vtable = DMK::memory::read<uintptr_t>(DMK::Address{*p3d});
-                if (vtable && s_game_module.contains(DMK::Address{*vtable}))
-                {
-                    refresh_brush_query(*vtable);
-                    p3d_ptr = reinterpret_cast<void *>(*p3d);
-                }
+                continue;
             }
+            // where() builds a std::string, which can throw; the line then goes without it.
+            try
+            {
+                copy_cstr(out, cap, s_scan_rules->where(s_scan[i].verdict.rule).c_str());
+            }
+            catch (...)
+            {
+                out[0] = '\0';
+            }
+            return;
         }
-        __try
-        {
-            // Case 1: the collider carried a foreign render-node link (resolved by the caller). Read it directly.
-            if (node != nullptr)
-            {
-                void **vt = *reinterpret_cast<void ***>(node);
-                const auto vtaddr = reinterpret_cast<uintptr_t>(vt);
-                if (vtaddr >= s_mod_lo && vtaddr < s_mod_hi)
-                {
-                    // Any node type: a runtime-physicalized brush, or a tree whose trunk collider links its
-                    // CVegetation node.
-                    const auto get_bbox =
-                        reinterpret_cast<GetBBoxFn>(vt[Constants::RENDERNODE_VTABLE_GETBBOX_OFFSET / 8]);
-                    float aabb[6] = {};
-                    const float *b = reinterpret_cast<const float *>(get_bbox(node, aabb));
-                    if (b != nullptr)
-                    {
-                        ext[0] = b[3] - b[0];
-                        ext[1] = b[4] - b[1];
-                        ext[2] = b[5] - b[2];
-                    }
-                    name_of_node_guarded(node, out_name, out_sz);
-                    if (out_kind != nullptr)
-                    {
-                        *out_kind = 1;
-                    }
-                    return true;
-                }
-            }
-            // Case 2: no foreign link (baked level physics, e.g. the bird_feeder / a monument). Identify the compact
-            // brush at the hit point: prefer the brush whose mesh is AT the hit, else the smallest brush that contains
-            // it (a compound building, reported so it is identifiable).
-            if (p3d_ptr == nullptr)
-            {
-                return false;
-            }
-            constexpr float m = 0.25f;
-            float bbox[6] = {hit_point.x - m, hit_point.y - m, hit_point.z - m,
-                             hit_point.x + m, hit_point.y + m, hit_point.z + m};
-            void *nodes[Constants::RENDER_OCCLUSION_MAX_NODES];
-            const std::uint32_t count = query_brush_nodes(QueryLedger::Tag::Diagnostic, p3d_ptr, bbox, nodes);
-            if (count == 0)
-            {
-                return false;
-            }
-            // Three tiers, most specific wins: prop (a brush whose MESH is at the hit = the real thin occluder) >
-            // solid (a brush the rules keep that merely contains the hit = a compound building wall, still named) >
-            // excluded (a brush the rules exclude, such as a coarse HLOD block, reported only if nothing better
-            // contains the hit so the log never mislabels a wall as the giant level chunk). Stop early once a prop is
-            // found.
-            char prop_name[160] = {};
-            float prop_ext[3] = {};
-            bool have_prop = false;
-            char solid_name[160] = {};
-            float solid_ext[3] = {};
-            float solid_min = 1e30f;
-            bool have_solid = false;
-            char excluded_name[160] = {};
-            float excluded_ext[3] = {};
-            bool have_excluded = false;
-            for (std::uint32_t i = 0; i < count && !have_prop; ++i)
-            {
-                void *n = nodes[i];
-                if (n == nullptr)
-                {
-                    continue;
-                }
-                const unsigned int rnd_flags = *reinterpret_cast<unsigned int *>(
-                    reinterpret_cast<std::byte *>(n) + Constants::RENDERNODE_RNDFLAGS_OFFSET);
-                if (rnd_flags & Constants::ERF_HIDDEN)
-                {
-                    continue;
-                }
-                void **vt = *reinterpret_cast<void ***>(n);
-                const auto get_type =
-                    reinterpret_cast<GetRenderNodeTypeFn>(vt[Constants::RENDERNODE_VTABLE_GETTYPE_OFFSET / 8]);
-                if (get_type(n) != Constants::EERTYPE_BRUSH)
-                {
-                    continue;
-                }
-                const auto get_bbox =
-                    reinterpret_cast<GetBBoxFn>(vt[Constants::RENDERNODE_VTABLE_GETBBOX_OFFSET / 8]);
-                float aabb[6] = {};
-                const float *b = reinterpret_cast<const float *>(get_bbox(n, aabb));
-                if (b == nullptr)
-                {
-                    continue;
-                }
-                if (hit_point.x < b[0] || hit_point.x > b[3] || hit_point.y < b[1] || hit_point.y > b[4] ||
-                    hit_point.z < b[2] || hit_point.z > b[5])
-                {
-                    continue; // bbox does not contain the hit
-                }
-                const float ex = b[3] - b[0], ey = b[4] - b[1], ez = b[5] - b[2];
-                void *so = *reinterpret_cast<void **>(reinterpret_cast<std::byte *>(n) +
-                                                      Constants::CBRUSH_STATOBJ_OFFSET);
-                char nm[160];
-                copy_brush_name(so, nm, static_cast<int>(sizeof(nm)));
-                const Rules::State state = brush_invisible_guarded(n) ? Rules::State::NoDraw : Rules::State::None;
-                if (rules != nullptr &&
-                    rules->classify(nm, Rules::Kind::Brush, state).behaviour == Rules::Behaviour::Exclude)
-                {
-                    if (!have_excluded)
-                    {
-                        copy_cstr(excluded_name, static_cast<int>(sizeof(excluded_name)), nm);
-                        excluded_ext[0] = ex;
-                        excluded_ext[1] = ey;
-                        excluded_ext[2] = ez;
-                        have_excluded = true;
-                    }
-                    continue;
-                }
-                if (mesh_near_point(n, hit_point, Constants::HIT_MESH_EPS, s_mod_lo, s_mod_hi))
-                {
-                    copy_cstr(prop_name, static_cast<int>(sizeof(prop_name)), nm); // mesh at the hit: real occluder
-                    prop_ext[0] = ex;
-                    prop_ext[1] = ey;
-                    prop_ext[2] = ez;
-                    have_prop = true;
-                    continue;
-                }
-                const float fp = (ex > ey) ? ((ex > ez) ? ex : ez) : ((ey > ez) ? ey : ez);
-                if (!have_solid || fp < solid_min)
-                {
-                    copy_cstr(solid_name, static_cast<int>(sizeof(solid_name)), nm);
-                    solid_ext[0] = ex;
-                    solid_ext[1] = ey;
-                    solid_ext[2] = ez;
-                    solid_min = fp;
-                    have_solid = true;
-                }
-            }
-            const char *chosen = nullptr;
-            const float *chosen_ext = nullptr;
-            int chosen_kind = 0;
-            if (have_prop)
-            {
-                chosen = prop_name;
-                chosen_ext = prop_ext;
-                chosen_kind = 2;
-            }
-            else if (have_solid)
-            {
-                chosen = solid_name;
-                chosen_ext = solid_ext;
-                chosen_kind = 3;
-            }
-            else if (have_excluded)
-            {
-                chosen = excluded_name;
-                chosen_ext = excluded_ext;
-                chosen_kind = 4;
-            }
-            if (chosen != nullptr)
-            {
-                copy_cstr(out_name, out_sz, chosen);
-                ext[0] = chosen_ext[0];
-                ext[1] = chosen_ext[1];
-                ext[2] = chosen_ext[2];
-                if (out_kind != nullptr)
-                {
-                    *out_kind = chosen_kind;
-                }
-                return true;
-            }
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
-        return false;
-    }
-
-    bool render_hit_info(const Vector3 &hit_point, void *node, char *out_name, int out_sz, float ext[3],
-                         int *out_kind) noexcept
-    {
-        const std::shared_ptr<const Rules::RuleSet> rules = Rules::current();
-        return render_hit_info_guarded(hit_point, node, out_name, out_sz, ext, out_kind, rules.get());
     }
 
 } // namespace TPVCamera

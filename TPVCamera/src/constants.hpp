@@ -288,13 +288,6 @@ namespace Constants
     // hit with none of the structure's drawn mesh that close is on collision that draws nothing there (the canvas walls
     // and roof of a tent model that draws only its wooden frame) and is walked past.
     constexpr float COLLISION_DRAWN_REACH = 0.25f;
-    // When the physics hit carries no render-node link (baked static physics, e.g. a shed roof or a columbarium), the
-    // collision trace log (render_hit_info) names the brush at the hit through GetObjectsInBox. A brush's BBOX
-    // containing the hit is NOT enough (a nearby laundry line / designer brush bbox can contain a point on a building's
-    // roof), so a brush is named as the hit object only when its actual MESH is at the hit: a transformed vertex within
-    // this many meters (full vertex scan). The value separates a true hit (a columbarium's nearest vertex lies 0.37m
-    // from the hit) from incidental brushes near a shed-roof hit (nearest vertices 0.67-4.4m away).
-    constexpr float HIT_MESH_EPS = 0.5f;
 
     // entity_query_flags subset (physinterface.h; stock numbering in WHGame's 3DEngine RWI helper, 1.5.6
     // sub_1804846E4: ent_static=1, ent_sleeping_rigid=2, ent_rigid=4, ent_living=8, ent_independent=0x10,
