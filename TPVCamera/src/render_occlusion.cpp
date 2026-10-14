@@ -926,6 +926,26 @@ namespace TPVCamera
     static bool fence_is_wall_guarded(void *node, int &slot) noexcept;
     static bool node_alive(const ScannedNode &s) noexcept;
 
+    /**
+     * @brief The class scanned node @p node takes from its rule's verdict: the behaviour, or the outcome when the check
+     *        the rule asks for fires (a fence or gate no one sees over is a wall; a tent model that draws no cloth is a
+     *        frame, a pole or a rope). POD body: the checks run under their own SEH frames.
+     * @param wall_slot Receives the fence verdict slot of a wall check (see fence_is_wall_guarded()), else -1.
+     */
+    static OccluderClass resolve_class(void *node, const Rules::Verdict &verdict, int &wall_slot) noexcept
+    {
+        wall_slot = -1;
+        if (verdict.check == Rules::Check::Wall)
+        {
+            return class_of(fence_is_wall_guarded(node, wall_slot) ? verdict.outcome : verdict.behaviour);
+        }
+        if (verdict.check == Rules::Check::Bare)
+        {
+            return class_of(draws_two_sided_guarded(node) ? verdict.behaviour : verdict.outcome);
+        }
+        return class_of(verdict.behaviour);
+    }
+
     /** @brief Copies the C string @p name (at most 159 bytes) into @p out. POD body. */
     static void copy_scan_name(const char *name, char *out) noexcept
     {
@@ -1080,7 +1100,6 @@ namespace TPVCamera
                     std::copy_n(bounds, 6, node.bbox);
                     if (node.entity)
                     {
-                        node.wall_slot = -1;
                         char name[160] = {};
                         name_of_node_guarded(node.node, name, sizeof(name));
                         const Rules::State state = entity_is_actor_or_attachment(node.node) ? Rules::State::Actor
@@ -1095,19 +1114,9 @@ namespace TPVCamera
                         {
                             continue;
                         }
-                        node.cls = class_of(node.verdict.behaviour);
                     }
                 }
-                if (node.verdict.check == Rules::Check::Wall)
-                {
-                    node.cls = class_of(fence_is_wall_guarded(node.node, node.wall_slot) ? node.verdict.outcome
-                                                                                         : node.verdict.behaviour);
-                }
-                else if (node.verdict.check == Rules::Check::Bare)
-                {
-                    node.cls =
-                        class_of(draws_two_sided_guarded(node.node) ? node.verdict.behaviour : node.verdict.outcome);
-                }
+                node.cls = resolve_class(node.node, node.verdict, node.wall_slot);
                 s_scan[kept++] = node;
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
@@ -1244,21 +1253,8 @@ namespace TPVCamera
                     {
                         continue;
                     }
-                    // The check a rule asks for picks its behaviour or its outcome: a fence or gate no one sees over
-                    // (a wall), a tent model that draws no cloth (a frame, a pole, a rope).
-                    OccluderClass cls = class_of(verdict.behaviour);
                     int wall_slot = -1;
-                    if (verdict.check == Rules::Check::Wall)
-                    {
-                        if (fence_is_wall_guarded(node, wall_slot))
-                        {
-                            cls = class_of(verdict.outcome);
-                        }
-                    }
-                    else if (verdict.check == Rules::Check::Bare && !draws_two_sided_guarded(node))
-                    {
-                        cls = class_of(verdict.outcome);
-                    }
+                    const OccluderClass cls = resolve_class(node, verdict, wall_slot);
                     ScannedNode &s = out[n++];
                     s.wall_slot = wall_slot;
                     s.node = node;
@@ -1599,6 +1595,16 @@ namespace TPVCamera
     static bool segment_hits_box(const Vector3 &a, const Vector3 &b, const float *box) noexcept
     {
         return segment_box_entry(a, b, box) >= 0.0f;
+    }
+
+    /** @brief The squared distance from @p point to @p box (min xyz, max xyz): 0 inside it. */
+    static float point_box_distance2(const Vector3 &point, const float *box) noexcept
+    {
+        // The point's offset from the box along each axis (0 inside it).
+        const float dx = std::max({box[0] - point.x, 0.0f, point.x - box[3]});
+        const float dy = std::max({box[1] - point.y, 0.0f, point.y - box[4]});
+        const float dz = std::max({box[2] - point.z, 0.0f, point.z - box[5]});
+        return dx * dx + dy * dy + dz * dz;
     }
 
     /** @brief Inverse of a row-major affine Matrix34 (translation in column 3). False when it is singular. */
@@ -2759,8 +2765,7 @@ namespace TPVCamera
                     // A cache slot may have been reused while scanning. Recheck the node's full key before
                     // applying the result, including its current model, scale and hidden parts.
                     int current = -1;
-                    const auto cls =
-                        class_of(fence_is_wall_guarded(s.node, current) ? s.verdict.outcome : s.verdict.behaviour);
+                    const OccluderClass cls = resolve_class(s.node, s.verdict, current);
                     s.wall_slot = current;
                     changed = changed || s.cls != cls;
                     s.cls = cls;
@@ -2834,11 +2839,7 @@ namespace TPVCamera
             {
                 continue;
             }
-            // The point's offset from the box along each axis (0 inside it).
-            const float dx = std::max({s.bbox[0] - point.x, 0.0f, point.x - s.bbox[3]});
-            const float dy = std::max({s.bbox[1] - point.y, 0.0f, point.y - s.bbox[4]});
-            const float dz = std::max({s.bbox[2] - point.z, 0.0f, point.z - s.bbox[5]});
-            if (dx * dx + dy * dy + dz * dz <= reach * reach && node_alive(s))
+            if (point_box_distance2(point, s.bbox) <= reach * reach && node_alive(s))
             {
                 out[n++] = s.node;
             }
@@ -2927,11 +2928,7 @@ namespace TPVCamera
                 bool at_character = false;
                 for (int l = 0; l < n_lines && !at_character; ++l)
                 {
-                    const Vector3 &p = lines[l].to;
-                    const float dx = std::max({s.bbox[0] - p.x, 0.0f, p.x - s.bbox[3]});
-                    const float dy = std::max({s.bbox[1] - p.y, 0.0f, p.y - s.bbox[4]});
-                    const float dz = std::max({s.bbox[2] - p.z, 0.0f, p.z - s.bbox[5]});
-                    at_character = dx * dx + dy * dy + dz * dz < k_entity_near_character2;
+                    at_character = point_box_distance2(lines[l].to, s.bbox) < k_entity_near_character2;
                 }
                 if (at_character)
                 {
