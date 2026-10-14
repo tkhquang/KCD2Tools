@@ -14,7 +14,9 @@
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
+#include <format>
 #include <fstream>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <string>
@@ -30,7 +32,11 @@ namespace TPVCamera::Presets
 
         using json = nlohmann::json;
 
-        constexpr int k_schema_version = 1;
+        // The presets file's schema. Version 1 files may carry orbit_sensitivity and gamepad_orbit_speed as single
+        // keys from before each was split into X and Y axes (a file without "version" is read as version 1); version
+        // 2 files carry the axes only.
+        constexpr int k_schema_version = 2;
+        constexpr int k_schema_split_axes = 2;
 
         /// Canonical built-in order, with the state each binds to.
         struct BuiltinSpec
@@ -99,7 +105,19 @@ namespace TPVCamera::Presets
             return out;
         }
 
-        CameraPreset preset_from_json(const json &in)
+        /** @brief The schema version of a presets document root: its "version", or 1 when it has none. */
+        [[nodiscard]] int schema_version_of(const json &root)
+        {
+            return (root.contains("version") && root["version"].is_number_integer()) ? root["version"].get<int>() : 1;
+        }
+
+        /**
+         * @brief Reads one preset entry of a presets document of schema @p version.
+         * @details Starts at the CameraPreset member defaults and keeps them for any missing key. A key that names
+         *          no field, or a field value of the wrong JSON type, is left out and, when @p issues is given,
+         *          described there for the caller's one warning per load.
+         */
+        CameraPreset preset_from_json(const json &in, int version, std::vector<std::string> *issues)
         {
             CameraPreset preset; // starts at factory defaults
 
@@ -113,20 +131,33 @@ namespace TPVCamera::Presets
             if (in.contains("fields") && in["fields"].is_object())
             {
                 const json &values = in["fields"];
-                for (const PresetField &field : fields())
+                // The single keys a version 1 file may carry from before the per-axis split.
+                constexpr std::string_view k_legacy_axis_keys[] = {"orbit_sensitivity", "gamepad_orbit_speed"};
+                const bool legacy = version < k_schema_split_axes;
+                for (const auto &entry : values.items())
                 {
-                    if (!values.contains(field.key))
+                    const PresetField *field = find_field(entry.key());
+                    if (field == nullptr)
+                    {
+                        const bool legacy_key = legacy && std::ranges::find(k_legacy_axis_keys, entry.key()) !=
+                                                              std::end(k_legacy_axis_keys);
+                        if (!legacy_key && issues != nullptr)
+                            issues->push_back(std::format("{}: unknown key '{}'", preset.name, entry.key()));
                         continue;
-                    const json &v = values[field.key];
-                    if (field.type == FieldType::Float && v.is_number())
-                        preset.*(field.f) = v.get<float>();
-                    else if (field.type == FieldType::Bool && v.is_boolean())
-                        preset.*(field.b) = v.get<bool>();
+                    }
+                    const json &v = entry.value();
+                    if (field->type == FieldType::Float && v.is_number())
+                        preset.*(field->f) = v.get<float>();
+                    else if (field->type == FieldType::Bool && v.is_boolean())
+                        preset.*(field->b) = v.get<bool>();
+                    else if (issues != nullptr)
+                        issues->push_back(std::format("{}: '{}' is not a {}", preset.name, entry.key(),
+                                                      field->type == FieldType::Float ? "number" : "boolean"));
                 }
 
-                // Backward compatibility: orbit_sensitivity / gamepad_orbit_speed were each split into per-axis
-                // X/Y fields. A preset written before the split carries only the old single key; seed BOTH new
-                // axes from it (when neither new key is present) so an existing tune is not silently lost.
+                // Version 1: orbit_sensitivity / gamepad_orbit_speed were each split into per-axis X/Y fields. A
+                // preset written before the split carries only the old single key; seed BOTH new axes from it (when
+                // neither new key is present) so an existing tune is not silently lost.
                 const auto seed_axes_from_legacy = [&values, &preset](const char *legacy_key, const char *x_key,
                                                                       const char *y_key, float CameraPreset::*x,
                                                                       float CameraPreset::*y)
@@ -139,10 +170,13 @@ namespace TPVCamera::Presets
                         preset.*y = v;
                     }
                 };
-                seed_axes_from_legacy("orbit_sensitivity", "orbit_sensitivity_x", "orbit_sensitivity_y",
-                                      &CameraPreset::orbit_sensitivity_x, &CameraPreset::orbit_sensitivity_y);
-                seed_axes_from_legacy("gamepad_orbit_speed", "gamepad_orbit_speed_x", "gamepad_orbit_speed_y",
-                                      &CameraPreset::gamepad_orbit_speed_x, &CameraPreset::gamepad_orbit_speed_y);
+                if (legacy)
+                {
+                    seed_axes_from_legacy("orbit_sensitivity", "orbit_sensitivity_x", "orbit_sensitivity_y",
+                                          &CameraPreset::orbit_sensitivity_x, &CameraPreset::orbit_sensitivity_y);
+                    seed_axes_from_legacy("gamepad_orbit_speed", "gamepad_orbit_speed_x", "gamepad_orbit_speed_y",
+                                          &CameraPreset::gamepad_orbit_speed_x, &CameraPreset::gamepad_orbit_speed_y);
+                }
             }
             return preset;
         }
@@ -199,10 +233,11 @@ namespace TPVCamera::Presets
                 try
                 {
                     const json root = json::parse(k_default_presets_json);
+                    const int version = schema_version_of(root);
                     if (root.contains("presets") && root["presets"].is_array())
                     {
                         for (const json &entry : root["presets"])
-                            out.presets.push_back(preset_from_json(entry));
+                            out.presets.push_back(preset_from_json(entry, version, nullptr));
                     }
                     out.cycle_picks = cycle_picks_from_json(root);
                 }
@@ -374,14 +409,24 @@ namespace TPVCamera::Presets
                     }
                 }
                 loaded_picks = cycle_picks_from_json(root);
+                const int version = schema_version_of(root);
+                std::vector<std::string> issues;
                 if (root.contains("presets") && root["presets"].is_array())
                 {
                     for (const json &entry : root["presets"])
                     {
-                        CameraPreset preset = preset_from_json(entry);
+                        CameraPreset preset = preset_from_json(entry, version, &issues);
                         if (!preset.name.empty())
                             m_presets.push_back(std::move(preset));
                     }
+                }
+                if (!issues.empty())
+                {
+                    // One line per load, so a hand-edited typo is seen without repeating on every frame or save.
+                    std::string listed;
+                    for (const std::string &issue : issues)
+                        listed += (listed.empty() ? "" : "; ") + issue;
+                    logger.warning("Preset file '{}': {} value(s) ignored: {}", file_path, issues.size(), listed);
                 }
                 file_usable = true;
             }
