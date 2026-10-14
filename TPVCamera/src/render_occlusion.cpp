@@ -1381,6 +1381,7 @@ namespace TPVCamera
         const float m = Constants::OCCLUDER_SCAN_MARGIN;
         float qbox[6] = {want[0] - m, want[1] - m, want[2] - m, want[3] + m, want[4] + m, want[5] + m};
         bool truncated = false;
+        HookProfile::count(HookProfile::Counter::ScanFull);
         s_scan_count = scan_nodes_guarded(reinterpret_cast<void *>(*p3d), qbox, *rules, trace, s_scan,
                                           Constants::OCCLUDER_SCAN_MAX, &truncated);
         if (!same_rules)
