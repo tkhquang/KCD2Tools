@@ -41,7 +41,9 @@
 #include "physics_raycast.hpp"
 #include "query_ledger.hpp"
 #include "render_occlusion.hpp"
+#include "hooks/ai_observer.hpp"
 #include "hooks/ranged_hook.hpp"
+#include "hooks/vtable_slots.hpp"
 #include "hooks/character_fade.hpp"
 #include "hooks/occluder_fade.hpp"
 #include "hooks/shader_twins.hpp"
@@ -219,12 +221,6 @@ namespace TPVCamera
     // capture mouse-look deltas and freeze the player by not dispatching while orbiting.
     using InputDispatchFunc = void(__fastcall *)(uintptr_t controller, uintptr_t input_event, char flag);
 
-    // wh::engine3d::C_CameraObserver update (vtable slot CAMERA_OBSERVER_VTABLE_UPDATE_SLOT): bool __fastcall(observer
-    // /*rcx*/, Vec3 *position /*rdx*/, bool *position_valid /*r8*/, Vec3 *direction /*r9*/, bool *direction_valid,
-    // float *fov). It copies the system view camera's translation, forward column and field of view.
-    using CameraObserverUpdateFunc = bool(__fastcall *)(uintptr_t observer, float *position, bool *position_valid,
-                                                        float *direction, bool *direction_valid, float *fov);
-
     // IActor::IsThirdPerson (C_Player vtable, the slot AnchorId::IsThirdPersonSlot reads from its call sites):
     // bool __fastcall(actor /*rcx*/). One function shared by every actor class; it answers true for any actor that is
     // not the local player.
@@ -244,7 +240,6 @@ namespace TPVCamera
     static std::atomic<FrustumBuildFunc> s_frustum_build_original{nullptr};
     static std::atomic<SetHeadVisibilityFunc> s_set_head_visibility_original{nullptr};
     static std::atomic<InputDispatchFunc> s_input_dispatch_original{nullptr};
-    static std::atomic<CameraObserverUpdateFunc> s_camera_observer_update_original{nullptr};
     static std::atomic<IsThirdPersonFunc> s_is_third_person_original{nullptr};
     static std::atomic<UpdatePhysEntMovementFunc> s_phys_ent_movement_original{nullptr};
 
@@ -355,15 +350,6 @@ namespace TPVCamera
     };
     static std::array<AnimationSwap, 2> s_crouched_swaps{};
 
-    // The first-person eye position of the last game-view frame that rendered the third-person offset, published by the
-    // frustum detour for the camera-observer detour. The components are separate atomics: a reader racing a writer can
-    // mix two consecutive frames' eyes, which differ by a frame of movement and do not matter to the AI. s_ai_eye_valid
-    // is released after the components and cleared when the offset disengages.
-    static std::atomic<float> s_ai_eye_x{0.0f};
-    static std::atomic<float> s_ai_eye_y{0.0f};
-    static std::atomic<float> s_ai_eye_z{0.0f};
-    static std::atomic<bool> s_ai_eye_valid{false};
-
     /**
      * @brief The zoom hold bindings resolved to BindingTokens for the per-frame query.
      * @details Acquired on the control plane (refresh_zoom_binding_tokens: after the input engine starts and after
@@ -404,6 +390,11 @@ namespace TPVCamera
     // frustum detour each frame. The head-visibility detour and the free-look input gate read it so
     // they mirror the live offset state without recomputing the whole forced-view policy themselves.
     static std::atomic<bool> s_offset_active{false};
+
+    bool camera_offset_active() noexcept
+    {
+        return s_offset_active.load(std::memory_order_relaxed);
+    }
 
     // First-person fallback, published by the offset each frame: true while the camera has no room behind the player
     // (the arm is shorter than HeadClearance) and sits at the eye, so the head must be hidden like in first person or
@@ -3947,7 +3938,7 @@ namespace TPVCamera
             // First person (or suppressed): the camera is the eye, so the interaction hook must NOT redirect.
             interaction_aim_pose().invalidate();
             // Nor does the AI's camera observer need the eye substituted.
-            s_ai_eye_valid.store(false, std::memory_order_release);
+            withdraw_ai_observer_eye();
             // The held base outlives a first-person gap while a situation holds free-look off, so free-look comes
             // back on the base it had.
             if (!cam.orbit_suspended.load(std::memory_order_relaxed))
@@ -4001,10 +3992,7 @@ namespace TPVCamera
         if (const auto eye = DMK::memory::read<Vector3>(DMK::Address{cview + Constants::SVIEWPARAMS_POSITION_OFFSET});
             eye)
         {
-            s_ai_eye_x.store(eye->x, std::memory_order_relaxed);
-            s_ai_eye_y.store(eye->y, std::memory_order_relaxed);
-            s_ai_eye_z.store(eye->z, std::memory_order_relaxed);
-            s_ai_eye_valid.store(true, std::memory_order_release);
+            publish_ai_observer_eye(*eye);
         }
 
         // Smoothstep the linear view blend for an ease-in/out feel, then offset with it.
@@ -4261,130 +4249,6 @@ namespace TPVCamera
         logger.warning("Camera: g_env did not resolve; collision, the ranged crosshair ray, render occlusion and the "
                        "player look features are unavailable");
         return 0;
-    }
-
-    /**
-     * @brief Camera-observer update detour: keeps the AI's camera observer at the first-person eye in third person.
-     * @details The engine's camera observer copies the system view camera, which carries the third-person offset.
-     *          The AI selects which NPCs to update in full, and which to hide and pause, from that observer, so an
-     *          NPC a few metres beyond its reach from the pulled-back camera (a sleeper in a house, someone inside a
-     *          shop) vanishes in third person while first person, whose camera is the eye, shows it. The original
-     *          runs first. While the offset renders, its position is replaced with the eye the frustum detour last
-     *          published, so every consumer of the observer sees what it sees in first person. The direction and
-     *          field of view stay as the original set them: the offset camera looks the same way as the eye.
-     */
-    static bool __fastcall detour_camera_observer_update(uintptr_t observer, float *position, bool *position_valid,
-                                                         float *direction, bool *direction_valid, float *fov) noexcept
-    {
-        const DetourScope in_flight;
-        const CameraObserverUpdateFunc original = s_camera_observer_update_original.load(std::memory_order_acquire);
-        const bool updated =
-            original != nullptr && original(observer, position, position_valid, direction, direction_valid, fov);
-        // The original has just written through this pointer, so writing it again is as safe as its own store.
-        if (updated && position != nullptr && s_offset_active.load(std::memory_order_relaxed) &&
-            s_ai_eye_valid.load(std::memory_order_acquire))
-        {
-            position[0] = s_ai_eye_x.load(std::memory_order_relaxed);
-            position[1] = s_ai_eye_y.load(std::memory_order_relaxed);
-            position[2] = s_ai_eye_z.load(std::memory_order_relaxed);
-        }
-        return updated;
-    }
-
-    /**
-     * @brief Reads a vtable slot and returns its target when it lies in the game image, else 0.
-     */
-    static uintptr_t read_image_vtable_slot(uintptr_t vtable, size_t slot, uintptr_t module_base, size_t module_size)
-    {
-        const DMK::Region image{DMK::Address{module_base}, module_size};
-        const auto slot_value = DMK::memory::read<uintptr_t>(DMK::Address{vtable + slot * sizeof(uintptr_t)});
-        return slot_value.has_value() && image.contains(DMK::Address{*slot_value}) ? *slot_value : 0;
-    }
-
-    /**
-     * @brief True when @p signature matches within the first @p window bytes of the code at @p target, all inside
-     *        @p image.
-     * @details A window of the pattern's own length requires the match to start exactly at @p target. Proves the
-     *          instructions a call or hook depends on at an address read from live data, before it is trusted.
-     */
-    static bool code_window_matches(uintptr_t target, const DMK::scan::Pattern &signature, size_t window,
-                                    const DMK::Region &image)
-    {
-        if (target == 0 || window == 0)
-        {
-            return false;
-        }
-        const DMK::Region head{DMK::Address{target}, window};
-        return image.contains(head.base) && image.contains(head.base.offset(static_cast<std::ptrdiff_t>(window) - 1)) &&
-               DMK::scan::scan(signature, head, 1, DMK::scan::Pages::Executable).has_value();
-    }
-
-    /**
-     * @brief Reads a vtable slot and returns its target when it lies in the game image and @p signature matches
-     *        within its first @p window bytes, else 0, so a slot that no longer holds the expected function is
-     *        refused rather than hooked or called.
-     */
-    static uintptr_t read_checked_vtable_slot(uintptr_t vtable, size_t slot, const DMK::scan::Pattern &signature,
-                                              size_t window, uintptr_t module_base, size_t module_size)
-    {
-        const DMK::Region image{DMK::Address{module_base}, module_size};
-        const uintptr_t target = read_image_vtable_slot(vtable, slot, module_base, module_size);
-        return code_window_matches(target, signature, window, image) ? target : 0;
-    }
-
-    /**
-     * @brief Hooks the camera observer's update, found through its RTTI vtable (no signature scan).
-     * @details Best-effort: without it the camera still works, and NPCs just beyond the pulled-back camera's reach stay
-     *          hidden in third person, as they would for the unmodded game with its view camera there. The slot's
-     *          target must lie in the game image and still read the view camera (Aob::k_cameraObserverUpdateBody
-     *          among its first instructions), so a patch that moves the slot leaves the hook uninstalled rather than
-     *          hooking another function.
-     */
-    static void install_camera_observer_hook(uintptr_t module_base, size_t module_size, HookSet &hooks)
-    {
-        DMK::Logger &logger = DMK::log();
-        const std::optional<std::uintptr_t> vtable = class_vtable(GameClass::CameraObserver);
-        if (!vtable.has_value())
-        {
-            logger.warning("Camera: C_CameraObserver did not resolve; in third person the AI keeps judging NPCs from "
-                           "the pulled-back camera");
-            return;
-        }
-        const uintptr_t target = read_checked_vtable_slot(
-            *vtable, Constants::CAMERA_OBSERVER_VTABLE_UPDATE_SLOT, Aob::k_cameraObserverUpdateBody,
-            Aob::k_cameraObserverUpdateBodyWindow, module_base, module_size);
-        if (target == 0)
-        {
-            logger.warning("Camera: C_CameraObserver slot {} is not an in-image update that reads the view camera; "
-                           "camera-observer hook skipped",
-                           Constants::CAMERA_OBSERVER_VTABLE_UPDATE_SLOT);
-            return;
-        }
-
-        auto result = DMK::hook::inline_at(
-            DMK::hook::InlineRequest{.name = "CameraObserverUpdate", .target = DMK::Address{target}},
-            detour_camera_observer_update);
-        if (!result.has_value())
-        {
-            logger.warning("Camera: camera-observer hook failed ({}); in third person the AI keeps judging NPCs from "
-                           "the pulled-back camera",
-                           result.error().message());
-            return;
-        }
-        // Publish the trampoline before enable() arms the patch, so the detour never sees a null original.
-        s_camera_observer_update_original.store(result->original<CameraObserverUpdateFunc>(),
-                                                std::memory_order_release);
-        const auto armed = hooks.push(std::move(*result)).enable();
-        if (!armed.has_value())
-        {
-            logger.warning("Camera: camera-observer hook could not be armed ({}); in third person the AI keeps judging "
-                           "NPCs from the pulled-back camera",
-                           armed.error().message());
-            return;
-        }
-        logger.info("Camera: the AI camera observer follows the first-person eye in third person (C_CameraObserver "
-                    "slot {} at {})",
-                    Constants::CAMERA_OBSERVER_VTABLE_UPDATE_SLOT, DMK::format::format_address(target));
     }
 
     /**

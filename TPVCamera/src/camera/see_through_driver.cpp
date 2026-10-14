@@ -137,7 +137,6 @@ namespace TPVCamera
             update_shader_twins(std::span<const std::uintptr_t>(nodes.data(), count), window, trees, frames,
                                 delta_time);
         }
-
     } // namespace
 
     void run_tree_see_through(const Vector3 &camera, const Vector3 &eye, const Vector3 &feet, bool body_valid,
@@ -256,5 +255,4 @@ namespace TPVCamera
         update_shader_twins({}, shut, {}, {}, delta_time);
         watch_character_render(false);
     }
-
 } // namespace TPVCamera

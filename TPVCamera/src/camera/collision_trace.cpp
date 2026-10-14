@@ -86,7 +86,6 @@ namespace TPVCamera
             }
             return text;
         }
-
     } // namespace
 
     /** @brief Notes @p motion, the result of one collision ease step, for the pull-in and release ages. */
@@ -218,5 +217,4 @@ namespace TPVCamera
         {
         }
     }
-
 } // namespace TPVCamera
