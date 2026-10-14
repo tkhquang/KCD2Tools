@@ -11,6 +11,8 @@
 #ifndef TPVCAMERA_GLOBAL_STATE_HPP
 #define TPVCAMERA_GLOBAL_STATE_HPP
 
+#include "camera/blend.hpp"
+
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -196,13 +198,11 @@ namespace TPVCamera
         std::atomic<bool> eye_sync_engaged{false};
         std::atomic<float> eye_sync_effective{0.0f};
 
-        // Per-preset FOV override ease (main thread only). fov_ease_applied is the eased rendered FOV
-        // (radians) written into the render CCamera; fov_ease_stage1 is the 2-stage critically-damped
-        // intermediate. fov_ease_valid is cleared on suppression (and is false on first engage) so the next
-        // engaged frame SNAPS to the desired FOV instead of easing across the first-person gap, matching the
-        // orbit / eye-sync / collision smoothers.
-        float fov_ease_stage1{0.0f};
-        float fov_ease_applied{0.0f};
+        // Per-preset FOV override ease (main thread only): the preset blend's two-stage filter, whose applied
+        // stage is the eased rendered FOV (radians) written into the render CCamera. fov_ease_valid is cleared on
+        // suppression (and is false on first engage) so the next engaged frame SNAPS to the desired FOV instead of
+        // easing across the first-person gap, matching the orbit / eye-sync / collision smoothers.
+        Spring<float> fov_ease{};
         bool fov_ease_valid{false};
 
         // Aim-basis low-pass (main thread only). The third-person rig basis quaternion (XYZW), low-passed

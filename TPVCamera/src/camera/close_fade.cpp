@@ -4,6 +4,7 @@
  */
 
 #include "camera/close_fade.hpp"
+#include "camera/blend.hpp"
 #include "config.hpp"
 #include "hooks/character_fade.hpp"
 #include "hooks/head_visibility.hpp"
@@ -115,13 +116,8 @@ namespace TPVCamera
             cam.head_fallback = false;
             (void)DMK::log().try_log(DMK::LogLevel::Debug, "Camera: first-person fallback OFF (arm {:.2f} m)", in.arm);
         }
-        const float target = cam.head_fallback ? 1.0f : 0.0f;
-        const float k = 1.0f - std::exp(-k_head_fallback_rate * in.delta_time);
-        cam.head_fallback_blend += (target - cam.head_fallback_blend) * k;
-        if (std::fabs(target - cam.head_fallback_blend) < 1e-3f)
-        {
-            cam.head_fallback_blend = target;
-        }
+        cam.head_fallback_blend = ease_weight(cam.head_fallback_blend, cam.head_fallback ? 1.0f : 0.0f,
+                                              k_head_fallback_rate, in.delta_time, 1e-3f);
         // The head hides as soon as the fallback starts (the camera is already close to it) and shows again only once
         // the camera is back out past halfway.
         set_head_fallback(cam.head_fallback || cam.head_fallback_blend > 0.5f);
