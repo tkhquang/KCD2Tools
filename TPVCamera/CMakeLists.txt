@@ -21,6 +21,8 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_version_heade
 # plus dllmain.cpp. ON: a thin loader ASI plus a logic DLL, enabling DetourModKit
 # hot-reload for fast iteration (the loader reloads the logic in place; see src/dev/).
 option(TPVCAMERA_DEV_BUILD "Build the two-DLL hot-reload dev configuration (thin loader ASI + logic DLL)" OFF)
+# Local tests only (tests/): the engine-free camera math and, with the local tools folder, the camera rules parity.
+option(TPVCAMERA_BUILD_TESTS "Build the local CTest suite in tests/" OFF)
 set(TPVCAMERA_GAME_DIR "" CACHE PATH
   "Directory to deploy the built mod into (the game's mod-loader/plugins directory). Used by the dev build for hot-reload.")
 
@@ -306,4 +308,9 @@ else()
   message(STATUS "KCD2_TPVCamera (${PROJECT_VERSION}) - DEV (two-DLL hot-reload) build")
   message(STATUS "    - ${PROJECT_NAME}-loader -> KCD2_TPVCamera.asi (thin loader)")
   message(STATUS "    - ${PROJECT_NAME}-logic  -> KCD2_TPVCamera.logic.dll (mod logic)")
+endif()
+
+if(TPVCAMERA_BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(tests)
 endif()
