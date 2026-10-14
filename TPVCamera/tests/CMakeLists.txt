@@ -1,9 +1,9 @@
 # Local tests (TPVCAMERA_BUILD_TESTS). Build them with the msvc-tests preset and run them with its ctest preset.
 #
-# tpvcamera_tests holds the engine-free units: the collision ease, the preset blend filter and the fence wall policy,
-# each with its rate matrix where it integrates over time. The camera rules parity runs the C++ classifier against the
-# Python reference on every scenario; it needs the local tools folder, so it is registered only when that folder and
-# a Python 3 interpreter are present.
+# tpvcamera_tests holds the engine-free units: the camera eases, the collision ease, the preset blend filter and the
+# fence wall policy, each with its rate matrix where it integrates over time. The camera rules parity runs the C++
+# classifier against the Python reference on every scenario; it needs the local tools folder, so it is registered only
+# when that folder and a Python 3 interpreter are present.
 
 find_package(GTest 1.17 QUIET)
 if(NOT GTest_FOUND OR NOT TARGET GTest::gtest_main)
@@ -20,6 +20,7 @@ endif()
 include(GoogleTest)
 
 add_executable(tpvcamera_tests
+  test_blend.cpp
   test_ease.cpp
   test_fence_coverage.cpp
   test_preset_filter.cpp

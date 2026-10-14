@@ -4,6 +4,7 @@
  */
 
 #include "preset_runtime.hpp"
+#include "camera/blend.hpp"
 #include "config.hpp"
 #include "game_state.hpp"
 #include "switch_log.hpp"
@@ -25,9 +26,9 @@ namespace TPVCamera::Presets
         // shared_ptr load each frame (a spinlock-guarded refcount bump on MSVC, no heap allocation).
         std::atomic<std::shared_ptr<const StateBindingTable>> s_table{nullptr};
 
-        // Main-thread-only transition state (resolve_and_apply / reset_transition run only there).
-        CameraPreset s_applied;
-        CameraPreset s_stage1; // intermediate state of the 2-stage critically-damped preset blend (see below)
+        // Main-thread-only transition state (resolve_and_apply / reset_transition run only there): the two-stage
+        // preset blend, whose applied stage is the live preset.
+        Spring<CameraPreset> s_blend;
         bool s_have_applied = false;
         bool s_snap_next = false;
 
@@ -43,10 +44,6 @@ namespace TPVCamera::Presets
         float s_settle_age = 0.0f;
         bool s_settle_pending = false;
 
-        // The two cascaded critically damped stages reach 95% of a step at k*t = 4.7439, where 1 - (1 + kt)e^-kt =
-        // 0.95. The blend runs at k = 1.6 * PresetBlendSpeed.
-        constexpr float k_two_stage_t95 = 4.7439f;
-        constexpr float k_blend_rate_scale = 1.6f;
         // A framing change smaller than this (meters, or tens of degrees) settles at once.
         constexpr float k_settle_min_change = 1e-3f;
         // Follow angles count in units of this many degrees against the meters of the distance and offsets.
@@ -267,7 +264,7 @@ namespace TPVCamera::Presets
                 .kind = SwitchKind::Preset,
                 .mask = target.mask,
                 .hold_s = target.mask != s_target_mask ? last_debounce_wait_seconds() : 0.0f,
-                .expected_settle_s = snap ? 0.0f : k_two_stage_t95 / (k_blend_rate_scale * speed),
+                .expected_settle_s = snap ? 0.0f : k_spring_t95 / (k_spring_rate_scale * speed),
             };
             copy_switch_text(event.from, s_have_applied ? last : std::string_view("-"));
             copy_switch_text(event.to, name);
@@ -278,7 +275,7 @@ namespace TPVCamera::Presets
             s_target_mask = target.mask;
             s_target_pinned = target.pinned;
             s_target_table = reinterpret_cast<std::uintptr_t>(&table);
-            s_settle_from = s_have_applied ? framing_error(s_applied, *target.preset) : 0.0f;
+            s_settle_from = s_have_applied ? framing_error(s_blend.applied, *target.preset) : 0.0f;
             s_settle_age = 0.0f;
             s_settle_pending = true;
             if (snap || s_settle_from < k_settle_min_change)
@@ -296,7 +293,7 @@ namespace TPVCamera::Presets
                 return;
             }
             s_settle_age += dt;
-            if (framing_error(s_applied, target) <= 0.05f * s_settle_from)
+            if (framing_error(s_blend.applied, target) <= 0.05f * s_settle_from)
             {
                 s_settle_pending = false;
                 note_switch_settled(s_settle_age);
@@ -576,11 +573,9 @@ namespace TPVCamera::Presets
         const Target resolved = select_target(*table, state);
         const CameraPreset &target = *resolved.preset;
 
-        // Frame-rate-independent preset blend. A SINGLE exponential low-pass starts at full speed and decays,
-        // so transitions lurch off the mark (no ease-in). Cascading TWO low-passes makes a critically-damped
-        // (no-overshoot) S-curve: the second stage smooths the sharp start of the first, so the camera eases IN
-        // and out. Snap on the first frame and after a suppression gap so the view does not ease across stale
-        // state. The 1.6x rate compensates for the 2-stage's slower rise so PresetBlendSpeed keeps its feel.
+        // Frame-rate-independent preset blend through the two-stage filter (see Spring), at k_spring_rate_scale
+        // times PresetBlendSpeed. Snap on the first frame and after a suppression gap so the view does not ease
+        // across stale state.
         const float speed = cfg.preset_blend_speed.load(std::memory_order_relaxed);
         const bool snap = !s_have_applied || s_snap_next || speed <= 0.0f;
         const float dt = (delta_seconds > 0.0f && delta_seconds < 1.0f) ? delta_seconds : 0.0f;
@@ -591,20 +586,17 @@ namespace TPVCamera::Presets
         note_target(*table, resolved, snap, speed);
         if (snap)
         {
-            s_applied = target;
-            s_stage1 = target;
+            s_blend.snap(target);
             s_have_applied = true;
             s_snap_next = false;
         }
         else
         {
-            const float alpha = 1.0f - std::exp(-speed * k_blend_rate_scale * dt);
-            ease_toward(s_stage1, target, alpha);    // stage 1: low-pass the target
-            ease_toward(s_applied, s_stage1, alpha); // stage 2: low-pass stage 1 -> ease-in and out
+            s_blend.step(target, stage_alpha(speed * k_spring_rate_scale, dt));
         }
         track_settle(target, dt);
 
-        apply_to_live(s_applied, cfg);
+        apply_to_live(s_blend.applied, cfg);
     }
 
     void ease_out_zoom_offset(float offset) noexcept
@@ -615,8 +607,8 @@ namespace TPVCamera::Presets
         }
         // Both stages move by the same amount, so the two-stage ease keeps its shape and glides from the zoomed
         // distance.
-        s_applied.follow_distance += offset;
-        s_stage1.follow_distance += offset;
+        s_blend.applied.follow_distance += offset;
+        s_blend.stage1.follow_distance += offset;
     }
 
     void reset_transition() noexcept

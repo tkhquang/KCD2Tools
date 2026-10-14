@@ -25,6 +25,7 @@
 
 #include "camera_hook.hpp"
 #include "../rtti_types.hpp"
+#include "camera/blend.hpp"
 #include "camera/close_fade.hpp"
 #include "camera/collision.hpp"
 #include "camera/lens.hpp"
@@ -1141,25 +1142,23 @@ namespace TPVCamera
             const float speed = cfg.preset_blend_speed.load(std::memory_order_relaxed);
             if (!cam.fov_ease_valid) // first engaged frame after a first-person gap: snap, no ease across the gap
             {
-                cam.fov_ease_stage1 = desired_fov;
-                cam.fov_ease_applied = desired_fov;
+                cam.fov_ease.snap(desired_fov);
                 cam.fov_ease_valid = true;
             }
             else
             {
-                const float alpha = (speed > 0.0f) ? (1.0f - std::exp(-speed * 1.6f * delta_time)) : 1.0f;
-                cam.fov_ease_stage1 +=
-                    (desired_fov - cam.fov_ease_stage1) * alpha; // 2-stage critically-damped, like the preset blend
-                cam.fov_ease_applied += (cam.fov_ease_stage1 - cam.fov_ease_applied) * alpha;
+                // The preset blend's filter at its rate; PresetBlendSpeed 0 snaps.
+                cam.fov_ease.step(desired_fov,
+                                  (speed > 0.0f) ? stage_alpha(speed * k_spring_rate_scale, delta_time) : 1.0f);
             }
             // Override while a preset wants a FOV or while still easing back toward the game FOV; otherwise pass
             // through (preset off + settled) so the game keeps its own FOV (including any dynamic FOV).
-            if ((fov_target_degrees > 0.0f || std::fabs(cam.fov_ease_applied - game_fov) > 0.005f) &&
-                cam.fov_ease_applied > 0.05f && cam.fov_ease_applied < 3.0f)
+            if ((fov_target_degrees > 0.0f || std::fabs(cam.fov_ease.applied - game_fov) > 0.005f) &&
+                cam.fov_ease.applied > 0.05f && cam.fov_ease.applied < 3.0f)
             {
-                const float ratio = std::tan(cam.fov_ease_applied * 0.5f) / std::tan(game_fov * 0.5f);
+                const float ratio = std::tan(cam.fov_ease.applied * 0.5f) / std::tan(game_fov * 0.5f);
                 *reinterpret_cast<float *>(camera + Constants::CCAMERA_PROJECTION_FOV_OFFSET) =
-                    cam.fov_ease_applied; // projection FOV (radians)
+                    cam.fov_ease.applied; // projection FOV (radians)
                 *reinterpret_cast<float *>(camera + Constants::CCAMERA_CULL_EDGE_0_OFFSET) *=
                     ratio; // near/far corner x and z (proportional to tan)
                 *reinterpret_cast<float *>(camera + Constants::CCAMERA_CULL_EDGE_1_OFFSET) *= ratio;
@@ -2539,16 +2538,7 @@ namespace TPVCamera
         }
         const float view_dur = cfg.view_transition_duration.load(std::memory_order_relaxed);
         const float view_target = want_tpv ? 1.0f : 0.0f;
-        if (view_dur > 1e-4f)
-        {
-            const float view_step = delta_time / view_dur;
-            cam.view_blend = (cam.view_blend < view_target) ? std::min(view_target, cam.view_blend + view_step)
-                                                            : std::max(view_target, cam.view_blend - view_step);
-        }
-        else
-        {
-            cam.view_blend = view_target;
-        }
+        cam.view_blend = ramp_weight(cam.view_blend, view_target, view_dur, delta_time);
 
         // The offset is rendered while heading TO or holding third person, so the ease-OUT renders too.
         const bool offset_engaged = want_tpv || cam.view_blend > 1e-3f;
@@ -2663,8 +2653,7 @@ namespace TPVCamera
         }
 
         // Smoothstep the linear view blend for an ease-in/out feel, then offset with it.
-        const float vb = cam.view_blend;
-        const float view_s = vb * vb * (3.0f - 2.0f * vb);
+        const float view_s = smoothstep(cam.view_blend);
         offset_game_view_camera(camera, cview, c_player, step, view_s);
         // After the offset, so the crosshair target is cast from the pose this frame renders.
         run_ranged_frame(cview, c_player, repeat_build);
