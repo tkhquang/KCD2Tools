@@ -18,6 +18,17 @@
       }
     },
     {
+      "name": "msvc-tests",
+      "displayName": "MSVC local tests",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/tests-msvc",
+      "cacheVariables": {
+        "TPVCAMERA_DEV_BUILD": "OFF",
+        "TPVCAMERA_BUILD_TESTS": "ON"
+      }
+    },
+    {
       "name": "msvc-dev",
       "displayName": "MSVC Dev (two-DLL hot-reload)",
       "generator": "Visual Studio 17 2022",
@@ -40,6 +51,24 @@
       "name": "msvc-dev",
       "configurePreset": "msvc-dev",
       "configuration": "RelWithDebInfo"
+    },
+    {
+      "name": "msvc-tests",
+      "configurePreset": "msvc-tests",
+      "configuration": "Debug",
+      "targets": [
+        "tpvcamera_all_tests"
+      ]
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "msvc-tests",
+      "configurePreset": "msvc-tests",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
     }
   ]
 }
