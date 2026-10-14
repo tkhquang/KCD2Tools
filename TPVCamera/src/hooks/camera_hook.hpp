@@ -81,6 +81,28 @@ namespace TPVCamera
      */
     [[nodiscard]] bool camera_offset_active() noexcept;
 
+    /**
+     * @brief Whether the game showed the OS cursor (a UI is up) on the frustum detour's last game-view frame.
+     * @note Any thread: one relaxed atomic load. The free-look input gate freezes the orbit while it holds.
+     */
+    [[nodiscard]] bool game_cursor_shown() noexcept;
+
+    /**
+     * @brief Whether the third-person offset should be applied right now.
+     * @details Suppressed (forced first-person) while the game is in any state listed in SuppressTPVState,
+     *          so that context renders from the game's own untouched camera. This is a HARD gate: it
+     *          overrides cam.applying, so the player cannot toggle third-person back on while a listed state
+     *          lasts (unlike the edge-triggered ForcedFPVState policy), and the prior view resumes when the
+     *          state ends. Menu and Overlay are read from the LIVE UI signals, so they suppress the same
+     *          frame the screen opens and release the same frame it closes; every other state (Combat, Mount,
+     *          Dialogue, Minigame, Aiming, Crouch) is matched against the debounced game-state mask, so a
+     *          brief flicker does not pop the view. Read directly from the live config, so it is independent
+     *          of EnableStateBehavior. Called from the main thread (the frustum detour) and the
+     *          input-dispatch thread (the free-look gate); every read is atomic, so the cross-thread call is
+     *          safe.
+     */
+    [[nodiscard]] bool should_apply_view() noexcept;
+
 } // namespace TPVCamera
 
 #endif // TPVCAMERA_CAMERA_HOOK_HPP

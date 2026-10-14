@@ -47,6 +47,7 @@
 #include "hooks/vtable_slots.hpp"
 #include "hooks/character_fade.hpp"
 #include "hooks/head_visibility.hpp"
+#include "hooks/input_hook.hpp"
 #include "hooks/native_turn_hooks.hpp"
 #include "hooks/occluder_fade.hpp"
 #include "hooks/shader_twins.hpp"
@@ -96,15 +97,9 @@ namespace TPVCamera
     // camera detour).
     static CharacterNodes s_character_nodes{};
 
-    // Generic input-event dispatcher: void __fastcall(controller /*rcx*/, event /*rdx*/,
-    // char /*r8b*/). Every input event funnels through here; hooking it lets free-look
-    // capture mouse-look deltas and freeze the player by not dispatching while orbiting.
-    using InputDispatchFunc = void(__fastcall *)(uintptr_t controller, uintptr_t input_event, char flag);
-
     // Trampoline slots. Each install stores its slot with release order before the hook arms. Each detour reads its
     // slot with acquire order, so a detour never chains through a slot it cannot see.
     static std::atomic<FrustumBuildFunc> s_frustum_build_original{nullptr};
-    static std::atomic<InputDispatchFunc> s_input_dispatch_original{nullptr};
 
     /**
      * @brief The zoom hold bindings resolved to BindingTokens for the per-frame query.
@@ -145,6 +140,11 @@ namespace TPVCamera
     // does not turn from cursor motion and resumes from the same angle when the cursor hides. The orbit
     // hook captures raw mouse UPSTREAM of the engine's own input freeze, so it needs this explicit gate.
     static std::atomic<bool> s_cursor_shown{false};
+
+    bool game_cursor_shown() noexcept
+    {
+        return s_cursor_shown.load(std::memory_order_relaxed);
+    }
 
     // Camera-relative movement (toggle orbit). A move starts when the device-agnostic movement-input magnitude
     // (~0..1.4) rises above MOVE_INPUT_START from idle, which aligns the heading to the camera once, and ends only
@@ -190,25 +190,11 @@ namespace TPVCamera
     constexpr float k_basis_smooth_min_speed = 8.0f;  // strength 1.0: heaviest damping
     constexpr float k_basis_smooth_max_speed = 60.0f; // strength near 0: barely-there damping
 
-    /**
-     * @brief Whether the third-person offset should be applied right now.
-     * @details Suppressed (forced first-person) while the game is in any state listed in SuppressTPVState,
-     *          so that context renders from the game's own untouched camera. This is a HARD gate: it
-     *          overrides cam.applying, so the player cannot toggle third-person back on while a listed state
-     *          lasts (unlike the edge-triggered ForcedFPVState policy), and the prior view resumes when the
-     *          state ends. Menu and Overlay are read from the LIVE UI signals, so they suppress the same
-     *          frame the screen opens and release the same frame it closes; every other state (Combat, Mount,
-     *          Dialogue, Minigame, Aiming, Crouch) is matched against the debounced game-state mask, so a
-     *          brief flicker does not pop the view. Read directly from the live config, so it is independent
-     *          of EnableStateBehavior. Called from the main thread (the frustum detour) and the
-     *          input-dispatch thread (the free-look gate); every read is atomic, so the cross-thread call is
-     *          safe.
-     */
     // The states read from the live UI signals rather than the debounced mask: the suppression gate and the
     // orbit-exclude policy both react on the frame a menu or an overlay opens or closes.
     constexpr uint32_t k_live_ui_states = state_bit(GameState::Menu) | state_bit(GameState::Overlay);
 
-    [[nodiscard]] static bool should_apply_view()
+    bool should_apply_view() noexcept
     {
         const uint32_t suppress = settings().suppress_tpv_mask.load(std::memory_order_relaxed);
         if (suppress == 0)
@@ -2721,138 +2707,6 @@ namespace TPVCamera
     }
 
     /**
-     * @brief Free-look capture/block decision for one input event (toggle orbit camera).
-     * @details While the offset is active and orbit is TOGGLED on, mouse-look deltas are accumulated
-     *          into the orbit angles and ONLY those look events are blocked, so the player's look stays
-     *          put while free-looking. Every other input (movement keys, interaction, clicks) passes
-     *          through, so the toggle orbit is a usable camera mode the character can move and act in.
-     *          Lives apart from the SEH wrapper so that frame stays free of C++ object unwinding; the
-     *          wrapper guards the engine-owned reads.
-     * @param input_event Engine input event (GameStructures::InputEvent layout).
-     * @return true to block (swallow) the event, false to dispatch it normally.
-     */
-    [[nodiscard]] static bool orbit_capture_and_decide(uintptr_t input_event)
-    {
-        CameraState &cam = camera_state();
-        // Gate on the offset's effective active state (so free-look also works when a forced-TPV state
-        // turned the offset on without the manual toggle), the orbit toggle, the cursor-shown flag (so a
-        // UI being up holds the orbit instead of letting cursor motion turn it), and the shared UI gate
-        // so the cursor and look work normally while a suppressed UI is up. Returning false here leaves
-        // orbit_yaw/orbit_pitch untouched, so the camera resumes from the same angle when the UI closes.
-        // orbit_active is the single source of truth for whether free-look captures input. The
-        // OrbitExcludeState policy turns it off when ENTERING a listed state (edge-triggered, see
-        // apply_orbit_exclude_policy), so capture stops there without forbidding a manual re-enable: a
-        // player who toggles free-look back on in an excluded state (e.g. for a photo on a mount) still
-        // gets mouse-look here. The cursor-shown gate freezes the orbit while any UI cursor is up.
-        if (!s_offset_active.load(std::memory_order_relaxed) || !cam.orbit_active.load(std::memory_order_relaxed) ||
-            s_cursor_shown.load(std::memory_order_relaxed) || !should_apply_view())
-        {
-            return false;
-        }
-        if (input_event == 0 || !DMK::memory::is_plausible_ptr(DMK::Address{input_event}))
-        {
-            return false;
-        }
-
-        const int32_t type = *reinterpret_cast<const int32_t *>(input_event + Constants::INPUT_EVENT_TYPE_OFFSET);
-        const int32_t id = *reinterpret_cast<const int32_t *>(input_event + Constants::INPUT_EVENT_ID_OFFSET);
-        // The look channel is the eIS_Changed (analog-axis-moved) state. Mouse AND gamepad both post here; the
-        // keyId picks the axis and the device. Everything else (movement axes, buttons, clicks) falls through.
-        if (type == Constants::MOUSE_INPUT_TYPE_ID)
-        {
-            const float value = *reinterpret_cast<const float *>(input_event + Constants::INPUT_EVENT_VALUE_OFFSET);
-
-            // Mouse look: relative DELTA accumulated straight into the orbit angle (one event = one nudge).
-            if (id == Constants::INPUT_LOOK_YAW_EVENT_ID || id == Constants::INPUT_LOOK_PITCH_EVENT_ID)
-            {
-                if (id == Constants::INPUT_LOOK_YAW_EVENT_ID)
-                {
-                    // Negated so mouse-left orbits the camera left and mouse-right orbits right; a negative X
-                    // sensitivity inverts that.
-                    const float sensitivity_x = settings().orbit_sensitivity_x.load(std::memory_order_relaxed);
-                    cam.orbit_yaw.store(cam.orbit_yaw.load(std::memory_order_relaxed) - value * sensitivity_x,
-                                        std::memory_order_relaxed);
-                }
-                else
-                {
-                    // Mouse-up raises the camera, mouse-down lowers it; a negative Y sensitivity inverts that.
-                    const float sensitivity_y = settings().orbit_sensitivity_y.load(std::memory_order_relaxed);
-                    // Within the range the main thread published (see CameraState::orbit_pitch_lo); a value
-                    // already outside it is kept but cannot grow.
-                    const float old_pitch = cam.orbit_pitch.load(std::memory_order_relaxed);
-                    cam.orbit_pitch.store(
-                        std::clamp(old_pitch + value * sensitivity_y,
-                                   std::min(cam.orbit_pitch_lo.load(std::memory_order_relaxed), old_pitch),
-                                   std::max(cam.orbit_pitch_hi.load(std::memory_order_relaxed), old_pitch)),
-                        std::memory_order_relaxed);
-                }
-                return true; // block ONLY the look so the player look stays put while free-looking
-            }
-
-            // Gamepad RIGHT STICK: latch the held DEFLECTION (-1..1) for the orbit rate integration, then ZERO
-            // the event value IN PLACE and let it PASS (do NOT block). A held analog stick drives an engine
-            // look-RATE that the engine only zeroes on a release event. BLOCKING swallows that release: if orbit
-            // engages while the stick is already deflected (e.g. you hold the right stick then toggle orbit, or an
-            // exclude state suspends/restores orbit mid-deflection), the engine keeps its last rate and SPINS the
-            // player look forever - surviving a switch to first person and curable only by a hard input flush
-            // (menu / alt-tab). It is the same swallowed-release defect as the move latch, but stranding the
-            // ENGINE's own gamepad look. Zeroing the value instead means the engine continuously sees no
-            // deflection (so it never turns and never strands) while we keep the real value for the orbit camera;
-            // the release reaches the engine too. The mouse path above can still hard-block: a mouse delta is a
-            // one-shot nudge with no held rate, so there is nothing to strand. Left stick (movement) keeps its own
-            // ids and passes untouched.
-            if (id == Constants::INPUT_PAD_LOOK_YAW_EVENT_ID)
-            {
-                cam.orbit_pad_yaw.store(value, std::memory_order_relaxed);
-                *reinterpret_cast<float *>(input_event + Constants::INPUT_EVENT_VALUE_OFFSET) = 0.0f;
-                return false;
-            }
-            if (id == Constants::INPUT_PAD_LOOK_PITCH_EVENT_ID)
-            {
-                cam.orbit_pad_pitch.store(value, std::memory_order_relaxed);
-                *reinterpret_cast<float *>(input_event + Constants::INPUT_EVENT_VALUE_OFFSET) = 0.0f;
-                return false;
-            }
-        }
-
-        return false; // pass movement, interaction and everything else through
-    }
-
-    /**
-     * @brief Runs orbit_capture_and_decide under SEH. A fault falls back to normal dispatch.
-     * @details Apart from the detour, because the detour's DetourScope needs C++ object unwinding, which a __try
-     *          frame cannot hold.
-     * @return true to block (swallow) the event, false to dispatch it normally.
-     */
-    [[nodiscard]] static bool orbit_capture_guarded(uintptr_t input_event) noexcept
-    {
-        __try
-        {
-            return orbit_capture_and_decide(input_event);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
-    }
-
-    /**
-     * @brief Input-dispatcher detour. Swallows events while free-looking, else passes through.
-     */
-    static void __fastcall detour_input_dispatch(uintptr_t controller, uintptr_t input_event, char flag) noexcept
-    {
-        const DetourScope in_flight;
-        if (orbit_capture_guarded(input_event))
-        {
-            return;
-        }
-        if (const InputDispatchFunc original = s_input_dispatch_original.load(std::memory_order_acquire))
-        {
-            original(controller, input_event, flag);
-        }
-    }
-
-    /**
      * @brief Resolves the SSystemGlobalEnvironment (g_env) base, patch-resiliently.
      * @details Reads the g_env base through the Engine gate. The Genv anchor is a 2-of-5 quorum of
      *          RIP-relative lea/mov [rip+g_env] reference sites, so the address survives game
@@ -2994,36 +2848,9 @@ namespace TPVCamera
 
         install_head_visibility_hook(hooks);
 
-        // The input-dispatcher hook powers free-look orbit. Best-effort: a miss only
-        // disables orbit, the offset camera still works. The detour is inert until the
-        // orbit key is held, so it is harmless when free-look is unused.
-        const uintptr_t input_addr = gated_anchor_address(Feature::Orbit, AnchorId::InputDispatch);
-        if (input_addr == 0)
-        {
-            logger.warning("Camera: Input dispatcher cascade unresolved; free-look orbit unavailable");
-        }
-        else
-        {
-            auto input_result = DMK::hook::inline_at(
-                DMK::hook::InlineRequest{.name = "CameraInputDispatch", .target = DMK::Address{input_addr}},
-                detour_input_dispatch);
-
-            if (!input_result.has_value())
-            {
-                logger.warning("Camera: Input dispatcher hook failed ({}); free-look orbit unavailable",
-                               input_result.error().message());
-            }
-            else
-            {
-                s_input_dispatch_original.store(input_result->original<InputDispatchFunc>(), std::memory_order_release);
-                if (auto armed = hooks.push(std::move(*input_result)).enable(); !armed.has_value())
-                {
-                    logger.warning("Camera: Input dispatcher hook could not be armed ({}); free-look orbit "
-                                   "unavailable",
-                                   armed.error().message());
-                }
-            }
-        }
+        // The input-dispatcher hook powers free-look orbit. Best-effort: a miss only disables orbit, the offset camera
+        // still works.
+        install_input_dispatch_hook(hooks);
 
         // Keep the AI judging which NPCs to update (and which to hide and pause) from the first-person eye while the
         // third-person offset renders. Best-effort, like the two hooks above.
