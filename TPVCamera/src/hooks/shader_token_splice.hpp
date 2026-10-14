@@ -8,6 +8,7 @@
 
 #include "shader_token_compare.hpp"
 #include "generated/shader_twin_blobs.hpp"
+#include "generated/shader_twin_splices.hpp"
 
 #include <algorithm>
 #include <cstddef>
