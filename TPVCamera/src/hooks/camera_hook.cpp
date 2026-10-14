@@ -25,6 +25,7 @@
 
 #include "camera_hook.hpp"
 #include "../rtti_types.hpp"
+#include "camera/collision_trace.hpp"
 #include "camera/ease.hpp"
 #include "aob_resolver.hpp"
 #include "character_attachments.hpp"
@@ -83,32 +84,6 @@ namespace TPVCamera
     // lags its target never puts the lens on or past the surface that stopped it, and the lens near plane (see
     // k_lens_near_max) is held this far short of the ground or a building.
     constexpr float k_lens_near_margin = 0.05f;
-
-    // When the collision last pulled the camera in, and when its latest release (an ease back out) began, as
-    // GetTickCount64 values (0 = not since the module loaded), for the walk trace. Main thread only.
-    static std::uint64_t s_pull_in_ms = 0;
-    static std::uint64_t s_release_ms = 0;
-
-    /** @brief Notes @p motion, the result of one collision ease step, for the pull-in and release ages. */
-    static void note_collision_motion(EaseMotion motion) noexcept
-    {
-        const std::uint64_t now = GetTickCount64();
-        if (motion == EaseMotion::PullIn)
-        {
-            s_pull_in_ms = now;
-            s_release_ms = 0;
-        }
-        else if (motion == EaseMotion::Release && s_release_ms == 0)
-        {
-            s_release_ms = now;
-        }
-    }
-
-    /** @brief Seconds since @p stamp_ms (a GetTickCount64 value), or -1 when it is 0 (never). */
-    [[nodiscard]] static float age_seconds(std::uint64_t stamp_ms) noexcept
-    {
-        return stamp_ms == 0 ? -1.0f : static_cast<float>(GetTickCount64() - stamp_ms) / 1000.0f;
-    }
 
     // The close-up fade: the band (meters of arm above HeadClearance) over which the character fades out. What it
     // carries fades with it, found by its attachment link (see s_character_nodes).
@@ -184,15 +159,6 @@ namespace TPVCamera
     constexpr float k_near_cut_list_reach = 2.0f;
     constexpr int k_near_cut_max_frames = 8;
 
-    /** @brief A render node the camera fades this frame, how it was found, and whether the camera is in it. */
-    struct FadeEntry
-    {
-        void *node = nullptr;
-        char source = '?';   // 'a' a prop the arm stepped past, 's' on a sightline
-        bool buried = false; // the sightline test found the camera buried in it (a prop or a bush)
-        bool inside = false; // the arm walk found the camera inside its physics
-    };
-
     // Set when the camera leaves third person: the next third-person frame drops the fade lists it kept, so nothing
     // from before the gap is faded again. Main thread only (the camera detour).
     static bool s_fade_cache_stale = false;
@@ -203,80 +169,6 @@ namespace TPVCamera
     // passes through what he carries, and the close-up fade dissolves the carried ones with him. Main thread only (the
     // camera detour).
     static CharacterNodes s_character_nodes{};
-
-    /** @brief One hit the camera walk met along the arm, for the walk trace. */
-    struct WalkStep
-    {
-        uintptr_t collider = 0;
-        void *node = nullptr; // the scanned render node it matched, or nullptr
-        float distance = 0.0f;
-        OccluderClass cls = OccluderClass::Structure;
-        // 'p' stepped past, 'c' the collision, 't' terrain, 'r' re-hit and walked past, 'x' re-hit too often, 'u' a
-        // structure's collision with nothing drawn there, walked past
-        char what = '?';
-    };
-
-    /**
-     * @brief The file name of @p node's mesh, for the log: render_node_name() into @p path, then the part after its
-     *        last slash, or "?" when the path is empty.
-     */
-    static const char *mesh_file_name(void *node, char (&path)[160]) noexcept
-    {
-        render_node_name(node, path, static_cast<int>(sizeof(path)));
-        const char *base = path;
-        for (const char *p = path; *p != '\0'; ++p)
-        {
-            if (*p == '/' || *p == '\\')
-            {
-                base = p + 1;
-            }
-        }
-        return *base != '\0' ? base : "?";
-    }
-
-    // Logs the camera walk at Trace when the colliders it met or what it did with them change: each hit's object,
-    // class and distance along the arm, so a wrong stop or a wrong pass is identifiable from the log. Main thread only.
-    // A failed allocation drops the line, so it never leaves the camera frame as an exception.
-    static void log_walk_change(std::span<const WalkStep> steps, float desired_distance) noexcept
-    {
-        static std::array<WalkStep, 8> s_last{};
-        static std::size_t s_last_count = 0;
-        const std::size_t n = std::min(steps.size(), s_last.size());
-        const auto same = [](const WalkStep &a, const WalkStep &b)
-        { return a.collider == b.collider && a.what == b.what; };
-        if (n == s_last_count &&
-            std::equal(steps.begin(), steps.begin() + static_cast<std::ptrdiff_t>(n), s_last.begin(), same))
-        {
-            return;
-        }
-        std::copy_n(steps.begin(), n, s_last.begin());
-        s_last_count = n;
-        if (!DMK::log().is_enabled(DMK::LogLevel::Trace))
-        {
-            return;
-        }
-        try
-        {
-            std::string text;
-            for (std::size_t i = 0; i < n; ++i)
-            {
-                const WalkStep &s = steps[i];
-                char path[160];
-                const char *name = mesh_file_name(s.node, path);
-                text += std::format("{}{} {}({}) at {:.2f}", i == 0 ? "" : ", ", s.what,
-                                    s.node != nullptr ? name : "unmatched",
-                                    s.node != nullptr ? occluder_class_name(s.cls) : "-", s.distance);
-            }
-            (void)DMK::log().try_log(DMK::LogLevel::Trace,
-                                     "Camera walk of {:.2f} m: {} (pulled in {:.2f} s ago, released {:.2f} s ago; "
-                                     "-1 = never)",
-                                     desired_distance, n == 0 ? std::string{"open"} : text, age_seconds(s_pull_in_ms),
-                                     age_seconds(s_release_ms));
-        }
-        catch (...)
-        {
-        }
-    }
 
     /**
      * @brief The nine rays from @p eye across the near end of the view (its centre, edge midpoints and corners), each
@@ -356,130 +248,11 @@ namespace TPVCamera
         return nearest;
     }
 
-    // Logs the fade set at Debug when it changes, naming each object with how it was found ([a] stepped past by the
-    // arm, [s] on a sightline; ! the camera inside its physics, + the camera buried in its mesh), so a wrong fade is
-    // identifiable from the log without live debugging. Main thread only (the camera frame). A failed allocation drops
-    // the line.
-    static void log_fade_set_change(std::span<const FadeEntry> entries) noexcept
-    {
-        static std::array<FadeEntry, Constants::OCCLUDER_FADE_MAX_NODES> s_last{};
-        static std::size_t s_last_count = 0;
-        const std::size_t n = std::min(entries.size(), s_last.size());
-        const auto same = [](const FadeEntry &a, const FadeEntry &b)
-        { return a.node == b.node && a.source == b.source && a.buried == b.buried && a.inside == b.inside; };
-        if (n == s_last_count &&
-            std::equal(entries.begin(), entries.begin() + static_cast<std::ptrdiff_t>(n), s_last.begin(), same))
-        {
-            return;
-        }
-        std::copy_n(entries.begin(), n, s_last.begin());
-        s_last_count = n;
-        if (!DMK::log().is_enabled(DMK::LogLevel::Debug))
-        {
-            return;
-        }
-        try
-        {
-            std::string text;
-            for (std::size_t i = 0; i < n; ++i)
-            {
-                char path[160];
-                text += (i == 0) ? "" : ", ";
-                text += mesh_file_name(entries[i].node, path);
-                text += '[';
-                text += entries[i].source;
-                text += entries[i].inside ? "!" : "";
-                text += entries[i].buried ? "+]" : "]";
-            }
-            (void)DMK::log().try_log(DMK::LogLevel::Debug, "OccluderFade set ({}): {}", n, text);
-        }
-        catch (...)
-        {
-        }
-    }
-
     // The tree see-through on the main thread (the camera detour): how far the window is open (0 shut .. 1 open), the
     // character's smoothed travel speed (m/s), and whether the window was last asked to be open, for the log.
     static float s_tree_hole_open = 0.0f;
     static float s_tree_hole_speed = 0.0f;
     static bool s_tree_hole_wanted = false;
-
-    /** @brief The nodes a list last held, so its log line comes only when the list changes. */
-    struct ListedNodes
-    {
-        std::array<void *, Constants::TREE_HOLE_MAX_NODES> last{};
-        std::size_t count = 0;
-
-        /** @brief Keeps @p nodes as the latest list; true when they differ from the ones before. */
-        bool changed(std::span<void *const> nodes) noexcept
-        {
-            const std::size_t n = std::min(nodes.size(), last.size());
-            if (n == count && std::equal(nodes.begin(), nodes.begin() + static_cast<std::ptrdiff_t>(n), last.begin()))
-            {
-                return false;
-            }
-            std::copy_n(nodes.begin(), n, last.begin());
-            count = n;
-            return true;
-        }
-    };
-
-    /** @brief The file names of @p nodes' meshes, comma-separated, or "none", for the log. */
-    static std::string listed_node_names(std::span<void *const> nodes)
-    {
-        if (nodes.empty())
-        {
-            return "none";
-        }
-        std::string text;
-        for (void *node : nodes)
-        {
-            char path[160];
-            text += text.empty() ? "" : ", ";
-            text += mesh_file_name(node, path);
-        }
-        return text;
-    }
-
-    // Logs the plants (trees, bushes, grass patches) listed for the see-through window at Debug when the list changes,
-    // by name, with the window's size, so a plant that should have opened (or one that should not have) is identifiable
-    // from the log, and likewise the bare frames listed for the near cut. The swaps themselves are logged by the shader
-    // twins module. Main thread only (the camera frame). A failed allocation drops the line.
-    static void log_tree_window_change(std::span<void *const> trees, std::span<void *const> frames,
-                                       const TreeHoleWindow &window) noexcept
-    {
-        static ListedNodes s_trees;
-        static ListedNodes s_frames;
-        const bool trees_changed = s_trees.changed(trees);
-        const bool frames_changed = s_frames.changed(frames);
-        if (!DMK::log().is_enabled(DMK::LogLevel::Debug))
-        {
-            return;
-        }
-        try
-        {
-            if (trees_changed)
-            {
-                (void)DMK::log().try_log(DMK::LogLevel::Debug,
-                                         "TreeSeeThrough: {} plant(s) in the window ({:.2f} x {:.2f} m, "
-                                         "open from {:.2f} m below its centre, strength {:.2f}): {}",
-                                         s_trees.count, 2.0f * window.half_width, 2.0f * window.half_height,
-                                         window.anchor.z - window.floor_z, window.strength,
-                                         listed_node_names(trees.first(s_trees.count)));
-            }
-            if (frames_changed)
-            {
-                (void)DMK::log().try_log(DMK::LogLevel::Debug,
-                                         "NearCut: {} frame(s) near the lens (cut from {:.2f} m, "
-                                         "gone within {:.2f} m, strength {:.2f}): {}",
-                                         s_frames.count, window.near_clear, window.near_full, window.near_strength,
-                                         listed_node_names(frames.first(s_frames.count)));
-            }
-        }
-        catch (...)
-        {
-        }
-    }
 
     /**
      * @brief The character's own render node for the shader twins: the one the character fade's detour last saw draw
