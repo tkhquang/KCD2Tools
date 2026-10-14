@@ -3053,35 +3053,28 @@ namespace TPVCamera
                 // UseSphereCollision adds the swept SPHERE to the fan: its contact is continuous where the fan's five
                 // rays graze an edge. The FAN is the collision AUTHORITY either way (its hits carry the collider and
                 // the normal); the sphere is trusted only where it agrees with the fan's surface, and only to put that
-                // surface a little nearer.
-                if (cfg.use_sphere_collision.load(std::memory_order_relaxed))
+                // surface a little nearer. With no fan hit there is no collision whatever the sphere would meet, so
+                // the sphere is swept only after a fan hit, and only as far as its agreement window reaches: a
+                // contact beyond fan + k_sphere_agree_beyond is rejected, so a longer sweep cannot change the result.
+                if (fan.has_value() && cfg.use_sphere_collision.load(std::memory_order_relaxed))
                 {
-                    // The sweep's entTypes (SPWIParams +0x98) is the same 0x101 = static|terrain mask, which the
-                    // real PWI (1.5.6 sub_180811680) hands to GetEntitiesAround, so the player's living entity and its
-                    // skeleton / worn-gear articulated entity are not candidates (the impl passes +0x98 as EAX = 0x101
-                    // at 0x180811D8F). The player's physics resolved below is therefore never a candidate either, so
-                    // skipping it changes no result. The probe casts in REVERSE (camera -> pivot) because the pivot is
-                    // inside the body and a forward ray exits through a back-face and misses it. The colliders the fan
-                    // stepped past are skipped too, so the sphere does not stop at a faded post. The buffer is our own
-                    // cap (the synchronous PWI walks every nSkipEnts entry).
-                    uintptr_t skip_ents[4 + Constants::COLLISION_FADE_SKIP_MAX];
-                    int n_skip = resolve_player_physics_skip(pivot, to_camera, collision_radius, 0x11F /*ent_all*/,
-                                                             Constants::RWI_OBJTYPES_CAMERA,
-                                                             Constants::RWI_FLAGS_STOP_AT_SOLID, skip_ents, 4);
-                    for (int i = 0; i < n_stepped; ++i)
-                    {
-                        skip_ents[n_skip++] = stepped_past[i];
-                    }
+                    // The sweep's entTypes (SPWIParams +0x98) is the 0x101 = static|terrain mask, which the real PWI
+                    // (1.5.6 sub_180811680) hands to GetEntitiesAround as its objtypes (EAX = 0x101 at 0x180811D8F),
+                    // so the player's living entity and its skeleton / worn-gear articulated entity are never
+                    // candidates and need no skip entry. The colliders the fan stepped past are skipped, so the
+                    // sphere does not stop at a faded post (the synchronous PWI walks every nSkipEnts entry).
+                    constexpr float k_sphere_agree_beyond = 0.05f;
+                    constexpr float k_sphere_agree_before = 0.10f;
+                    const float sweep_reach = std::min(desired_distance, fan->m_distance + k_sphere_agree_beyond);
                     const std::optional<RayHit> sphere =
-                        sphere_world_sweep(QueryLedger::Tag::SweepPwi, pivot, collision_radius, to_camera,
-                                           Constants::RWI_OBJTYPES_CAMERA, skip_ents, n_skip);
+                        sphere_world_sweep(QueryLedger::Tag::SweepPwi, pivot, collision_radius, ray_dir * sweep_reach,
+                                           Constants::RWI_OBJTYPES_CAMERA, stepped_past, n_stepped);
                     // The FAN is the AUTHORITY: each of its hits carries the real collider and surface normal, while
                     // the sphere wrapper returns only a distance. The sphere is trusted ONLY when it AGREES with the
-                    // fan's world surface (within the radius inset). When the fan finds NO collision (open space or
-                    // only faded objects), there is no collision, whatever the sphere saw.
-                    if (fan.has_value() && sphere.has_value() &&
-                        sphere->m_distance >= fan->m_distance - collision_radius - 0.10f &&
-                        sphere->m_distance <= fan->m_distance + 0.05f &&
+                    // fan's world surface (within the radius inset).
+                    if (sphere.has_value() &&
+                        sphere->m_distance >= fan->m_distance - collision_radius - k_sphere_agree_before &&
+                        sphere->m_distance <= fan->m_distance + k_sphere_agree_beyond &&
                         sphere->m_distance + collision_radius < fan->m_distance)
                     {
                         hit = sphere; // sphere agrees with the fan's world surface -> use it (continuous, no pump)
