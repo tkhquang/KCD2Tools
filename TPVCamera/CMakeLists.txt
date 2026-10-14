@@ -143,6 +143,7 @@ set(COMMON_SOURCES
   src/rtti_types.cpp
   src/tpv_camera.cpp
   src/version.cpp
+  src/hooks/ai_observer.cpp
   src/hooks/ranged_hook.cpp
   src/hooks/camera_hook.cpp
   src/hooks/character_fade.cpp
@@ -154,6 +155,7 @@ set(COMMON_SOURCES
   src/hooks/player_onaction_hook.cpp
   src/hooks/shader_twins.cpp
   src/hooks/twin_inventory.cpp
+  src/hooks/vtable_slots.cpp
   src/overlay/overlay.cpp
   src/overlay/dx_overlay.cpp
   src/overlay/overlay_ui.cpp

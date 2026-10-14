@@ -85,6 +85,12 @@ namespace TPVCamera
      */
     void orbit_move_pressed() noexcept;
 
+    /**
+     * @brief Whether the frustum detour rendered the third-person offset on its last game-view frame.
+     * @note Any thread: one relaxed atomic load. The head, input and camera-observer hooks mirror it.
+     */
+    [[nodiscard]] bool camera_offset_active() noexcept;
+
 } // namespace TPVCamera
 
 #endif // TPVCAMERA_CAMERA_HOOK_HPP
