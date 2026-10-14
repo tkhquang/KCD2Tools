@@ -163,7 +163,7 @@ namespace TPVCamera
             int resumes = 0;
             WalkStep trace[k_walk_trace_max];
             int n_trace = 0;
-            const auto note_step = [&](const RayHit &at, void *node, OccluderClass cls, char what)
+            const auto note_step = [&](const RayHit &at, void *node, Rules::Behaviour cls, char what)
             {
                 if (n_trace < k_walk_trace_max)
                 {
@@ -191,16 +191,16 @@ namespace TPVCamera
                 {
                     if (++resumes > Constants::COLLISION_WALK_RESUME_MAX)
                     {
-                        note_step(*h, nullptr, OccluderClass::Structure, 'x');
+                        note_step(*h, nullptr, Rules::Behaviour::Collide, 'x');
                         walk.fan = h; // cannot get past it: the collision
                         break;
                     }
-                    note_step(*h, nullptr, OccluderClass::Structure, 'r');
+                    note_step(*h, nullptr, Rules::Behaviour::Collide, 'r');
                     walk_from = h->m_distance + Constants::COLLISION_WALK_RESUME_STEP;
                     continue;
                 }
                 void *node = nullptr;
-                OccluderClass cls = OccluderClass::Structure;
+                Rules::Behaviour cls = Rules::Behaviour::Collide;
                 const ProbeVerdict verdict =
                     classify_probe_hit(QueryLedger::Tag::DrawnOn, *h, h->m_distance, arm.starts, ray_dir, &node, &cls);
                 if (verdict == ProbeVerdict::Undrawn && ++resumes <= Constants::COLLISION_WALK_RESUME_MAX)
@@ -230,7 +230,7 @@ namespace TPVCamera
                 {
                     beyond[i] = {arm.starts[i] + ray_dir * h->m_distance, arm.lines[i].to};
                 }
-                if (cls == OccluderClass::Prop && spans_tube(node, beyond))
+                if (cls == Rules::Behaviour::Fade && spans_tube(node, beyond))
                 {
                     add_fade_node(state, node, 'a', false);
                     walk.props[walk.n_props] = node;
@@ -269,7 +269,7 @@ namespace TPVCamera
                 void *linked = reinterpret_cast<void *>(static_brush_render_node(collider));
                 char linked_name[160] = {};
                 render_node_name(linked, linked_name, static_cast<int>(sizeof(linked_name)));
-                OccluderClass matched_cls = OccluderClass::Structure;
+                Rules::Behaviour matched_cls = Rules::Behaviour::Collide;
                 void *matched =
                     (hit_terrain == 0 && collider != 0) ? occluder_node_for_collider(collider, &matched_cls) : nullptr;
                 char matched_name[160] = {};
@@ -285,7 +285,7 @@ namespace TPVCamera
                     "normal=({}, {}, {}) cam=({}, {}, {}) pivot=({}, {}, {})",
                     from_sphere ? "sphere" : "fan", hit_terrain, surface, desired_distance, walk.n_stepped, collider,
                     cbox[3] - cbox[0], cbox[4] - cbox[1], cbox[5] - cbox[2], reinterpret_cast<uintptr_t>(linked),
-                    linked_name, matched_name, matched != nullptr ? occluder_class_name(matched_cls) : "unmatched",
+                    linked_name, matched_name, matched != nullptr ? Rules::behaviour_name(matched_cls) : "unmatched",
                     rule[0] != '\0' ? rule : "-", hp.x, hp.y, hp.z, hn.x, hn.y, hn.z, camera.x, camera.y, camera.z,
                     pivot.x, pivot.y, pivot.z);
             }
@@ -373,15 +373,15 @@ namespace TPVCamera
 
     ProbeVerdict classify_probe_hit(QueryLedger::Tag tag, const RayHit &hit, float along,
                                     std::span<const Vector3> line_starts, const Vector3 &dir, void **node,
-                                    OccluderClass *cls)
+                                    Rules::Behaviour *cls)
     {
-        *cls = OccluderClass::Structure;
+        *cls = Rules::Behaviour::Collide;
         *node = (hit.m_terrain == 0 && hit.m_collider != 0) ? occluder_node_for_collider(hit.m_collider, cls) : nullptr;
         if (*node == nullptr)
         {
             return ProbeVerdict::Stop;
         }
-        if (*cls != OccluderClass::Structure)
+        if (*cls != Rules::Behaviour::Collide)
         {
             return ProbeVerdict::PassThrough;
         }

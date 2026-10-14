@@ -33,7 +33,7 @@ namespace TPVCamera
         uintptr_t collider = 0;
         void *node = nullptr; // the scanned render node it matched, or nullptr
         float distance = 0.0f;
-        OccluderClass cls = OccluderClass::Structure;
+        Rules::Behaviour cls = Rules::Behaviour::Collide;
         // 'p' stepped past, 'c' the collision, 't' terrain, 'r' re-hit and walked past, 'x' re-hit too often, 'u' a
         // structure's collision with nothing drawn there, walked past
         char what = '?';
