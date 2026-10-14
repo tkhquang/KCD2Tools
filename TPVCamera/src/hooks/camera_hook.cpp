@@ -25,7 +25,9 @@
 
 #include "camera_hook.hpp"
 #include "../rtti_types.hpp"
+#include "camera/close_fade.hpp"
 #include "camera/collision.hpp"
+#include "camera/lens.hpp"
 #include "camera/see_through_driver.hpp"
 #include "aob_resolver.hpp"
 #include "character_attachments.hpp"
@@ -79,38 +81,10 @@ namespace TPVCamera
     // here, before the cull planes are computed, moves the rendered view AND its culling together.
     using FrustumBuildFunc = uintptr_t(__fastcall *)(uintptr_t camera);
 
-    // The close-up fade: the band (meters of arm above HeadClearance) over which the character fades out. What it
-    // carries fades with it, found by its attachment link (see s_character_nodes).
-    constexpr float k_close_fade_band = 0.4f;
-    // The stock eye, hair and eye-film shaders ignore the dissolve, so the eyes, eyelashes, hair, beard and the wet
-    // film over the eyes would stay solid in the dithered face. Once the character is this far faded the head is hidden
-    // like in first person (the game's FirstPersonView hiding group, which keeps its shadow), and it is shown again
-    // below the lower mark.
-    constexpr float k_close_fade_head_hide_on = 0.6f;
-    constexpr float k_close_fade_head_hide_off = 0.45f;
-    // The shader twins fade the eyes (Eye), the eyelashes, beard and hair (Hair) and the eye film (a transparent Illum)
-    // with the character. They warm up in third person ahead of the first close-up (the engine compiles their fade
-    // permutations in the background and writes them to the user shader cache). The marks above apply while any twin
-    // the character shows is still warming up, while an Eye twin was given up (eye_fade_ready false), or without the
-    // twins. With every twin warm (character_fade_ready) the head is never hidden. With the Eye twins warm but a Hair
-    // or transparent Illum twin given up, whose items stay solid, it is hidden only at the top of the fade, where the
-    // dithered face is already gone: 1.0 is dissolve byte 254, and the 4x4 dither discards every pixel from byte 240
-    // (above its largest threshold, 15/16), which an amount of 0.95 passes.
-    constexpr float k_close_fade_faded_head_hide_on = 0.95f;
-    constexpr float k_close_fade_faded_head_hide_off = 0.9f;
-
     // Where the occluder fade aims the hip sightline: this far above the feet when the body is known, else this far
     // below the eye. The head and a chest point between the two complete the three sightlines.
     constexpr float k_fade_hip_height = 0.9f;
     constexpr float k_fade_hip_drop = 0.75f;
-    // The lens near plane: in third person the near clip plane is pushed out to k_lens_near_max, so a leaf, a branch
-    // or the corner of a prop right at the lens is cut away pixel by pixel instead of filling the view (fading a whole
-    // tree for one leaf would be worse). It is held k_lens_near_margin short of the ground or a building, so the
-    // camera never sees through a wall, and k_lens_near_character_margin short of the character's head. A nearer
-    // clearance is taken at once, a farther one followed at k_lens_near_rate (1/s).
-    constexpr float k_lens_near_max = 0.4f;
-    constexpr float k_lens_near_character_margin = 0.35f;
-    constexpr float k_lens_near_rate = 8.0f;
     // The camera collision's and the occluder fade's carry-over between frames (see camera/collision.hpp). Main thread
     // only (the camera detour).
     static CollisionState s_collision{};
@@ -121,76 +95,6 @@ namespace TPVCamera
     // passes through what he carries, and the close-up fade dissolves the carried ones with him. Main thread only (the
     // camera detour).
     static CharacterNodes s_character_nodes{};
-
-    /**
-     * @brief The nine rays from @p eye across the near end of the view (its centre, edge midpoints and corners), each
-     *        @p reach meters of view depth long.
-     * @param tan_half_width Tangent of half the horizontal FOV.
-     * @param tan_half_height Tangent of half the vertical FOV.
-     */
-    static void lens_rays(const Vector3 &eye, const Vector3 &right, const Vector3 &forward, const Vector3 &up,
-                          float tan_half_width, float tan_half_height, float reach, Sightline (&rays)[9])
-    {
-        int n = 0;
-        for (int sx = -1; sx <= 1; ++sx)
-        {
-            for (int sz = -1; sz <= 1; ++sz)
-            {
-                const Vector3 dir = forward + right * (static_cast<float>(sx) * tan_half_width) +
-                                    up * (static_cast<float>(sz) * tan_half_height);
-                rays[n++] = {eye, eye + dir * reach};
-            }
-        }
-    }
-
-    /**
-     * @brief The view depth of the nearest surface within @p reach meters of the camera that the near clip plane must
-     *        not cut: the ground, a structure (its physics or its drawn mesh), or anything that matches no scanned
-     *        node.
-     * @details Tested along lens_rays(). A prop, a frame or a plant met on a ray is walked past: cutting those at the
-     *          lens is the point. So is a structure's collision where it draws nothing (classify_probe_hit()). Main
-     *          thread only (uses the occluder scan).
-     * @return The depth, or @p reach when nothing is that close.
-     */
-    static float lens_clearance(const Sightline (&rays)[9], float reach)
-    {
-        float nearest = reach;
-        for (const Sightline &ray : rays)
-        {
-            // A hit's view depth is its distance along the ray over the ray's length per meter of view depth.
-            const Vector3 span = ray.to - ray.from;
-            const float length = span.magnitude();
-            const float dir_length = length / reach;
-            const Vector3 unit = span / length;
-            float walked = 0.0f;
-            for (int step = 0; step < 4 && walked < length; ++step)
-            {
-                const std::optional<RayHit> h = ray_world_intersection(
-                    QueryLedger::Tag::Lens, ray.from + unit * walked, unit * (length - walked),
-                    Constants::RWI_OBJTYPES_CAMERA, Constants::RWI_FLAGS_STOP_AT_SOLID, nullptr, 0);
-                if (!h.has_value())
-                {
-                    break;
-                }
-                const float along = walked + h->m_distance;
-                void *node = nullptr;
-                OccluderClass cls = OccluderClass::Structure;
-                if (classify_probe_hit(QueryLedger::Tag::Lens, *h, along, std::span<const Vector3>(&ray.from, 1), unit,
-                                       &node, &cls) == ProbeVerdict::Stop)
-                {
-                    nearest = std::min(nearest, along / dir_length);
-                    break;
-                }
-                walked = along + 0.02f; // a prop, a frame, a plant, or a structure's collision that draws nothing
-            }
-        }
-        const float drawn = structure_on_arm(QueryLedger::Tag::Lens, rays, 9, 1, nearest / reach, nullptr);
-        if (drawn <= 1.0f)
-        {
-            nearest = std::min(nearest, drawn * reach);
-        }
-        return nearest;
-    }
 
     // Generic input-event dispatcher: void __fastcall(controller /*rcx*/, event /*rdx*/,
     // char /*r8b*/). Every input event funnels through here; hooking it lets free-look
@@ -2087,19 +1991,10 @@ namespace TPVCamera
             submit_fade_set(s_collision, delta_time);
         }
 
-        // The close-up fade (see the too-close block below): with CloseUpFade the character dithers out as the camera
-        // closes in, as far as CloseUpFadeMinOpacity lets him from HeadClearance of arm and starting k_close_fade_band
-        // before it. Measured from the head where it really is: the pivot plus the turn hold, which keeps the pivot
-        // off the body while it steps through a turn.
-        const float head_clearance = cfg.head_clearance.load(std::memory_order_relaxed);
+        // The arm after collision, measured from the head where it really is: the pivot plus the turn hold, which
+        // keeps the pivot off the body while it steps through a turn. The close-up fade and the lens near plane keep
+        // their distance from the head by it.
         const float arm_after_collision = (camera_position - (pivot + turn_hold)).magnitude();
-        const float close_most =
-            1.0f - std::clamp(cfg.close_up_fade_min_opacity.load(std::memory_order_relaxed), 0.0f, 1.0f);
-        const float close_amount =
-            (close_fade && head_clearance > 0.0f)
-                ? std::clamp((head_clearance + k_close_fade_band - arm_after_collision) / k_close_fade_band, 0.0f,
-                             close_most)
-                : 0.0f;
 
         // The trees, bushes and grass, which never fade whole for hiding the character, open a window around him
         // instead (see run_tree_see_through), from the camera the fade's sightlines were cast from and the scan the
@@ -2113,90 +2008,17 @@ namespace TPVCamera
                                  view_blend, delta_time, s_character_nodes);
         }
 
-        // Too close to the character. With no room behind the player - a low lintel in a doorway (the collision holds
-        // the camera under it), a wall right behind - collision pulls the camera onto the pivot, inside the head, and
-        // the view shows the head's inside until the player moves. With CloseUpFade the camera stays where the
-        // collision put it and the character dithers out instead, as far as CloseUpFadeMinOpacity lets him from
-        // HeadClearance of arm and starting k_close_fade_band before it, so the view never jumps; when his eyes and
-        // hair cannot fade with him, his head is hidden like in first person once he is mostly faded
-        // (set_head_close_fade()). Otherwise (or without the character fade hook), below HeadClearance the camera eases
-        // onto the real eye and the head is hidden by the game's own first-person rig (set_head_fallback(), read by the
-        // head re-assert and the head-visibility detour), so the view is plain first person until there is room again.
-        // The arm is measured after collision, so a close zoom counts too. The margin keeps a doorway from switching
-        // the first-person view on and off as the arm hovers around the threshold.
-        {
-            constexpr float k_head_fallback_margin = 0.15f; // meters of extra room before third person resumes
-            constexpr float k_head_fallback_rate = 12.0f;   // ease rate, 1/sec (frame-rate independent below)
-            const float clearance = head_clearance;
-            const float arm = arm_after_collision;
-            if (!step.repeat_build)
-            {
-                set_character_fade(entity_addr, close_amount, &s_character_nodes);
-                // With the eye fade ready (the shader twins) the face and the eyes dither out with the body and the
-                // head is hidden only once the face is gone; with the eyelashes, hair, beard and eye film ready too
-                // nothing of the head stays solid and it is never hidden; otherwise it is hidden most of the way along.
-                const bool eyes_fade = eye_fade_ready();
-                const bool all_fade = eyes_fade && character_fade_ready();
-                // The path last logged: -1 none yet, 0 head hidden most of the way, 1 hidden once the face is gone, 2
-                // never hidden.
-                static int s_logged_head_path = -1;
-                const int head_path = all_fade ? 2 : (eyes_fade ? 1 : 0);
-                if (close_fade && head_path != s_logged_head_path)
-                {
-                    s_logged_head_path = head_path;
-                    static constexpr std::array<const char *, 3> k_head_paths{
-                        "hides the head once the character is mostly faded (the eye fade is not ready)",
-                        "dithers the eyes out with the character and hides the head once the face is gone (a twin of "
-                        "the eyelashes, hair or eye film was given up)",
-                        "dithers the whole character out, eyes, eyelashes, hair and eye film included, and keeps the "
-                        "head shown",
-                    };
-                    (void)DMK::log().try_log(DMK::LogLevel::Debug, "Camera: the close-up fade {} (close amount {:.2f})",
-                                             k_head_paths[static_cast<std::size_t>(head_path)], close_amount);
-                }
-                if (all_fade)
-                {
-                    set_head_close_fade(false);
-                }
-                else
-                {
-                    const float hide_on = eyes_fade ? k_close_fade_faded_head_hide_on : k_close_fade_head_hide_on;
-                    const float hide_off = eyes_fade ? k_close_fade_faded_head_hide_off : k_close_fade_head_hide_off;
-                    const bool head_was_hidden = head_close_fade();
-                    set_head_close_fade(close_amount >= hide_on || (head_was_hidden && close_amount >= hide_off));
-                }
-            }
-            if (clearance <= 0.0f || close_fade)
-            {
-                cam.head_fallback = false;
-            }
-            else if (!cam.head_fallback && arm < clearance)
-            {
-                cam.head_fallback = true;
-                (void)DMK::log().try_log(DMK::LogLevel::Debug,
-                                         "Camera: first-person fallback ON (arm {:.2f} m < HeadClearance {:.2f} m)",
-                                         arm, clearance);
-            }
-            else if (cam.head_fallback && arm > clearance + k_head_fallback_margin)
-            {
-                cam.head_fallback = false;
-                (void)DMK::log().try_log(DMK::LogLevel::Debug, "Camera: first-person fallback OFF (arm {:.2f} m)", arm);
-            }
-            const float target = cam.head_fallback ? 1.0f : 0.0f;
-            const float k = 1.0f - std::exp(-k_head_fallback_rate * delta_time);
-            cam.head_fallback_blend += (target - cam.head_fallback_blend) * k;
-            if (std::fabs(target - cam.head_fallback_blend) < 1e-3f)
-            {
-                cam.head_fallback_blend = target;
-            }
-            // The head hides as soon as the fallback starts (the camera is already close to it) and shows again only
-            // once the camera is back out past halfway.
-            set_head_fallback(cam.head_fallback || cam.head_fallback_blend > 0.5f);
-            if (cam.head_fallback_blend > 0.0f)
-            {
-                camera_position = camera_position + (fpv_position - camera_position) * cam.head_fallback_blend;
-            }
-        }
+        // Too close to the character: the close-up fade, or the first-person fallback (see camera/close_fade.hpp).
+        const CloseUpInput close_up{
+            .camera = camera_position,
+            .eye = fpv_position,
+            .arm = arm_after_collision,
+            .entity = entity_addr,
+            .delta_time = delta_time,
+            .close_fade = close_fade,
+            .repeat_build = step.repeat_build,
+        };
+        camera_position = apply_close_up(cam, s_character_nodes, close_up);
 
         // Write the offset position into the camera matrix translation column. The basis columns are
         // left as the engine built them (from the eye quat) unless the follow angle/orbit changed the look,
@@ -2256,48 +2078,8 @@ namespace TPVCamera
             }
         }
 
-        // The lens near plane (see k_lens_near_max). The builder rebuilds the cull planes and the render projection
-        // from the near corner, which SetFrustum writes fresh before every build, so scaling it moves the near plane
-        // for this build only. The clearance is measured once per frame from the final pose and the same plane is used
-        // for the frame's second build; it eases with the view blend, so first person keeps the game's plane.
-        {
-            static float s_lens_near = 0.0f;
-            auto *near_corner = reinterpret_cast<float *>(camera + Constants::CCAMERA_NEAR_CORNER_OFFSET);
-            const float game_near = near_corner[1];
-            if (view_blend > 0.0f && game_near > 1e-4f && game_near < k_lens_near_max)
-            {
-                if (!step.repeat_build)
-                {
-                    DMK_PROFILE_SCOPE("camera.lens_clearance");
-                    const Vector3 view_right{matrix->m[0][0], matrix->m[1][0], matrix->m[2][0]};
-                    const Vector3 view_forward{matrix->m[0][1], matrix->m[1][1], matrix->m[2][1]};
-                    const Vector3 view_up{matrix->m[0][2], matrix->m[1][2], matrix->m[2][2]};
-                    // The surfaces the plane must not cut, looked for only as far as the plane may go.
-                    const float tan_half_width = std::fabs(near_corner[0] / game_near);
-                    const float tan_half_height = std::fabs(near_corner[2] / game_near);
-                    Sightline rays[9];
-                    lens_rays(final_position, view_right, view_forward, view_up, tan_half_width, tan_half_height,
-                              k_lens_near_max, rays);
-                    const float solid = lens_clearance(rays, k_lens_near_max);
-                    const float target =
-                        std::max(game_near, std::min(solid - k_lens_near_margin,
-                                                     arm_after_collision - k_lens_near_character_margin));
-                    s_lens_near =
-                        (target < s_lens_near || s_lens_near < game_near)
-                            ? target
-                            : s_lens_near + (target - s_lens_near) * (1.0f - std::exp(-k_lens_near_rate * delta_time));
-                }
-                const float near_plane = game_near + (std::max(s_lens_near, game_near) - game_near) * view_blend;
-                const float scale = near_plane / game_near;
-                near_corner[0] *= scale;
-                near_corner[1] *= scale;
-                near_corner[2] *= scale;
-            }
-            else
-            {
-                s_lens_near = 0.0f;
-            }
-        }
+        // The lens near plane (see camera/lens.hpp), measured from the final pose written above.
+        apply_lens_near_plane(camera, *matrix, arm_after_collision, view_blend, delta_time, step.repeat_build);
 
         // Publish the rendered camera pose + crosshair direction for the camera-space interaction hook
         // (interaction_hook.cpp). The player use-cone is eye-anchored and never reads the render camera, so
