@@ -152,7 +152,6 @@ set(COMMON_SOURCES
   src/hooks/player_onaction_hook.cpp
   src/hooks/shader_twins.cpp
   src/hooks/twin_inventory.cpp
-  src/hooks/twin_clone.cpp
   src/overlay/overlay.cpp
   src/overlay/dx_overlay.cpp
   src/overlay/overlay_ui.cpp
@@ -265,7 +264,8 @@ else()
   )
 
   # Logic DLL: all mod logic plus the exported Init/Shutdown entry points.
-  add_library(${PROJECT_NAME}-logic SHARED ${COMMON_SOURCES} src/dev/mod_logic.cpp)
+  # The twin clone R&D (src/dev/twin_clone/) is a read-only dry run that only the DEV logic DLL builds.
+  add_library(${PROJECT_NAME}-logic SHARED ${COMMON_SOURCES} src/dev/mod_logic.cpp src/dev/twin_clone/twin_clone.cpp)
   configure_logic_target(${PROJECT_NAME}-logic)
   target_compile_definitions(${PROJECT_NAME}-logic PRIVATE TPVCAMERA_DEV_BUILD)
   set_target_properties(${PROJECT_NAME}-logic PROPERTIES

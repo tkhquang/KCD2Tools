@@ -1,5 +1,5 @@
 /**
- * @file hooks/twin_clone.hpp
+ * @file dev/twin_clone/twin_clone.hpp
  * @brief The DEV twin clone's read-only dry-run: plans a plant or frame twin from its parsed stock shader instead of a
  *        parse of the twin's binary, and compares the plan with the twin the engine parsed.
  *
@@ -40,7 +40,8 @@ namespace TPVCamera::TwinClone
         DryRun, // a DEV build: plans and compares with the parsed twins, never creates, arms or writes anything
     };
 
-    // What this build runs. Only a DEV build compiles the clone's body (hooks/twin_clone.cpp), so a release build
+    // What this build runs. Only the DEV logic DLL compiles the clone's body (dev/twin_clone/twin_clone.cpp), so a
+    // release build
     // defines none of the functions below: call them only from code under TPVCAMERA_DEV_BUILD or under
     // `if constexpr (k_stage == Stage::DryRun)`, whose discarded branch odr-uses nothing.
 #if defined(TPVCAMERA_DEV_BUILD)

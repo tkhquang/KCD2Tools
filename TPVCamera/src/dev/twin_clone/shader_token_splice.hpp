@@ -1,4 +1,4 @@
-/** @file hooks/shader_token_splice.hpp
+/** @file dev/twin_clone/shader_token_splice.hpp
  *  @brief Derives a hole twin's Z-pass pixel-shader token map from the stock one's, without parsing the twin (the DEV
  *         twin clone). Pure and bounded: no engine calls, no memory beyond the caller's arena, and the work is linear
  *         in a stock map that shader_token_compare.hpp's bounds already cap.
