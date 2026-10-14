@@ -494,11 +494,6 @@ namespace TPVCamera
         constexpr AnchorId k_twin_inventory_anchors[] = {AnchorId::Genv, AnchorId::VegetationGroups,
                                                          AnchorId::LevelBrushTables};
 #if defined(TPVCAMERA_DEV_BUILD)
-        constexpr AnchorId k_vertex_shader_reuse_anchors[] = {
-            AnchorId::HardwareShaderForName,
-            AnchorId::HardwareShaderLockSite,
-            AnchorId::ResourceLookup,
-        };
         // The DEV twin clone's dry-run reads CShader, SShaderTechnique, CBaseResource and CHWShader_D3D fields only
         // where every one of their layouts is proven, HW shader token maps only under the factory's own lock, and
         // looks the factory's objects up by name. The proofs pin layouts, not a build (aob_resolver.hpp).
@@ -547,7 +542,6 @@ namespace TPVCamera
             {"PlantDrawnPsos", k_plant_drawn_psos_anchors},
             {"TwinInventory", k_twin_inventory_anchors},
 #if defined(TPVCAMERA_DEV_BUILD)
-            {"VertexShaderReuse", k_vertex_shader_reuse_anchors},
             {"TwinCloneDryRun", k_twin_clone_dry_run_anchors},
 #endif
         }};
