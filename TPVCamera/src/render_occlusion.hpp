@@ -16,6 +16,7 @@
 #define TPVCAMERA_RENDER_OCCLUSION_HPP
 
 #include "math_utils.hpp"
+#include "query_ledger.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -130,8 +131,10 @@ namespace TPVCamera
      *          model draws is drawn there. Hidden and shadow-proxy sub-meshes are not drawn. A natural structure, a
      *          mesh that cannot be read, a test that runs out of triangle budget and a node the scan does not hold
      *          count as drawn, so their physics keeps stopping the camera. Main thread only.
+     * @param tag Why the test runs, for the query ledger (each mesh test counts as one query).
      */
-    [[nodiscard]] bool structure_drawn_on(void *node, const Sightline *lines, int n_lines) noexcept;
+    [[nodiscard]] bool structure_drawn_on(QueryLedger::Tag tag, void *node, const Sightline *lines,
+                                          int n_lines) noexcept;
 
     /**
      * @brief Whether the drawn mesh of render node @p node spans a tube of five parallel lines both ways: one of its
@@ -165,6 +168,7 @@ namespace TPVCamera
      *          wall pieces) whose box at least @p min_lines of them enter, the first short of @p max_fraction, and a
      *          structure counts only when at least @p min_lines of the lines cross it. The ground, banks and rocks are
      *          drawn where their physics is and are left to it, as is a mesh that cannot be read. Main thread only.
+     * @param tag Why the test runs, for the query ledger (each mesh test counts as one query).
      * @param lines The camera arm, as parallel lines of equal length (the centre and its offsets by the radius), or
      *        rays from the camera of the same reach in view depth.
      * @param n_lines Count of @p lines (up to 9).
@@ -178,8 +182,8 @@ namespace TPVCamera
      * @return Where the @p min_lines-th line meets the nearest structure that counts (the line that made it count),
      *         as a fraction of the line length (0..1), or a value above 1 when none does.
      */
-    [[nodiscard]] float structure_on_arm(const Sightline *lines, int n_lines, int min_lines, float max_fraction,
-                                         void **node_out, bool trace = false) noexcept;
+    [[nodiscard]] float structure_on_arm(QueryLedger::Tag tag, const Sightline *lines, int n_lines, int min_lines,
+                                         float max_fraction, void **node_out, bool trace = false) noexcept;
 
     /**
      * @brief Measures ahead the render mesh of a scanned man-made structure, prop, frame or fence that @p lines are

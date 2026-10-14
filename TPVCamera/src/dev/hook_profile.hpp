@@ -31,6 +31,22 @@ namespace TPVCamera::HookProfile
         GameFrustum,
         EngineGameFrustum,
         CloneDryRun,
+        GameFrustumRepeat,
+        EngineGameFrustumRepeat,
+        Count
+    };
+
+    /** @brief An event counted without timing. The export names each one. */
+    enum class Counter : std::uint8_t
+    {
+        /// An occluder scan that kept fewer render nodes than its box held.
+        ScanTruncated,
+        /// A draw of a listed item whose shader has no twin yet, which asked the creation queue again.
+        UntwinnedRetry,
+        /// A collision recompute that took the swept sphere's contact over the fan's hit.
+        SphereWin,
+        /// A character twin PSO build (fade-ahead or warming) that took longer than the 2 ms per-frame budget.
+        CharBuildOverBudget,
         Count
     };
 
@@ -77,8 +93,18 @@ namespace TPVCamera::HookProfile
      * @param start QPC ticks when the detour started.
      * @param original QPC ticks when the original engine call started.
      * @param end QPC ticks when the original returned.
+     * @param repeat True for the frame's second build of the game view, which records under its own paths.
      */
-    void record_game_frustum(std::int64_t start, std::int64_t original, std::int64_t end) noexcept;
+    void record_game_frustum(std::int64_t start, std::int64_t original, std::int64_t end, bool repeat) noexcept;
+
+    /// Counts one event of @p counter. Callable from any thread; no lock, allocation or log.
+    void count(Counter counter) noexcept;
+
+    /// QPC ticks now, for count_slower_than().
+    [[nodiscard]] std::int64_t stamp() noexcept;
+
+    /// Counts one event of @p counter when more than @p limit_us microseconds passed since @p started (a stamp()).
+    void count_slower_than(Counter counter, std::int64_t started, std::int64_t limit_us) noexcept;
 
     /**
      * @brief Writes every slot's totals, per-second windows and slow calls to @p path as JSON.
@@ -139,7 +165,13 @@ namespace TPVCamera::HookProfile
     // The same API, compiled to nothing outside DEV profiling builds.
     inline void initialize() noexcept {}
     inline void record_other_frustum(std::int64_t, std::int64_t, std::int64_t) noexcept {}
-    inline void record_game_frustum(std::int64_t, std::int64_t, std::int64_t) noexcept {}
+    inline void record_game_frustum(std::int64_t, std::int64_t, std::int64_t, bool) noexcept {}
+    inline void count(Counter) noexcept {}
+    [[nodiscard]] inline std::int64_t stamp() noexcept
+    {
+        return 0;
+    }
+    inline void count_slower_than(Counter, std::int64_t, std::int64_t) noexcept {}
     [[nodiscard]] inline bool export_after_rundown(const char *) noexcept
     {
         return true;

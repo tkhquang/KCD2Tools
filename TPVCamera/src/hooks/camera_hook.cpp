@@ -36,6 +36,7 @@
 #include "offset_heal.hpp"
 #include "math_utils.hpp"
 #include "physics_raycast.hpp"
+#include "query_ledger.hpp"
 #include "render_occlusion.hpp"
 #include "hooks/ranged_hook.hpp"
 #include "hooks/character_fade.hpp"
@@ -364,8 +365,8 @@ namespace TPVCamera
             for (int step = 0; step < 4 && walked < length; ++step)
             {
                 const std::optional<RayHit> h = ray_world_intersection(
-                    ray.from + unit * walked, unit * (length - walked), Constants::RWI_OBJTYPES_CAMERA,
-                    Constants::RWI_FLAGS_STOP_AT_SOLID, nullptr, 0);
+                    QueryLedger::Tag::Lens, ray.from + unit * walked, unit * (length - walked),
+                    Constants::RWI_OBJTYPES_CAMERA, Constants::RWI_FLAGS_STOP_AT_SOLID, nullptr, 0);
                 if (!h.has_value())
                 {
                     break;
@@ -376,7 +377,8 @@ namespace TPVCamera
                                                                        : nullptr;
                 const Sightline at_hit{ray.from + unit * (along - Constants::COLLISION_DRAWN_REACH),
                                        ray.from + unit * (along + Constants::COLLISION_DRAWN_REACH)};
-                if (node != nullptr && cls == OccluderClass::Structure && !structure_drawn_on(node, &at_hit, 1))
+                if (node != nullptr && cls == OccluderClass::Structure &&
+                    !structure_drawn_on(QueryLedger::Tag::Lens, node, &at_hit, 1))
                 {
                     walked = along + 0.02f;
                     continue;
@@ -389,7 +391,7 @@ namespace TPVCamera
                 walked = along + 0.02f;
             }
         }
-        const float drawn = structure_on_arm(rays, 9, 1, nearest / reach, nullptr);
+        const float drawn = structure_on_arm(QueryLedger::Tag::Lens, rays, 9, 1, nearest / reach, nullptr);
         if (drawn <= 1.0f)
         {
             nearest = std::min(nearest, drawn * reach);
@@ -624,6 +626,7 @@ namespace TPVCamera
         {
             return;
         }
+        DMK_PROFILE_SCOPE("camera.see_through");
         LiveSettings &cfg = settings();
         const float strength =
             1.0f - std::clamp(cfg.tree_see_through_min_opacity.load(std::memory_order_relaxed), 0.0f, 1.0f);
@@ -3003,8 +3006,9 @@ namespace TPVCamera
                 for (;;)
                 {
                     std::optional<RayHit> h = ray_fan_sweep(
-                        pivot + ray_dir * walk_from, ray_dir * (desired_distance - walk_from), collision_radius,
-                        Constants::RWI_OBJTYPES_CAMERA, Constants::RWI_FLAGS_STOP_AT_SOLID, stepped_past, n_stepped);
+                        QueryLedger::Tag::Fan, pivot + ray_dir * walk_from, ray_dir * (desired_distance - walk_from),
+                        collision_radius, Constants::RWI_OBJTYPES_CAMERA, Constants::RWI_FLAGS_STOP_AT_SOLID,
+                        stepped_past, n_stepped);
                     if (h.has_value())
                     {
                         h->m_distance += walk_from;
@@ -3045,7 +3049,8 @@ namespace TPVCamera
                             at_hit[i] = {at - ray_dir * Constants::COLLISION_DRAWN_REACH,
                                          at + ray_dir * Constants::COLLISION_DRAWN_REACH};
                         }
-                        if (!structure_drawn_on(node, at_hit, 5) && ++resumes <= Constants::COLLISION_WALK_RESUME_MAX)
+                        if (!structure_drawn_on(QueryLedger::Tag::DrawnOn, node, at_hit, 5) &&
+                            ++resumes <= Constants::COLLISION_WALK_RESUME_MAX)
                         {
                             note_step(*h, node, cls, 'u');
                             walk_from = h->m_distance + Constants::COLLISION_WALK_RESUME_STEP;
@@ -3109,8 +3114,9 @@ namespace TPVCamera
                     {
                         skip_ents[n_skip++] = stepped_past[i];
                     }
-                    const std::optional<RayHit> sphere = sphere_world_sweep(
-                        pivot, collision_radius, to_camera, Constants::RWI_OBJTYPES_CAMERA, skip_ents, n_skip);
+                    const std::optional<RayHit> sphere =
+                        sphere_world_sweep(QueryLedger::Tag::SweepPwi, pivot, collision_radius, to_camera,
+                                           Constants::RWI_OBJTYPES_CAMERA, skip_ents, n_skip);
                     // The FAN is the AUTHORITY: each of its hits carries the real collider and surface normal, while
                     // the sphere wrapper returns only a distance. The sphere is trusted ONLY when it AGREES with the
                     // fan's world surface (within the radius inset). When the fan finds NO collision (open space or
@@ -3122,6 +3128,7 @@ namespace TPVCamera
                     {
                         hit = sphere; // sphere agrees with the fan's world surface -> use it (continuous, no pump)
                         from_sphere = true;
+                        HookProfile::count(HookProfile::Counter::SphereWin);
                     }
                 }
 
@@ -3217,7 +3224,8 @@ namespace TPVCamera
                     }
                     void *mesh_node = nullptr;
                     const float crossing =
-                        structure_on_arm(arm, 5, 3, surface / std::max(desired_distance, 1e-3f), &mesh_node, true);
+                        structure_on_arm(QueryLedger::Tag::StructureOnArm, arm, 5, 3,
+                                         surface / std::max(desired_distance, 1e-3f), &mesh_node, true);
                     const float mesh_surface = crossing * desired_distance;
                     static void *s_mesh_logged = nullptr;
                     if (crossing <= 1.0f && mesh_surface < surface)
@@ -3275,9 +3283,9 @@ namespace TPVCamera
                         {
                             return true;
                         }
-                        const std::optional<RayHit> h =
-                            ray_world_intersection(camera + dir * walked, dir * reach, Constants::RWI_OBJTYPES_CAMERA,
-                                                   Constants::RWI_FLAGS_STOP_AT_SOLID, nullptr, 0);
+                        const std::optional<RayHit> h = ray_world_intersection(
+                            QueryLedger::Tag::Inside, camera + dir * walked, dir * reach,
+                            Constants::RWI_OBJTYPES_CAMERA, Constants::RWI_FLAGS_STOP_AT_SOLID, nullptr, 0);
                         if (!h.has_value())
                         {
                             return true;
@@ -3583,6 +3591,7 @@ namespace TPVCamera
             {
                 if (!step.repeat_build)
                 {
+                    DMK_PROFILE_SCOPE("camera.lens_clearance");
                     const Vector3 view_right{matrix->m[0][0], matrix->m[1][0], matrix->m[2][0]};
                     const Vector3 view_forward{matrix->m[0][1], matrix->m[1][1], matrix->m[2][1]};
                     const Vector3 view_up{matrix->m[0][2], matrix->m[1][2], matrix->m[2][2]};
@@ -3621,6 +3630,13 @@ namespace TPVCamera
         // the offset is engaged); the suppression path below clears it, so first person leaves the game alone.
         interaction_aim_pose().store(final_position.x, final_position.y, final_position.z, screen_forward.x,
                                      screen_forward.y, screen_forward.z);
+        if (!step.repeat_build)
+        {
+            QueryLedger::note_view({
+                .position = {final_position.x, final_position.y, final_position.z},
+                .forward = {screen_forward.x, screen_forward.y, screen_forward.z},
+            });
+        }
     }
 
     /**
@@ -4108,6 +4124,7 @@ namespace TPVCamera
         LARGE_INTEGER mod_started{};
         LARGE_INTEGER original_started{};
         bool game_view = false;
+        bool repeat = false;
 #endif
 
         void begin_mod() noexcept
@@ -4121,6 +4138,13 @@ namespace TPVCamera
         {
 #ifdef DMK_ENABLE_PROFILING
             game_view = true;
+#endif
+        }
+
+        void mark_repeat([[maybe_unused]] bool repeat_build) noexcept
+        {
+#ifdef DMK_ENABLE_PROFILING
+            repeat = repeat_build;
 #endif
         }
 
@@ -4140,9 +4164,12 @@ namespace TPVCamera
             const auto thread = GetCurrentThreadId();
             if (game_view)
             {
-                HookProfile::record_game_frustum(mod_started.QuadPart, original_started.QuadPart, ended.QuadPart);
-                profiler.record("camera.frustum_mod", mod_started.QuadPart, original_started.QuadPart, thread);
-                profiler.record("camera.frustum_original", original_started.QuadPart, ended.QuadPart, thread);
+                HookProfile::record_game_frustum(mod_started.QuadPart, original_started.QuadPart, ended.QuadPart,
+                                                 repeat);
+                profiler.record(repeat ? "camera.frustum_mod_repeat" : "camera.frustum_mod", mod_started.QuadPart,
+                                original_started.QuadPart, thread);
+                profiler.record(repeat ? "camera.frustum_original_repeat" : "camera.frustum_original",
+                                original_started.QuadPart, ended.QuadPart, thread);
                 return;
             }
             // Rejected or unidentified cameras must not evict the ring with a sample on every frustum call. Keep only
@@ -4222,6 +4249,12 @@ namespace TPVCamera
         const FrameStep step = frame_delta();
         const float delta_time = step.seconds;
         const bool repeat_build = step.repeat_build;
+        profile.mark_repeat(repeat_build);
+        // The frame's first build of the game view opens a new engine frame for the query ledger.
+        if (!repeat_build)
+        {
+            QueryLedger::close_frame();
+        }
 
         // Advance the self-heal scheduler once per frame, before anything below reads a healed offset. Its retry
         // interval counts ticks as frames, so neither the other frustum builds (dozens a frame) nor the frame's second

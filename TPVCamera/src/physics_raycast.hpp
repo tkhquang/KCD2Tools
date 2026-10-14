@@ -12,6 +12,7 @@
 #define TPVCAMERA_PHYSICS_RAYCAST_HPP
 
 #include "math_utils.hpp"
+#include "query_ledger.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -57,6 +58,7 @@ namespace TPVCamera
 
     /**
      * @brief Synchronous world raycast.
+     * @param tag Why the ray is cast, for the query ledger.
      * @param origin Ray start in world space.
      * @param direction Ray vector; its length is the maximum ray length (not normalized).
      * @param objtypes entity_query_flags mask (which entity classes the ray can hit).
@@ -65,9 +67,9 @@ namespace TPVCamera
      * @param n_skip_ents Count of @p skip_ents.
      * @return The nearest hit, or std::nullopt on a miss or when physics is not ready.
      */
-    [[nodiscard]] std::optional<RayHit> ray_world_intersection(const Vector3 &origin, const Vector3 &direction,
-                                                               int objtypes, unsigned int flags,
-                                                               const uintptr_t *skip_ents = nullptr,
+    [[nodiscard]] std::optional<RayHit> ray_world_intersection(QueryLedger::Tag tag, const Vector3 &origin,
+                                                               const Vector3 &direction, int objtypes,
+                                                               unsigned int flags, const uintptr_t *skip_ents = nullptr,
                                                                int n_skip_ents = 0);
 
     /**
@@ -80,6 +82,7 @@ namespace TPVCamera
      *          std::nullopt on any fault, an unresolved world, or a miss, so the caller falls back to
      *          the thin ray. Only the float return value (distance) is used. The centre stops @p radius
      *          short of the surface it meets, so that surface lies @p radius beyond the returned distance.
+     * @param tag Why the sphere is swept, for the query ledger.
      * @param origin Sphere centre at the start of the sweep, world space.
      * @param radius Sphere radius, world units.
      * @param sweep Sweep vector; its length is the maximum sweep distance (not normalized).
@@ -89,9 +92,9 @@ namespace TPVCamera
      * @param n_skip_ents Count of @p p_skip_ents.
      * @return The hit distance and point, or std::nullopt on a miss / fault / unavailable.
      */
-    [[nodiscard]] std::optional<RayHit> sphere_world_sweep(const Vector3 &origin, float radius, const Vector3 &sweep,
-                                                           int objtypes, const uintptr_t *p_skip_ents = nullptr,
-                                                           int n_skip_ents = 0);
+    [[nodiscard]] std::optional<RayHit> sphere_world_sweep(QueryLedger::Tag tag, const Vector3 &origin, float radius,
+                                                           const Vector3 &sweep, int objtypes,
+                                                           const uintptr_t *p_skip_ents = nullptr, int n_skip_ents = 0);
 
     /**
      * @brief Resolves the player's / actors' physics entities to skip during camera collision, via the physics
@@ -119,6 +122,7 @@ namespace TPVCamera
      *          edges - with the same object-type filtering as the PWI sphere (RWI takes @p objtypes as a plain
      *          argument; PWI reads entTypes from SPWIParams +0x98). Unlike the sphere wrapper, which returns only a
      *          distance, each fan hit carries its collider and surface normal.
+     * @param tag Why the fan is cast, for the query ledger (each of its rays counts as one query).
      * @param origin Sweep start (the camera pivot), world space.
      * @param sweep Sweep vector (pivot -> camera); its length is the max distance (not normalized).
      * @param radius Half-width of the ray tube, world units (the swept-sphere radius / standoff).
@@ -128,8 +132,8 @@ namespace TPVCamera
      * @param n_skip_ents Count of @p skip_ents.
      * @return The nearest hit across the fan, or std::nullopt if every ray misses.
      */
-    [[nodiscard]] std::optional<RayHit> ray_fan_sweep(const Vector3 &origin, const Vector3 &sweep, float radius,
-                                                      int objtypes, unsigned int flags,
+    [[nodiscard]] std::optional<RayHit> ray_fan_sweep(QueryLedger::Tag tag, const Vector3 &origin, const Vector3 &sweep,
+                                                      float radius, int objtypes, unsigned int flags,
                                                       const uintptr_t *skip_ents = nullptr, int n_skip_ents = 0);
 
     /**

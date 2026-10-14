@@ -1396,10 +1396,12 @@ namespace TPVCamera
          *          itself stops, within the sag of one chord below the arc: a few millimeters at arrow speeds, about
          *          4.5 cm for a 20 m/s stone. Empty when the arc meets nothing within the target range and the trace
          *          time.
+         * @param tag Why the arc is traced, for the query ledger (each chord counts as one query).
          * @param normal When given, receives the surface normal at the landing.
          */
-        [[nodiscard]] std::optional<Vector3> trace_landing(const Vector3 &from, const Vector3 &velocity, float g,
-                                                           float k, unsigned int flags, std::uintptr_t skip,
+        [[nodiscard]] std::optional<Vector3> trace_landing(QueryLedger::Tag tag, const Vector3 &from,
+                                                           const Vector3 &velocity, float g, float k,
+                                                           unsigned int flags, std::uintptr_t skip,
                                                            Vector3 *normal = nullptr) noexcept
         {
             const float speed = velocity.magnitude();
@@ -1415,7 +1417,7 @@ namespace TPVCamera
                 const float t = dt * static_cast<float>(i);
                 const Vector3 next = ballistic_position(from, velocity, g, k, t);
                 if (const std::optional<RayHit> hit =
-                        ray_world_intersection(previous, next - previous, Constants::RWI_OBJTYPES_ARROW, flags,
+                        ray_world_intersection(tag, previous, next - previous, Constants::RWI_OBJTYPES_ARROW, flags,
                                                skip != 0 ? &skip : nullptr, skip != 0 ? 1 : 0);
                     hit)
                 {
@@ -1461,7 +1463,8 @@ namespace TPVCamera
             for (int turn = 0; turn <= k_landing_turns; ++turn)
             {
                 const std::optional<Vector3> landing =
-                    trace_landing(from, aimed * shot.speed, shot.gravity, shot.air_resistance, flags, skip);
+                    trace_landing(QueryLedger::Tag::LaunchTrace, from, aimed * shot.speed, shot.gravity,
+                                  shot.air_resistance, flags, skip);
                 if (!landing)
                 {
                     break;
@@ -2293,8 +2296,9 @@ namespace TPVCamera
             std::optional<RayHit> hit;
             if ((game_state_mask().load(std::memory_order_relaxed) & state_bit(GameState::Mount)) == 0)
             {
-                hit = ray_world_intersection(origin, forward * Constants::RANGED_TARGET_RANGE,
-                                             Constants::RWI_OBJTYPES_ARROW, flags, skip_list, skip_count);
+                hit = ray_world_intersection(QueryLedger::Tag::Crosshair, origin,
+                                             forward * Constants::RANGED_TARGET_RANGE, Constants::RWI_OBJTYPES_ARROW,
+                                             flags, skip_list, skip_count);
             }
             else
             {
@@ -2302,11 +2306,12 @@ namespace TPVCamera
                 // living bodies are cast apart so that, when the first living body is the mount, the whole horse is
                 // skipped and the search goes on behind it along the same ray.
                 const std::optional<RayHit> world = ray_world_intersection(
-                    origin, forward * Constants::RANGED_TARGET_RANGE,
+                    QueryLedger::Tag::Crosshair, origin, forward * Constants::RANGED_TARGET_RANGE,
                     Constants::RWI_OBJTYPES_ARROW & ~Constants::RWI_OBJTYPE_LIVING, flags, skip_list, skip_count);
                 const float reach = world ? world->m_distance : Constants::RANGED_TARGET_RANGE;
-                std::optional<RayHit> living = ray_world_intersection(
-                    origin, forward * reach, Constants::RWI_OBJTYPE_LIVING, flags, skip_list, skip_count);
+                std::optional<RayHit> living =
+                    ray_world_intersection(QueryLedger::Tag::Crosshair, origin, forward * reach,
+                                           Constants::RWI_OBJTYPE_LIVING, flags, skip_list, skip_count);
                 if (living && is_own_mount(*living, eye, eye_valid))
                 {
                     std::uintptr_t mount_skip[2]{};
@@ -2316,8 +2321,8 @@ namespace TPVCamera
                         mount_skip[mount_skip_count++] = skip;
                     }
                     mount_skip[mount_skip_count++] = living->m_collider;
-                    living = ray_world_intersection(origin, forward * reach, Constants::RWI_OBJTYPE_LIVING, flags,
-                                                    mount_skip, mount_skip_count);
+                    living = ray_world_intersection(QueryLedger::Tag::Crosshair, origin, forward * reach,
+                                                    Constants::RWI_OBJTYPE_LIVING, flags, mount_skip, mount_skip_count);
                 }
                 hit = living ? living : world;
             }
@@ -3388,7 +3393,8 @@ namespace TPVCamera
             const float level = std::sqrt(aimed.x * aimed.x + aimed.y * aimed.y);
             // The Launch detour's first trace, and the ways it stops there (land_in_crosshair_plane): no level part to
             // turn, nothing met, a landing in the plane, or one too near to turn toward.
-            landing = trace_landing(from, aimed * physics.speed, physics.gravity, physics.drag, flags, skip, &normal);
+            landing = trace_landing(QueryLedger::Tag::AimPreview, from, aimed * physics.speed, physics.gravity,
+                                    physics.drag, flags, skip, &normal);
             if (!landing || level < 1e-3f)
             {
                 return aimed;
@@ -3416,8 +3422,8 @@ namespace TPVCamera
             };
             const Vector3 in_plane = from - right * dot(from - camera, right);
             const std::optional<Vector3> planar = headed(in_plane, point);
-            landing = trace_landing(in_plane, planar.value_or(aimed) * physics.speed, physics.gravity, physics.drag,
-                                    flags, skip, &normal);
+            landing = trace_landing(QueryLedger::Tag::AimPreview, in_plane, planar.value_or(aimed) * physics.speed,
+                                    physics.gravity, physics.drag, flags, skip, &normal);
             Vector3 dir = aimed;
             if (landing)
             {
@@ -3426,8 +3432,8 @@ namespace TPVCamera
             if (angle_deg(native, dir) > max_correction)
             {
                 dir = aimed;
-                landing =
-                    trace_landing(from, aimed * physics.speed, physics.gravity, physics.drag, flags, skip, &normal);
+                landing = trace_landing(QueryLedger::Tag::AimPreview, from, aimed * physics.speed, physics.gravity,
+                                        physics.drag, flags, skip, &normal);
             }
             return dir;
         }
@@ -3502,8 +3508,8 @@ namespace TPVCamera
             }
             if (!re_aimed)
             {
-                landing = trace_landing(bow, dir * physics.speed, physics.gravity, physics.drag,
-                                        arrow_ray_flags(physics.pierceability), skip, &normal);
+                landing = trace_landing(QueryLedger::Tag::AimPreview, bow, dir * physics.speed, physics.gravity,
+                                        physics.drag, arrow_ray_flags(physics.pierceability), skip, &normal);
             }
             if (landing)
             {
@@ -3627,8 +3633,8 @@ namespace TPVCamera
             }
             if (!aimed)
             {
-                landing = trace_landing(from, dir * flight.speed, flight.gravity, flight.drag,
-                                        arrow_ray_flags(flight.pierceability), skip, &normal);
+                landing = trace_landing(QueryLedger::Tag::AimPreview, from, dir * flight.speed, flight.gravity,
+                                        flight.drag, arrow_ray_flags(flight.pierceability), skip, &normal);
             }
 
             // One record after the trace, so the stone's Launch learns from and logs a single frame's prediction.

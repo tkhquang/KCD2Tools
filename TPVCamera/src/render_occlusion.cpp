@@ -7,6 +7,7 @@
 #include "aob_resolver.hpp"
 #include "camera_rules_files.hpp"
 #include "constants.hpp"
+#include "dev/hook_profile.hpp"
 #include "fence_coverage.hpp"
 #include "global_state.hpp"
 #include "physics_raycast.hpp"
@@ -129,19 +130,21 @@ namespace TPVCamera
      *        nullptr.
      * @return The number of entries written, 0 when the box is empty or holds more candidates than fit.
      */
-    static std::uint32_t query_nodes(void *p3d, std::uint32_t type, const float *bbox, void **nodes,
-                                     bool *overflow = nullptr) noexcept
+    static std::uint32_t query_nodes(QueryLedger::Tag tag, void *p3d, std::uint32_t type, const float *bbox,
+                                     void **nodes, bool *overflow = nullptr) noexcept
     {
         constexpr auto k_capacity = static_cast<std::uint32_t>(Constants::RENDER_OCCLUSION_MAX_NODES);
         constexpr auto k_fit =
             static_cast<std::uint32_t>(Constants::RENDER_OCCLUSION_MAX_NODES - Constants::RENDER_OCCLUSION_NODE_SLACK);
         const GetObjectsByTypeInBoxFn typed = s_get_objects_by_type_in_box;
 
+        const std::int64_t ledger_started = QueryLedger::begin();
         const std::uint32_t count = (typed != nullptr)
                                         ? typed(p3d, type, bbox, nullptr, Constants::ENGINE3D_QUERY_ANY_RNDFLAGS)
                                         : s_get_objects_in_box(p3d, bbox, nullptr);
         if (count == 0 || count > k_fit)
         {
+            QueryLedger::end(tag, QueryLedger::Kind::Octree, ledger_started);
             if (overflow != nullptr && count > k_fit)
             {
                 *overflow = true;
@@ -151,13 +154,14 @@ namespace TPVCamera
         const std::uint32_t copied = (typed != nullptr)
                                          ? typed(p3d, type, bbox, nodes, Constants::ENGINE3D_QUERY_ANY_RNDFLAGS)
                                          : s_get_objects_in_box(p3d, bbox, nodes);
+        QueryLedger::end(tag, QueryLedger::Kind::Octree, ledger_started, 2);
         return (copied < k_capacity) ? copied : k_capacity;
     }
 
     /** @brief query_nodes for brushes (EERType 1). */
-    static std::uint32_t query_brush_nodes(void *p3d, const float *bbox, void **nodes) noexcept
+    static std::uint32_t query_brush_nodes(QueryLedger::Tag tag, void *p3d, const float *bbox, void **nodes) noexcept
     {
-        return query_nodes(p3d, static_cast<std::uint32_t>(Constants::EERTYPE_BRUSH), bbox, nodes);
+        return query_nodes(tag, p3d, static_cast<std::uint32_t>(Constants::EERTYPE_BRUSH), bbox, nodes);
     }
 
     bool initialize_render_occlusion(uintptr_t module_base, size_t module_size, uintptr_t g_env)
@@ -1144,7 +1148,8 @@ namespace TPVCamera
             const int passes = typed ? static_cast<int>(std::size(k_types)) : 1;
             for (int pass = 0; pass < passes; ++pass)
             {
-                const std::uint32_t count = query_nodes(p3d, k_types[pass], qbox, nodes, truncated);
+                const std::uint32_t count =
+                    query_nodes(QueryLedger::Tag::OccluderScan, p3d, k_types[pass], qbox, nodes, truncated);
                 for (std::uint32_t i = 0; i < count; ++i)
                 {
                     if (n >= cap)
@@ -1390,6 +1395,10 @@ namespace TPVCamera
         }
         // A truncated scan holds only part of the box, so it is not reused: the next refresh queries again.
         s_scan_stamp_ms = truncated ? 0 : now_ms;
+        if (truncated)
+        {
+            HookProfile::count(HookProfile::Counter::ScanTruncated);
+        }
         s_scan_valid = true;
         static bool s_logged_truncation = false;
         if (truncated && !s_logged_truncation)
@@ -2397,8 +2406,8 @@ namespace TPVCamera
     static constexpr float k_entity_near_character2 = 0.6f * 0.6f;
 
     /** @brief node_crosses under its own SEH frame. POD-only body: -2 when reading the node faults. */
-    static int node_crosses_guarded(void *node, const Sightline *lines, int n_lines, float end_margin, int &budget,
-                                    float *nearest = nullptr) noexcept
+    static int node_crosses_seh(void *node, const Sightline *lines, int n_lines, float end_margin, int &budget,
+                                float *nearest) noexcept
     {
         __try
         {
@@ -2408,6 +2417,16 @@ namespace TPVCamera
         {
             return -2;
         }
+    }
+
+    /** @brief node_crosses_seh, charged to @p tag as one mesh test in the query ledger. */
+    static int node_crosses_guarded(QueryLedger::Tag tag, void *node, const Sightline *lines, int n_lines,
+                                    float end_margin, int &budget, float *nearest = nullptr) noexcept
+    {
+        const std::int64_t ledger_started = QueryLedger::begin();
+        const int result = node_crosses_seh(node, lines, n_lines, end_margin, budget, nearest);
+        QueryLedger::end(tag, QueryLedger::Kind::Mesh, ledger_started);
+        return result;
     }
 
     /**
@@ -2708,6 +2727,7 @@ namespace TPVCamera
             QueryPerformanceCounter(&started);
             measure_wall_row_guarded(node, started.QuadPart + frequency * k_wall_slice_us / 1000000);
             QueryPerformanceCounter(&finished);
+            QueryLedger::end(QueryLedger::Tag::FenceWall, QueryLedger::Kind::Mesh, started.QuadPart);
             const auto elapsed = finished.QuadPart - started.QuadPart;
             const int actual = node.wall_slot;
             if (actual < 0 || s_wall_verdicts[actual].coverage.verdict() == FenceCoverage::Verdict::Pending)
@@ -2759,11 +2779,12 @@ namespace TPVCamera
      *        lines and one of its two lift lines (@p tube in the order centre, side, other side, lift, other lift)
      *        cross it. True when the mesh cannot be read.
      */
-    static bool tube_spanned(void *node, const Sightline *tube, float end_margin, int &budget) noexcept
+    static bool tube_spanned(QueryLedger::Tag tag, void *node, const Sightline *tube, float end_margin,
+                             int &budget) noexcept
     {
         float nearest[k_max_lines];
         std::fill_n(nearest, k_max_lines, 2.0f);
-        if (node_crosses_guarded(node, tube + 1, 4, end_margin, budget, nearest) < 0)
+        if (node_crosses_guarded(tag, node, tube + 1, 4, end_margin, budget, nearest) < 0)
         {
             return true;
         }
@@ -2795,7 +2816,7 @@ namespace TPVCamera
             return true;
         }
         int budget = Constants::OCCLUDER_TRIANGLE_BUDGET;
-        return tube_spanned(node, tube, 0.0f, budget);
+        return tube_spanned(QueryLedger::Tag::Fan, node, tube, 0.0f, budget);
     }
 
     int frames_near(const Vector3 &point, float reach, void **out, int cap) noexcept
@@ -2824,7 +2845,7 @@ namespace TPVCamera
         return n;
     }
 
-    bool structure_drawn_on(void *node, const Sightline *lines, int n_lines) noexcept
+    bool structure_drawn_on(QueryLedger::Tag tag, void *node, const Sightline *lines, int n_lines) noexcept
     {
         if (node == nullptr || !s_scan_valid)
         {
@@ -2843,7 +2864,7 @@ namespace TPVCamera
         // mesh_crosses reports "no crossing" when the triangle budget runs out. A test the budget cut short proves
         // nothing, so it counts as drawn like a mesh that cannot be read, and the collision stays.
         int budget = Constants::OCCLUDER_TRIANGLE_BUDGET;
-        if (node_crosses_guarded(node, lines, n_lines, 0.0f, budget) != 0 || budget <= 0)
+        if (node_crosses_guarded(tag, node, lines, n_lines, 0.0f, budget) != 0 || budget <= 0)
         {
             return true;
         }
@@ -2862,7 +2883,7 @@ namespace TPVCamera
             {
                 box_hit = segment_hits_box(lines[l].from, lines[l].to, t.bbox);
             }
-            if (box_hit && node_alive(t) && node_crosses_guarded(t.node, lines, n, 0.0f, budget) == 1)
+            if (box_hit && node_alive(t) && node_crosses_guarded(tag, t.node, lines, n, 0.0f, budget) == 1)
             {
                 return true;
             }
@@ -2923,8 +2944,8 @@ namespace TPVCamera
             // the tube stays.
             float nearest[k_max_lines];
             std::fill_n(nearest, k_max_lines, 2.0f);
-            const int r =
-                node_crosses_guarded(s.node, lines, n_lines, Constants::OCCLUDER_SIGHTLINE_END_MARGIN, budget, nearest);
+            const int r = node_crosses_guarded(QueryLedger::Tag::Sightline, s.node, lines, n_lines,
+                                               Constants::OCCLUDER_SIGHTLINE_END_MARGIN, budget, nearest);
             bool fades = r == -1 && !s.entity;
             for (int l = 0; l < n_lines && r == 1 && !fades; ++l)
             {
@@ -2932,7 +2953,8 @@ namespace TPVCamera
                 {
                     Sightline tube[5];
                     tube_around(lines[l], k_thin_half_width, tube);
-                    fades = tube_spanned(s.node, tube, Constants::OCCLUDER_SIGHTLINE_END_MARGIN, budget);
+                    fades = tube_spanned(QueryLedger::Tag::Sightline, s.node, tube,
+                                         Constants::OCCLUDER_SIGHTLINE_END_MARGIN, budget);
                 }
             }
             if (fades)
@@ -2969,7 +2991,8 @@ namespace TPVCamera
             int open = 0;
             while (blocked < k_envelope_min_blocked && open <= k_envelope_probes - k_envelope_min_blocked)
             {
-                const int r = node_crosses_guarded(s.node, &envelope_probes[blocked + open], 1, 0.0f, budget);
+                const int r = node_crosses_guarded(QueryLedger::Tag::Sightline, s.node,
+                                                   &envelope_probes[blocked + open], 1, 0.0f, budget);
                 if (r < 0)
                 {
                     break;
@@ -3195,8 +3218,8 @@ namespace TPVCamera
         return n;
     }
 
-    float structure_on_arm(const Sightline *lines, int n_lines, int min_lines, float max_fraction, void **node_out,
-                           bool trace) noexcept
+    float structure_on_arm(QueryLedger::Tag tag, const Sightline *lines, int n_lines, int min_lines, float max_fraction,
+                           void **node_out, bool trace) noexcept
     {
         DMK_PROFILE_SCOPE("render.structure_on_arm");
         if (node_out != nullptr)
@@ -3246,7 +3269,7 @@ namespace TPVCamera
             float nearest[k_max_lines];
             std::fill_n(nearest, k_max_lines, 2.0f);
             const int budget_before = budget;
-            const int crossed = node_crosses_guarded(s.node, lines, n, 0.0f, budget, nearest);
+            const int crossed = node_crosses_guarded(tag, s.node, lines, n, 0.0f, budget, nearest);
             if (n_tested < k_trace_max)
             {
                 tested[n_tested] = s.node;
@@ -3474,7 +3497,10 @@ namespace TPVCamera
         {
             return;
         }
-        if (measure_node_guarded(best) != 1 && s_done_count < static_cast<int>(std::size(s_done)))
+        const std::int64_t ledger_started = QueryLedger::begin();
+        const int measured = measure_node_guarded(best);
+        QueryLedger::end(QueryLedger::Tag::Prefetch, QueryLedger::Kind::Mesh, ledger_started);
+        if (measured != 1 && s_done_count < static_cast<int>(std::size(s_done)))
         {
             s_done[s_done_count++] = best;
         }
@@ -3678,7 +3704,7 @@ namespace TPVCamera
             float bbox[6] = {hit_point.x - m, hit_point.y - m, hit_point.z - m,
                              hit_point.x + m, hit_point.y + m, hit_point.z + m};
             void *nodes[Constants::RENDER_OCCLUSION_MAX_NODES];
-            const std::uint32_t count = query_brush_nodes(p3d_ptr, bbox, nodes);
+            const std::uint32_t count = query_brush_nodes(QueryLedger::Tag::Diagnostic, p3d_ptr, bbox, nodes);
             if (count == 0)
             {
                 return false;
