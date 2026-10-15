@@ -15,6 +15,7 @@
 - Changed the shaders behind the fades and the window to be prepared at loading screens and pauses, never while you play.
 - Changed the camera to cost less each frame in busy towns, and to spread its look at the objects around it over several frames, so it no longer adds an occasional hitch of 1 to 2 ms.
 - Changed the shaders to be prepared only while UseTreeSeeThrough, UseLensCut or CloseUpFade is on: with UseOccluderFade off too and CollisionPullInSeconds at 0, the camera behaves as in 2.0.0, with this version's fixes, and costs about what it did.
+- Changed the aim preview to show for scatter shot too: its ring marks the middle of the spread.
 - Changed the INFO log to be quieter; diagnostics moved to DEBUG and TRACE.
 - Changed the camera to switch to a situation's preset the moment it starts, such as drawing a bow; only leaving one waits, for StateExitHoldSeconds (was StateSwitchHoldSeconds).
 - Changed HeadClearance to only set where the close-up fade happens: HeadClearance 0 no longer turns CloseUpFade off.
