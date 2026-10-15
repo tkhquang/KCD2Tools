@@ -38,6 +38,7 @@
 #include "global_state.hpp"
 #include "game_state.hpp"
 #include "game_structures.hpp"
+#include "indoor_state.hpp"
 #include "offset_heal.hpp"
 #include "math_utils.hpp"
 #include "physics_raycast.hpp"
@@ -405,6 +406,42 @@ namespace TPVCamera
             signals.dialogue = (mask & state_bit(GameState::Dialogue)) != 0u;
         }
         return signals;
+    }
+
+    /**
+     * @brief The Indoors bit of this frame's raw game state: whether the player's mid-body is inside a building.
+     * @details Asked of the engine only while some preset binds the `indoors` token, and once a frame (the frame's
+     *          second build reuses the answer). The point is the first-person eye of the untouched view pose, lowered
+     *          by half the eye height the last third-person frame measured above the feet, so it follows a crouch or
+     *          the saddle.
+     * @param cview The game view's CView.
+     * @param repeat_build True on the frame's second build of the game view.
+     */
+    [[nodiscard]] static uint32_t poll_indoors(uintptr_t cview, bool repeat_build) noexcept
+    {
+        // The highest real eye height the probe drops by (meters): the saddle's eye is about 2.6 m above the feet.
+        constexpr float k_max_eye_height = 3.0f;
+        static uint32_t s_indoors = 0;
+        if ((Presets::bound_state_bits() & state_bit(GameState::Indoors)) == 0)
+        {
+            s_indoors = 0;
+            return 0;
+        }
+        if (repeat_build)
+        {
+            return s_indoors;
+        }
+        const auto eye = DMK::memory::read<Vector3>(DMK::Address{cview + Constants::SVIEWPARAMS_POSITION_OFFSET});
+        if (!eye)
+        {
+            s_indoors = 0;
+            return 0;
+        }
+        const float eye_height =
+            std::clamp(camera_state().real_eye_height.load(std::memory_order_relaxed), 0.0f, k_max_eye_height);
+        s_indoors =
+            point_indoors(Vector3{eye->x, eye->y, eye->z - 0.5f * eye_height}) ? state_bit(GameState::Indoors) : 0u;
+        return s_indoors;
     }
 
     /**
@@ -2457,7 +2494,7 @@ namespace TPVCamera
         const uintptr_t c_player = resolve_c_player();
         // Presets are always active, so the debounced game state is always needed here (to select the
         // active preset and, when state behaviour is on, to drive the forced-view / orbit-exclude policies).
-        const uint32_t raw_state = poll_game_state(c_player);
+        const uint32_t raw_state = poll_game_state(c_player) | poll_indoors(cview, repeat_build);
         const uint32_t state =
             debounce_game_state(raw_state, delta_time, cfg.state_exit_hold_seconds.load(std::memory_order_relaxed));
         // The frame the orbit-exclude policy turns free-look off raises the aim hand-off (see offset_game_view_camera),
@@ -2797,6 +2834,9 @@ namespace TPVCamera
         // the character. Best-effort: a miss leaves plain physics collision, so the result is intentionally
         // discarded.
         (void)initialize_render_occlusion(module_base, module_size, s_genv_runtime);
+
+        // The Indoors state presets can bind to. Best-effort: on a miss such a preset never applies.
+        initialize_indoor_state();
 
         // What the character carries fades with it, found through the entity system g_env holds. Handed over before
         // any hook below is armed, so no camera frame walks the attachments without it.

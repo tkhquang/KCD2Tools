@@ -90,10 +90,17 @@ namespace TPVCamera
         MinigameBlacksmithing = 1u << 23,
         /// Operating the forge bellows.
         MinigameForgeBuilder = 1u << 24,
+        /**
+         * @brief The player's mid-body is inside one of the level's clip volumes: a building interior the engine
+         *        lights as indoors (a house, shed, barn or cellar; not an open shelter such as a tent).
+         * @details Asked of the engine only while some preset binds the `indoors` token (camera_hook.cpp), so the INI
+         *          state lists cannot name it.
+         */
+        Indoors = 1u << 25,
     };
 
     /// Number of defined GameState bits; sizes the debounce timer array.
-    inline constexpr uint32_t k_game_state_bit_count = 25;
+    inline constexpr uint32_t k_game_state_bit_count = 26;
 
     /// Returns the raw bit value of a GameState flag.
     [[nodiscard]] constexpr uint32_t state_bit(GameState state) noexcept

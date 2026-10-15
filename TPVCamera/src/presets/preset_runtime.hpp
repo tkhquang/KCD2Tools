@@ -98,7 +98,7 @@ namespace TPVCamera::Presets
      * @brief Parses a preset's bind_state token list into the GameState mask it auto-applies on.
      * @details Tokens are comma-separated, lowercase: the stance/state tokens "combat", "aiming", "mount",
      *          "crouch" (alias "stealth"), "lying", "sitting", "kneel", "cart"; "minigame" and the per-minigame
-     *          tokens from k_minigames (each binds {Minigame | that child}); and "default" (the empty-mask
+     *          tokens from k_minigames (each binds {Minigame | that child}); "indoors"; and "default" (the empty-mask
      *          floor). "none" or an empty list means the preset is unbound and reachable only via the editing
      *          pin. Unknown tokens are ignored.
      * @param bind_state The preset's bind_state string (e.g. "aiming,crouch").
@@ -109,8 +109,8 @@ namespace TPVCamera::Presets
     /**
      * @brief Builds the canonical bind_state token list for a user preset bound to @p mask.
      * @details Inverse of parse_bind_mask, emitting in priority order the stance/state tokens (aiming, crouch,
-     *          combat, mount, lying, sitting, kneel, cart) plus a minigame token (the per-minigame token when a
-     *          child bit is set, else "minigame"). An empty mask yields "none" (unbound / pin-only).
+     *          combat, mount, lying, sitting, kneel, cart), a minigame token (the per-minigame token when a child bit
+     *          is set, else "minigame") and "indoors". An empty mask yields "none" (unbound / pin-only).
      */
     [[nodiscard]] std::string bind_mask_to_tokens(std::uint32_t mask);
 
@@ -125,7 +125,7 @@ namespace TPVCamera::Presets
      * @brief Index of the entry that drives the camera in @p active_state, ignoring the editing pin.
      * @details The most-specific binding whose mask is a subset of @p active_state wins: specificity (set-bit
      *          count) dominates, and equal-specificity ties break by a fixed bit priority (Aiming > Crouch >
-     *          Combat > Mount > Lying > Sitting > Kneel > Cart). cycle_group_entry then picks the member of the
+     *          Combat > Mount > Lying > Sitting > Kneel > Cart > Minigame > a per-minigame child > Indoors). cycle_group_entry then picks the member of the
      *          winning mask's group. Shared by the main-thread resolver, the cycle hotkeys and the overlay's
      *          active-preset highlight, so the three cannot drift.
      * @param table The published snapshot.
@@ -166,6 +166,13 @@ namespace TPVCamera::Presets
 
     /** @brief The snapshot the main thread resolves from, or nullptr before the first publish. */
     [[nodiscard]] std::shared_ptr<const StateBindingTable> published_table() noexcept;
+
+    /**
+     * @brief Every GameState bit some published binding requires: the union of the table's masks, 0 before the first
+     *        publish.
+     * @details Lets the main thread skip asking the engine for a state no preset can match on (Indoors).
+     */
+    [[nodiscard]] std::uint32_t bound_state_bits() noexcept;
 
     /**
      * @brief Makes cycle group @p mask use the member named @p preset and publishes the pick.

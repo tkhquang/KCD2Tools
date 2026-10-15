@@ -392,6 +392,22 @@ namespace Constants
     constexpr ptrdiff_t SPWI_OFF_LOCK_PRW =
         0xE0; // int* WriteLockCond.prw     (CONFIRMED; self-ptr = thread-safe, no global lock)
 
+    // Indoors, the GameState a preset binds with the `indoors` token (indoor_state.cpp). KCD2 marks building interiors
+    // with the engine's clip volumes: one ClipVolume entity per enclosed interior (houses, sheds, barns, cellars),
+    // placed with its building's prefab, which the renderer uses to keep outdoor light out.
+    // CClipVolumeManager::GetClipVolumeByPos(this /*rcx*/, const Vec3* pos /*rdx*/, const IClipVolume* ignore /*r8*/)
+    // -> CClipVolume* (1.5.6 0x18063C970) returns the first active volume whose mesh holds the point, through the
+    // manager's 128x128 grid under its read lock, or null (also while the e_ClipVolumes CVar is off). The engine asks
+    // it for the view camera on the main thread (sub_1805A0D24). The manager is a Cry3DEngine global
+    // (AnchorId::ClipVolumeManager, RTTI below), null until a level loads. CClipVolume keeps the stock layout
+    // (Cry3DEngine/ClipVolume.h): the name at +0x08 (char[64]: the entity name and its prefab path), the world AABB at
+    // +0xB8 and the EClipVolumeFlags at +0xE8, read for the Trace line only.
+    constexpr const char *CCLIP_VOLUME_MANAGER_RTTI_NAME = ".?AVCClipVolumeManager@@";
+    constexpr ptrdiff_t CLIP_VOLUME_NAME_OFFSET = 0x08;
+    constexpr std::size_t CLIP_VOLUME_NAME_CAPACITY = 64;
+    constexpr ptrdiff_t CLIP_VOLUME_BBOX_OFFSET = 0xB8;
+    constexpr ptrdiff_t CLIP_VOLUME_FLAGS_OFFSET = 0xE8;
+
     // Render-octree occluder scan (the objects the camera fades instead of pulling in front of)
     // The physics rays see collision proxies, not what is drawn, and some objects carry no ray-collidable physics at
     // all (tent / awning canopy cloth, e.g. canopy_tent_cover_a_nosticks.cgf). The renderer sees every drawn object:

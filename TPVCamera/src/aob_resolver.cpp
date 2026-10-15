@@ -418,6 +418,8 @@ namespace TPVCamera
             code_ladder("PlantGBufferPsosCall", Aob::k_plantGBufferPsosCandidates, Role::CallSite),
             code_ladder("VegetationGroups", Aob::k_vegetationGroupsCandidates, Role::Data),
             code_ladder("LevelBrushTables", Aob::k_levelBrushTablesCandidates, Role::Site),
+            code_ladder("ClipVolumeManager", Aob::k_clipVolumeManagerCandidates, Role::Data),
+            code_ladder("GetClipVolumeByPos", Aob::k_getClipVolumeByPosCandidates, Role::Entry),
 #if defined(TPVCAMERA_DEV_BUILD)
             code_ladder("HardwareShaderForName", Aob::k_hardwareShaderForNameCandidates, Role::Entry),
             code_ladder("HardwareShaderLockSite", Aob::k_hardwareShaderLockSiteCandidates, Role::Site),
@@ -493,6 +495,7 @@ namespace TPVCamera
         // and the twins go on from the material loads they capture.
         constexpr AnchorId k_twin_inventory_anchors[] = {AnchorId::Genv, AnchorId::VegetationGroups,
                                                          AnchorId::LevelBrushTables};
+        constexpr AnchorId k_indoor_state_anchors[] = {AnchorId::ClipVolumeManager, AnchorId::GetClipVolumeByPos};
 #if defined(TPVCAMERA_DEV_BUILD)
         // The DEV twin clone's dry-run reads CShader, SShaderTechnique, CBaseResource and CHWShader_D3D fields only
         // where every one of their layouts is proven, HW shader token maps only under the factory's own lock, and
@@ -541,6 +544,7 @@ namespace TPVCamera
             {"CharacterForwardPsos", k_character_forward_psos_anchors},
             {"PlantDrawnPsos", k_plant_drawn_psos_anchors},
             {"TwinInventory", k_twin_inventory_anchors},
+            {"IndoorState", k_indoor_state_anchors},
 #if defined(TPVCAMERA_DEV_BUILD)
             {"TwinCloneDryRun", k_twin_clone_dry_run_anchors},
 #endif
