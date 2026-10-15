@@ -122,13 +122,13 @@ namespace TPVCamera
         // listed state begins (forced-FPV wins on overlap); the player may still toggle manually while
         // the state lasts, and the pre-entry view is restored when the state ends unless the player
         // changed it meanwhile. orbit_exclude_mask suspends free-look on entry to a listed state and
-        // restores it on exit. state_switch_hold_seconds debounces edges so a brief transition does
-        // not trigger a switch.
+        // restores it on exit. A state takes effect the frame it starts; state_exit_hold_seconds is how long one
+        // must have ended before the camera leaves it, so a brief gap does not trigger a switch.
         std::atomic<bool> enable_state_behavior{true};
         std::atomic<uint32_t> forced_fpv_mask{0};
         std::atomic<uint32_t> forced_tpv_mask{0};
         std::atomic<uint32_t> orbit_exclude_mask{0};
-        std::atomic<float> state_switch_hold_seconds{0.2f};
+        std::atomic<float> state_exit_hold_seconds{0.2f};
 
         // Continuous HARD suppression gate (INDEPENDENT of enable_state_behavior): while the game is in
         // any listed state the TPV offset is suppressed and CANNOT be toggled back on, unlike the
@@ -153,9 +153,12 @@ namespace TPVCamera
         // overlay's editing pin - and eases the preset-owned framing fields above toward it each active
         // frame, OVERWRITING them. Those framing fields are NOT INI settings; they live in the presets
         // JSON (created automatically from embedded defaults, see presets/default_presets.hpp) and are
-        // tuned in the overlay. preset_blend_speed is the exponential ease rate (higher = snappier;
-        // <= 0 snaps instantly).
-        std::atomic<float> preset_blend_speed{8.0f};
+        // tuned in the overlay. preset_blend_in_seconds is the active preset's blend time (CameraPreset::
+        // blend_in_seconds), which the FOV ease follows too.
+        std::atomic<float> preset_blend_in_seconds{0.52f};
+        // The PresetBlendSpeed key of an INI from before the per-preset blend times, read only to migrate a presets
+        // file of schema 2 or older (PresetStore::load); the shipped INI no longer has it.
+        std::atomic<float> legacy_preset_blend_speed{8.0f};
 
         // Always-live "Camera" INI settings (NOT preset-owned; apply_to_live never writes them).
         // Re-origin the player use/interaction cone onto the render camera + crosshair (third person)

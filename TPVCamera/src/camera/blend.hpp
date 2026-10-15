@@ -13,17 +13,24 @@
 
 namespace TPVCamera
 {
-    // The two-stage filter's rate per unit of PresetBlendSpeed. Two cascaded stages rise slower than one, and 1.6
-    // keeps the speed's feel of the single stage it replaced.
-    constexpr float k_spring_rate_scale = 1.6f;
-    // Two cascaded critically damped stages of rate k reach 95% of a step at k*t = 4.7439, where
-    // 1 - (1 + kt)e^-kt = 0.95.
+    // Two cascaded critically damped stages of rate k reach 95% of a step at k*t = 4.7439 and 99% at k*t = 6.6384,
+    // where 1 - (1 + kt)e^-kt is 0.95 and 0.99. A blend time is the 99% settle: rate = k_spring_t99 / seconds.
     constexpr float k_spring_t95 = 4.7439f;
+    constexpr float k_spring_t99 = 6.6384f;
 
     /** @brief The weight one first-order stage of @p rate (1/s) moves toward its target over @p dt: 1 - e^-rate*dt. */
     [[nodiscard]] inline float stage_alpha(float rate, float dt) noexcept
     {
         return 1.0f - std::exp(-rate * dt);
+    }
+
+    /**
+     * @brief The weight each stage of a Spring moves over @p dt to settle 99% in @p seconds: 1 (a cut) at 0 seconds or
+     *        less.
+     */
+    [[nodiscard]] inline float spring_alpha(float seconds, float dt) noexcept
+    {
+        return seconds > 0.0f ? stage_alpha(k_spring_t99 / seconds, dt) : 1.0f;
     }
 
     /** @brief Moves @p value by @p alpha of the way to @p target: one stage of the filter. */
@@ -52,7 +59,7 @@ namespace TPVCamera
             applied = target;
         }
 
-        /** @brief Advances both stages toward @p target by one step of weight @p alpha (see stage_alpha()). */
+        /** @brief Advances both stages toward @p target by one step of weight @p alpha (see spring_alpha()). */
         void step(const S &target, float alpha) noexcept
         {
             ease_toward(stage1, target, alpha);

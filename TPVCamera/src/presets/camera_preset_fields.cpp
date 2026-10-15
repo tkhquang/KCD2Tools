@@ -78,6 +78,11 @@ namespace TPVCamera::Presets
                         "wider (more peripheral / zoomed-out), lower is narrower (zoomed in). Per preset, so e.g. "
                         "AIMING can narrow and COMBAT widen; it eases when the active preset changes.",
                         "Framing", &CameraPreset::fov, 0.0f, 120.0f, 1.0f),
+            float_field("blend_in_seconds", "Blend In Seconds",
+                        "How long the camera takes to settle into this preset when it becomes active (its distance, "
+                        "offsets, angles and FOV), in seconds. 0 cuts straight to it. Short for aiming, long for a "
+                        "mount or a cart.",
+                        "Framing", &CameraPreset::blend_in_seconds, 0.0f, 3.0f, 0.01f),
 
             // Orbit (free-look).
             float_field("orbit_sensitivity_x", "Orbit Sensitivity X",

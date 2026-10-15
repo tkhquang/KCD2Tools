@@ -15,7 +15,9 @@
  *          saved file, not from here). Field keys are the camera_preset_fields.hpp keys; preset_from_json
  *          starts every preset at the CameraPreset member defaults and keeps them for any missing key. The
  *          DEFAULT entry therefore carries no fields: the member defaults in camera_preset.hpp are the factory
- *          DEFAULT look, its one source, and retuning it means changing them alone.
+ *          DEFAULT look, its one source, and retuning it means changing them alone. A preset that lists no
+ *          blend_in_seconds blends in over that default, 0.52 s; the aiming presets list a shorter one and the
+ *          mount and cart a longer one.
  *
  *          The entries with "builtin": false are factory starting points beside a built-in: each joins
  *          the cycle group of the built-in bound to the same states, and the player can edit, rename or
@@ -33,7 +35,7 @@ namespace TPVCamera::Presets
     /// Canonical factory presets as a JSON document, parsed once at runtime to seed/repair the store.
     inline constexpr const char *k_default_presets_json = R"json(
 {
-  "version": 2,
+  "version": 3,
   "editing": "DEFAULT",
   "ui_scale": 1.0,
   "value_compact": true,
@@ -84,6 +86,7 @@ namespace TPVCamera::Presets
       "builtin": true,
       "bind_state": "aiming",
       "fields": {
+        "blend_in_seconds": 0.3,
         "collision_return_speed": 6.0,
         "collision_skin": 0.2,
         "dynamic_eye_sync": false,
@@ -116,6 +119,7 @@ namespace TPVCamera::Presets
       "builtin": true,
       "bind_state": "mount",
       "fields": {
+        "blend_in_seconds": 1.0,
         "collision_return_speed": 6.0,
         "collision_skin": 0.2,
         "dynamic_eye_sync": true,
@@ -276,6 +280,7 @@ namespace TPVCamera::Presets
       "builtin": true,
       "bind_state": "cart",
       "fields": {
+        "blend_in_seconds": 1.0,
         "collision_return_speed": 6.0,
         "collision_skin": 0.2,
         "dynamic_eye_sync": true,
@@ -340,6 +345,7 @@ namespace TPVCamera::Presets
       "builtin": false,
       "bind_state": "aiming",
       "fields": {
+        "blend_in_seconds": 0.3,
         "collision_return_speed": 6.0,
         "collision_skin": 0.2,
         "dynamic_eye_sync": true,

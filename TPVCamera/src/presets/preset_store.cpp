@@ -4,6 +4,8 @@
  */
 
 #include "preset_store.hpp"
+#include "camera/blend.hpp"
+#include "config.hpp"
 #include "camera_preset_fields.hpp"
 #include "default_presets.hpp"
 #include "preset_runtime.hpp"
@@ -34,9 +36,12 @@ namespace TPVCamera::Presets
 
         // The presets file's schema. Version 1 files may carry orbit_sensitivity and gamepad_orbit_speed as single
         // keys from before each was split into X and Y axes (a file without "version" is read as version 1); version
-        // 2 files carry the axes only.
-        constexpr int k_schema_version = 2;
+        // 2 files carry the axes only. Files before version 3 have no per-preset blend_in_seconds: every preset blended
+        // at the INI's single PresetBlendSpeed, at k_legacy_blend_rate_scale times it.
+        constexpr int k_schema_version = 3;
         constexpr int k_schema_split_axes = 2;
+        constexpr int k_schema_blend_seconds = 3;
+        constexpr float k_legacy_blend_rate_scale = 1.6f;
 
         /// Canonical built-in order, with the state each binds to.
         struct BuiltinSpec
@@ -381,6 +386,7 @@ namespace TPVCamera::Presets
         // to start over presets.
         bool file_present = false;
         bool file_usable = false;
+        bool migrated_blend = false; // a file of an older schema took the blend time of the INI's speed
 
         std::ifstream in(file_path);
         if (in)
@@ -410,6 +416,7 @@ namespace TPVCamera::Presets
                 }
                 loaded_picks = cycle_picks_from_json(root);
                 const int version = schema_version_of(root);
+                migrated_blend = version < k_schema_blend_seconds;
                 std::vector<std::string> issues;
                 if (root.contains("presets") && root["presets"].is_array())
                 {
@@ -427,6 +434,19 @@ namespace TPVCamera::Presets
                     for (const std::string &issue : issues)
                         listed += (listed.empty() ? "" : "; ") + issue;
                     logger.warning("Preset file '{}': {} value(s) ignored: {}", file_path, issues.size(), listed);
+                }
+                if (migrated_blend)
+                {
+                    // The blend time that gives every preset the feel the single PresetBlendSpeed gave it (0 cuts).
+                    const float speed = settings().legacy_preset_blend_speed.load(std::memory_order_relaxed);
+                    const float seconds = speed > 0.0f ? k_spring_t99 / (k_legacy_blend_rate_scale * speed) : 0.0f;
+                    for (CameraPreset &preset : m_presets)
+                    {
+                        preset.blend_in_seconds = seconds;
+                    }
+                    logger.info("Presets: the file predates per-preset blend times; every preset blends in over {:.2f} "
+                                "s, the feel of PresetBlendSpeed {:.2f}, and the file is saved as schema {}",
+                                seconds, speed, k_schema_version);
                 }
                 file_usable = true;
             }
@@ -470,10 +490,10 @@ namespace TPVCamera::Presets
         // whose preset is gone or bound elsewhere.
         publish([&loaded_picks](std::vector<CyclePick> &picks) { picks = loaded_picks; });
 
-        // Create-if-missing, and persist a repaired set (a newly-added built-in, or a valid file recovered
-        // from having lost its presets) so the next launch is clean. A corrupt file (file_usable == false)
+        // Create-if-missing, and persist a repaired set (a newly-added built-in, a valid file recovered from having
+        // lost its presets, or one of an older schema given its blend times) so the next launch is clean. A corrupt file (file_usable == false)
         // is deliberately left untouched on disk.
-        if (!file_present || (file_usable && (builtins_added || seeded)))
+        if (!file_present || (file_usable && (builtins_added || seeded || migrated_blend)))
             save(); // clears m_dirty and snapshots the saved baseline
         else
             m_dirty = false;

@@ -205,20 +205,23 @@ namespace TPVCamera
     [[nodiscard]] std::optional<float> player_move_input(uintptr_t c_player) noexcept;
 
     /**
-     * @brief Applies per-bit hysteresis to a raw state mask so brief flicker does not pop the camera.
-     * @details A bit must differ from the stable value for at least @p hold_seconds before it flips,
-     *          so a momentary combat or dialogue transition cannot toggle a forced view on and off.
-     *          Holds file-scope state and so must be called from a single thread (the game's main thread).
+     * @brief Applies per-bit exit hysteresis to a raw state mask so a brief gap does not pop the camera.
+     * @details A bit that turns on takes effect at once, so the camera answers a state on the frame it starts. A bit
+     *          that turns off must stay off for @p exit_hold_seconds before it clears, so a state that drops out for
+     *          a moment (a stance switch, a combat lull) does not leave and re-enter its preset or forced view. Holds
+     *          file-scope state and so must be called from a single thread (the game's main thread).
      * @param raw_mask Raw mask from poll_game_state().
      * @param delta_seconds Seconds elapsed since the previous call.
-     * @param hold_seconds Dwell time a bit must hold its new value before it flips; <= 0 disables it.
+     * @param exit_hold_seconds Time a bit must stay off before it clears; <= 0 passes the raw mask through.
      * @return The debounced (stable) mask.
      */
-    [[nodiscard]] uint32_t debounce_game_state(uint32_t raw_mask, float delta_seconds, float hold_seconds) noexcept;
+    [[nodiscard]] uint32_t debounce_game_state(uint32_t raw_mask, float delta_seconds,
+                                               float exit_hold_seconds) noexcept;
 
     /**
      * @brief Seconds the bit that debounce_game_state() flipped last had differed from the stable mask when it flipped.
-     * @details 0 while the debounce is disabled. Main thread only, like debounce_game_state().
+     * @details 0 for an entry, which takes effect at once, and while the debounce is disabled. Main thread only, like
+     *          debounce_game_state().
      */
     [[nodiscard]] float last_debounce_wait_seconds() noexcept;
 

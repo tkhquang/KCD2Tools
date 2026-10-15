@@ -79,7 +79,7 @@ TEST(Blend, SpringIsBitEqualToTheTwoStageFilter)
                 const float target = ((i / 300) % 2 == 0) ? 1.0f : -0.25f;
                 const float dt = pattern.frames[i];
                 reference.step(target, speed, dt);
-                spring.step(target, TPVCamera::stage_alpha(speed * TPVCamera::k_spring_rate_scale, dt));
+                spring.step(target, TPVCamera::stage_alpha(speed * 1.6f, dt));
                 ASSERT_EQ(bits(spring.stage1), bits(reference.stage1)) << pattern.name << " speed " << speed;
                 ASSERT_EQ(bits(spring.applied), bits(reference.applied)) << pattern.name << " speed " << speed;
             }
@@ -129,6 +129,36 @@ TEST(Blend, EaseWeightIsBitEqualToTheFallbackEase)
             reference = reference_fallback(reference, target, pattern.frames[i]);
             weight = TPVCamera::ease_weight(weight, target, 12.0f, pattern.frames[i], 1e-3f);
             ASSERT_EQ(bits(weight), bits(reference)) << pattern.name;
+        }
+    }
+}
+
+TEST(Blend, SpringAlphaCutsAtZeroSeconds)
+{
+    EXPECT_EQ(TPVCamera::spring_alpha(0.0f, 1.0f / 60.0f), 1.0f);
+    EXPECT_EQ(TPVCamera::spring_alpha(-1.0f, 1.0f / 60.0f), 1.0f);
+}
+
+TEST(Blend, SpringSettlesNinetyNinePercentInItsBlendTime)
+{
+    for (const auto &pattern : TPVCamera::Tests::rate_matrix(4000))
+    {
+        for (const float seconds : {0.3f, 0.52f, 1.0f})
+        {
+            Spring<float> spring{};
+            float time = 0.0f;
+            float reached = -1.0f;
+            for (const float dt : pattern.frames)
+            {
+                spring.step(1.0f, TPVCamera::spring_alpha(seconds, dt));
+                time += dt;
+                if (spring.applied >= 0.99f)
+                {
+                    reached = time;
+                    break;
+                }
+            }
+            EXPECT_NEAR(reached, seconds, pattern.longest()) << pattern.name << " seconds " << seconds;
         }
     }
 }

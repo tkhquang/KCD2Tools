@@ -197,7 +197,7 @@ namespace TPVCamera::Presets
     /**
      * @brief Adds @p offset to the follow distance the preset ease currently holds.
      * @details Main-thread only. A zoom reset hands its offset over here: the camera keeps its distance on the
-     *          reset frame and then eases to the preset's own distance at PresetBlendSpeed instead of jumping by
+     *          reset frame and then eases to the preset's own distance in its blend time instead of jumping by
      *          the zoom. Before the first applied frame, or when the next frame snaps, the offset is dropped.
      */
     void ease_out_zoom_offset(float offset) noexcept;

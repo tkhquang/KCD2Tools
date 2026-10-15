@@ -241,9 +241,8 @@ namespace TPVCamera::Presets
          * @brief Records a switch when the target preset differs from the one resolved last, with its cause, and
          *        starts measuring how long the blend takes to settle on it.
          * @param snap Whether this frame snaps to the target instead of easing.
-         * @param speed The preset blend speed in force.
          */
-        void note_target(const StateBindingTable &table, const Target &target, bool snap, float speed) noexcept
+        void note_target(const StateBindingTable &table, const Target &target, bool snap) noexcept
         {
             const std::string_view name = target.preset->name;
             const std::string_view last(s_target_name.data());
@@ -264,7 +263,7 @@ namespace TPVCamera::Presets
                 .kind = SwitchKind::Preset,
                 .mask = target.mask,
                 .hold_s = target.mask != s_target_mask ? last_debounce_wait_seconds() : 0.0f,
-                .expected_settle_s = snap ? 0.0f : k_spring_t95 / (k_spring_rate_scale * speed),
+                .expected_settle_s = snap ? 0.0f : target.preset->blend_in_seconds * (k_spring_t95 / k_spring_t99),
             };
             copy_switch_text(event.from, s_have_applied ? last : std::string_view("-"));
             copy_switch_text(event.to, name);
@@ -573,17 +572,16 @@ namespace TPVCamera::Presets
         const Target resolved = select_target(*table, state);
         const CameraPreset &target = *resolved.preset;
 
-        // Frame-rate-independent preset blend through the two-stage filter (see Spring), at k_spring_rate_scale
-        // times PresetBlendSpeed. Snap on the first frame and after a suppression gap so the view does not ease
-        // across stale state.
-        const float speed = cfg.preset_blend_speed.load(std::memory_order_relaxed);
-        const bool snap = !s_have_applied || s_snap_next || speed <= 0.0f;
+        // Frame-rate-independent preset blend through the two-stage filter (see Spring), settling into the target
+        // in its own blend_in_seconds. Snap on the first frame and after a suppression gap so the view does not ease
+        // across stale state, and into a preset whose blend time is 0.
+        const bool snap = !s_have_applied || s_snap_next || target.blend_in_seconds <= 0.0f;
         const float dt = (delta_seconds > 0.0f && delta_seconds < 1.0f) ? delta_seconds : 0.0f;
         if (dt > 0.0f)
         {
             count_switch_frame();
         }
-        note_target(*table, resolved, snap, speed);
+        note_target(*table, resolved, snap);
         if (snap)
         {
             s_blend.snap(target);
@@ -592,7 +590,7 @@ namespace TPVCamera::Presets
         }
         else
         {
-            s_blend.step(target, stage_alpha(speed * k_spring_rate_scale, dt));
+            s_blend.step(target, spring_alpha(target.blend_in_seconds, dt));
         }
         track_settle(target, dt);
 
