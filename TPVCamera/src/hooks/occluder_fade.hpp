@@ -44,6 +44,9 @@ namespace TPVCamera
         // Start fading without waiting OCCLUDER_FADE_DELAY_SECONDS: for an object at the lens, which should not stay
         // solid while the delay runs. It still fades in over OCCLUDER_FADE_IN_SECONDS.
         bool immediate = false;
+        // What the node is beyond its address (render_node_identity()): another object at the address of a node that
+        // was freed starts solid instead of taking over that node's fade.
+        std::uint64_t identity = 0;
     };
 
     /**

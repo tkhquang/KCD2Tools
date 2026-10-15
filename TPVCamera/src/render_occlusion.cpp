@@ -3510,6 +3510,65 @@ namespace TPVCamera
         }
     }
 
+    std::uint64_t render_node_identity(void *node) noexcept
+    {
+        if (node == nullptr)
+        {
+            return 0;
+        }
+        std::uint64_t identity = 0xCBF29CE484222325ull;
+        const auto add = [&identity](std::uint64_t value) { identity = (identity ^ value) * 0x100000001B3ull; };
+        __try
+        {
+            void **vt = *reinterpret_cast<void ***>(node);
+            const auto vtable = reinterpret_cast<uintptr_t>(vt);
+            if (vtable < s_mod_lo || vtable >= s_mod_hi)
+            {
+                return 0;
+            }
+            add(vtable);
+            const auto get_type =
+                reinterpret_cast<GetRenderNodeTypeFn>(vt[Constants::RENDERNODE_VTABLE_GETTYPE_OFFSET / 8]);
+            const int type = get_type(node);
+            add(static_cast<std::uint32_t>(type));
+            if (type == Constants::EERTYPE_BRUSH || type == Constants::EERTYPE_MOVABLE_BRUSH)
+            {
+                // The model a brush draws, which a node built again for another object does not share.
+                add(*reinterpret_cast<const uintptr_t *>(static_cast<const std::byte *>(node) +
+                                                         Constants::CBRUSH_STATOBJ_OFFSET));
+            }
+            else if (type == Constants::EERTYPE_ENTITY_PROXY)
+            {
+                // The entity's id, unique for the session, so a moving cart keeps its identity.
+                const auto get_owner =
+                    reinterpret_cast<GetOwnerEntityFn>(vt[Constants::RENDERNODE_VTABLE_GETOWNERENTITY_OFFSET / 8]);
+                const auto owner = reinterpret_cast<uintptr_t>(get_owner(node));
+                if (owner != 0 && vtable_is(GameClass::Entity, *reinterpret_cast<uintptr_t *>(owner)))
+                {
+                    add(*reinterpret_cast<const std::uint32_t *>(owner + Constants::ENTITY_ID_OFFSET));
+                }
+            }
+            else
+            {
+                // Vegetation and merged patches never move: where the node stands, to the centimetre, tells them apart.
+                const auto get_bbox = reinterpret_cast<GetBBoxFn>(vt[Constants::RENDERNODE_VTABLE_GETBBOX_OFFSET / 8]);
+                float aabb[6] = {};
+                if (const auto *b = static_cast<const float *>(get_bbox(node, aabb)); b != nullptr)
+                {
+                    for (int k = 0; k < 3; ++k)
+                    {
+                        add(static_cast<std::uint64_t>(static_cast<std::int64_t>(std::floor(b[k] * 100.0f))));
+                    }
+                }
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+        return identity;
+    }
+
     void render_node_name(void *node, char *out, int cap) noexcept
     {
         if (cap > 0)
