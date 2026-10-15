@@ -55,6 +55,8 @@ namespace TPVCamera
             gamepad_orbit_speed_x{}; // free-look GAMEPAD right-stick yaw rate, deg/sec at full deflection (neg inverts)
         std::atomic<float> gamepad_orbit_speed_y{}; // free-look GAMEPAD right-stick pitch rate, deg/sec at full
                                                     // deflection (neg inverts)
+        std::atomic<float> gamepad_orbit_curve{};   // right-stick response exponent (CameraPreset)
+        std::atomic<float> gamepad_orbit_smoothing{}; // right-stick rate settle time, seconds (CameraPreset)
         std::atomic<float> orbit_pitch_min{};       // lowest free-look pitch, degrees
         std::atomic<float> orbit_pitch_max{};       // highest free-look pitch, degrees
         std::atomic<float> orbit_return_speed{};    // ease-back-to-center speed on release (0 = stay)

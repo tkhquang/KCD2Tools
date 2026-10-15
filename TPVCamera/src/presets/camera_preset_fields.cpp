@@ -105,6 +105,14 @@ namespace TPVCamera::Presets
                         "Set a NEGATIVE value to invert up/down. Independent of Orbit Sensitivity Y (which is "
                         "mouse-only).",
                         "Orbit", &CameraPreset::gamepad_orbit_speed_y, -720.0f, 720.0f, 5.0f),
+            float_field("gamepad_orbit_curve", "Gamepad Orbit Curve",
+                        "How the gamepad right stick's push maps to orbit speed. 1 is linear. Higher values turn "
+                        "slower for a small push, for fine aim, and still reach Gamepad Orbit Speed at full stick.",
+                        "Orbit", &CameraPreset::gamepad_orbit_curve, 1.0f, 3.0f, 0.05f),
+            float_field("gamepad_orbit_smoothing", "Gamepad Orbit Smoothing",
+                        "Seconds the orbit speed takes to follow the gamepad right stick, which smooths a jerky "
+                        "stick. 0 follows the stick at once.",
+                        "Orbit", &CameraPreset::gamepad_orbit_smoothing, 0.0f, 0.5f, 0.01f),
             float_field("orbit_pitch_min", "Orbit Pitch Min",
                         "Lowest angle free-look can tilt down to, in degrees (negative looks down).", "Orbit",
                         &CameraPreset::orbit_pitch_min, -89.0f, 0.0f, 0.01f),

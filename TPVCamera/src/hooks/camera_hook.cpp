@@ -30,6 +30,7 @@
 #include "camera/collision.hpp"
 #include "camera/lens.hpp"
 #include "camera/see_through_driver.hpp"
+#include "camera/stick.hpp"
 #include "aob_resolver.hpp"
 #include "character_attachments.hpp"
 #include "constants.hpp"
@@ -1430,8 +1431,27 @@ namespace TPVCamera
         // the stick centred does not jump.
         if (orbit_held && !s_cursor_shown.load(std::memory_order_relaxed))
         {
-            const float pad_yaw = cam.orbit_pad_yaw.load(std::memory_order_relaxed);
-            const float pad_pitch = cam.orbit_pad_pitch.load(std::memory_order_relaxed);
+            // The preset's response curve, then its smoothing: a curve of 1 and 0 s use the latched deflection as it
+            // is. A deflection easing back to a centred stick lands on 0 below k_pad_rest instead of turning the
+            // orbit ever more slowly (at 720 deg/s it is under 0.1 deg/s).
+            constexpr float k_pad_rest = 1e-4f;
+            const StickDeflection shaped =
+                shape_stick({cam.orbit_pad_yaw.load(std::memory_order_relaxed),
+                             cam.orbit_pad_pitch.load(std::memory_order_relaxed)},
+                            std::clamp(cfg.gamepad_orbit_curve.load(std::memory_order_relaxed), 1.0f, 3.0f));
+            const float pad_alpha =
+                spring_alpha(cfg.gamepad_orbit_smoothing.load(std::memory_order_relaxed), delta_time);
+            const auto ease_axis = [pad_alpha](Spring<float> &eased, float target) noexcept
+            {
+                eased.step(target, pad_alpha);
+                if (target == 0.0f && std::fabs(eased.applied) < k_pad_rest && std::fabs(eased.stage1) < k_pad_rest)
+                {
+                    eased.snap(0.0f);
+                }
+                return eased.applied;
+            };
+            const float pad_yaw = ease_axis(cam.orbit_pad_yaw_eased, shaped.x);
+            const float pad_pitch = ease_axis(cam.orbit_pad_pitch_eased, shaped.y);
             if (pad_yaw != 0.0f || pad_pitch != 0.0f)
             {
                 const float step_x = cfg.gamepad_orbit_speed_x.load(std::memory_order_relaxed) * delta_time;
@@ -1450,6 +1470,8 @@ namespace TPVCamera
         {
             cam.orbit_pad_yaw.store(0.0f, std::memory_order_relaxed);
             cam.orbit_pad_pitch.store(0.0f, std::memory_order_relaxed);
+            cam.orbit_pad_yaw_eased.snap(0.0f);
+            cam.orbit_pad_pitch_eased.snap(0.0f);
         }
 
         // Wrap the accumulated yaw into [-180, 180] for the orbit math. The orbit is periodic in yaw,

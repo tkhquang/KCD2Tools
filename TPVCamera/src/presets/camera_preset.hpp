@@ -75,6 +75,11 @@ namespace TPVCamera::Presets
                                               // inverts; mouse uses orbit_sensitivity_x)
         float gamepad_orbit_speed_y = 200.0f; // gamepad right-stick PITCH rate, deg/sec at full deflection (negative
                                               // inverts; mouse uses orbit_sensitivity_y)
+        // The right stick's response curve (shape_stick()): 1 is linear, a higher exponent turns more slowly for a
+        // small push; 2 is the quadratic most third-person console games default to. And the seconds the stick's orbit
+        // rate takes to settle on a new deflection (99%, the Spring of camera/blend.hpp); 0 follows the stick at once.
+        float gamepad_orbit_curve = 2.0f;
+        float gamepad_orbit_smoothing = 0.1f;
         float orbit_pitch_min = -50.0f;
         float orbit_pitch_max = 75.0f;
         float orbit_return_speed = 8.0f;
