@@ -330,67 +330,14 @@ namespace Constants
     // Composed from the named physinterface.h bit values rather than a magic literal so the intent is
     // self-documenting and each contributing flag is independently auditable.
     //
-    // CAMERA_GEOM_COLLTYPES is that one set of part collide types, geom_colltype_ray (0x8000) | geom_colltype_player
-    // (0x0002): the fan's rays carry it in their high word and the swept sphere tests it as its geomFlagsAny, so a part
-    // only one probe can hit (a horse-only collider, a ray-only pane) cannot make the two disagree.
+    // CAMERA_GEOM_COLLTYPES is that set of part collide types, geom_colltype_ray (0x8000) | geom_colltype_player
+    // (0x0002), which the fan's rays carry in their high word.
     constexpr unsigned int CAMERA_GEOM_COLLTYPES = 0x8002;
     constexpr unsigned int RWI_STOP_AT_PIERCEABLE = 0x0000000F; // stop at the first solid (non-pierceable) hit
     constexpr unsigned int RWI_COLLTYPE_ANY = 0x00000400;       // match any (not all) of the requested colltype bits
     constexpr unsigned int RWI_FLAGS_STOP_AT_SOLID =
         RWI_STOP_AT_PIERCEABLE | RWI_COLLTYPE_ANY | (CAMERA_GEOM_COLLTYPES << 16); // 0x8002040F
     static_assert(RWI_FLAGS_STOP_AT_SOLID == 0x8002040Fu);
-
-    // Swept-sphere camera collision (IPhysicalWorld::PrimitiveWorldIntersection)
-    // A single thin RayWorldIntersection ray to a sweeping endpoint (the camera rotates+moves
-    // every frame) catches different objects on consecutive frames as it grazes edges, so the
-    // nearest-hit distance is a step function -> the camera position pumps in dense geometry.
-    // A swept SPHERE replaces the line with a tube of radius r, so the contact distance varies
-    // continuously across edges and the pump is gone at the source. PWI returns the distance the
-    // centre travels to first contact (its float return value), which stops the radius short of the
-    // surface; the camera adds the radius back and keeps the same CollisionSkin from that surface as
-    // from a ray hit.
-    //
-    // PWI is called through the physical world's vtable rather than an AOB of its own; the vtable slot is the
-    // patch-stable anchor. The world pointer is gEnv->pPhysicalWorld, read fresh on each call:
-    // world = *(g_env + PHYSICAL_WORLD_OFFSET), the same global the engine's own RWI helper loads.
-    // pwi = (*(void***)world)[PHYS_WORLD_VTABLE_PWI_OFFSET/8]. That slot is a lock wrapper
-    // (1.5.6 sub_1808115BC: takes the world mutex at world+0x6048, forwards to the real impl sub_180811680), so
-    // calling it is the safe public entry. Signature (Microsoft x64), consolidated SPWIParams form:
-    //   float(this /*rcx=world*/, SPWIParams* pp /*rdx*/, void* pLockContacts /*r8=0*/,
-    //         const char* pNameTag /*r9*/)  -> xmm0 = distance to first hit (> 0 == hit).
-    constexpr ptrdiff_t PHYS_WORLD_VTABLE_PWI_OFFSET = 0x1C8; // world vtable slot
-
-    // primitives::sphere { Vec3 center; float r; } - 16 bytes, type id 4. center is WORLD space.
-    constexpr int PRIMITIVE_TYPE_SPHERE = 4;
-    constexpr size_t PRIMITIVE_SPHERE_SIZE = 0x10;
-    // primitives::sphere is { Vec3 center; float r; }: center at +0, radius float at +0xC (a fixed POD layout,
-    // not an engine-version struct map).
-    constexpr ptrdiff_t PRIMITIVE_SPHERE_RADIUS_OFFSET = 0xC;
-
-    // Fork SPWIParams field offsets, reversed from the impl (1.5.6 sub_180811680) reading its 2nd arg and the
-    // engine's own caller (sub_18081122C: memsets 0xE8, fills the struct, then calls slot +0x1C8). The struct is
-    // reorganized vs the generic CryEngine header, so these are build-specific. Confidence noted per field; the
-    // OUTPUT/lock fields (engine writes through them) are the only memory-safety-critical ones and are CONFIRMED.
-    constexpr size_t SPWI_PARAMS_SIZE = 0x100;    // ctor memsets 0xE8; pad to 0x100
-    constexpr ptrdiff_t SPWI_OFF_ITYPE = 0x18;    // int primitive type   (CONFIRMED, matches header)
-    constexpr ptrdiff_t SPWI_OFF_PPRIM = 0x20;    // const primitive*     (CONFIRMED, matches header)
-    constexpr ptrdiff_t SPWI_OFF_SWEEPDIR = 0x8C; // Vec3 sweep vector    (CONFIRMED: impl |dir|^2>0 -> sweep)
-    // int entity_query_flags (CONFIRMED: the impl passes it to GetEntitiesAround sub_1806EE310 as the objtypes mask
-    // at 0x180811D8F, and tests its bit 0x800, rwi_queue, at 0x180811867, so the sweep never sets that bit). Nothing in
-    // the impl reads +0x9C, the padding before ppcontact.
-    constexpr ptrdiff_t SPWI_OFF_ENTTYPES = 0x98;
-    constexpr ptrdiff_t SPWI_OFF_PPCONTACT = 0xA0;    // geom_contact** OUT   (CONFIRMED, engine writes *ppcontact)
-    // int geomFlagsAll / geomFlagsAny (CONFIRMED in 1.5.6: the impl loads +0xA8 with `mov edx,[rsi+0A8h]` at
-    // 0x180811FB3 and tests +0xAC with `test [rsi+0ACh],eax` at 0x180811FE7 against each part's flags; filtering only)
-    constexpr ptrdiff_t SPWI_OFF_GEOMFLAGSALL = 0xA8;
-    constexpr ptrdiff_t SPWI_OFF_GEOMFLAGSANY = 0xAC;
-    // int (CONFIRMED: the synchronous path walks all n; only the queued 0x800 path clamps to 4; n<0 = pSkipEnts is the
-    // candidate list)
-    constexpr ptrdiff_t SPWI_OFF_NSKIPENTS = 0xB8;
-    constexpr ptrdiff_t SPWI_OFF_PSKIPENTS = 0xC0;    // IPhysicalEntity**    (CONFIRMED: impl indexes pSkipEnts[i])
-    constexpr ptrdiff_t SPWI_OFF_LOCK_IACTIVE = 0xD8; // int  WriteLockCond.iActive (CONFIRMED)
-    constexpr ptrdiff_t SPWI_OFF_LOCK_PRW =
-        0xE0; // int* WriteLockCond.prw     (CONFIRMED; self-ptr = thread-safe, no global lock)
 
     // Indoors, the GameState a preset binds with the `indoors` token (indoor_state.cpp). KCD2 marks building interiors
     // with the engine's clip volumes: one ClipVolume entity per enclosed interior (houses, sheds, barns, cellars),

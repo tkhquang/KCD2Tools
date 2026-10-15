@@ -71,16 +71,12 @@ namespace TPVCamera
                    // / dialogue) so cursor motion does not turn the camera
 
         // Camera collision. Enable/Skin/ReturnSpeed are preset-owned (seeded/overwritten like the framing
-        // above); UseSphereCollision, CollisionRadius, the occluder fade, the tree see-through, HeadClearance and the
-        // close-up fade are always-live INI settings, so they keep their registered defaults.
+        // above); CollisionRadius, the occluder fade, the tree see-through, HeadClearance and the close-up fade are
+        // always-live INI settings, so they keep their registered defaults.
         std::atomic<bool> enable_collision{};        // keep the view out of walls
         std::atomic<float> collision_skin{};         // gap kept from the surface any probe found, meters
         std::atomic<float> collision_return_speed{}; // ease-out speed once an obstruction clears (0 = instant)
-        // Swept-sphere collision via PrimitiveWorldIntersection, added to the ray fan: the sphere's contact
-        // distance is continuous where the fan's rays graze an edge. Falls back to the fan alone when the engine
-        // sweep is unavailable or faults.
-        std::atomic<bool> use_sphere_collision{true};
-        std::atomic<float> collision_radius{0.15f}; // the probes' half-width (fan ray offset, sphere radius), meters
+        std::atomic<float> collision_radius{0.15f};  // the probes' half-width (the fan's ray offset), meters
         // Beam gate, a flex of the rule that whatever matches no visible object stops the camera: such a hit stops it
         // only when all five of the fan's rays are blocked, by it or by anything else, so an unknown collider narrower
         // than the probe with open space beside it (a post, a pole, a stray proxy) is walked past without a fade, and

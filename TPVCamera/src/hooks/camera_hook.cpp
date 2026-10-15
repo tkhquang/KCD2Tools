@@ -2898,7 +2898,7 @@ namespace TPVCamera
 
         // Resolve the engine ray helper for collision + the ranged crosshair ray. Best-effort: on a miss
         // those features no-op (the camera still renders), so the result is intentionally discarded.
-        (void)initialize_physics_raycast(module_base, module_size, s_genv_runtime);
+        (void)initialize_physics_raycast(s_genv_runtime);
 
         // Resolve the 3DEngine render-octree query the occluder scan uses to find the objects between the camera and
         // the character. Best-effort: a miss leaves plain physics collision, so the result is intentionally

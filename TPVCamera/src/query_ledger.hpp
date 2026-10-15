@@ -2,7 +2,7 @@
  * @file query_ledger.hpp
  * @brief Counts and times every engine query the camera and the ranged aim make, by the caller that asked for it.
  *
- * @details A query is one physics call (RayWorldIntersection or PrimitiveWorldIntersection), one render-octree call
+ * @details A query is one physics call (RayWorldIntersection), one render-octree call
  *          (GetObjectsInBox) or one mesh test of a render node. Each is charged to a Tag naming why it ran and a Kind
  *          naming what it cost. The camera closes a frame once per engine frame, so the export also holds the
  *          per-frame distribution of physics queries for moving, still and idle frames. Records use relaxed atomics
@@ -22,7 +22,6 @@ namespace TPVCamera::QueryLedger
     enum class Tag : std::uint8_t
     {
         Fan,
-        SweepPwi,
         Lens,
         Inside,
         StructureOnArm,
@@ -90,8 +89,8 @@ namespace TPVCamera::QueryLedger
     [[nodiscard]] constexpr const char *tag_name(Tag tag) noexcept
     {
         constexpr std::array<const char *, TAG_COUNT> k_names = {
-            "fan",           "sweep_pwi", "lens",       "inside",    "structure_on_arm", "drawn_on",     "sightline",
-            "occluder_scan", "prefetch",  "fence_wall", "crosshair", "aim_preview",      "launch_trace", "untagged",
+            "fan",      "lens",       "inside",    "structure_on_arm", "drawn_on",     "sightline", "occluder_scan",
+            "prefetch", "fence_wall", "crosshair", "aim_preview",      "launch_trace", "untagged",
         };
         const auto index = static_cast<std::size_t>(tag);
         return index < k_names.size() ? k_names[index] : "?";

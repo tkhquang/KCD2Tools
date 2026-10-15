@@ -163,7 +163,6 @@ namespace TPVCamera
         // through bushes and trees; OFF reverts to plain nearest-solid collision. UseTreeSeeThrough opens a window in
         // the trees, bushes and grass in front of the character; the minimum opacity, size, start height and softness
         // shape that window. The fade amounts and the window's shape are clamped where they are read.
-        collision.bind<bool>("UseSphereCollision", "Use Sphere Collision", s.use_sphere_collision, true);
         collision.bind<float>("CollisionRadius", "Collision Radius", s.collision_radius, 0.15f);
         collision.bind<bool>("UseBeamGate", "Use Beam Gate", s.use_beam_gate, false);
         collision.bind<bool>("UseOccluderFade", "Use Occluder Fade", s.use_occluder_fade, true);
