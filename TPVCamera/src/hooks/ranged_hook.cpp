@@ -379,6 +379,9 @@ namespace TPVCamera
             118.0f,
         };
         constexpr float k_default_gravity = 9.0f;
+        // Before the first volley with a weapon teaches it, scatter shot's launch speed (m/s): it leaves the same
+        // handgonne at well under half the ball's (55 against 134 m/s).
+        constexpr float k_default_scatter_speed = 55.0f;
         // Before the first throw teaches it, where a distraction stone leaves the hand from where it was held ready, in
         // the look's level frame (right, forward, up, meters). A larger jump is not a release.
         constexpr Vec3f k_default_decoy_release{0.0f, 0.15f, 0.1f};
@@ -933,6 +936,9 @@ namespace TPVCamera
             // draw never lowers it, a faster one starts the samples over, and another weapon starts both over.
             std::uintptr_t weapon{0};
             float speed{0.0f};
+            // Scatter shot's pellets leave the weapon at their own speed, and in the pose the weapon's single shots
+            // teach: the fastest pellet seen with the weapon.
+            float scatter_speed{0.0f};
             float native_gravity{0.0f};
             float air_resistance{0.0f};
         };
@@ -2688,30 +2694,51 @@ namespace TPVCamera
 
         /**
          * @brief Teaches the aim preview where the bow sat, where it pointed and how fast a full draw flew, from a
-         *        single shot.
+         *        single shot, and how fast scatter shot flies, from a pellet.
          * @details The bow's offset from the eye and the game's launch direction are learned in the frame of the
          *          look that posed the bow, so free-look teaches as well, and kept per band of that look's pitch.
-         *          Only a full draw teaches them, as the preview shows only at full draw. Pellets, a faulted shot and a
-         *          shot without its look or a crosshair target teach nothing.
+         *          Only a full draw teaches them, as the preview shows only at full draw. A pellet teaches only its
+         *          speed: its direction carries the game's spread. A faulted shot and a shot without its look or a
+         *          crosshair target teach nothing.
          */
         void learn_aim_profile(const ShotRecord &shot) noexcept
         {
-            if (!shot.look_valid || !shot.target_valid || !shot.target.eye_valid ||
-                shot.outcome == ShotOutcome::Pellets || shot.outcome == ShotOutcome::PelletRedirected ||
-                shot.outcome == ShotOutcome::Faulted)
+            if (shot.outcome == ShotOutcome::Faulted)
             {
                 return;
             }
             AimProfile &profile = s_aim_profiles[static_cast<std::size_t>(shot.ammo) % s_aim_profiles.size()];
+            if (shot.outcome == ShotOutcome::Pellets || shot.outcome == ShotOutcome::PelletRedirected)
+            {
+                if (shot.weapon != profile.weapon)
+                {
+                    profile = AimProfile{.weapon = shot.weapon};
+                }
+                if (shot.speed > profile.scatter_speed + k_full_draw_speed_margin)
+                {
+                    (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                             "Ranged[preview]: scatter shot with weapon {:#x} flies at {:.1f} m/s",
+                                             profile.weapon, shot.speed);
+                }
+                profile.scatter_speed = std::max(profile.scatter_speed, shot.speed);
+                if (!profile.learned)
+                {
+                    profile.native_gravity = shot.native_gravity;
+                    profile.air_resistance = shot.air_resistance;
+                }
+                return;
+            }
+            if (!shot.look_valid || !shot.target_valid || !shot.target.eye_valid)
+            {
+                return;
+            }
             const Vector3 look = to_vector(shot.look);
             const auto [right, up] = view_axes(look);
             const Vector3 from = to_vector(shot.launch) - to_vector(shot.target.eye);
             const Vector3 native = to_vector(shot.native_dir);
             if (shot.weapon != profile.weapon)
             {
-                profile.bands = {};
-                profile.weapon = shot.weapon;
-                profile.speed = 0.0f;
+                profile = AimProfile{.weapon = shot.weapon};
             }
             // The preview shows only at full draw, and a bow loosed early is posed otherwise (2.5 deg above and 4 deg
             // left of the look at -58 deg, against 1 deg above for a full draw at -43 deg), so only the fastest shots
@@ -3474,7 +3501,9 @@ namespace TPVCamera
          *          gravity. With AimAtCrosshair on, outside free-look, and the crosshair point clear of the bow and
          *          within MaxAimCorrection of its aim, the shot is re-aimed as prepare_shot re-aims it and turned to
          *          land above or below the crosshair. Otherwise the game's own shot flies, and the preview traces that.
-         *          Scatter shot has no preview: its pellets keep the game's spread, which no single arc shows.
+         *          For scatter shot it draws where the volley's centre comes down: the weapon's pose, the pellets'
+         *          speed, and the pellets' re-aim (turned with the look, never the landing turn, and only with the
+         *          first-person eye), so the ring sits in the middle of the spread.
          * @param skip The player's own physics, which the trace passes through.
          */
         void draw_aim_preview(const AuxSession &session, std::uintptr_t c_player, const AimTarget &target,
@@ -3485,10 +3514,7 @@ namespace TPVCamera
                 return;
             }
             const std::optional<std::uint32_t> ammo_class = ammo_class_of(player_missile_ammo(c_player));
-            if (ammo_class == Constants::AMMO_CLASS_SCATTER_SHOT)
-            {
-                return;
-            }
+            const bool scatter = ammo_class == Constants::AMMO_CLASS_SCATTER_SHOT;
             const std::optional<Vector3> look = player_look(c_player);
             if (!look)
             {
@@ -3497,13 +3523,23 @@ namespace TPVCamera
             const AmmoKind kind = ammo_kind(ammo_class);
             const auto kind_index = static_cast<std::size_t>(kind);
             const AimProfile &profile = s_aim_profiles[kind_index % s_aim_profiles.size()];
-            const bool same_weapon = profile.learned && profile.weapon == player_missile_weapon(c_player);
+            const std::uintptr_t weapon = player_missile_weapon(c_player);
+            const bool same_weapon = profile.learned && profile.weapon == weapon;
             const float pitch = std::asin(std::clamp(look->z, -1.0f, 1.0f));
             const auto [offset, aim] = aim_pose_at(profile, pitch);
             FlightPhysics physics{};
-            physics.speed = same_weapon && profile.speed > k_min_trace_speed
-                                ? profile.speed
-                                : k_default_speed[kind_index % k_default_speed.size()];
+            if (scatter)
+            {
+                physics.speed = profile.weapon == weapon && profile.scatter_speed > k_min_trace_speed
+                                    ? profile.scatter_speed
+                                    : k_default_scatter_speed;
+            }
+            else
+            {
+                physics.speed = same_weapon && profile.speed > k_min_trace_speed
+                                    ? profile.speed
+                                    : k_default_speed[kind_index % k_default_speed.size()];
+            }
             const float native_gravity =
                 profile.learned && profile.native_gravity > 0.0f ? profile.native_gravity : k_default_gravity;
             physics.gravity = native_gravity * gravity_scale_for(kind);
@@ -3525,8 +3561,17 @@ namespace TPVCamera
                 (point - bow).magnitude() >= k_min_shot_distance)
             {
                 const float max_correction = max_aim_correction();
-                const Vector3 aimed = sighted_direction(target, look, native, bow).value_or((point - bow).normalized());
-                if (angle_deg(native, aimed) <= max_correction)
+                const std::optional<Vector3> sighted = sighted_direction(target, look, native, bow);
+                const Vector3 aimed = sighted.value_or((point - bow).normalized());
+                if (scatter)
+                {
+                    // As prepare_shot turns a pellet: with the first-person eye, without the landing turn.
+                    if (sighted && angle_deg(native, aimed) <= max_correction)
+                    {
+                        dir = aimed;
+                    }
+                }
+                else if (angle_deg(native, aimed) <= max_correction)
                 {
                     dir = predict_in_crosshair_plane(target, bow, native, aimed, max_correction, physics, skip, landing,
                                                      normal);
