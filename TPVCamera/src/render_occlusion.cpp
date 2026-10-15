@@ -622,6 +622,9 @@ namespace TPVCamera
         std::uint32_t model_revision = 0;
         // A brush's material (CBRUSH_MATERIAL_OFFSET), which decides its no-draw state: a new one re-classifies it.
         const void *material = nullptr;
+        // The state the verdict was classified in. An entity's state is read again on every reuse; its name and rule
+        // are matched again only when the state changed, and in full on each dynamic refresh (refresh_dynamic_nodes()).
+        Rules::State state = Rules::State::None;
     };
 
     // Fence height only rejects low models. Upper-body coverage distinguishes broad walls with seams from low
@@ -980,15 +983,22 @@ namespace TPVCamera
                     std::copy_n(bounds, 6, node.bbox);
                     if (node.entity)
                     {
-                        char name[160] = {};
-                        name_of_node_guarded(node.node, name, sizeof(name));
+                        // A door that starts to swing or a person picking an item up changes the state at once; a
+                        // model swapped under an unchanged state waits for the next dynamic refresh, at most
+                        // OCCLUDER_SCAN_MAX_AGE, rather than reading every entity's name on every recompute.
                         const Rules::State state = entity_is_actor_or_attachment(node.node) ? Rules::State::Actor
                                                    : has_visible_animation(node.node)       ? Rules::State::Animated
                                                                                             : Rules::State::None;
-                        node.verdict = rules.classify(name, Rules::Kind::Entity, state);
-                        if (trace)
+                        if (state != node.state)
                         {
-                            queue_verdict_trace(name, Rules::Kind::Entity, state, node.verdict);
+                            char name[160] = {};
+                            name_of_node_guarded(node.node, name, sizeof(name));
+                            node.verdict = rules.classify(name, Rules::Kind::Entity, state);
+                            node.state = state;
+                            if (trace)
+                            {
+                                queue_verdict_trace(name, Rules::Kind::Entity, state, node.verdict);
+                            }
                         }
                         if (node.verdict.behaviour == Rules::Behaviour::Exclude)
                         {
@@ -1148,6 +1158,7 @@ namespace TPVCamera
                     int wall_slot = -1;
                     const Rules::Behaviour cls = resolve_class(node, verdict, wall_slot);
                     ScannedNode &s = out[n++];
+                    s.state = state;
                     s.wall_slot = wall_slot;
                     s.node = node;
                     s.vtable = reinterpret_cast<uintptr_t>(vt);
