@@ -43,6 +43,8 @@ namespace TPVCamera::HookProfile
         ScanTruncated,
         /// An occluder scan that queried the render octree instead of reusing the cached scan.
         ScanFull,
+        /// An occluder scan that queried only the entity proxies and movable brushes again, keeping its static part.
+        ScanDynamic,
         /// A draw of a listed item whose shader has no twin yet, which asked the creation queue again.
         UntwinnedRetry,
         /// A collision recompute that took the swept sphere's contact over the fan's hit.

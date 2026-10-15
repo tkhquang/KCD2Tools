@@ -527,10 +527,13 @@ namespace Constants
     // Render nodes the occluder scan keeps per query (the brushes, trees and entities near the arm and the character).
     constexpr int OCCLUDER_SCAN_MAX = 768;
     // The scan's octree query covers the arm plus this margin (meters), and is reused until the camera or the
-    // character leaves it or OCCLUDER_SCAN_MAX_AGE seconds pass, so a walking camera does not pay the octree query
-    // every frame.
+    // character leaves it, so a walking camera does not pay the octree query every frame. Its entity proxies and
+    // movable brushes, which move and appear with the box held still, are queried again every OCCLUDER_SCAN_MAX_AGE
+    // seconds; its static brushes, vegetation and merged patches, which only the level streaming changes, every
+    // OCCLUDER_SCAN_STATIC_MAX_AGE seconds.
     constexpr float OCCLUDER_SCAN_MARGIN = 1.5f;
     constexpr float OCCLUDER_SCAN_MAX_AGE = 0.5f;
+    constexpr float OCCLUDER_SCAN_STATIC_MAX_AGE = 2.0f;
     // A sightline does not count crossings within this many meters of the character end: whatever Henry holds,
     // wears or stands in is not between him and the camera.
     constexpr float OCCLUDER_SIGHTLINE_END_MARGIN = 0.35f;
