@@ -224,6 +224,7 @@ namespace TPVCamera
     // ITimer::GetFrameStartTime and ITimer::GetFrameTime (see constants.hpp): the engine frame clock.
     using TimerGetFrameStartTimeFunc = const std::int64_t *(__fastcall *)(uintptr_t timer, int which);
     using TimerGetFrameTimeFunc = float(__fastcall *)(uintptr_t timer, int which);
+    using TimerGetRealFrameTimeFunc = float(__fastcall *)(uintptr_t timer);
 
     /**
      * @brief One engine frame as the frame clock reports it.
@@ -234,6 +235,8 @@ namespace TPVCamera
         std::int64_t start_stamp;
         /// Seconds the world advanced this frame.
         float seconds;
+        /// Real seconds this frame took, whatever the game's time scale; seconds when the real clock cannot be read.
+        float real_seconds;
         /// The game clock is stopped (the pause menu) and seconds is the UI clock's.
         bool paused;
     };
@@ -244,8 +247,9 @@ namespace TPVCamera
      *          before either is called; the frame time must come back finite and non-negative. The game clock
      *          reads 0 while the game timer is paused (the pause menu), and the UI clock's frame time stands in
      *          then: nothing in the world moves, so its lack of smoothing cannot show, and the view still eases
-     *          into and out of the menu. Runs under the frustum detour's SEH frame, which contains a fault in
-     *          either engine call.
+     *          into and out of the menu. The real frame time is read beside it; without that slot in the image the
+     *          game frame time stands in. Runs under the frustum detour's SEH frame, which contains a fault in any of
+     *          the engine calls.
      * @return The frame, or std::nullopt when the clock cannot be trusted.
      */
     [[nodiscard]] static std::optional<EngineFrame> read_engine_frame()
@@ -269,6 +273,8 @@ namespace TPVCamera
             DMK::memory::read<uintptr_t>(DMK::Address{*vtable + Constants::ITIMER_VTABLE_GET_FRAME_START_TIME_OFFSET});
         const auto time_fn =
             DMK::memory::read<uintptr_t>(DMK::Address{*vtable + Constants::ITIMER_VTABLE_GET_FRAME_TIME_OFFSET});
+        const auto real_time_fn =
+            DMK::memory::read<uintptr_t>(DMK::Address{*vtable + Constants::ITIMER_VTABLE_GET_REAL_FRAME_TIME_OFFSET});
         const auto in_image = [&mod](const auto &fn) { return fn && *fn >= mod.base && *fn < mod.base + mod.size; };
         if (!in_image(start_fn) || !in_image(time_fn))
         {
@@ -293,7 +299,16 @@ namespace TPVCamera
         {
             return std::nullopt;
         }
-        return EngineFrame{*stamp, seconds, paused};
+        float real_seconds = seconds;
+        if (in_image(real_time_fn))
+        {
+            const float real = reinterpret_cast<TimerGetRealFrameTimeFunc>(*real_time_fn)(*timer);
+            if (std::isfinite(real) && real > 0.0f)
+            {
+                real_seconds = real;
+            }
+        }
+        return EngineFrame{*stamp, seconds, real_seconds, paused};
     }
 
     // The heading a movement press captures (radians), when it was published (GetTickCount64, 0 = none) and
@@ -309,6 +324,13 @@ namespace TPVCamera
     {
         /// Seconds the camera's per-frame integrators and easings advance on this build, clamped.
         float seconds{0.0f};
+        /**
+         * @brief Real seconds this build advances, clamped: seconds, except while the game scales its time (the
+         *        inventory runs the game clock at 1/1000, a perfect block at 0.4).
+         * @details For what has to finish in real time whatever the world does, the switch between first and third
+         *          person most of all: an overlay that leaves third person must not wait on a clock that has stopped.
+         */
+        float real_seconds{0.0f};
         /**
          * @brief The frame's second build.
          * @details Work that must run exactly once per engine frame (the ranged step) keys on this flag, not on a
@@ -378,9 +400,11 @@ namespace TPVCamera
             }
             s_last_stamp = frame->start_stamp;
             step.seconds = std::clamp(frame->seconds, 0.0f, 0.1f);
+            step.real_seconds = std::clamp(frame->real_seconds, 0.0f, 0.1f);
             return step;
         }
         step.seconds = std::clamp(wall_delta, 0.0f, 0.1f);
+        step.real_seconds = step.seconds;
         return step;
     }
 
@@ -2634,7 +2658,9 @@ namespace TPVCamera
         // the edge-triggered policy write it - and should_apply_view() applies the SuppressTPVState hard
         // gate.
         // Ease the first-person <-> third-person blend toward the desired view so toggling (and UI
-        // suppression) slides instead of snapping. ViewTransitionDuration 0 makes the switch instant.
+        // suppression) slides instead of snapping. ViewTransitionDuration 0 makes the switch instant. It runs on real
+        // time: the inventory slows the game clock to 1/1000 as it opens, and a switch to first person paced on that
+        // clock would leave the offset on the inventory's own view of the character.
         const bool want_tpv = cam.applying.load(std::memory_order_relaxed) && should_apply_view();
         // A situation that also leaves third person (an overlay under SuppressTPVState) does not hand the look off:
         // the camera eases to the eye, whatever ViewTransitionDuration is.
@@ -2644,7 +2670,7 @@ namespace TPVCamera
         }
         const float view_dur = cfg.view_transition_duration.load(std::memory_order_relaxed);
         const float view_target = want_tpv ? 1.0f : 0.0f;
-        cam.view_blend = ramp_weight(cam.view_blend, view_target, view_dur, delta_time);
+        cam.view_blend = ramp_weight(cam.view_blend, view_target, view_dur, step.real_seconds);
 
         // The offset is rendered while heading TO or holding third person, so the ease-OUT renders too.
         const bool offset_engaged = want_tpv || cam.view_blend > 1e-3f;

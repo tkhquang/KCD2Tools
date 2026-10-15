@@ -21,6 +21,7 @@
 - Removed UseCoverageCollision, CoverageThreshold, CameraProbeSize and UseRenderOcclusion, which the fade replaces.
 - Removed PresetBlendSpeed, replaced by each preset's Blend In Seconds.
 - Removed UseSphereCollision: the camera's rays alone decide where it stops (the sphere moved the stop by under 6 cm when it changed anything), which saves an engine query on most frames next to a wall.
+- Fixed the inventory showing the sky or a blank view instead of Henry when ViewTransitionDuration is above 0: the switch to first person now runs on real time, not on the game clock the inventory slows down.
 - Fixed the camera jiggling when swung up and down next to a market stall, a roof edge or a counter.
 - Fixed the camera stopping at the small invisible collision boxes around buildings and props.
 - Fixed closed animated doors letting the camera through and hiding Henry behind them.
