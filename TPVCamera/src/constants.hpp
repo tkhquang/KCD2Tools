@@ -244,6 +244,10 @@ namespace Constants
     constexpr const char *CTIMER_RTTI_NAME = ".?AVCTimer@@";
     constexpr ptrdiff_t ITIMER_VTABLE_GET_FRAME_START_TIME_OFFSET = 0x28;
     constexpr ptrdiff_t ITIMER_VTABLE_GET_FRAME_TIME_OFFSET = 0x48;
+    // ITimer::GetRealFrameTime(): the last frame's real duration, which neither the game's time scale (a perfect
+    // block's slow motion) nor its game-time scale (1/1000 while the inventory is open) touches; 0 while the timer is
+    // disabled.
+    constexpr ptrdiff_t ITIMER_VTABLE_GET_REAL_FRAME_TIME_OFFSET = 0x50;
     constexpr int ETIMER_GAME = 0;
     constexpr int ETIMER_UI = 1;
 
