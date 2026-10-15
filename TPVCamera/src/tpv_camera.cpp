@@ -15,6 +15,7 @@
 #include "constants.hpp"
 #include "global_state.hpp"
 #include "offset_heal.hpp"
+#include "render_occlusion.hpp"
 #include "rtti_types.hpp"
 #include "game_interface.hpp"
 #include "version.hpp"
@@ -658,6 +659,7 @@ namespace TPVCamera
             // fade and the PSO waits a render thread handed the shader twins while they shut down.
             release_zoom_binding_tokens();
             release_shader_twin_records();
+            release_render_occlusion();
             logger.info("Shutdown: teardown complete");
         }
         return hooks;

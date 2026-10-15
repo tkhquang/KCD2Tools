@@ -19,7 +19,9 @@
 #include <xmmintrin.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstring>
 #include <format>
 #include <string>
 
@@ -45,6 +47,27 @@ namespace TPVCamera
     using GetIndexPtrFn = std::uint16_t *(__fastcall *)(void *render_mesh, unsigned int flags, int offset);
 
     static GetObjectsInBoxFn s_get_objects_in_box = nullptr;
+
+    // A std::vector<IRenderNode*> as the engine's MSVC build lays it out: first, last, end of capacity.
+    struct EngineNodeVector
+    {
+        void **first = nullptr;
+        void **last = nullptr;
+        void **end = nullptr;
+    };
+    // The typed query's collector (AnchorId::OctreeCollectByType, see constants.hpp): appends the nodes of `type` in
+    // the box to *out, growing it with the engine allocator. `p3d_engine` is not read.
+    using OctreeCollectFn = void(__fastcall *)(void *p3d_engine, std::uint32_t type, const float *bbox,
+                                               EngineNodeVector *out, std::uint64_t rnd_flags_mask);
+    // The engine's std::_Deallocate (AnchorId::EngineDeallocate): frees a block its std::allocator gave, by its size.
+    using EngineDeallocateFn = void(__fastcall *)(void *block, std::size_t bytes);
+    static OctreeCollectFn s_octree_collect = nullptr;
+    static EngineDeallocateFn s_engine_deallocate = nullptr;
+    // Set while the typed query in force calls both (refresh_brush_query()): each query is then one collector walk.
+    static bool s_single_walk = false;
+    // The vector every single-walk query collects into, emptied before each and kept with its capacity, so the engine
+    // allocates only when a query finds more nodes than any before it. release_render_occlusion() frees it.
+    static EngineNodeVector s_collected{};
     // Game image bounds, for screening a render-mesh GetPosPtr function pointer before the indirect call.
     static uintptr_t s_mod_lo = 0;
     static uintptr_t s_mod_hi = 0;
@@ -62,6 +85,30 @@ namespace TPVCamera
     // game's main thread, not the renderer's thread).
     static GetObjectsByTypeInBoxFn s_get_objects_by_type_in_box = nullptr;
     static uintptr_t s_brush_query_vtable = 0;
+
+    // How far into the typed query its calls of the collector and of the deallocator are looked for (the 1.5.6 body is
+    // 0x98 bytes, with the calls at +0x34 and +0x91).
+    constexpr std::size_t k_typed_query_scan_bytes = 0xC0;
+
+    /** @brief Whether the code at @p function calls @p target (an E8 rel32 call) within its first scan bytes. */
+    [[nodiscard]] static bool calls_within(uintptr_t function, uintptr_t target) noexcept
+    {
+        const auto code = DMK::memory::read<std::array<std::uint8_t, k_typed_query_scan_bytes>>(DMK::Address{function});
+        if (!code || target == 0)
+        {
+            return false;
+        }
+        for (std::size_t i = 0; i + 5 <= code->size(); ++i)
+        {
+            std::int32_t rel = 0;
+            std::memcpy(&rel, code->data() + i + 1, sizeof(rel));
+            if ((*code)[i] == 0xE8 && function + i + 5 + static_cast<std::intptr_t>(rel) == target)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /**
      * @brief Selects the octree query for the engine vtable @p p3d_vtable: the typed one when its slot sits next to
@@ -92,15 +139,22 @@ namespace TPVCamera
             typed = reinterpret_cast<GetObjectsByTypeInBoxFn>(*typed_slot);
         }
         s_get_objects_by_type_in_box = typed;
+        // One walk per query only where this typed query is the one that gathers through the anchored collector and
+        // frees with the anchored deallocator: then its vector contract is the one the scan relies on.
+        const auto typed_address = reinterpret_cast<uintptr_t>(typed);
+        s_single_walk = typed != nullptr &&
+                        calls_within(typed_address, reinterpret_cast<uintptr_t>(s_octree_collect)) &&
+                        calls_within(typed_address, reinterpret_cast<uintptr_t>(s_engine_deallocate));
 
         if (typed != nullptr)
         {
             // format_address builds a std::string, which can throw before try_log runs.
             try
             {
-                (void)DMK::log().try_log(DMK::LogLevel::Debug,
-                                         "RenderOcclusion: typed octree queries through GetObjectsByTypeInBox {}",
-                                         DMK::format::format_address(reinterpret_cast<uintptr_t>(typed)));
+                (void)DMK::log().try_log(
+                    DMK::LogLevel::Debug, "RenderOcclusion: typed octree queries through GetObjectsByTypeInBox {}, {}",
+                    DMK::format::format_address(typed_address),
+                    s_single_walk ? "one walk each through its collector" : "each counted, then filled");
             }
             catch (...)
             {
@@ -116,12 +170,14 @@ namespace TPVCamera
 
     /**
      * @brief Fills @p nodes with the render nodes of @p type in @p bbox and returns how many it wrote.
-     * @details The typed query when refresh_brush_query() selected it, else the untyped one (whose other node types
-     *          the callers' own type filter drops). Both copy their full result without a size limit, so the count is
-     *          taken first and the list is filled only when it fits with RENDER_OCCLUSION_NODE_SLACK to spare, covering
-     *          nodes registered between the two calls. The return is the FILL call's count (a node removed in between
-     *          must not leave a stale slot in range), bounded by the buffer. POD-only: called inside the callers'
-     *          structured-exception frames, which contain a fault.
+     * @details With the single walk (refresh_brush_query()), the typed query's collector gathers into s_collected
+     *          once and the nodes are copied out when they fit. Otherwise the typed query when refresh_brush_query()
+     *          selected it, else the untyped one (whose other node types the callers' own type filter drops). Both copy
+     *          their full result without a size limit, so the count is taken first and the list is filled only when it
+     *          fits with RENDER_OCCLUSION_NODE_SLACK to spare, covering nodes registered between the two calls. The
+     *          return is the FILL call's count (a node removed in between must not leave a stale slot in range),
+     *          bounded by the buffer. POD-only: called inside the callers' structured-exception frames, which contain a
+     *          fault.
      * @param p3d The engine object.
      * @param type The EERType to collect (ignored by the untyped fallback).
      * @param bbox Query box {min.xyz, max.xyz}.
@@ -137,6 +193,25 @@ namespace TPVCamera
         constexpr auto k_fit =
             static_cast<std::uint32_t>(Constants::RENDER_OCCLUSION_MAX_NODES - Constants::RENDER_OCCLUSION_NODE_SLACK);
         const GetObjectsByTypeInBoxFn typed = s_get_objects_by_type_in_box;
+        if (typed != nullptr && s_single_walk)
+        {
+            // One walk: nothing can register between a count and a fill, so the whole buffer is usable.
+            const std::int64_t started = QueryLedger::begin();
+            s_collected.last = s_collected.first;
+            s_octree_collect(p3d, type, bbox, &s_collected, Constants::ENGINE3D_QUERY_ANY_RNDFLAGS);
+            QueryLedger::end(tag, QueryLedger::Kind::Octree, started);
+            const auto found = static_cast<std::size_t>(s_collected.last - s_collected.first);
+            if (found == 0 || found > k_capacity)
+            {
+                if (overflow != nullptr && found > k_capacity)
+                {
+                    *overflow = true;
+                }
+                return 0;
+            }
+            std::copy_n(s_collected.first, found, nodes);
+            return static_cast<std::uint32_t>(found);
+        }
 
         const std::int64_t ledger_started = QueryLedger::begin();
         const std::uint32_t count = (typed != nullptr)
@@ -158,6 +233,18 @@ namespace TPVCamera
         return (copied < k_capacity) ? copied : k_capacity;
     }
 
+    void release_render_occlusion() noexcept
+    {
+        if (s_collected.first != nullptr && s_engine_deallocate != nullptr)
+        {
+            const auto bytes = static_cast<std::size_t>(reinterpret_cast<const std::byte *>(s_collected.end) -
+                                                        reinterpret_cast<const std::byte *>(s_collected.first));
+            s_engine_deallocate(s_collected.first, bytes & ~std::size_t{7});
+        }
+        s_collected = {};
+        s_single_walk = false;
+    }
+
     bool initialize_render_occlusion(uintptr_t module_base, size_t module_size, uintptr_t g_env)
     {
         DMK::Logger &logger = DMK::log();
@@ -171,6 +258,11 @@ namespace TPVCamera
         }
 
         s_get_objects_in_box = reinterpret_cast<GetObjectsInBoxFn>(fn);
+        // Optional: without them every typed query counts, then fills (refresh_brush_query()).
+        s_octree_collect = reinterpret_cast<OctreeCollectFn>(
+            gated_anchor_address(Feature::OctreeSingleWalk, AnchorId::OctreeCollectByType));
+        s_engine_deallocate = reinterpret_cast<EngineDeallocateFn>(
+            gated_anchor_address(Feature::OctreeSingleWalk, AnchorId::EngineDeallocate));
         s_p3d_engine_slot_addr = g_env + Constants::GENV_3DENGINE_OFFSET;
         s_game_module = DMK::Region{DMK::Address{module_base}, module_size};
         s_mod_lo = module_base;
@@ -1314,6 +1406,7 @@ namespace TPVCamera
             return;
         }
 
+        const bool had_scan = s_scan_valid;
         s_scan_count = 0;
         s_scan_valid = false;
         const auto p3d = DMK::memory::read<uintptr_t>(DMK::Address{s_p3d_engine_slot_addr});
@@ -1332,8 +1425,15 @@ namespace TPVCamera
         float qbox[6] = {want[0] - m, want[1] - m, want[2] - m, want[3] + m, want[4] + m, want[5] + m};
         bool truncated = false;
         HookProfile::count(HookProfile::Counter::ScanFull);
-        s_scan_count = scan_nodes_guarded(reinterpret_cast<void *>(*p3d), qbox, *rules, trace, false, s_scan,
-                                          Constants::OCCLUDER_SCAN_MAX, &truncated);
+        HookProfile::count(!had_scan || !same_rules ? HookProfile::Counter::ScanFullFirst
+                           : !inside                ? HookProfile::Counter::ScanFullExit
+                           : !statics_young         ? HookProfile::Counter::ScanFullAged
+                                                    : HookProfile::Counter::ScanFullChanged);
+        {
+            DMK_PROFILE_SCOPE("render.scan_full");
+            s_scan_count = scan_nodes_guarded(reinterpret_cast<void *>(*p3d), qbox, *rules, trace, false, s_scan,
+                                              Constants::OCCLUDER_SCAN_MAX, &truncated);
+        }
         if (!same_rules)
         {
             s_scan_rules_changed = s_scan_rules != nullptr;

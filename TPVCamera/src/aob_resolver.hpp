@@ -1112,6 +1112,44 @@ namespace TPVCamera
                               -0x10B),
         };
 
+        // The occluder scan's single octree walk (render_occlusion.cpp, optional: a miss leaves each typed query
+        // counting and then filling). C3DEngine::GetObjectsByTypeInBox (vtable slot 242) zeroes a local
+        // std::vector<IRenderNode*>, gathers into it through the collector below, copies it out and frees it with
+        // std::_Deallocate; the scan calls the collector itself once per query into a vector it keeps.
+        // The collector (sub_1805DF78C; GOG 0x1805FEEAC, Game Pass 0x1805940AC), called, not hooked. It ignores `this`,
+        // walks the octree root, then the VisAreas when there are any. P1 is the prologue through the argument moves
+        // (`mov rbx, r9; mov rcx, rbx`, `xor r9d, r9d`, `mov rdi, r8; mov esi, edx`) and the octree walk's call; P2 is
+        // the VisArea manager load and test (`mov rcx, [rip+disp32]; test rcx, rcx; jz`), its call's argument moves
+        // and the epilogue, walking back 0x30 to the entry.
+        inline const Candidate k_octreeCollectByTypeCandidates[] = {
+            Candidate::direct(
+                "OctreeCollect_P1_PrologueArgs",
+                Pattern::literal("48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 57 48 83 EC 30 48 8B 6C 24 "
+                                 "60 49 8B D9 48 8B CB 48 89 68 E8 45 33 C9 49 8B F8 8B F2 E8")),
+            Candidate::direct(
+                "OctreeCollect_P2_VisAreaPass",
+                Pattern::literal("48 8B 0D ?? ?? ?? ?? 48 85 C9 74 ?? 48 89 6C 24 28 4C 8B CF 44 8B C6 48 "
+                                 "C7 44 24 20 00 00 00 00 48 8B D3 E8 ?? ?? ?? ?? 48 8B 5C 24 40 48 8B 6C "
+                                 "24 48 48 8B 74 24 50 48 83 C4 30 5F C3"),
+                -0x30),
+        };
+        // std::_Deallocate(void* block, size_t bytes) (sub_181AB5490; GOG 0x181AB59D0, Game Pass 0x181A94EB0), called,
+        // not hooked: frees what the engine's std::allocator gave, through the engine allocator, after undoing the
+        // big-block alignment of a block of 0x1000 bytes or more. P1 is the whole spill-and-test prologue through the
+        // big-block call and the tail jump to operator delete; P2 starts at the 0x1000 compare and walks back 0x0E.
+        inline const Candidate k_engineDeallocateCandidates[] = {
+            Candidate::direct(
+                "EngineDeallocate_P1_Prologue",
+                Pattern::literal("48 89 54 24 10 48 89 4C 24 08 48 83 EC 28 48 81 FA 00 10 00 00 72 ?? 48 "
+                                 "8D 54 24 38 48 8D 4C 24 30 E8 ?? ?? ?? ?? 48 8B 54 24 38 48 8B 4C 24 30 "
+                                 "48 83 C4 28 E9")),
+            Candidate::direct(
+                "EngineDeallocate_P2_BigBlockTest",
+                Pattern::literal("48 81 FA 00 10 00 00 72 ?? 48 8D 54 24 38 48 8D 4C 24 30 E8 ?? ?? ?? ?? "
+                                 "48 8B 54 24 38 48 8B 4C 24 30 48 83 C4 28 E9"),
+                -0x0E),
+        };
+
         // Loading-only shader preparation: fail-closed entry anchors, with no gameplay-creation fallback.
         // CSystem::SetSystemGlobalState(this, int state) (sub_1809B315C; GOG 0x1809D7B7C, Game Pass 0x18091263C), a
         // direct entry hook. States 1..9 cover level preparation, and the closure runs before the transition out of
@@ -1586,7 +1624,8 @@ namespace TPVCamera
      *          scalars. AddOrCreateRO is an address, and so are the window ids (PerViewUpload is a call site the mid
      *          hook sits on). ResourceLookup is an address, ResourceLock and ShaderResourceContainer globals, and the
      *          three PSO builder ids call sites. VegetationGroups is a global, and LevelBrushTables an instruction site
-     *          that only proves two member offsets. ClipVolumeManager is a global and GetClipVolumeByPos an address. Of
+     *          that only proves two member offsets. ClipVolumeManager is a global and GetClipVolumeByPos, OctreeCollectByType and
+     *          EngineDeallocate addresses. Of
      *          the DEV-only ids, HardwareShaderForName is an address and HardwareShaderLockSite an instruction site its
      *          consumer decodes; the ids from TechniqueLayout to HardwareShaderCache are instruction sites that only
      *          prove layouts.
@@ -1657,6 +1696,8 @@ namespace TPVCamera
         LevelBrushTables,         // proof of C3DEngine's level statobj and brush material table offsets (not read)
         ClipVolumeManager,        // the global that holds CClipVolumeManager (the indoors query)
         GetClipVolumeByPos,       // CClipVolumeManager::GetClipVolumeByPos (the indoors query; called, not hooked)
+        OctreeCollectByType,      // the typed octree query's collector (the occluder scan; called, not hooked)
+        EngineDeallocate,         // the engine's std::_Deallocate (frees the collector's vector; called, not hooked)
 #if defined(TPVCAMERA_DEV_BUILD)
         HardwareShaderForName,  // CHWShader::mfForName (the DEV twin clone's factory)
         HardwareShaderLockSite, // the HW shader factory's SRWLOCK lea (an instruction site the consumer decodes)
@@ -1716,9 +1757,11 @@ namespace TPVCamera
         TwinInventory,        // Genv, VegetationGroups, LevelBrushTables: the level inventory at loading boundaries
                               // (needs ShaderTwins; without it the twins come from captured materials only)
         IndoorState,          // ClipVolumeManager, GetClipVolumeByPos: the Indoors state the `indoors` bind token reads
+        OctreeSingleWalk,     // OctreeCollectByType, EngineDeallocate: one octree walk per typed occluder-scan query
+                              // instead of a count and a fill (needs Occlusion)
 #if defined(TPVCAMERA_DEV_BUILD)
-        TwinCloneDryRun,      // the layout proofs (TechniqueLayout to HardwareShaderCache), the HW shader factory and
-                              // its lock, ResourceLookup: the twin clone's read-only dry-run (needs ShaderTwins)
+        TwinCloneDryRun, // the layout proofs (TechniqueLayout to HardwareShaderCache), the HW shader factory and
+                         // its lock, ResourceLookup: the twin clone's read-only dry-run (needs ShaderTwins)
 #endif
         Count,
     };

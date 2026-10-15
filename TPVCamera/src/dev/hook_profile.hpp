@@ -45,6 +45,14 @@ namespace TPVCamera::HookProfile
         ScanFull,
         /// An occluder scan that queried only the entity proxies and movable brushes again, keeping its static part.
         ScanDynamic,
+        /// A full occluder scan because a point the scan covers left its box.
+        ScanFullExit,
+        /// A full occluder scan with every point inside the box, because its static part was too old.
+        ScanFullAged,
+        /// A full occluder scan with every point inside a young enough box, because a scanned node changed.
+        ScanFullChanged,
+        /// A full occluder scan because there was no valid scan or the camera rules changed.
+        ScanFullFirst,
         /// A draw of a listed item whose shader has no twin yet, which asked the creation queue again.
         UntwinnedRetry,
         /// A character twin PSO build (fade-ahead or warming) that took longer than the 2 ms per-frame budget.
