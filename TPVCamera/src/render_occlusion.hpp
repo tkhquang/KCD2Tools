@@ -149,7 +149,7 @@ namespace TPVCamera
      * @param min_lines How many lines must cross a structure for it to count: 3 for the arm, so a guy rope or a chain
      *        with no physics, which crosses one line at a time, does not stop the camera.
      * @param max_fraction How far along the lines a crossing can still matter (the physics already stops the camera
-     *        there): a structure whose box the lines first enter past it is not tested.
+     *        there): the lines are tested only that far, so a structure they enter only past it is not tested.
      * @param node_out Receives the structure that stops the arm, or nullptr; may be nullptr.
      * @param trace Whether to log the structures tested at Trace when that set changes (the camera arm's call only,
      *        so other callers do not make the line alternate).

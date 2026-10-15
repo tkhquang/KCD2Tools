@@ -3318,6 +3318,18 @@ namespace TPVCamera
         }
         const int n = std::min(n_lines, k_max_lines);
         const int need = std::clamp(min_lines, 1, n);
+        // Only a crossing short of max_fraction can stop the camera nearer than it already stops, so the lines are cut
+        // there: the box entries and the mesh test then leave out everything past it.
+        const float cut = std::min(max_fraction, 1.0f);
+        if (!(cut > 0.0f))
+        {
+            return best;
+        }
+        Sightline cut_lines[k_max_lines];
+        for (int l = 0; l < n; ++l)
+        {
+            cut_lines[l] = {lines[l].from, lines[l].from + (lines[l].to - lines[l].from) * cut};
+        }
         int budget = Constants::OCCLUDER_TRIANGLE_BUDGET;
         // The structures tested and the budget each took, for the trace below.
         constexpr int k_trace_max = 8;
@@ -3331,30 +3343,22 @@ namespace TPVCamera
             {
                 continue;
             }
-            // Only a structure whose box at least min_lines of the lines enter, the first of them short of
-            // max_fraction: each crossing lies inside the box, so one that fewer lines enter cannot count, and one
-            // entered only past max_fraction could stop the camera no nearer than it already stops. Neither end of
-            // the lines has to be inside the box: a cloth canopy with no physics hangs between the character and a
-            // camera looking down on him from above it.
+            // Only a structure whose box at least min_lines of the cut lines enter: each crossing lies inside the box,
+            // so one that fewer lines enter cannot count. Neither end of the lines has to be inside the box: a cloth
+            // canopy with no physics hangs between the character and a camera looking down on him from above it.
             int entering = 0;
-            float first_entry = 2.0f;
             for (int l = 0; l < n; ++l)
             {
-                const float entry = segment_box_entry(lines[l].from, lines[l].to, s.bbox);
-                if (entry >= 0.0f)
-                {
-                    ++entering;
-                    first_entry = std::min(first_entry, entry);
-                }
+                entering += segment_box_entry(cut_lines[l].from, cut_lines[l].to, s.bbox) >= 0.0f ? 1 : 0;
             }
-            if (entering < need || first_entry > max_fraction || !node_alive(s))
+            if (entering < need || !node_alive(s))
             {
                 continue;
             }
             float nearest[k_max_lines];
             std::fill_n(nearest, k_max_lines, 2.0f);
             const int budget_before = budget;
-            const int crossed = node_crosses_guarded(tag, s.node, lines, n, 0.0f, budget, nearest);
+            const int crossed = node_crosses_guarded(tag, s.node, cut_lines, n, 0.0f, budget, nearest);
             if (n_tested < k_trace_max)
             {
                 tested[n_tested] = s.node;
@@ -3373,7 +3377,7 @@ namespace TPVCamera
             {
                 continue;
             }
-            const float blocked_at = nearest[need - 1];
+            const float blocked_at = nearest[need - 1] * cut;
             if (blocked_at < best)
             {
                 best = blocked_at;
