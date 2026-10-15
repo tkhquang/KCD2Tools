@@ -2823,13 +2823,13 @@ namespace TPVCamera
     static bool tube_spanned(QueryLedger::Tag tag, void *node, const Sightline *tube, float end_margin,
                              int &budget) noexcept
     {
-        float nearest[k_max_lines];
-        std::fill_n(nearest, k_max_lines, 2.0f);
-        if (node_crosses_guarded(tag, node, tube + 1, 4, end_margin, budget, nearest) < 0)
+        // Two tests that each stop at their first crossing: a side line, then, only when one crosses, a lift line.
+        const int across = node_crosses_guarded(tag, node, tube + 1, 2, end_margin, budget);
+        if (across <= 0)
         {
-            return true;
+            return across < 0;
         }
-        return (nearest[0] <= 1.0f || nearest[1] <= 1.0f) && (nearest[2] <= 1.0f || nearest[3] <= 1.0f);
+        return node_crosses_guarded(tag, node, tube + 3, 2, end_margin, budget) != 0;
     }
 
     /** @brief The five lines of a tube of half-width @p half_width around @p line, in tube_spanned()'s order. */
@@ -2974,15 +2974,19 @@ namespace TPVCamera
             // costs less than leaving the character hidden behind it. An entity counts only on an exact crossing. A
             // read that faulted (-2) is skipped this time. A prop a sightline crosses fades only where it is wide:
             // a tube of k_thin_half_width around that sightline meets it both ways, so a post or a rail thinner than
-            // the tube stays.
-            float nearest[k_max_lines];
-            std::fill_n(nearest, k_max_lines, 2.0f);
-            const int r = node_crosses_guarded(QueryLedger::Tag::Sightline, s.node, lines, n_lines,
-                                               Constants::OCCLUDER_SIGHTLINE_END_MARGIN, budget, nearest);
-            bool fades = r == -1 && !s.entity;
-            for (int l = 0; l < n_lines && r == 1 && !fades; ++l)
+            // the tube stays. Each sightline is tested alone and each test stops at its first crossing, so the mesh
+            // is walked in full only along a line it does not cross.
+            bool fades = false;
+            for (int l = 0; l < n_lines && !fades; ++l)
             {
-                if (nearest[l] <= 1.0f)
+                const int r = node_crosses_guarded(QueryLedger::Tag::Sightline, s.node, &lines[l], 1,
+                                                   Constants::OCCLUDER_SIGHTLINE_END_MARGIN, budget);
+                if (r < 0)
+                {
+                    fades = r == -1 && !s.entity;
+                    break;
+                }
+                if (r == 1)
                 {
                     Sightline tube[5];
                     tube_around(lines[l], k_thin_half_width, tube);
