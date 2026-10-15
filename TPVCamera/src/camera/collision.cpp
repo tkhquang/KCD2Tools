@@ -171,13 +171,15 @@ namespace TPVCamera
                     trace[n_trace++] = WalkStep{at.m_collider, node, at.m_distance, cls, what};
                 }
             };
+            // Each re-cast asks the engine again only for the rays whose answer can have changed (FanMemory).
+            FanMemory fan_memory;
             for (;;)
             {
                 int rays_blocked = 0;
                 std::optional<RayHit> h = ray_fan_sweep(
                     QueryLedger::Tag::Fan, pivot + ray_dir * walk_from, ray_dir * (desired_distance - walk_from),
                     collision_radius, Constants::RWI_OBJTYPES_CAMERA, Constants::RWI_FLAGS_STOP_AT_SOLID,
-                    walk.stepped_past, walk.n_stepped, &rays_blocked);
+                    walk.stepped_past, walk.n_stepped, &rays_blocked, &fan_memory, walk_from);
                 if (h.has_value())
                 {
                     h->m_distance += walk_from;
