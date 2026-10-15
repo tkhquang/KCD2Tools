@@ -416,6 +416,7 @@ See the full list at the [Supported Input Names](https://github.com/tkhquang/Det
 - Faded objects use the engine's dither, so a large faded open wagon or hay pile shows a fine screen-door pattern rather than smooth transparency.
 - The plant window, the cut of tent frames at the lens and the fade of your character's eyes, hair and beard use copies of the game's shaders, prepared at the loading screen or the next pause (the Esc menu, or a menu screen while the game is paused). A plant first seen during play keeps its normal look until then, and a close-up before the character's copies are ready hides the head, as in first person. Loading may take longer.
 - A held torch's flame and light do not fade with your character.
+- In busy towns the fades, the see-through window and the lens cut take the camera about 0.3 ms per frame, against about 0.2 ms without them. For the lowest cost, set `UseOccluderFade`, `UseTreeSeeThrough`, `UseLensCut` and `CloseUpFade` to false and `CollisionPullInSeconds` to 0 in `[Collision]`: the camera then stops at what it hits, as in 2.0.0 (with this version's fixes), prepares no shaders at loading screens or pauses, and costs about what 2.0.0 did.
 - The raycast-based crosshair fix is partial: it does not cover every interaction type, so some
   still show parallax or an offset.
 - A third-person shot at a target almost touching Henry (closer than about half a meter past the
@@ -444,6 +445,7 @@ Planned improvements, roughly in priority order:
 - Fix shadows being cut off behind the character (the shadow cascade still follows the
   first-person eye).
 - Extend the raycast-based crosshair/interaction fix to cover more interaction types.
+- Make the fades and the see-through window cheaper per frame, if a better way turns up (none is known yet).
 
 ## Recommended Mods
 
