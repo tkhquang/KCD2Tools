@@ -47,8 +47,6 @@ namespace TPVCamera::HookProfile
         ScanDynamic,
         /// A draw of a listed item whose shader has no twin yet, which asked the creation queue again.
         UntwinnedRetry,
-        /// A collision recompute that took the swept sphere's contact over the fan's hit.
-        SphereWin,
         /// A character twin PSO build (fade-ahead or warming) that took longer than the 2 ms per-frame budget.
         CharBuildOverBudget,
         Count

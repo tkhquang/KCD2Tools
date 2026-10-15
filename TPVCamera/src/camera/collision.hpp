@@ -128,7 +128,7 @@ namespace TPVCamera
      * @brief Runs the camera collision along the arm and refreshes the fade set.
      * @details With EnableCollision on, the arm's result is reused while the pivot and the desired camera stay within
      *          k_collision_recompute_dist of where it was computed, for at most k_collision_max_age_ms of real time; a
-     *          recompute walks the arm with the ray fan, refines a fan hit with the swept sphere, stops at a drawn
+     *          recompute walks the arm with the ray fan, stops at a drawn
      *          structure mesh the physics misses, holds a pull-in for k_collision_hold_seconds, eases the distance and
      *          casts the fade's sightlines. With it off, the distance eases out to the desired one like after any
      *          obstruction (no jump), and the objects in front of the character still fade. Main thread only.

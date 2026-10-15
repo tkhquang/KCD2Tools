@@ -33,17 +33,17 @@ namespace TPVCamera
         Vector3 m_point{};
         /// Surface normal at the hit.
         Vector3 m_normal{};
-        /// IPhysicalEntity* of the entity hit (ray path only; 0 on the sphere path).
+        /// IPhysicalEntity* of the entity hit.
         uintptr_t m_collider{0};
         /**
          * @brief Non-zero when the hit is the global TERRAIN heightmap (ray_hit.bTerrain).
-         * @details Zero for a brush, and zero on the sphere path. This is the engine's own ground flag, used
+         * @details Zero for a brush. This is the engine's own ground flag, used
          *          to always block the terrain so the camera cannot clip under the world.
          */
         int m_terrain{0};
-        /// The geometry part of the collider hit (ray_hit.ipart; ray path only).
+        /// The geometry part of the collider hit (ray_hit.ipart).
         int m_part{0};
-        /// The mapped surface type of the hit (ray_hit.surface_idx; ray path only).
+        /// The mapped surface type of the hit (ray_hit.surface_idx).
         int m_surface{0};
     };
 
@@ -51,14 +51,12 @@ namespace TPVCamera
      * @brief Resolves RayWorldIntersection and the p_physical_world slot.
      * @details Best-effort: on a pattern miss the raycast features simply no-op (the camera
      *          still works), so callers treat a false return as "raycast unavailable".
-     * @param module_base Base address of the game module (WHGame.dll); a world vtable and its PWI slot must lie in it.
-     * @param module_size Size of the game module image, in bytes.
      * @param g_env Resolved SSystemGlobalEnvironment base, or 0 when it did not resolve; the
      *              p_physical_world slot is taken from g_env + PHYSICAL_WORLD_OFFSET (no second
      *              hardcoded address).
      * @return true if the ray helper and g_env were located.
      */
-    [[nodiscard]] bool initialize_physics_raycast(uintptr_t module_base, size_t module_size, uintptr_t g_env);
+    [[nodiscard]] bool initialize_physics_raycast(uintptr_t g_env);
 
     /**
      * @brief Synchronous world raycast.
@@ -76,45 +74,18 @@ namespace TPVCamera
                                                                unsigned int flags, const uintptr_t *skip_ents = nullptr,
                                                                int n_skip_ents = 0);
 
-    /**
-     * @brief Swept-sphere world intersection via IPhysicalWorld::PrimitiveWorldIntersection (PWI).
-     * @details Sweeps a sphere of the given radius from @p origin along @p sweep and returns the
-     *          distance the sphere centre can travel before first contact. Unlike a thin ray, the
-     *          contact distance is continuous as the sweep grazes edges, so the camera does not pump
-     *          in dense geometry. The PWI function is resolved from the physical-world vtable
-     *          each call (the world is gEnv->pPhysicalWorld, read fresh); the call is SEH-guarded and returns
-     *          std::nullopt on any fault, an unresolved world, or a miss, so the caller falls back to
-     *          the thin ray. Only the float return value (distance) is used. The centre stops @p radius
-     *          short of the surface it meets, so that surface lies @p radius beyond the returned distance.
-     * @param tag Why the sphere is swept, for the query ledger.
-     * @param origin Sphere centre at the start of the sweep, world space.
-     * @param radius Sphere radius, world units.
-     * @param sweep Sweep vector; its length is the maximum sweep distance (not normalized).
-     * @param objtypes entity_query_flags mask (which entity classes block the sphere), written to SPWIParams
-     *        entTypes (+0x98) with the rwi_queue bit cleared.
-     * @param p_skip_ents Optional array of IPhysicalEntity* the sweep ignores (nullptr = none).
-     * @param n_skip_ents Count of @p p_skip_ents.
-     * @return The hit distance and point, or std::nullopt on a miss / fault / unavailable.
-     */
-    [[nodiscard]] std::optional<RayHit> sphere_world_sweep(QueryLedger::Tag tag, const Vector3 &origin, float radius,
-                                                           const Vector3 &sweep, int objtypes,
-                                                           const uintptr_t *p_skip_ents = nullptr, int n_skip_ents = 0);
-
     /// The rays of ray_fan_sweep(): its centre and four offsets by the radius.
     inline constexpr int k_fan_rays = 5;
 
     /**
-     * @brief Multi-ray "fan" approximation of a swept sphere, built on RayWorldIntersection.
+     * @brief Multi-ray "fan" probe of a tube along the sweep, built on RayWorldIntersection.
      * @details Casts the centre ray plus four rays offset perpendicular to the sweep by @p radius (a square
-     *          tube of half-width radius) and returns the NEAREST hit across all five. This approximates a
-     *          swept sphere's edge-catching - so the camera distance does not pump as a single thin ray grazes
-     *          edges - with the same object-type filtering as the PWI sphere (RWI takes @p objtypes as a plain
-     *          argument; PWI reads entTypes from SPWIParams +0x98). Unlike the sphere wrapper, which returns only a
-     *          distance, each fan hit carries its collider and surface normal.
+     *          tube of half-width radius) and returns the NEAREST hit across all five, so the camera distance does
+     *          not pump as a single thin ray grazes edges. Each hit carries its collider and surface normal.
      * @param tag Why the fan is cast, for the query ledger (each of its rays counts as one query).
      * @param origin Sweep start (the camera pivot), world space.
      * @param sweep Sweep vector (pivot -> camera); its length is the max distance (not normalized).
-     * @param radius Half-width of the ray tube, world units (the swept-sphere radius / standoff).
+     * @param radius Half-width of the ray tube, world units.
      * @param objtypes entity_query_flags mask (world-only for the camera: ent_static | ent_terrain).
      * @param flags rwi_flags mask.
      * @param skip_ents Optional array of IPhysicalEntity* to ignore on every ray (nullptr = none).

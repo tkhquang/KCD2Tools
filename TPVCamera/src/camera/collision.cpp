@@ -6,7 +6,6 @@
 #include "camera/collision.hpp"
 #include "camera/ease.hpp"
 #include "config.hpp"
-#include "dev/hook_profile.hpp"
 #include "hooks/occluder_fade.hpp"
 
 #include <DetourModKit.hpp>
@@ -134,7 +133,7 @@ namespace TPVCamera
         struct ArmWalk
         {
             std::optional<RayHit> fan; // the collision: terrain, a drawn structure, or anything unmatched
-            // The colliders stepped past, which every later cast of the walk and the sphere skip.
+            // The colliders stepped past, which every later cast of the walk skips.
             uintptr_t stepped_past[Constants::COLLISION_FADE_SKIP_MAX]{};
             int n_stepped = 0;
             // The props the arm stepped past and faded, their colliders, where a fan ray met each, and how far along
@@ -255,7 +254,7 @@ namespace TPVCamera
         }
 
         /**
-         * @brief Logs the collision hit (the solid-world fan/sphere result) and what the fan stepped past, so a wrong
+         * @brief Logs the collision hit (the fan's solid-world result) and what the fan stepped past, so a wrong
          *        stop or a wrong fade is identifiable from the log.
          * @details Rate-limited to a meaningful change (block-state toggle or distance move > 0.1m) so it never spams
          *          a frame, and written only while Trace logging is enabled. The object is named from what the walk
@@ -263,17 +262,15 @@ namespace TPVCamera
          *          level physics), the scanned node the collision decided on with its class, and the camera rule that
          *          classed it.
          */
-        void trace_physics_hit(CollisionState &state, const ArmWalk &walk, const std::optional<RayHit> &hit,
-                               bool from_sphere, bool blocked, float surface, float desired_distance,
-                               const Vector3 &camera, const Vector3 &pivot)
+        void trace_physics_hit(CollisionState &state, const ArmWalk &walk, bool blocked, float surface,
+                               float desired_distance, const Vector3 &camera, const Vector3 &pivot)
         {
             const float dd = blocked ? (surface - state.traced_distance) : 0.0f;
             const bool moved = (dd > 0.1f) || (dd < -0.1f);
             const bool trace_on = DMK::log().is_enabled(DMK::LogLevel::Trace);
-            if (trace_on && blocked && (blocked != state.traced_blocked || moved))
+            if (trace_on && blocked && walk.fan.has_value() && (blocked != state.traced_blocked || moved))
             {
-                // Identify the object from the fan (point + collider), not the sphere's synthetic hit.
-                const RayHit &id_hit = walk.fan.has_value() ? *walk.fan : *hit;
+                const RayHit &id_hit = *walk.fan;
                 const Vector3 &hp = id_hit.m_point;
                 const Vector3 &hn = id_hit.m_normal;
                 const int hit_terrain = id_hit.m_terrain;
@@ -306,12 +303,12 @@ namespace TPVCamera
                 }
                 (void)DMK::log().try_log(
                     DMK::LogLevel::Trace,
-                    "PhysicsCollision HIT: src={} bTerrain={} dist={} of {} stepped={} collider={:#x} part={} "
+                    "PhysicsCollision HIT: bTerrain={} dist={} of {} stepped={} collider={:#x} part={} "
                     "partFlags={:#x} surface={} colliderExt=({}, {}, {}) linked={:#x} \"{}\" matched=\"{}\" class={} "
                     "rule={} point=({}, {}, {}) normal=({}, {}, {}) cam=({}, {}, {}) pivot=({}, {}, {})",
-                    from_sphere ? "sphere" : "fan", hit_terrain, surface, desired_distance, walk.n_stepped, collider,
-                    id_hit.m_part, part_flags, id_hit.m_surface, cbox[3] - cbox[0], cbox[4] - cbox[1],
-                    cbox[5] - cbox[2], reinterpret_cast<uintptr_t>(linked), linked_name, matched_name,
+                    hit_terrain, surface, desired_distance, walk.n_stepped, collider, id_hit.m_part, part_flags,
+                    id_hit.m_surface, cbox[3] - cbox[0], cbox[4] - cbox[1], cbox[5] - cbox[2],
+                    reinterpret_cast<uintptr_t>(linked), linked_name, matched_name,
                     matched != nullptr ? Rules::behaviour_name(matched_cls) : "unmatched", rule[0] != '\0' ? rule : "-",
                     hp.x, hp.y, hp.z, hn.x, hn.y, hn.z, camera.x, camera.y, camera.z, pivot.x, pivot.y, pivot.z);
             }
@@ -365,7 +362,7 @@ namespace TPVCamera
 
         /**
          * @brief The throttled frame: reuses the last recompute's allowed distance and fade set, skipping the whole
-         *        walk / sphere / sightline computation.
+         *        walk / sightline computation.
          * @details A result that held nothing in stays the live desired distance, so a zoom between recomputes is not
          *          held to the stale one. The hold drains here too; when it runs out the next frame recomputes, so the
          *          release starts. The camera still eases in or out between recomputes: once it has moved far enough,
@@ -493,8 +490,7 @@ namespace TPVCamera
         }
 
         DMK_PROFILE_SCOPE("camera.collision_recompute");
-        // CollisionRadius is the probes' half-width (the fan's ray offset, the sphere's radius, the drawn-mesh arm's
-        // line offset).
+        // CollisionRadius is the probes' half-width (the fan's ray offset and the drawn-mesh arm's line offset).
         const float collision_radius = cfg.collision_radius.load(std::memory_order_relaxed);
         const Vector3 desired_cam = in.pivot + to_camera;
         // One continuous basis across the arm (side level, lift = side x arm), the one the fan uses too, for the
@@ -524,50 +520,9 @@ namespace TPVCamera
         walk_arm(walk, state, arm, in.pivot, ray_dir, desired_distance, collision_radius, in.fade_on,
                  cfg.use_beam_gate.load(std::memory_order_relaxed));
         state.arm_fade_count = state.fade_count;
-        std::optional<RayHit> hit = walk.fan;
-        bool from_sphere = false;
-        // UseSphereCollision adds the swept SPHERE to the fan: its contact is continuous where the fan's five rays
-        // graze an edge. The FAN is the collision AUTHORITY either way (its hits carry the collider and the normal);
-        // the sphere is trusted only where it agrees with the fan's surface, and only to put that surface a little
-        // nearer. With no fan hit there is no collision whatever the sphere would meet, so the sphere is swept only
-        // after a fan hit, and only as far as its agreement window reaches: a contact beyond fan +
-        // k_sphere_agree_beyond is rejected, so a longer sweep cannot change the result.
-        if (walk.fan.has_value() && cfg.use_sphere_collision.load(std::memory_order_relaxed))
-        {
-            // The sweep's entTypes (SPWIParams +0x98) is the 0x101 = static|terrain mask, which the real PWI (1.5.6
-            // sub_180811680) hands to GetEntitiesAround as its objtypes (EAX = 0x101 at 0x180811D8F), so the player's
-            // living entity and its skeleton / worn-gear articulated entity are never candidates and need no skip
-            // entry. The colliders the fan stepped past are skipped, so the sphere does not stop at a faded post (the
-            // synchronous PWI walks every nSkipEnts entry).
-            constexpr float k_sphere_agree_beyond = 0.05f;
-            constexpr float k_sphere_agree_before = 0.10f;
-            const float sweep_reach = std::min(desired_distance, walk.fan->m_distance + k_sphere_agree_beyond);
-            const std::optional<RayHit> sphere =
-                sphere_world_sweep(QueryLedger::Tag::SweepPwi, in.pivot, collision_radius, ray_dir * sweep_reach,
-                                   Constants::RWI_OBJTYPES_CAMERA, walk.stepped_past, walk.n_stepped);
-            // The FAN is the AUTHORITY: each of its hits carries the real collider and surface normal, while the
-            // sphere wrapper returns only a distance. The sphere is trusted ONLY when it AGREES with the fan's world
-            // surface (within the radius inset).
-            if (sphere.has_value() &&
-                sphere->m_distance >= walk.fan->m_distance - collision_radius - k_sphere_agree_before &&
-                sphere->m_distance <= walk.fan->m_distance + k_sphere_agree_beyond &&
-                sphere->m_distance + collision_radius < walk.fan->m_distance)
-            {
-                hit = sphere; // sphere agrees with the fan's world surface -> use it (continuous, no pump)
-                from_sphere = true;
-                HookProfile::count(HookProfile::Counter::SphereWin);
-            }
-        }
-
-        // Where the nearest solid surface is along the arm: the fan's ray hit, or the sphere's contact plus its radius
-        // (the sphere's centre stops CollisionRadius short of the surface). The camera keeps the same CollisionSkin
-        // from it whichever probe found it, so a frame that switches between the fan and the sphere does not move the
-        // camera.
-        float surface = desired_distance;
-        if (hit.has_value())
-        {
-            surface = hit->m_distance + (from_sphere ? collision_radius : 0.0f);
-        }
+        // Where the nearest solid surface is along the arm: the fan's nearest ray hit. The camera keeps CollisionSkin
+        // from it.
+        float surface = walk.fan.has_value() ? walk.fan->m_distance : desired_distance;
         float blocking_distance = desired_distance;
         bool blocked = false;
         if (surface < desired_distance)
@@ -575,7 +530,7 @@ namespace TPVCamera
             blocking_distance = std::max(0.0f, surface - skin);
             blocked = true;
         }
-        trace_physics_hit(state, walk, hit, from_sphere, blocked, surface, desired_distance, in.desired, in.pivot);
+        trace_physics_hit(state, walk, blocked, surface, desired_distance, in.desired, in.pivot);
 
         // A building's drawn mesh can stand inside its physics: a thatched roof's physics is its outer surface while
         // the drawn thatch hangs below it, so the arm can pass the physics and still end in the thatch. The cloth
