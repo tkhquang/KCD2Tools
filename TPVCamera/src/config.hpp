@@ -107,7 +107,9 @@ namespace TPVCamera
         // First-person fallback: when collision leaves the camera less than this many meters from the pivot (a low
         // lintel in a doorway, a wall right behind), it would sit inside the player's head. Instead it eases onto the
         // real eye and the head is hidden by the game's own first-person rig, until the camera has this much room
-        // plus a small margin again. 0 = OFF. Live-editable.
+        // plus a small margin again. With close_up_fade the fade below replaces that switch and this only places it.
+        // 0 = the camera needs no room: no switch, and the fade reaches its full amount against the head.
+        // Live-editable.
         std::atomic<float> head_clearance{0.35f};
         // Close-up fade: instead of the first-person switch above, the character dithers out as the camera closes in on
         // it (from HeadClearance plus a band down to HeadClearance), so the view never jumps to the eye. Needs the
