@@ -13,6 +13,7 @@
 - Changed the camera to keep its distance and pass through bushes and tree trunks, while buildings, walls, tall fences, platforms, covered wagons, big haystacks, rocks and the ground still stop it.
 - Changed leaves and prop corners right at the lens to be cut away instead of filling the view.
 - Changed the shaders behind the fades and the window to be prepared at loading screens and pauses, never while you play.
+- Changed the camera to cost less each frame in busy towns, and to spread its look at the objects around it over several frames, so it no longer adds an occasional hitch of 1 to 2 ms.
 - Changed the INFO log to be quieter; diagnostics moved to DEBUG and TRACE.
 - Changed the camera to switch to a situation's preset the moment it starts, such as drawing a bow; only leaving one waits, for StateExitHoldSeconds (was StateSwitchHoldSeconds).
 - Changed HeadClearance to only set where the close-up fade happens: HeadClearance 0 no longer turns CloseUpFade off.
