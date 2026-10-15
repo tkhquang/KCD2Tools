@@ -74,6 +74,15 @@ namespace TPVCamera
         // and UI suppression slide instead of snapping. NOT reset on suppression - it eases back to 0.
         float view_blend{0.0f};
 
+        // The shoulder the camera sits over, flipped by SwapShoulderKey on the input thread: true puts the active
+        // preset's Offset Right on the other side. A player choice, so it outlasts preset switches and first-person
+        // gaps. shoulder_swap (main thread only) is the linear 0..1 progress toward the swapped side, ramped over
+        // k_shoulder_swap_seconds and smoothstepped at use; shoulder_swap_valid is cleared on suppression so the next
+        // engaged frame takes the chosen side at once instead of sliding across the gap.
+        std::atomic<bool> shoulder_swapped{false};
+        float shoulder_swap{0.0f};
+        bool shoulder_swap_valid{false};
+
         // Camera-collision carry-over, touched only by the frustum-builder detour (the game's
         // main thread), so it needs no synchronization. The allowed follow distance after the
         // collision raycast, eased so the view pulls in instantly but returns out smoothly.

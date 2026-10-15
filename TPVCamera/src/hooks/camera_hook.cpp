@@ -193,6 +193,11 @@ namespace TPVCamera
     constexpr float k_basis_smooth_min_speed = 8.0f;  // strength 1.0: heaviest damping
     constexpr float k_basis_smooth_max_speed = 60.0f; // strength near 0: barely-there damping
 
+    // SwapShoulderKey: seconds the camera takes to slide over to the other shoulder. A linear ramp read through a
+    // smoothstep, so a press starts and lands without a kick, and a second press mid-slide turns back from where the
+    // camera is.
+    constexpr float k_shoulder_swap_seconds = 0.3f;
+
     // The states read from the live UI signals rather than the debounced mask: the suppression gate and the
     // orbit-exclude policy both react on the frame a menu or an overlay opens or closes.
     constexpr uint32_t k_live_ui_states = state_bit(GameState::Menu) | state_bit(GameState::Overlay);
@@ -1303,8 +1308,17 @@ namespace TPVCamera
 
         // Over-the-shoulder lateral offset along the eye-right axis, applied to the non-orbit follow
         // pose. During free-look it is folded into the orbit start offset (below) so it revolves with
-        // the ring, which keeps engaging free-look continuous.
-        const Vector3 lateral_offset = right * cfg.offset_right.load(std::memory_order_relaxed);
+        // the ring, which keeps engaging free-look continuous. SwapShoulderKey mirrors it to the other side: the
+        // offset is scaled from +1 to -1 through the smoothstepped swap progress, so it passes through the look line
+        // instead of jumping across it. The first engaged frame takes the chosen side at once.
+        const float swap_target = cam.shoulder_swapped.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
+        cam.shoulder_swap = cam.shoulder_swap_valid
+                                ? ramp_weight(cam.shoulder_swap, swap_target, k_shoulder_swap_seconds, delta_time)
+                                : swap_target;
+        cam.shoulder_swap_valid = true;
+        const float offset_right =
+            cfg.offset_right.load(std::memory_order_relaxed) * (1.0f - 2.0f * smoothstep(cam.shoulder_swap));
+        const Vector3 lateral_offset = right * offset_right;
 
         // Anchor the rig to a STABLE point. The first-person eye (eye_position, read from CView+0x14)
         // carries head-bob, breathing and weapon-sway, so anchoring the third-person camera to it
@@ -1731,7 +1745,7 @@ namespace TPVCamera
                 const Vector3 held_fwd =
                     heading * std::cos(cam.orbit_base_pitch) + world_up * std::sin(cam.orbit_base_pitch);
                 const Vector3 held_right = heading.cross(world_up).normalized();
-                offset0 = held_fwd * (-distance) + held_right * cfg.offset_right.load(std::memory_order_relaxed);
+                offset0 = held_fwd * (-distance) + held_right * offset_right;
                 base_look = held_fwd;
                 base_up = held_right.cross(held_fwd);
                 if (follow_turned)
@@ -2765,6 +2779,7 @@ namespace TPVCamera
             cam.fov_ease_valid = false;    // and the per-preset FOV override ease
             cam.basis_quat_valid = false;  // and the aim-basis low-pass
             cam.turn_track_valid = false;  // and the turn-in-place pivot hold
+            cam.shoulder_swap_valid = false; // and the shoulder swap's slide
             // A press in first person does not start a free-look move.
             s_move_press_stamp_ms.store(0, std::memory_order_release);
             clear_move_press_turn();
