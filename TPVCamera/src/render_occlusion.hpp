@@ -247,6 +247,12 @@ namespace TPVCamera
      */
     void occluder_rule_where(void *node, char *out, int cap) noexcept;
 
+    /**
+     * @brief The generation of the rule set the current scan was classified with, or 0 without one.
+     * @note Main thread only (reads the scan).
+     */
+    [[nodiscard]] std::uint64_t occluder_rules_generation() noexcept;
+
 } // namespace TPVCamera
 
 #endif // TPVCAMERA_RENDER_OCCLUSION_HPP
