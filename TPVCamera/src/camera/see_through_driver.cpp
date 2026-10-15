@@ -71,6 +71,42 @@ namespace TPVCamera
         float s_tree_hole_speed = 0.0f;
         bool s_tree_hole_wanted = false;
 
+        // While no feature draws with a twin (shader_twins_wanted()), the camera advances the twins with nothing
+        // listed for k_twins_settle_seconds (longer than TREE_HOLE_HOLD_SECONDS), until every tree and frame has gone
+        // back to its stock shader and the character's set is unpublished, and then no longer. The seconds counted so
+        // far (main thread only).
+        constexpr float k_twins_settle_seconds = Constants::TREE_HOLE_HOLD_SECONDS + 0.5f;
+        float s_twins_off_seconds = 0.0f;
+
+        /**
+         * @brief True while the twins idle: no feature draws with one, and the swapped nodes have gone back. The
+         *        camera then leaves them alone. Counts @p delta_time toward the settle while they do not idle yet.
+         */
+        [[nodiscard]] bool twins_idle(float delta_time)
+        {
+            if (shader_twins_wanted())
+            {
+                if (s_twins_off_seconds > 0.0f)
+                {
+                    s_twins_off_seconds = 0.0f;
+                    (void)DMK::log().try_log(DMK::LogLevel::Debug, "ShaderTwins: advanced again (a feature drawing "
+                                                                   "with them is on)");
+                }
+                return false;
+            }
+            if (s_twins_off_seconds >= k_twins_settle_seconds && shader_twin_stats().swapped == 0)
+            {
+                return true;
+            }
+            s_twins_off_seconds += std::max(delta_time, 1e-3f);
+            if (s_twins_off_seconds >= k_twins_settle_seconds && shader_twin_stats().swapped == 0)
+            {
+                (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                         "ShaderTwins: idle (UseTreeSeeThrough, UseLensCut and CloseUpFade are off)");
+            }
+            return false;
+        }
+
         /**
          * @brief The character's own render node for the shader twins: the one the character fade's detour last saw
          * draw
@@ -143,7 +179,7 @@ namespace TPVCamera
                               float body_step, bool wanted, float view_blend, float delta_time,
                               const CharacterNodes &character)
     {
-        if (!shader_twins_available())
+        if (!shader_twins_available() || twins_idle(delta_time))
         {
             return;
         }
@@ -151,7 +187,7 @@ namespace TPVCamera
         LiveSettings &cfg = settings();
         const float strength =
             1.0f - std::clamp(cfg.tree_see_through_min_opacity.load(std::memory_order_relaxed), 0.0f, 1.0f);
-        const bool near_cut = wanted;
+        const bool near_cut = wanted && cfg.use_lens_cut.load(std::memory_order_relaxed);
         wanted = wanted && cfg.use_tree_see_through.load(std::memory_order_relaxed) && strength > 0.0f;
         if (wanted != s_tree_hole_wanted)
         {
@@ -245,7 +281,7 @@ namespace TPVCamera
             s_tree_hole_wanted = false;
             (void)DMK::log().try_log(DMK::LogLevel::Debug, "TreeSeeThrough: window closed (first person)");
         }
-        if (!shader_twins_available())
+        if (!shader_twins_available() || twins_idle(delta_time))
         {
             return;
         }

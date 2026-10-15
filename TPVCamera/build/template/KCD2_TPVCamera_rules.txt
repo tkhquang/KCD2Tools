@@ -173,7 +173,7 @@
 #   after the next pause (the Esc menu) or loading screen, where its shaders are prepared.
 #
 # THE INI STILL APPLIES: UseOccluderFade = false makes the camera stop at everything that has collision.
-#   UseTreeSeeThrough = false shuts the window. Menus and conversations shut the window and the lens cut.
+#   UseTreeSeeThrough = false shuts the window, UseLensCut = false the lens cut. Menus and conversations shut both.
 #
 # EXAMPLES (lines for KCD2_TPVCamera_rules_User.txt)
 #   objects/manmade/vehicles/wagons/wagon_c_hay.cgf = fade                    the covered hay wagon fades

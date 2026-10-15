@@ -1626,11 +1626,22 @@ namespace TPVCamera::Twins
          *          pairs that miss a slot are logged by name and gen mask (up to SHADER_TWIN_CAPACITY_LOG_LINES). An
          *          inventory pair whose stock shader still parses after the first barrier moves on to the pause
          *          inventory, so the next pause creates it. The epoch closes with the inventory's coverage: its pairs
-         *          with a ready twin, and the others by name.
+         *          with a ready twin, and the others by name. While no feature draws with a twin
+         *          (shader_twins_wanted()) the boundary creates none and drops what was captured; the epoch then has no
+         *          inventory, which the first pause after one turns on takes.
          */
         void finalize_loading(const char *reason) noexcept
         {
             DMK_PROFILE_SCOPE("twins.load_finalize");
+            if (!shader_twins_wanted())
+            {
+                clear_candidates();
+                (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                         "ShaderTwins: {} creates no twin (UseTreeSeeThrough, UseLensCut and "
+                                         "CloseUpFade are off)",
+                                         reason);
+                return;
+            }
             const std::uintptr_t renderer = loading_renderer();
             if (renderer == 0 || !s_available.load(std::memory_order_acquire) ||
                 s_disabled.load(std::memory_order_acquire) ||
@@ -1981,7 +1992,8 @@ namespace TPVCamera::Twins
 
         /**
          * @brief Takes the level inventory in a frame the game stands still in, for a loading epoch whose boundary did
-         *        not take one in this module (the first pause after a DEV hot reload) or whose inventory scoped its
+         *        not take one in this module (the first pause after a DEV hot reload, or after a feature that draws
+         *        with twins turned on following a boundary without one) or whose inventory scoped its
          *        assets with camera rules edited since, and keeps the pairs it queued in s_pause_inventory for
          *        create_during_pause().
          * @details Runs once per epoch and rules generation, whatever comes of it: a walk that finds no level or fails
@@ -2058,8 +2070,9 @@ namespace TPVCamera::Twins
                 {
                     (void)DMK::log().try_log(DMK::LogLevel::Info,
                                              "ShaderTwins: the first pause of loading epoch {} ({}) took the level "
-                                             "inventory no loading screen took for this module (a DEV hot reload): {} "
-                                             "pair(s) wait for their twin, created one at a time while the pause lasts",
+                                             "inventory no loading screen took for this module (a DEV hot reload, or "
+                                             "the shader features were off at it): {} pair(s) wait for their twin, "
+                                             "created one at a time while the pause lasts",
                                              epoch, pause_text(reason), s_pause_inventory.size());
                 }
             }
@@ -3400,7 +3413,7 @@ namespace TPVCamera::Twins
         const DetourScope detour_scope;
         const auto original = s_load_material_shader_original.load(std::memory_order_acquire);
         const bool result = original(material, parent, shader, mask, resources, public_params);
-        if (!result || !s_available.load(std::memory_order_acquire))
+        if (!result || !s_available.load(std::memory_order_acquire) || !shader_twins_wanted())
         {
             return result;
         }
