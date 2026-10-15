@@ -2374,13 +2374,20 @@ namespace TPVCamera
                 s_last_trace_ms = now_ms;
                 s_last_collider = collider;
                 s_last_distance = target.distance;
+                // How far the crosshair line passes from the eye, and how far past the eye's depth the point lies: the
+                // re-aim steers from the eye onto the point, so a point at or behind the eye's depth cannot be shot.
+                const Vector3 to_eye = eye - camera;
+                const float eye_gap = eye_valid ? (to_eye - forward * dot(to_eye, forward)).magnitude() : 0.0f;
+                const float past_eye = eye_valid ? dot(point - eye, forward) : target.distance;
                 if (hit)
                 {
                     (void)DMK::log().try_log(
                         DMK::LogLevel::Trace,
                         "Ranged[target]: crosshair hits ({:.2f}, {:.2f}, {:.2f}) {:.2f} m from the "
-                        "camera (collider {:#x}, terrain {}, ray from {:.2f} m, skip {:#x})",
-                        point.x, point.y, point.z, target.distance, hit->m_collider, hit->m_terrain, advance, skip);
+                        "camera, {:.2f} m past the eye, line {:.2f} m from the eye (collider {:#x}, terrain {}, ray "
+                        "from {:.2f} m, skip {:#x})",
+                        point.x, point.y, point.z, target.distance, past_eye, eye_gap, hit->m_collider, hit->m_terrain,
+                        advance, skip);
                 }
                 else
                 {

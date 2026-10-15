@@ -26,6 +26,8 @@ namespace TPVCamera::Presets
         s.follow_yaw.store(preset.follow_yaw, rel);
         s.follow_pitch.store(preset.follow_pitch, rel);
         s.fov.store(preset.fov, rel);
+        s.arm_follow_up.store(preset.arm_follow_up, rel);
+        s.lens_drop_up.store(preset.lens_drop_up, rel);
         s.preset_blend_in_seconds.store(preset.blend_in_seconds, rel);
 
         s.orbit_sensitivity_x.store(preset.orbit_sensitivity_x, rel);
@@ -73,6 +75,8 @@ namespace TPVCamera::Presets
         a.offset_right = lerp(a.offset_right, t.offset_right);
         a.follow_yaw = lerp(a.follow_yaw, t.follow_yaw);
         a.follow_pitch = lerp(a.follow_pitch, t.follow_pitch);
+        a.arm_follow_up = lerp(a.arm_follow_up, t.arm_follow_up);
+        a.lens_drop_up = lerp(a.lens_drop_up, t.lens_drop_up);
         // FOV is SNAPPED to the active target here; the actual smooth ease lives in the camera hook, which blends
         // the rendered FOV toward the target - or toward the live GAME FOV when the target is 0 (off) - so
         // turning a preset's FOV on/off glides through the game FOV instead of snapping across the 0 boundary.
