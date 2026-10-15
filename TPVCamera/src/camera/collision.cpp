@@ -152,12 +152,14 @@ namespace TPVCamera
          * @details A hit on a prop or a plant (matched to its render node through the collider's foreign link or, for
          *          baked level physics, its world box) is stepped past: its collider is skipped, a prop fades, and the
          *          fan is re-cast. The first hit that is terrain, a structure where it draws something, or matches no
-         *          visible object is the collision. RayWorldIntersection does not always honour the skip list (a baked
-         *          collider can come back on the re-cast), so a collider met twice is walked past from just beyond the
-         *          hit instead.
+         *          visible object is the collision. With @p beam_gate, a hit that matches no visible object is stepped
+         *          past the same way, without a fade, unless every ray of the fan is blocked (UseBeamGate).
+         *          RayWorldIntersection does not always honour the skip list (a baked collider can come back on the
+         *          re-cast), so a collider met twice is walked past from just beyond the hit instead.
          */
         void walk_arm(ArmWalk &walk, CollisionState &state, const ArmLines &arm, const Vector3 &pivot,
-                      const Vector3 &ray_dir, float desired_distance, float collision_radius, bool fade_on)
+                      const Vector3 &ray_dir, float desired_distance, float collision_radius, bool fade_on,
+                      bool beam_gate)
         {
             float walk_from = 0.0f; // meters along the arm the fan starts from
             int resumes = 0;
@@ -172,10 +174,11 @@ namespace TPVCamera
             };
             for (;;)
             {
+                int rays_blocked = 0;
                 std::optional<RayHit> h = ray_fan_sweep(
                     QueryLedger::Tag::Fan, pivot + ray_dir * walk_from, ray_dir * (desired_distance - walk_from),
                     collision_radius, Constants::RWI_OBJTYPES_CAMERA, Constants::RWI_FLAGS_STOP_AT_SOLID,
-                    walk.stepped_past, walk.n_stepped);
+                    walk.stepped_past, walk.n_stepped, &rays_blocked);
                 if (h.has_value())
                 {
                     h->m_distance += walk_from;
@@ -207,6 +210,15 @@ namespace TPVCamera
                 {
                     note_step(*h, node, cls, 'u');
                     walk_from = h->m_distance + Constants::COLLISION_WALK_RESUME_STEP;
+                    continue;
+                }
+                if (beam_gate && node == nullptr && h->m_terrain == 0 && h->m_collider != 0 &&
+                    rays_blocked < k_fan_rays && walk.n_stepped < Constants::COLLISION_FADE_SKIP_MAX)
+                {
+                    // Matches nothing drawn, and part of the fan is clear past it to the camera: narrower than the
+                    // probe, walked past without a fade.
+                    note_step(*h, nullptr, cls, 'g');
+                    walk.stepped_past[walk.n_stepped++] = h->m_collider;
                     continue;
                 }
                 if (verdict != ProbeVerdict::PassThrough || !fade_on ||
@@ -509,7 +521,8 @@ namespace TPVCamera
         }
 
         ArmWalk walk;
-        walk_arm(walk, state, arm, in.pivot, ray_dir, desired_distance, collision_radius, in.fade_on);
+        walk_arm(walk, state, arm, in.pivot, ray_dir, desired_distance, collision_radius, in.fade_on,
+                 cfg.use_beam_gate.load(std::memory_order_relaxed));
         state.arm_fade_count = state.fade_count;
         std::optional<RayHit> hit = walk.fan;
         bool from_sphere = false;

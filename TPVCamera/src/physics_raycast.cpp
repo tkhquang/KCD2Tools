@@ -297,9 +297,14 @@ namespace TPVCamera
     }
 
     std::optional<RayHit> ray_fan_sweep(QueryLedger::Tag tag, const Vector3 &origin, const Vector3 &sweep, float radius,
-                                        int objtypes, unsigned int flags, const uintptr_t *skip_ents, int n_skip_ents)
+                                        int objtypes, unsigned int flags, const uintptr_t *skip_ents, int n_skip_ents,
+                                        int *rays_blocked)
     {
         DMK_PROFILE_SCOPE("phys.ray_fan");
+        if (rays_blocked != nullptr)
+        {
+            *rays_blocked = 0;
+        }
         const float len = sweep.magnitude();
         // Written so a NaN length also returns: a NaN ray must never reach the engine.
         if (!(len >= 1e-4f))
@@ -319,24 +324,40 @@ namespace TPVCamera
         const float rlen = right.magnitude();
         if (rlen < 1e-4f)
         {
-            // Degenerate: fall back to the single centre ray.
-            return ray_world_intersection(tag, origin, sweep, objtypes, flags, skip_ents, n_skip_ents);
+            // Degenerate: fall back to the single centre ray, which stands for the whole fan.
+            std::optional<RayHit> centre =
+                ray_world_intersection(tag, origin, sweep, objtypes, flags, skip_ents, n_skip_ents);
+            if (rays_blocked != nullptr && centre.has_value())
+            {
+                *rays_blocked = k_fan_rays;
+            }
+            return centre;
         }
         right = right / rlen;
         const Vector3 up = right.cross(dir); // already unit (right and dir are orthonormal)
 
         // Centre + four parallel rays offset by the radius => a square tube approximating the swept sphere.
-        const Vector3 offsets[5] = {Vector3{0.0f, 0.0f, 0.0f}, right * radius, right * (-radius), up * radius,
-                                    up * (-radius)};
+        const Vector3 offsets[k_fan_rays] = {Vector3{0.0f, 0.0f, 0.0f}, right * radius, right * (-radius), up * radius,
+                                             up * (-radius)};
 
         std::optional<RayHit> best;
+        int blocked = 0;
         for (const Vector3 &off : offsets)
         {
             const auto h = ray_world_intersection(tag, origin + off, sweep, objtypes, flags, skip_ents, n_skip_ents);
-            if (h.has_value() && (!best.has_value() || h->m_distance < best->m_distance))
+            if (!h.has_value())
+            {
+                continue;
+            }
+            ++blocked;
+            if (!best.has_value() || h->m_distance < best->m_distance)
             {
                 best = h;
             }
+        }
+        if (rays_blocked != nullptr)
+        {
+            *rays_blocked = blocked;
         }
         return best;
     }

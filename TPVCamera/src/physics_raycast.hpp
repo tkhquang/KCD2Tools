@@ -100,6 +100,9 @@ namespace TPVCamera
                                                            const Vector3 &sweep, int objtypes,
                                                            const uintptr_t *p_skip_ents = nullptr, int n_skip_ents = 0);
 
+    /// The rays of ray_fan_sweep(): its centre and four offsets by the radius.
+    inline constexpr int k_fan_rays = 5;
+
     /**
      * @brief Multi-ray "fan" approximation of a swept sphere, built on RayWorldIntersection.
      * @details Casts the centre ray plus four rays offset perpendicular to the sweep by @p radius (a square
@@ -116,11 +119,15 @@ namespace TPVCamera
      * @param flags rwi_flags mask.
      * @param skip_ents Optional array of IPhysicalEntity* to ignore on every ray (nullptr = none).
      * @param n_skip_ents Count of @p skip_ents.
+     * @param rays_blocked Optional out: how many of the k_fan_rays rays hit something (0 on a miss), which tells an
+     *        obstacle narrower than the fan with open space beside it from one where the whole fan is blocked. A sweep
+     *        straight along the world axes casts the centre ray alone and reports k_fan_rays for its hit.
      * @return The nearest hit across the fan, or std::nullopt if every ray misses.
      */
     [[nodiscard]] std::optional<RayHit> ray_fan_sweep(QueryLedger::Tag tag, const Vector3 &origin, const Vector3 &sweep,
                                                       float radius, int objtypes, unsigned int flags,
-                                                      const uintptr_t *skip_ents = nullptr, int n_skip_ents = 0);
+                                                      const uintptr_t *skip_ents = nullptr, int n_skip_ents = 0,
+                                                      int *rays_blocked = nullptr);
 
     /**
      * @brief The visible render node (IRenderNode) a physics collider belongs to, via its foreign data.

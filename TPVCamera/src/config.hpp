@@ -79,6 +79,13 @@ namespace TPVCamera
         // sweep is unavailable or faults.
         std::atomic<bool> use_sphere_collision{true};
         std::atomic<float> collision_radius{0.15f}; // the probes' half-width (fan ray offset, sphere radius), meters
+        // Beam gate, a flex of the rule that whatever matches no visible object stops the camera: such a hit stops it
+        // only when all five of the fan's rays are blocked, by it or by anything else, so an unknown collider narrower
+        // than the probe with open space beside it (a post, a pole, a stray proxy) is walked past without a fade, and
+        // whatever stands behind it still counts. Terrain and the objects the camera rules class keep their
+        // behaviour. An object about the probe's width can block four rays on one frame and five on the next; the
+        // 0.3 s collision hold bridges that. Off = every unmatched hit stops the camera.
+        std::atomic<bool> use_beam_gate{false};
         // Occluder fade: props between the camera and the character (posts, fences, open carts, lamps) dither out
         // instead of pulling the camera in front of them, so the camera keeps its distance. The camera passes through
         // bushes and tree trunks, but a bush or a tree never fades whole for hiding the character (the tree see-through
