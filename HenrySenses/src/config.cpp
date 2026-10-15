@@ -112,6 +112,30 @@ namespace HenrySenses
         }
 
         /**
+         * @brief Parses [Render] HdrOutput.
+         * @param text The INI value: Auto, or On/Off (true/false also read).
+         * @return The HdrOutputMode value; an unknown token selects Auto.
+         */
+        [[nodiscard]] std::uint32_t parse_hdr_output(std::string_view text)
+        {
+            const std::string_view token = trim_view(text);
+            HdrOutputMode mode = HdrOutputMode::Auto;
+            if (token_equals(token, "on") || token_equals(token, "true"))
+            {
+                mode = HdrOutputMode::On;
+            }
+            else if (token_equals(token, "off") || token_equals(token, "false"))
+            {
+                mode = HdrOutputMode::Off;
+            }
+            else if (!token.empty() && !token_equals(token, "auto"))
+            {
+                DMK::log().warning("Config: unknown HdrOutput '{}'; using Auto", std::string(token));
+            }
+            return static_cast<std::uint32_t>(mode);
+        }
+
+        /**
          * @brief Parses [Render] Style.
          * @param text The INI value.
          * @return The RenderStyle value; an unknown token selects OutlineFill.
@@ -207,6 +231,7 @@ namespace HenrySenses
         render.bind<float>("FadePower", "Fade Power", s.fade_power, 1.0f);
         render.bind<bool>("SeeThrough", "See Through", s.see_through, true);
         render.bind<bool>("RenderAlways", "Render Always", s.render_always, true);
+        render.bind_parsed("HdrOutput", "HDR Output", s.hdr_output, parse_hdr_output, "Auto");
         render.bind<float>("FocusDarken", "Focus Darken", s.focus_darken, 0.0f);
         render.bind_parsed("FocusTint", "Focus Tint", s.focus_tint, parse_rgb, "B8C4D8");
         render.bind<float>("FocusFadeIn", "Focus Fade In", s.focus_fade_in, 0.4f);

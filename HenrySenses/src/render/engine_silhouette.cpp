@@ -19,7 +19,9 @@
  */
 
 #include "render/engine_silhouette.hpp"
+#include "render/hdr_output.hpp"
 #include "render/herb_outline.hpp"
+#include "render/render_calls.hpp"
 #include "render/silhouette_shader.hpp"
 #include "aob_resolver.hpp"
 #include "config.hpp"
@@ -57,6 +59,8 @@ namespace HenrySenses
 {
     namespace
     {
+        using namespace render_calls;
+
         using StdInitFn = void(__fastcall *)(std::uintptr_t pipeline);
         using RegisterStageFn = std::uintptr_t(__fastcall *)(std::uintptr_t pipeline, std::uintptr_t unused);
         using CreatePsoFn = bool(__fastcall *)(void *stage, const void *desc, std::uint8_t pass_id, void **out_pso);
@@ -73,32 +77,8 @@ namespace HenrySenses
             std::int32_t end
         );
         using DrawerFn = void(__fastcall *)(std::uintptr_t drawer);
-        using SetTechniqueFn = void(__fastcall *)(
-            std::uintptr_t primitive,
-            std::uintptr_t shader,
-            const std::uint32_t *technique_crc,
-            std::uint64_t rt_mask,
-            bool apply_quality
-        );
-        using SetRenderTargetFn =
-            bool(__fastcall *)(std::uintptr_t pass, std::uint32_t slot, std::uintptr_t texture, std::uint8_t view);
-        using SetTextureFn = void(__fastcall *)(
-            std::uintptr_t desc,
-            std::uint8_t slot,
-            std::uintptr_t texture,
-            std::uint8_t view,
-            std::uint16_t stages
-        );
-        using SetSamplerFn = std::uint32_t(__fastcall *)(
-            std::uintptr_t desc,
-            std::uint8_t slot,
-            std::uint16_t sampler,
-            std::uint32_t stages
-        );
-        using BeginConstantUpdateFn = void(__fastcall *)(std::uintptr_t pass);
         using SetConstantFn =
             bool(__fastcall *)(std::uintptr_t pass, const void *name, const float *value, std::uint8_t shader_class);
-        using FullscreenExecuteFn = bool(__fastcall *)(std::uintptr_t pass);
         using CryNameRFn = void *(__fastcall *)(void *self, const char *name);
         using DisplayTargetFn = std::uintptr_t(__fastcall *)(std::uintptr_t resources, std::uint32_t stage);
         using SceneSetRenderTargetsFn = void(__fastcall *)(
@@ -109,20 +89,6 @@ namespace HenrySenses
             std::uintptr_t color2,
             std::uintptr_t color3
         );
-        // SPostEffectsUtils::GetOrCreateRenderTarget / GetOrCreateDepthStencil: creates the named target into *slot,
-        // or resizes the one already there; true when it has a device texture.
-        using PostFxTargetFn = bool(__fastcall *)(
-            const char *name,
-            std::uintptr_t *slot,
-            std::int32_t width,
-            std::int32_t height,
-            const float *clear,
-            bool use_alpha,
-            bool mips,
-            std::uint8_t format,
-            std::int32_t custom_id,
-            std::uint32_t flags
-        );
         using ClearDepthFn = void(__fastcall *)(
             std::uintptr_t pass,
             std::uintptr_t texture,
@@ -130,36 +96,11 @@ namespace HenrySenses
             float depth,
             std::uint8_t stencil
         );
-        using TextureReleaseFn = std::int32_t(__fastcall *)(std::uintptr_t texture);
-
-        /**
-         * @brief Standard CRC-32 of the lower-cased text: the engine's CCryNameTSCRC technique key.
-         * @param text Technique name.
-         * @return The key.
-         */
-        [[nodiscard]] constexpr std::uint32_t technique_crc(std::string_view text) noexcept
-        {
-            std::uint32_t crc = 0xFFFFFFFFu;
-            for (const char c : text)
-            {
-                const auto byte = static_cast<std::uint8_t>(c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c);
-                crc ^= byte;
-                for (int bit = 0; bit < 8; ++bit)
-                {
-                    crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
-                }
-            }
-            return ~crc;
-        }
-
         constexpr std::uint32_t DEFERRED_SILHOUETTES_CRC = technique_crc("DeferredSilhouettesOptimised");
         static_assert(DEFERRED_SILHOUETTES_CRC == 0x6BB4DF7Cu, "Technique key must match the shipped permutation.");
         // The mod's own composite technique (render/silhouette_shader.hpp).
         constexpr std::uint32_t HENRY_SENSES_SILHOUETTE_CRC = technique_crc(constants::SILHOUETTE_TECHNIQUE);
         constexpr std::uint32_t HENRY_SENSES_COVERAGE_CRC = technique_crc(constants::SILHOUETTE_COVERAGE_TECHNIQUE);
-        // Composites the mod's technique may fail (its permutation still compiling) before it has drawn once; past
-        // them the stock technique is kept for the session.
-        constexpr std::uint32_t CUSTOM_WARMUP_ATTEMPTS = 900;
 
         // Composite constants that are not user settings: BOOST and BRIGHTNESS of the shipped shader.
         constexpr float COMPOSITE_BOOST = 1.7f;
@@ -192,7 +133,7 @@ namespace HenrySenses
         /**
          * @brief Every render-thread call and data slot, resolved once at init and read-only afterwards.
          */
-        struct RenderCalls
+        struct RenderCalls : PassCalls
         {
             std::uintptr_t register_stage{0};
             std::uintptr_t clear_surface{0};
@@ -200,13 +141,7 @@ namespace HenrySenses
             std::uintptr_t draw_render_items{0};
             std::uintptr_t jobify{0};
             std::uintptr_t wait{0};
-            std::uintptr_t set_technique{0};
-            std::uintptr_t set_render_target{0};
-            std::uintptr_t set_texture{0};
-            std::uintptr_t set_sampler{0};
-            std::uintptr_t begin_constant_update{0};
             std::uintptr_t set_constant{0};
-            std::uintptr_t fullscreen_execute{0};
             std::uintptr_t cry_name_r{0};
             std::uintptr_t display_target{0};
             std::uintptr_t ldr_target{0};
@@ -292,11 +227,15 @@ namespace HenrySenses
             AfterHdr,
             /// After LDR post-processing (P5), into the render output.
             AfterLdr,
+            /// After LDR post-processing (P5), into the scene the HDR Output Transform draws for an HDR screen.
+            HdrScene,
         };
 
         [[nodiscard]] constexpr const char *composite_point_name(CompositePoint point) noexcept
         {
-            return point == CompositePoint::AfterLdr ? "LDR (P5)" : "HDR (P4)";
+            return point == CompositePoint::AfterLdr   ? "LDR (P5)"
+                   : point == CompositePoint::HdrScene ? "HDR scene (P5)"
+                                                       : "HDR (P4)";
         }
 
         using SuperResolutionFn = void(__fastcall *)(void *stage);
@@ -313,7 +252,6 @@ namespace HenrySenses
             float distribution,
             bool alpha_only
         );
-        using ScalarDtorFn = void *(__fastcall *)(void *self, unsigned int flags);
 
         // The mask blur: a CGaussianBlurPass the mod owns, constructed on the render thread for the pipeline it blurs
         // on and destroyed at shutdown once the render path is idle.
@@ -374,7 +312,6 @@ namespace HenrySenses
 
         std::atomic<float> s_intensity{1.0f};
         std::atomic<float> s_interior_opacity{0.0f};
-
         // Bumped after every pipeline Init and late attach, so the composite configures a new stage's pass even when
         // the allocator hands the new stage the old addresses.
         std::atomic<std::uint32_t> s_binding_generation{0};
@@ -445,11 +382,12 @@ namespace HenrySenses
         std::uintptr_t s_bound_shader{0};
         std::uintptr_t s_bound_depth{0};
         std::uintptr_t s_bound_visibility{0};
+        std::uintptr_t s_bound_scene{0};
         std::uint32_t s_technique_key{DEFERRED_SILHOUETTES_CRC};
         std::uint32_t s_custom_technique_key{HENRY_SENSES_SILHOUETTE_CRC};
         std::uint32_t s_custom_coverage_key{HENRY_SENSES_COVERAGE_CRC};
         // The mod's coverage technique drew once, and the coverages it failed before (its permutation compiles on its
-        // own); past CUSTOM_WARMUP_ATTEMPTS the stock coverage is kept for the session.
+        // own); past TECHNIQUE_WARMUP_ATTEMPTS the stock coverage is kept for the session.
         bool s_coverage_confirmed{false};
         bool s_coverage_given_up{false};
         std::uint32_t s_coverage_failures{0};
@@ -628,22 +566,6 @@ namespace HenrySenses
                        std::chrono::steady_clock::now().time_since_epoch()
             )
                 .count();
-        }
-
-        /**
-         * @brief Raw typed load for use inside the SEH helpers only.
-         */
-        template <typename T> [[nodiscard]] T load(std::uintptr_t address) noexcept
-        {
-            return *reinterpret_cast<const volatile T *>(address);
-        }
-
-        /**
-         * @brief Raw typed store for use inside the SEH helpers only.
-         */
-        template <typename T> void store(std::uintptr_t address, T value) noexcept
-        {
-            *reinterpret_cast<volatile T *>(address) = value;
         }
 
         [[nodiscard]] std::uintptr_t guarded_register_stage(std::uintptr_t fn, std::uintptr_t pipeline) noexcept
@@ -2011,22 +1933,6 @@ namespace HenrySenses
             }
         }
 
-        /** @brief Releases one of the mod's textures (CTexture vtable Release); false on a fault. */
-        [[nodiscard]] bool guarded_release_texture(std::uintptr_t texture) noexcept
-        {
-            __try
-            {
-                const std::uintptr_t vtable = load<std::uintptr_t>(texture);
-                (void)reinterpret_cast<
-                    TextureReleaseFn>(load<std::uintptr_t>(vtable + constants::TEXTURE_VTABLE_RELEASE_OFFSET))(texture);
-                return true;
-            }
-            __except (engine_fault_filter(GetExceptionCode()))
-            {
-                return false;
-            }
-        }
-
         /** @brief Releases the supersampled targets (shutdown, once the render path is idle). */
         void release_supersampled_targets() noexcept
         {
@@ -2090,6 +1996,10 @@ namespace HenrySenses
             float interior{0.0f};
             /// Outline width in mask texels (the destination may be larger than the mask).
             float outline_width{1.0f};
+            /// Under HDR output, SDR white in scene units (the UI brightness); 0 for an SDR target.
+            float hdr_scale{0.0f};
+            /// Under HDR output, the copy of the scene the highlight is added to as SDR adds it; 0 without one.
+            std::uintptr_t scene{0};
         };
 
         /**
@@ -2123,6 +2033,7 @@ namespace HenrySenses
          * @details The outline width is given in texels of the render-resolution mask (the INI's unit), whatever the
          *          mask's own size; the edge's soft band is one mask texel in target pixels. Raw loads: called inside
          *          a composite's SEH scope.
+         * @param hdr The composite's HDR inputs (SDR white, the scene copy), or nullptr for none.
          * @return False when a size reads 0.
          */
         [[nodiscard]] bool set_custom_constants(
@@ -2133,7 +2044,8 @@ namespace HenrySenses
             const MaskVisibility &visibility,
             float strength,
             float interior,
-            float outline_width
+            float outline_width,
+            const CustomComposite *hdr
         ) noexcept
         {
             const std::uintptr_t resources = load<std::uintptr_t>(stage + constants::STAGE_RESOURCES_OFFSET);
@@ -2155,7 +2067,12 @@ namespace HenrySenses
             };
             const float params1[4] =
                 {visibility.offset_u, visibility.offset_v, 1.0f / target_width, 1.0f / target_height};
-            const float params2[4] = {visibility.texture != 0 ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
+            const float params2[4] = {
+                visibility.texture != 0 ? 1.0f : 0.0f,
+                hdr != nullptr ? hdr->hdr_scale : 0.0f,
+                hdr != nullptr && hdr->scene != 0 ? 1.0f : 0.0f,
+                0.0f
+            };
             const auto set_constant = reinterpret_cast<SetConstantFn>(s_calls.set_constant);
             (void)set_constant(pass, &s_name_custom_params0, params0, 1);
             (void)set_constant(pass, &s_name_custom_params1, params1, 1);
@@ -2171,6 +2088,7 @@ namespace HenrySenses
          * @param ps_params psParams (strength, boost, brightness, fill strength).
          * @param vs_params vsParams (outline offset in texels, 0, 0, 0).
          * @param custom The mod's technique to draw with instead of the stock one, or nullptr.
+         * @param forced_destination The target to draw into instead of the point's own (HdrScene), or 0.
          * @return The outcome.
          */
         [[nodiscard]] CompositeStatus guarded_composite(
@@ -2181,6 +2099,7 @@ namespace HenrySenses
             const float *vs_params,
             CompositePoint point,
             const CustomComposite *custom,
+            std::uintptr_t forced_destination,
             std::uint32_t *out_results,
             std::uintptr_t *out_destination
         ) noexcept
@@ -2214,16 +2133,17 @@ namespace HenrySenses
                 }
                 const std::uintptr_t resources = load<std::uintptr_t>(stage + constants::STAGE_RESOURCES_OFFSET);
                 // After the HDR chain the frame is $DisplayTargetDst (past the upscaler); after the LDR chain it is the
-                // render output's colour target, which the engine's own after-LDR pass fetches the same way.
-                std::uintptr_t destination = 0;
-                if (point == CompositePoint::AfterLdr && s_calls.ldr_target != 0)
+                // render output's colour target, which the engine's own after-LDR pass fetches the same way. Under HDR
+                // output the caller passes the HDR Output Transform's scene instead.
+                std::uintptr_t destination = forced_destination;
+                if (destination == 0 && point == CompositePoint::AfterLdr && s_calls.ldr_target != 0)
                 {
                     destination = reinterpret_cast<DisplayTargetFn>(s_calls.ldr_target)(
                         resources,
                         constants::DISPLAY_TARGET_STAGE
                     );
                 }
-                else
+                else if (destination == 0)
                 {
                     destination = reinterpret_cast<DisplayTargetFn>(s_calls.display_target)(
                         resources,
@@ -2247,11 +2167,15 @@ namespace HenrySenses
                 // The technique reads t2 in every permutation, so it is bound to the mask when nothing is depth-tested.
                 const std::uintptr_t visible =
                     custom != nullptr ? (visibility.texture != 0 ? visibility.texture : mask) : std::uintptr_t{0};
+                // The technique reads t3 in every permutation too: the scene copy, or the mask without one.
+                const std::uintptr_t scene =
+                    custom != nullptr ? (custom->scene != 0 ? custom->scene : mask) : std::uintptr_t{0};
                 // Until the mod's technique has drawn once it is bound every frame: its parse and its permutation
                 // finish in the background, and a technique set before that is not taken.
                 if (pass != s_bound_pass || destination_id != s_bound_destination_id || mask != s_bound_mask ||
                     generation != s_bound_generation || shader != s_bound_shader || depth != s_bound_depth ||
-                    visible != s_bound_visibility || (custom != nullptr && !s_custom_confirmed))
+                    visible != s_bound_visibility || scene != s_bound_scene ||
+                    (custom != nullptr && !s_custom_confirmed))
                 {
                     reinterpret_cast<SetTechniqueFn>(s_calls.set_technique)(
                         pass + constants::FULLSCREEN_PRIMITIVE_OFFSET,
@@ -2307,6 +2231,16 @@ namespace HenrySenses
                             constants::SHADER_STAGE_PIXEL
                         );
                     }
+                    if (scene != 0)
+                    {
+                        reinterpret_cast<SetTextureFn>(s_calls.set_texture)(
+                            pass + constants::FULLSCREEN_RESOURCE_DESC_OFFSET,
+                            3,
+                            scene,
+                            0,
+                            constants::SHADER_STAGE_PIXEL
+                        );
+                    }
                     (void)reinterpret_cast<SetSamplerFn>(s_calls.set_sampler)(
                         pass + constants::FULLSCREEN_RESOURCE_DESC_OFFSET,
                         0,
@@ -2332,6 +2266,7 @@ namespace HenrySenses
                     s_bound_shader = shader;
                     s_bound_depth = depth;
                     s_bound_visibility = visible;
+                    s_bound_scene = scene;
                 }
 
                 reinterpret_cast<BeginConstantUpdateFn>(s_calls.begin_constant_update)(pass);
@@ -2345,7 +2280,8 @@ namespace HenrySenses
                             visibility,
                             custom->strength,
                             custom->interior,
-                            custom->outline_width
+                            custom->outline_width,
+                            custom
                         ))
                     {
                         return CompositeStatus::NoTarget;
@@ -2521,7 +2457,17 @@ namespace HenrySenses
                 if (custom_shader != 0)
                 {
                     // The same outline the composite draws, at the coverage target's resolution.
-                    if (!set_custom_constants(pass, stage, mask, target, visibility, 0.0f, 0.0f, outline_width))
+                    if (!set_custom_constants(
+                            pass,
+                            stage,
+                            mask,
+                            target,
+                            visibility,
+                            0.0f,
+                            0.0f,
+                            outline_width,
+                            nullptr
+                        ))
                     {
                         return 0;
                     }
@@ -2624,7 +2570,7 @@ namespace HenrySenses
                 }
                 else if (result == 0)
                 {
-                    if (++s_coverage_failures >= CUSTOM_WARMUP_ATTEMPTS)
+                    if (++s_coverage_failures >= TECHNIQUE_WARMUP_ATTEMPTS)
                     {
                         s_coverage_given_up = true;
                         (void)DMK::log().try_log(
@@ -3541,6 +3487,7 @@ namespace HenrySenses
             static std::uint64_t s_prev_rebuilds = 0;
             static std::uint64_t s_prev_depth_rebuilds = 0;
             static std::uint64_t s_prev_unrecorded_rebuilds = 0;
+            static std::uint64_t s_prev_scene_copies = 0;
             const std::int64_t now = now_ms();
             if (s_next_ms == 0)
             {
@@ -3567,6 +3514,9 @@ namespace HenrySenses
             const std::uint64_t unrecorded_rebuilds = s_p4_unrecorded_rebuilds.load(std::memory_order_relaxed);
             const std::uint64_t unrecorded_rebuilds_delta = unrecorded_rebuilds - s_prev_unrecorded_rebuilds;
             s_prev_unrecorded_rebuilds = unrecorded_rebuilds;
+            const std::uint64_t scene_copies = hdr_scene_copies();
+            const std::uint64_t scene_copies_delta = scene_copies - s_prev_scene_copies;
+            s_prev_scene_copies = scene_copies;
             const std::uint64_t current[8] = {
                 s_p4_frames.load(std::memory_order_relaxed),
                 s_p4_stage_frames.load(std::memory_order_relaxed),
@@ -3598,7 +3548,7 @@ namespace HenrySenses
                 "P3 injected={} "
                 "P3b marked={} | P7 {} "
                 "herb draw(s) kept out of the depth pre-pass{} | P2[A3] pass4 ok={} failed={} (total failed={}, "
-                "overridden={}, gated={}, debug suppressed={})",
+                "overridden={}, gated={}, debug suppressed={}) | HDR scene copies={}",
                 STATS_INTERVAL_MS / 1000,
                 delta[0],
                 delta[1],
@@ -3622,7 +3572,8 @@ namespace HenrySenses
                 current[7],
                 s_p2_pass4_overridden.load(std::memory_order_relaxed),
                 s_p2_pass4_gated.load(std::memory_order_relaxed),
-                s_p2_debug_suppressed.load(std::memory_order_relaxed)
+                s_p2_debug_suppressed.load(std::memory_order_relaxed),
+                scene_copies_delta
             );
         }
 
@@ -3637,20 +3588,6 @@ namespace HenrySenses
             __except (engine_fault_filter(GetExceptionCode()))
             {
                 return nullptr;
-            }
-        }
-
-        [[nodiscard]] bool guarded_destroy_blur(void *pass) noexcept
-        {
-            __try
-            {
-                const auto vtable = *static_cast<const std::uintptr_t *>(pass);
-                reinterpret_cast<ScalarDtorFn>(*reinterpret_cast<const std::uintptr_t *>(vtable))(pass, 0);
-                return true;
-            }
-            __except (engine_fault_filter(GetExceptionCode()))
-            {
-                return false;
             }
         }
 
@@ -3685,7 +3622,7 @@ namespace HenrySenses
             void *const pass = s_blur_pass;
             s_blur_pass = nullptr;
             s_blur_pipeline = 0;
-            if (guarded_destroy_blur(pass))
+            if (guarded_destroy_pass(pass))
             {
                 _aligned_free(pass);
             }
@@ -4116,6 +4053,20 @@ namespace HenrySenses
         }
 
         /**
+         * @brief Picks the after-LDR composite point for the view @p stage draws and logs a change of HDR state.
+         * @param stage The published CSceneCustomStage.
+         * @return HdrScene under HDR output, else AfterLdr.
+         * @note Render thread.
+         */
+        [[nodiscard]] CompositePoint after_ldr_point(std::uintptr_t stage) noexcept
+        {
+            const auto mode = static_cast<HdrOutputMode>(settings().hdr_output.load(std::memory_order_relaxed));
+            const bool hdr = mode == HdrOutputMode::On || (mode == HdrOutputMode::Auto && hdr_output_active(stage));
+            note_hdr_output(hdr, mode == HdrOutputMode::Auto);
+            return hdr ? CompositePoint::HdrScene : CompositePoint::AfterLdr;
+        }
+
+        /**
          * @brief Composites the masks P4 drew at @p point.
          * @param pipeline The executing CStandardGraphicsPipeline.
          * @param stage Its published, initialized CSceneCustomStage.
@@ -4134,6 +4085,17 @@ namespace HenrySenses
             if (mask == 0)
             {
                 return;
+            }
+            // Under HDR output the after-LDR target is the back buffer the HDR Output Transform overwrites, so the
+            // composite draws into the transform's scene; without one it falls back to the plain after-LDR target.
+            std::uintptr_t forced_destination = 0;
+            if (point == CompositePoint::HdrScene)
+            {
+                forced_destination = hdr_scene_target(stage);
+                if (forced_destination == 0)
+                {
+                    point = CompositePoint::AfterLdr;
+                }
             }
             const float intensity = s_intensity.load(std::memory_order_relaxed);
             if (!s_composite_calls_ready.load(std::memory_order_acquire) || intensity <= 0.0f)
@@ -4170,6 +4132,17 @@ namespace HenrySenses
                 custom.strength = strength * intensity * COMPOSITE_BOOST;
                 custom.interior = interior * intensity;
                 custom.outline_width = s.outline_width.load(std::memory_order_relaxed);
+                custom.hdr_scale = point == CompositePoint::HdrScene ? hdr_sdr_white() : 0.0f;
+                // Under HDR output, once the mod's technique draws, the scene is copied for the composite to read so
+                // the highlight is added as SDR adds it.
+                if (point == CompositePoint::HdrScene && s_custom_confirmed)
+                {
+                    custom.scene = copy_hdr_scene(
+                        pipeline,
+                        forced_destination,
+                        s_binding_generation.load(std::memory_order_acquire)
+                    );
+                }
                 use_custom = &custom;
             }
             CompositeStatus composite = guarded_composite(
@@ -4180,6 +4153,7 @@ namespace HenrySenses
                 vs_params,
                 point,
                 use_custom,
+                forced_destination,
                 &results,
                 &destination
             );
@@ -4197,7 +4171,7 @@ namespace HenrySenses
                 }
                 else
                 {
-                    if (++s_custom_failures >= CUSTOM_WARMUP_ATTEMPTS)
+                    if (++s_custom_failures >= TECHNIQUE_WARMUP_ATTEMPTS)
                     {
                         reject_silhouette_shader("its composite never drew (the permutation did not compile)");
                     }
@@ -4210,10 +4184,16 @@ namespace HenrySenses
                         vs_params,
                         point,
                         nullptr,
+                        forced_destination,
                         &results,
                         &destination
                     );
                 }
+            }
+            // A composite with the mod's technique rebinds its t3 off the scene copy, which may then be freed.
+            if (composite == CompositeStatus::Executed && use_custom != nullptr && point != CompositePoint::HdrScene)
+            {
+                release_idle_hdr_scene_copy();
             }
             if (composite == CompositeStatus::Executed)
             {
@@ -4249,16 +4229,22 @@ namespace HenrySenses
                         DMK::memory::read<std::uint16_t>(DMK::Address{destination + constants::TEXTURE_WIDTH_OFFSET});
                     const auto height =
                         DMK::memory::read<std::uint16_t>(DMK::Address{destination + constants::TEXTURE_HEIGHT_OFFSET});
+                    const auto format =
+                        DMK::memory::read<std::uint8_t>(DMK::Address{destination + constants::TEXTURE_FORMAT_OFFSET});
+                    const auto name_text =
+                        DMK::memory::read<std::uintptr_t>(DMK::Address{destination + constants::TEXTURE_NAME_OFFSET});
                     // SetRenderTarget returns whether the binding changed, so "unchanged" after a rebind is normal.
                     (void)DMK::log().try_log(
                         (results & 2u) != 0 ? DMK::LogLevel::Info : DMK::LogLevel::Warning,
-                        "EngineSilhouette[C1]: composite at {} mask 0x{:016X} -> destination 0x{:016X} ({}x{}), render "
-                        "target {}, fullscreen Execute {}",
+                        "EngineSilhouette[C1]: composite at {} mask 0x{:016X} -> destination 0x{:016X} '{}' ({}x{}, "
+                        "format {}), render target {}, fullscreen Execute {}",
                         composite_point_name(point),
                         mask,
                         destination,
+                        name_text ? read_c_string(*name_text, 64) : std::string{},
                         width ? *width : 0,
                         height ? *height : 0,
+                        format ? *format : 0,
                         (results & 1u) != 0 ? "rebound" : "unchanged",
                         (results & 2u) != 0 ? "ok" : "FAILED"
                     );
@@ -4413,7 +4399,7 @@ namespace HenrySenses
                 return;
             }
             s_p5_frames.fetch_add(1, std::memory_order_relaxed);
-            composite_mask(pipeline, stage, frame, CompositePoint::AfterLdr);
+            composite_mask(pipeline, stage, frame, after_ldr_point(stage));
         }
 
         /**
@@ -4652,16 +4638,12 @@ namespace HenrySenses
         s_calls.draw_render_items = anchor_address(AnchorId::DrawRenderItems);
         s_calls.jobify = anchor_address(AnchorId::JobifyDraws);
         s_calls.wait = anchor_address(AnchorId::WaitDraws);
-        s_calls.set_technique = anchor_address(AnchorId::SetTechnique);
-        s_calls.set_render_target = anchor_address(AnchorId::SetRenderTarget);
-        s_calls.set_texture = anchor_address(AnchorId::SetTexture);
-        s_calls.set_sampler = anchor_address(AnchorId::SetSampler);
-        s_calls.begin_constant_update = anchor_address(AnchorId::BeginConstantUpdate);
+        static_cast<PassCalls &>(s_calls) = resolve_pass_calls();
         s_calls.set_constant = anchor_address(AnchorId::SetConstant);
-        s_calls.fullscreen_execute = anchor_address(AnchorId::FullscreenExecute);
         s_calls.cry_name_r = anchor_address(AnchorId::CryNameR);
         s_calls.display_target = anchor_address(AnchorId::DisplayTargetDst);
         s_calls.ldr_target = gated_anchor_address(Feature::AfterLdr, AnchorId::LdrTarget);
+        initialize_hdr_output();
         s_calls.core_command_list_slot = anchor_address(AnchorId::CoreCommandListSlot);
         s_calls.recursion_counter = anchor_address(AnchorId::RecursionCounter);
         s_calls.post_effects_game_slot = anchor_address(AnchorId::PostEffectsGameSlot);
@@ -4963,6 +4945,7 @@ namespace HenrySenses
             if (detours_idle())
             {
                 release_blur_pass();
+                release_hdr_output();
                 release_supersampled_targets();
                 return true;
             }
@@ -5058,6 +5041,7 @@ namespace HenrySenses
         load_silhouette_shader();
         s_intensity.store(params.intensity, std::memory_order_relaxed);
         s_interior_opacity.store(params.interior_opacity, std::memory_order_relaxed);
+        update_hdr_sdr_white();
     }
 
     void log_engine_silhouette_state()

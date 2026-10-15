@@ -135,6 +135,8 @@ The retail game loads tokenized shaders, so the `.cfx` source is converted befor
 
 The mask is drawn at a higher resolution with camera jitter compensated to keep edges stable. With `SeeThrough = false`, a separate depth-tested mask controls which parts are visible. Until the custom shader draws successfully, or if loading or compilation fails, the stock `DeferredSilhouettesOptimised` composite remains in use. This shader fallback is separate from Auto's bracket fallback when model highlighting is unavailable.
 
+With HDR on in the game's options, the game draws the final picture from its HDR scene and the HUD in a last pass, replacing everything drawn after its SDR post-processing. Highlights are then composited into that HDR scene instead, with SDR white placed where the game puts its own SDR HUD: the game's UI brightness option sets how bright highlights appear. On frames with highlights, the renderer copies the scene so it can add them to each pixel's SDR value as an SDR frame does, which keeps their contrast against the scene the same as in SDR. The renderer detects HDR from the frame itself; `[Render] HdrOutput` can force it on or off.
+
 ## Configuration
 
 Open `KCD2_HenrySenses.ini` beside the ASI with a text editor such as Notepad. Save the file to apply changes while the game runs. Lines starting with `;` are comments explaining the options.
@@ -209,6 +211,7 @@ The main appearance settings under `[Render]` are:
 | `FillOpacity` | Fill opacity, from 0 (invisible) to 1 (opaque). | `0.35` |
 | `Softness` | Blur in pixels; higher values soften and thin the outline. | `0.0` |
 | `MinOpacity` | Minimum brightness during distance fading. Lower it to enable fading. | `1.0` (no distance fading) |
+| `HdrOutput` | Whether the game shows HDR: `Auto` follows the game's HDR option. `On` or `Off` forces it, and highlights do not show when the forced value does not match the game's option. With HDR, the game's UI brightness option sets highlight brightness. | `Auto` |
 
 When enabled, distance fading starts at `FadeStart` (12 metres) and reaches `MinOpacity` at the group's `Radius`. `FadePower` (1.0) shapes the fade; higher values keep highlights brighter farther out.
 
@@ -284,6 +287,7 @@ The [INI template](build/template/KCD2_HenrySenses.ini) documents all settings, 
 
 - Set `LogLevel = DEBUG` under `[Settings]`, save the INI and reproduce the problem.
 - Check `KCD2_HenrySenses.log` beside the ASI. It records detection decisions and a state report when you save the INI.
+- If nothing shows with HDR on in the game's options, set `[Render] HdrOutput = On`.
 - If outlines fail or the world disappears after loading, set `[Render] Backend = Markers` and restart the game.
 - Include the log, INI, game/mod versions and reproduction steps in your report. A screenshot and location help with incorrect highlights.
 

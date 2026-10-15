@@ -17,8 +17,10 @@
 
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 
@@ -30,8 +32,51 @@ namespace HenrySenses
         // CCryAction lives for the whole process once created, so it is resolved once and cached.
         std::atomic<std::uintptr_t> s_cry_action{0};
         std::atomic<std::uintptr_t> s_logged_player{0};
+        // Console variables live for the whole process once registered, so each ICVar is looked up once.
+        std::atomic<std::uintptr_t> s_hdr_ui_brightness_cvar{0};
 
         using GetFrameworkFn = std::uintptr_t(__fastcall *)(std::uintptr_t game);
+        using GetCVarFn = std::uintptr_t(__fastcall *)(std::uintptr_t console, const char *name);
+        using GetFValFn = float(__fastcall *)(std::uintptr_t cvar);
+
+        /**
+         * @brief Calls IConsole::GetCVar under SEH.
+         * @param fn The screened virtual target.
+         * @param console The IConsole instance.
+         * @param name The variable's name.
+         * @return The ICVar, or 0 when the variable does not exist or the call faults.
+         */
+        [[nodiscard]] std::uintptr_t call_get_cvar(std::uintptr_t fn, std::uintptr_t console, const char *name) noexcept
+        {
+            __try
+            {
+                return reinterpret_cast<GetCVarFn>(fn)(console, name);
+            }
+            __except (engine_fault_filter(GetExceptionCode()))
+            {
+                return 0;
+            }
+        }
+
+        /**
+         * @brief Calls ICVar::GetFVal under SEH.
+         * @param fn The screened virtual target.
+         * @param cvar The ICVar instance.
+         * @param value Receives the value.
+         * @return False on a fault.
+         */
+        [[nodiscard]] bool call_get_fval(std::uintptr_t fn, std::uintptr_t cvar, float &value) noexcept
+        {
+            __try
+            {
+                value = reinterpret_cast<GetFValFn>(fn)(cvar);
+                return true;
+            }
+            __except (engine_fault_filter(GetExceptionCode()))
+            {
+                return false;
+            }
+        }
 
         /**
          * @brief Calls IGame::GetIGameFramework under SEH.
@@ -106,6 +151,7 @@ namespace HenrySenses
         s_genv.store(0, std::memory_order_release);
         s_cry_action.store(0, std::memory_order_relaxed);
         s_logged_player.store(0, std::memory_order_relaxed);
+        s_hdr_ui_brightness_cvar.store(0, std::memory_order_relaxed);
     }
 
     std::uintptr_t genv() noexcept
@@ -199,6 +245,65 @@ namespace HenrySenses
             return 0;
         }
         return *entity;
+    }
+
+    namespace
+    {
+        /**
+         * @brief Returns a console variable's ICVar, looking it up once through gEnv->pConsole.
+         * @details The console is screened as CXConsole by RTTI, and its GetCVar slot must be the AOB-resolved
+         *          CXConsole::GetCVar before it is called.
+         * @param cache The variable's cached ICVar (0 until found).
+         * @param name The variable's name.
+         * @return The ICVar, or 0 while the console or the variable is unavailable or a check fails.
+         */
+        [[nodiscard]] std::uintptr_t console_variable(std::atomic<std::uintptr_t> &cache, const char *name) noexcept
+        {
+            if (const std::uintptr_t cached = cache.load(std::memory_order_relaxed); cached != 0)
+            {
+                return cached;
+            }
+            if (!feature_ready(Feature::ConsoleVariables))
+            {
+                return 0;
+            }
+            const std::uintptr_t console = genv_interface(constants::GENV_CONSOLE_OFFSET);
+            if (!object_is(GameClass::Console, console))
+            {
+                return 0;
+            }
+            const std::uintptr_t get_cvar =
+                validated_vtable_slot(console, constants::ICONSOLE_GET_CVAR_VTABLE_OFFSET, AnchorId::ConsoleGetCVar);
+            if (get_cvar == 0)
+            {
+                return 0;
+            }
+            const std::uintptr_t cvar = call_get_cvar(get_cvar, console, name);
+            if (!DMK::memory::is_plausible_ptr(DMK::Address{cvar}))
+            {
+                return 0;
+            }
+            cache.store(cvar, std::memory_order_relaxed);
+            return cvar;
+        }
+    } // namespace
+
+    std::optional<float> hdr_ui_brightness() noexcept
+    {
+        const std::uintptr_t cvar = console_variable(s_hdr_ui_brightness_cvar, constants::CVAR_HDR_UI_BRIGHTNESS);
+        if (cvar == 0)
+        {
+            return std::nullopt;
+        }
+        // The variable is a float reference: its GetFVal must be CXConsoleVariableFloatRef::GetFVal.
+        const std::uintptr_t get_fval =
+            validated_vtable_slot(cvar, constants::ICVAR_GET_FVAL_VTABLE_OFFSET, AnchorId::FloatCVarGetFVal);
+        float value = 0.0f;
+        if (get_fval == 0 || !call_get_fval(get_fval, cvar, value) || !std::isfinite(value))
+        {
+            return std::nullopt;
+        }
+        return value;
     }
 
     bool in_game_image(std::uintptr_t address) noexcept

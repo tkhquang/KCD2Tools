@@ -248,6 +248,10 @@ namespace HenrySenses
             make_anchor("PostFxRenderTarget", aob::POST_FX_RENDER_TARGET_CANDIDATES, Role::Code),
             make_anchor("PostFxDepthStencil", aob::POST_FX_DEPTH_STENCIL_CANDIDATES, Role::Code),
             make_anchor("ClearDepth", aob::CLEAR_DEPTH_CANDIDATES, Role::Code),
+            make_anchor("HdrSceneTarget", aob::HDR_SCENE_TARGET_CANDIDATES, Role::Code),
+            make_anchor("ConsoleGetCVar", aob::CONSOLE_GET_CVAR_CANDIDATES, Role::Code),
+            make_anchor("FloatCVarGetFVal", aob::FLOAT_CVAR_GET_FVAL_CANDIDATES, Role::Code),
+            make_anchor("FullscreenPassCtor", aob::FULLSCREEN_PASS_CTOR_CANDIDATES, Role::Code),
         };
         static_assert(std::size(ANCHORS) == ANCHOR_COUNT, "ANCHORS must hold one entry per AnchorId.");
         static_assert(EARLY_ANCHOR_COUNT < ANCHOR_COUNT, "The early phase must leave a main phase.");
@@ -324,6 +328,13 @@ namespace HenrySenses
             AnchorId::PostFxDepthStencil,
             AnchorId::ClearDepth,
         };
+        constexpr AnchorId HDR_OUTPUT_ANCHORS[] = {AnchorId::HdrSceneTarget};
+        constexpr AnchorId CONSOLE_VARIABLE_ANCHORS[] = {AnchorId::ConsoleGetCVar, AnchorId::FloatCVarGetFVal};
+        constexpr AnchorId HDR_SCENE_COPY_ANCHORS[] = {
+            AnchorId::HdrSceneTarget,
+            AnchorId::FullscreenPassCtor,
+            AnchorId::PostFxRenderTarget,
+        };
 
         /**
          * @struct FeatureSpec
@@ -366,6 +377,9 @@ namespace HenrySenses
             {"EffectLibrary", EFFECT_LIBRARY_ANCHORS},
             {"WorldEffects", WORLD_EFFECTS_ANCHORS},
             {"SupersampledMask", SUPERSAMPLED_MASK_ANCHORS},
+            {"HdrOutput", HDR_OUTPUT_ANCHORS},
+            {"ConsoleVariables", CONSOLE_VARIABLE_ANCHORS},
+            {"HdrSceneCopy", HDR_SCENE_COPY_ANCHORS},
         }};
         static_assert(!FEATURES[FEATURE_COUNT - 1].name.empty(), "FEATURES must hold one entry per Feature.");
 

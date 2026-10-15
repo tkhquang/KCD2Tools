@@ -15,6 +15,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace HenrySenses
@@ -65,6 +66,17 @@ namespace HenrySenses
      * @return The CEntity address, or 0.
      */
     [[nodiscard]] std::uintptr_t player_entity(std::uintptr_t c_player) noexcept;
+
+    /**
+     * @brief Reads the game's r_HDRUIBrightness console variable: the brightness, in nits, the HDR output brings the
+     *        SDR UI to.
+     * @details Looks the variable up once through gEnv->pConsole (screened as CXConsole by RTTI) with
+     *          IConsole::GetCVar, caches the ICVar, then calls ICVar::GetFVal on each call. Both virtual calls run
+     *          under SEH after their slots are proven to hold the AOB-resolved functions (Feature::ConsoleVariables).
+     * @return The brightness, or empty while the console or the variable is unavailable or a check or call fails.
+     * @note Main thread.
+     */
+    [[nodiscard]] std::optional<float> hdr_ui_brightness() noexcept;
 
     /**
      * @brief Reports whether an address lies inside the WHGame.dll image.

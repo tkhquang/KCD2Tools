@@ -33,7 +33,8 @@ float4 HSSilhouetteParams0;
 // xy: the visibility mask's UV offset (it is drawn with the camera jitter; this moves it back), zw: target texel size
 // (1 / width, 1 / height).
 float4 HSSilhouetteParams1;
-// x: 1 when the visibility mask applies (SeeThrough = false), else 0.
+// x: 1 when the visibility mask applies (SeeThrough = false), else 0. y: under HDR output, SDR white in scene units
+// (the UI brightness, r_HDRUIBrightness / 80 nits), else 0. z: 1 when the HDR scene copy is bound (t3), else 0.
 float4 HSSilhouetteParams2;
 
 Texture2D    HSSilhouetteMask        : register(t0);
@@ -189,6 +190,45 @@ void HSEvaluate(float2 baseTC, out float3 inside, out float3 outline, out float 
   coverage = saturate(centerCoverage + max(ring, frontAlpha));
 }
 
+// Under HDR output the composite draws into the scene the game's OutputDeviceTransform encodes for the screen: linear,
+// Rec.2020 primaries, 1.0 = 80 nits. The highlight is display-referred SDR colour, so SDR white sits where that
+// transform puts the SDR UI: the UI brightness, with a gamma of 2.2 (ColorSpaceUtils.cfx). An SDR frame adds the
+// highlight to the gamma-encoded picture and clips each channel at white; with the scene copy bound the composite does
+// the same to the pixel's SDR value and writes the change in light, which the additive blend adds to the scene. Scene
+// light above SDR white keeps its value, as SDR white does. Without the copy the highlight is added as light alone.
+static const float3x3 HSFrom709To2020 =
+{
+  0.627402, 0.329292, 0.043306,
+  0.069095, 0.919544, 0.011360,
+  0.016394, 0.088028, 0.895578
+};
+
+static const float3x3 HSFrom2020To709 =
+{
+  1.660496, -0.587656, -0.072840,
+  -0.124547, 1.132895, -0.008348,
+  -0.018154, -0.100597, 1.118751
+};
+
+// The HDR scene copy (HSSilhouetteParams2.z = 1); bound to the mask otherwise.
+Texture2D    HSSilhouetteScene       : register(t3);
+
+float3 HSToOutput(float3 color, float2 position)
+{
+  const float white = HSSilhouetteParams2.y;
+  if (white <= 0.0)
+    return color;
+  color = max(color, 0.0);
+  if (HSSilhouetteParams2.z <= 0.0)
+    return mul(HSFrom709To2020, pow(color, 2.2) * white);
+  if (HSMax3(color) <= 0.0)
+    return 0.0;
+  const float3 scene = max(mul(HSFrom2020To709, HSSilhouetteScene.Load(int3(position, 0)).rgb) / white, 0.0);
+  const float3 sdr = pow(scene, 1.0 / 2.2);
+  const float3 added = min(sdr + color, max(sdr, 1.0));
+  return mul(HSFrom709To2020, (pow(added, 2.2) - scene) * white);
+}
+
 pixout HSSilhouettePS(vtxOutLBSilhouette IN)
 {
   pixout OUT = (pixout)0;
@@ -196,7 +236,15 @@ pixout HSSilhouettePS(vtxOutLBSilhouette IN)
   float3 outline;
   float  coverage;
   HSEvaluate(IN.baseTC.xy, inside, outline, coverage);
-  OUT.Color = float4(inside + outline, 0);
+  OUT.Color = float4(HSToOutput(inside + outline, IN.HPosition.xy), 0);
+  return OUT;
+}
+
+// Copies the HDR scene (t0) into the copy the composite reads.
+pixout HSSceneCopyPS(vtxOutLBSilhouette IN)
+{
+  pixout OUT = (pixout)0;
+  OUT.Color = HSSilhouetteMask.Load(int3(IN.HPosition.xy, 0));
   return OUT;
 }
 
@@ -229,6 +277,16 @@ technique HenrySensesSilhouetteCoverage
   {
     VertexShader = HSSilhouetteVS();
     PixelShader = HSSilhouetteCoveragePS();
+    CullMode = None;
+  }
+}
+
+technique HenrySensesSceneCopy
+{
+  pass p0
+  {
+    VertexShader = HSSilhouetteVS();
+    PixelShader = HSSceneCopyPS();
     CullMode = None;
   }
 }

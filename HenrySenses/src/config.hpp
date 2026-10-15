@@ -33,6 +33,20 @@ namespace HenrySenses
     };
 
     /**
+     * @enum HdrOutputMode
+     * @brief Whether the frame reaches the screen as HDR ([Render] HdrOutput).
+     */
+    enum class HdrOutputMode : std::uint32_t
+    {
+        /// Follow the render output: HDR when the game draws the frame through its HDR Output Transform.
+        Auto = 0,
+        /// HDR output: composite into the scene the HDR Output Transform draws for the screen.
+        On = 1,
+        /// SDR output: composite into the render output after the LDR chain.
+        Off = 2,
+    };
+
+    /**
      * @enum RenderStyle
      * @brief Silhouette look ([Render] Style).
      */
@@ -78,6 +92,9 @@ namespace HenrySenses
         std::atomic<float> fade_power{1.0f};
         std::atomic<bool> see_through{true};
         std::atomic<bool> render_always{true};
+        // HDR display output (HdrOutputMode): an HDR screen shows the HDR Output Transform's result, which overwrites
+        // the after-LDR render output, so with HDR on the silhouette composites into the transform's scene instead.
+        std::atomic<std::uint32_t> hdr_output{static_cast<std::uint32_t>(HdrOutputMode::Auto)};
         // Focus (groups with Focus = true): how much darker the background gets, 0 to 1, the colour it takes
         // (0xRRGGBB, white = neutral), and the seconds the darkening takes to ease in.
         std::atomic<float> focus_darken{0.0f};

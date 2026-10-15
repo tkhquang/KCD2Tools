@@ -1317,6 +1317,78 @@ namespace HenrySenses
                 -0x5F
             ),
         };
+
+        // HdrSceneTarget: the pipeline-resource lookup that hands the HDR Output Transform its scene (called with id
+        // 0x2A: the upscaler's output when an upscaler runs, else the resources' texture at +0x40). 3 rungs, most
+        // specific first.
+        inline const Candidate HDR_SCENE_TARGET_CANDIDATES[] = {
+            Candidate::direct(
+                "HdrSceneTarget_P1_UpscalerOrOwn",
+                Pattern::literal(
+                    "40 53 48 83 EC 20 48 8B D9 E8 ?? ?? ?? ?? 84 C0 74 ?? 48 8B 83 ?? ?? ?? ?? 48 8B 80 80 00 00 00 "
+                    "48 83 C4 20 5B C3 48 8B 43 40"
+                )
+            ),
+            Candidate::direct(
+                "HdrSceneTarget_P2_UpscalerOutputOrOwn",
+                Pattern::literal(
+                    "48 8B 83 ?? ?? ?? ?? 48 8B 80 80 00 00 00 48 83 C4 20 5B C3 48 8B 43 40 48 83 C4 20 5B C3"
+                ),
+                -0x12
+            ),
+            Candidate::direct(
+                "HdrSceneTarget_P3_TestUpscalerOutput",
+                Pattern::literal("84 C0 74 ?? 48 8B 83 ?? ?? ?? ?? 48 8B 80 80 00 00 00 48 83 C4 20 5B C3"),
+                -0xE
+            ),
+        };
+
+        // ConsoleGetCVar: CXConsole::GetCVar (vtable validator). 3 rungs, most specific first.
+        inline const Candidate CONSOLE_GET_CVAR_CANDIDATES[] = {
+            Candidate::string_xref(
+                "ConsoleGetCVar_X1_NoNameXref",
+                DMK::scan::StringRefQuery{
+                    .text = "Error: GetCVar() without name of variable",
+                    .return_mode = DMK::scan::XrefReturn::EnclosingFunction,
+                }
+            ),
+            Candidate::string_xref(
+                "ConsoleGetCVar_X2_CalledXref",
+                DMK::scan::StringRefQuery{
+                    .text = "GetCVar(\"%s\") called",
+                    .return_mode = DMK::scan::XrefReturn::EnclosingFunction,
+                }
+            ),
+            Candidate::direct(
+                "ConsoleGetCVar_P3_Prologue",
+                Pattern::literal(
+                    "48 89 5C 24 08 48 89 74 24 18 48 89 54 24 10 57 48 83 EC 40 48 8B FA 48 8B F1 48 85 D2 75 ??"
+                )
+            ),
+        };
+
+        // FloatCVarGetFVal: CXConsoleVariableFloatRef::GetFVal (vtable validator). 1 rung: the getter is three
+        // instructions, and a looser pattern also matches another getter.
+        inline const Candidate FLOAT_CVAR_GET_FVAL_CANDIDATES[] = {
+            Candidate::direct("FloatCVarGetFVal_P1_LoadRef", Pattern::literal("48 8B 41 48 F3 0F 10 00 C3")),
+        };
+
+        // FullscreenPassCtor: CFullscreenPass constructor (called, the HDR scene copy). 2 rungs, most specific first.
+        inline const Candidate FULLSCREEN_PASS_CTOR_CANDIDATES[] = {
+            Candidate::direct(
+                "FullscreenPassCtor_P1_Prologue",
+                Pattern::literal(
+                    "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 41 8B F1 48 8B F9 E8 ?? ?? ?? ?? 48 8D 05 ?? ?? ?? ?? "
+                    "33 DB 48 8D 8F D0 02 00 00"
+                )
+            ),
+            Candidate::direct(
+                "FullscreenPassCtor_P2_FlagsVtable",
+                Pattern::literal("41 8B F1 48 8B F9 E8 ?? ?? ?? ?? 48 8D 05 ?? ?? ?? ?? 33 DB 48 8D 8F D0 02 00 00"),
+                -0xF
+            ),
+        };
+
     } // namespace aob
 
     /**
@@ -1454,6 +1526,14 @@ namespace HenrySenses
         PostFxDepthStencil,
         /// CClearSurfacePass::Execute, the depth-stencil overload (called, supersampled mask).
         ClearDepth,
+        /// The pipeline-resource lookup that hands the HDR Output Transform its scene (called, HDR output).
+        HdrSceneTarget,
+        /// CXConsole::GetCVar (vtable validator, console variables).
+        ConsoleGetCVar,
+        /// CXConsoleVariableFloatRef::GetFVal (vtable validator, console variables).
+        FloatCVarGetFVal,
+        /// CFullscreenPass constructor (called, the HDR scene copy).
+        FullscreenPassCtor,
         /// Enumerator count. Not an anchor.
         Count,
     };
@@ -1528,6 +1608,12 @@ namespace HenrySenses
         WorldEffects,
         /// The supersampled silhouette mask (the mod's own render targets, drawn into by the mask pass).
         SupersampledMask,
+        /// Highlights under HDR output (the composite into the HDR Output Transform's scene).
+        HdrOutput,
+        /// Reading the game's console variables (the HDR UI brightness).
+        ConsoleVariables,
+        /// The HDR scene copy the composite reads to add highlights as SDR adds them.
+        HdrSceneCopy,
         /// Enumerator count. Not a feature.
         Count,
     };

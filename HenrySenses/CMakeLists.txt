@@ -90,6 +90,7 @@ set(COMMON_SOURCES
   src/render/aux_markers.cpp
   src/render/engine_silhouette.cpp
   src/render/focus_effect.cpp
+  src/render/hdr_output.cpp
 )
 
 # Applies the settings shared by the production ASI and the dev logic DLL: include paths, link libraries,

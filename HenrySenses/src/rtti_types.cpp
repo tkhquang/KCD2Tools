@@ -73,6 +73,7 @@ namespace HenrySenses
             constants::C_PARTICLE_EMITTER_RTTI_NAME,
             constants::C_XML_UTILS_RTTI_NAME,
             constants::C_PARTICLE_MANAGER_RTTI_NAME,
+            constants::C_CONSOLE_RTTI_NAME,
         }};
 
         // WHGame.dll stays mapped for the session. The table is immutable after publication, so game callbacks

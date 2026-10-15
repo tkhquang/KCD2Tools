@@ -60,8 +60,22 @@ namespace HenrySenses::constants
     inline constexpr std::ptrdiff_t GENV_PARTICLE_MANAGER_OFFSET = 0x68;
     inline constexpr std::ptrdiff_t GENV_PGAME_OFFSET = 0x90;
     inline constexpr std::ptrdiff_t GENV_ENTITY_SYSTEM_OFFSET = 0xA0;
-    inline constexpr std::ptrdiff_t GENV_SYSTEM_OFFSET = 0xC0; // CSystem
+    inline constexpr std::ptrdiff_t GENV_CONSOLE_OFFSET = 0xA8; // IConsole
+    inline constexpr std::ptrdiff_t GENV_SYSTEM_OFFSET = 0xC0;  // CSystem
     inline constexpr std::ptrdiff_t GENV_RENDERER_OFFSET = 0x108;
+
+    // Console variables: IConsole::GetCVar(name) (vtable slot 23) returns the ICVar, and ICVar::GetFVal (vtable slot 4)
+    // a float variable's value. The game uses both (Steam 1.5.6: mov rcx,[gEnv+0xA8]; call [rax+0xB8], then
+    // call [rax+0x20]; movss [rbx],xmm0).
+    inline constexpr std::ptrdiff_t ICONSOLE_GET_CVAR_VTABLE_OFFSET = 0xB8;
+    inline constexpr std::ptrdiff_t ICVAR_GET_FVAL_VTABLE_OFFSET = 0x20;
+    // The brightness in nits the HDR output brings the SDR UI to (a float variable).
+    inline constexpr const char *CVAR_HDR_UI_BRIGHTNESS = "r_HDRUIBrightness";
+    // HDR scene units: the HDR output treats 1.0 as 80 nits (HDR_WHITE_VALUE, CommonColorTransforms.cfi). Its UI
+    // brightness has a 50 nit floor and a 400 nit default (OutputDeviceTransform setup, Steam 1.5.6 0x181E033E0).
+    inline constexpr float HDR_WHITE_NITS = 80.0f;
+    inline constexpr float HDR_MIN_UI_NITS = 50.0f;
+    inline constexpr float HDR_DEFAULT_UI_NITS = 400.0f;
 
     // Local player chain: gEnv -> pGame -> IGame::GetIGameFramework (vtable slot 16) = CCryAction -> CActionGame ->
     // C_Player (validated by RTTI) -> CEntity*.
@@ -585,6 +599,8 @@ namespace HenrySenses::constants
     // Its techniques: the composite, and the focus coverage (the highlight's pixels, outline ring included).
     inline constexpr const char *SILHOUETTE_TECHNIQUE = "HenrySensesSilhouette";
     inline constexpr const char *SILHOUETTE_COVERAGE_TECHNIQUE = "HenrySensesSilhouetteCoverage";
+    // Copies the HDR scene for the composite to read (HDR output).
+    inline constexpr const char *SCENE_COPY_TECHNIQUE = "HenrySensesSceneCopy";
     // The user shader cache the binary is written to (<shader name>.cfxb), and the file-name prefix of its versions.
     inline constexpr const char *SILHOUETTE_SHADER_CACHE_DIR = "%USER%/Shaders/Cache/D3D12/";
     inline constexpr std::string_view SILHOUETTE_SHADER_FILE_PREFIX = "henrysensessilhouette";
@@ -650,6 +666,22 @@ namespace HenrySenses::constants
     inline constexpr std::ptrdiff_t STAGE_RENDER_VIEW_OFFSET = 0x28; // CRenderView *, set by the pipeline every view
     // Stage vtable slot 1 is Init.
     inline constexpr std::ptrdiff_t STAGE_VTABLE_INIT_OFFSET = 0x08;
+    // CRenderView member: its CRenderOutput * (CRenderView::GetColorTarget, Steam 1.5.6 0x180CB7C50, follows it).
+    inline constexpr std::ptrdiff_t RENDER_VIEW_RENDER_OUTPUT_OFFSET = 0x8D78;
+    // CRenderOutput members. +0x40 is the colour target the after-LDR passes draw into: the swap-chain back buffer.
+    // The u8 flag at +0x2E is set under HDR output (the display context runs its HDR Output Transform exactly when
+    // it is, Steam 1.5.6 0x181DEBF90), and +0x50 is then the separate UI layer ($ui-output-*).
+    inline constexpr std::ptrdiff_t RENDER_OUTPUT_HDR_FLAG_OFFSET = 0x2E;
+    inline constexpr std::ptrdiff_t RENDER_OUTPUT_COLOR_TARGET_OFFSET = 0x40;
+    // Under HDR output the HDR Output Transform (Steam 1.5.6 0x181E02CF0 -> 0x181E033E0) redraws the whole back buffer
+    // from the scene and the UI layer, so a composite into the back buffer is lost. Its scene is this pipeline
+    // resource (AnchorId::HdrSceneTarget): the upscaler's output when an upscaler runs, else the resources' own.
+    inline constexpr std::uint32_t HDR_SCENE_RESOURCE_ID = 0x2A;
+    // CFullscreenPass: 0x460 bytes (the custom stage holds two, at +0x750 and +0xBB0), built by its constructor
+    // (AnchorId::FullscreenPassCtor: this, the pipeline, a name, then flags 3 as the stage passes them); vtable slot 0
+    // is the scalar deleting destructor.
+    inline constexpr std::size_t FULLSCREEN_PASS_SIZE = 0x460;
+    inline constexpr std::uint32_t FULLSCREEN_PASS_FLAGS = 3;
     // CSceneCustomStage members.
     inline constexpr std::ptrdiff_t CUSTOM_STAGE_RESOURCE_LAYOUT_OFFSET = 0x110; // set by Init
     inline constexpr std::ptrdiff_t CUSTOM_STAGE_MASK_PASS_OFFSET = 0x540;       // CSceneRenderPass (silhouette mask)
@@ -791,6 +823,8 @@ namespace HenrySenses::constants
     // uber pass lerps with 0x806655: SRC_ALPHA / INV_SRC_ALPHA). The focus coverage pass multiplies a white target by
     // one minus the composite's alpha: ZERO / INV_SRC_ALPHA, no depth test.
     inline constexpr std::uint64_t RENDER_STATE_COVERAGE_NO_DEPTH = 0x806611;
+    // The scene copy overwrites its target: ONE / ZERO, no depth test.
+    inline constexpr std::uint64_t RENDER_STATE_OPAQUE_NO_DEPTH = 0x801122;
     inline constexpr std::uint32_t PRIMITIVE_TYPE_PROCEDURAL_TRIANGLE = 1;
     inline constexpr std::uint32_t DISPLAY_TARGET_STAGE = 29;
     inline constexpr std::uint8_t RESOURCE_VIEW_RENDER_TARGET = 2;
@@ -861,6 +895,8 @@ namespace HenrySenses::constants
     inline constexpr const char *C_PARTICLE_MANAGER_RTTI_NAME = ".?AVCParticleManager@@";
     // The mod's particle library: the XML utilities that parse it and the node tree they build.
     inline constexpr const char *C_XML_UTILS_RTTI_NAME = ".?AVCXmlUtils@@";
+    // gEnv->pConsole, screened before the console variable lookups call into it (IConsole is its primary base).
+    inline constexpr const char *C_CONSOLE_RTTI_NAME = ".?AVCXConsole@@";
 } // namespace HenrySenses::constants
 
 #endif // HENRYSENSES_CONSTANTS_HPP
