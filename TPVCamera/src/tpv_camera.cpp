@@ -292,6 +292,7 @@ namespace TPVCamera
     {
         // Section binders, so each INI section name appears once here as well as in register_config_items().
         const DMK::config::SectionBinder settings_section = DMK::config::section("Settings");
+        const DMK::config::SectionBinder camera = DMK::config::section("Camera");
         const DMK::config::SectionBinder orbit = DMK::config::section("Orbit");
         const DMK::config::SectionBinder presets = DMK::config::section("Presets");
 
@@ -336,6 +337,21 @@ namespace TPVCamera
                     return;
                 camera_state().applying.store(true);
                 DMK::log().info("Third-person camera ENABLED (force TPV)");
+            },
+            "");
+
+        // Put the camera over the other shoulder: the active preset's Offset Right on the other side, for every preset
+        // until pressed again. Unbound by default, so it collides with no game key until the player picks one.
+        add_press(
+            camera, "SwapShoulderKey", "Swap Shoulder Key", "swap_shoulder",
+            []
+            {
+                if (is_ui_blocking_input())
+                    return;
+                CameraState &cam = camera_state();
+                const bool swapped = !cam.shoulder_swapped.load(std::memory_order_relaxed);
+                cam.shoulder_swapped.store(swapped, std::memory_order_relaxed);
+                DMK::log().info("Camera shoulder {}", swapped ? "SWAPPED" : "RESTORED");
             },
             "");
 

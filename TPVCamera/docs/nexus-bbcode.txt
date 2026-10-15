@@ -115,6 +115,7 @@ All keys are rebindable in KCD2_TPVCamera.ini.
 [*][b]Zoom out:[/b] LShift + PageDown, or hold LB + D-pad down[/*]
 [*][b]Force first-person / force third-person:[/b] unbound by default[/*]
 [*][b]Cycle to next / previous preset:[/b] unbound by default (for example Numpad6 / Numpad4, or hold LB + D-pad right / left)[/*]
+[*][b]Swap shoulder:[/b] unbound by default (SwapShoulderKey)[/*]
 [/list]
 On a controller the zoom shares the D-pad with the game's inventory/map shortcut, so the mod hides that D-pad button from the game while you zoom (the ZoomInKey.Consume / ZoomOutKey.Consume keys, on by default) so finishing a zoom does not open the inventory or map. Set them to false if you would rather the D-pad keep reaching the game. The keyboard zoom keys are unaffected.
 
@@ -122,7 +123,7 @@ On a controller the zoom shares the D-pad with the game's inventory/map shortcut
 Edit KCD2_TPVCamera.ini, grouped into:
 [list]
 [*][b][Settings][/b] - log level, the view hotkeys, the preset-overlay key, and the start-of-session auto-enable flags[/*]
-[*][b][Camera][/b] - zoom keys, the camera-space interaction toggle, the view-transition ease, the camera-stability options (StableAimBasis, AimBasisSmoothing) that keep the view steady against head-bob, sway, and combat shake, and the native turn animation (NativeTurnAnimation, with NativeTurnAngle and NativeTurnSettleDelay tuning when Henry turns on the spot to face where you look). The framing itself is per-preset[/*]
+[*][b][Camera][/b] - zoom keys, the shoulder swap key (SwapShoulderKey), the camera-space interaction toggle, the view-transition ease, the camera-stability options (StableAimBasis, AimBasisSmoothing) that keep the view steady against head-bob, sway, and combat shake, and the native turn animation (NativeTurnAnimation, with NativeTurnAngle and NativeTurnSettleDelay tuning when Henry turns on the spot to face where you look). The framing itself is per-preset[/*]
 [*][b][Orbit][/b] - the free-look orbit keys (press-to-toggle and momentary hold) and the cursor freeze (the orbit feel is per-preset)[/*]
 [*][b][Collision][/b] - the collision probe and radius, UseOccluderFade (fade the props that hide your character instead of pulling in; buildings still stop the camera) with how much of them stays (enable, skin, and return speed are per-preset), UseTreeSeeThrough (open a dithered window around your character in the trees, bushes and tall grass in front of it) with how much of the plants stays, its size, where it starts up the body and its softness, UseLensCut (cut away what comes right up to the lens), HeadClearance, the room the camera needs behind your character, and CloseUpFade (fade the character and everything it wears and holds instead of switching to first person when there is less) with how much of the character always stays[/*]
 [*][b][StateBehavior][/b] - switch first/third person on entering a situation (combat, aiming, dialogue, minigame, mount, menu, overlay), restore the prior view on exit (manual toggles during it stick), suspend/restore free-look in chosen situations, choose where the native turn animation is switched off (NativeTurnExcludeState), and whether loading a crossbow already counts as aiming (ReloadCountsAsAiming)[/*]

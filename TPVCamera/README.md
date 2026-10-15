@@ -132,6 +132,7 @@ All keys are rebindable in `KCD2_TPVCamera.ini`. Defaults:
 | Zoom out                   | `LShift + PageDown` | hold `LB` + D-pad down |
 | Cycle to next preset       | (unbound)           | (unbound)              |
 | Cycle to previous preset   | (unbound)           | (unbound)              |
+| Swap shoulder              | (unbound)           | (unbound)              |
 
 Free-look orbit has two styles: `OrbitToggleKey` (default `F4`) latches it on and off, while
 `OrbitHoldKey` (unbound by default) is a momentary "freelook" you hold to look around and release
@@ -168,7 +169,7 @@ so those contexts render from the untouched engine view.
 Edit `KCD2_TPVCamera.ini`. It is grouped into:
 
 - `[Settings]` - log level, the view hotkeys (`ToggleViewKey`, `ForceFPVKey`, `ForceTPVKey`), the preset-overlay key (`ToggleOverlayKey`), and the start-of-session auto-enable flags
-- `[Camera]` - zoom keys, the camera-space interaction toggle, the view-transition ease, the camera-stability options (`StableAimBasis`, `AimBasisSmoothing`) that keep the view steady against head-bob, sway, and combat shake, and the native turn animation (`NativeTurnAnimation`, with `NativeTurnAngle` and `NativeTurnSettleDelay` tuning when Henry turns on the spot to face where you look). The framing itself is per-preset; see `[Presets]`
+- `[Camera]` - zoom keys, the shoulder swap key (`SwapShoulderKey`), the camera-space interaction toggle, the view-transition ease, the camera-stability options (`StableAimBasis`, `AimBasisSmoothing`) that keep the view steady against head-bob, sway, and combat shake, and the native turn animation (`NativeTurnAnimation`, with `NativeTurnAngle` and `NativeTurnSettleDelay` tuning when Henry turns on the spot to face where you look). The framing itself is per-preset; see `[Presets]`
 - `[Orbit]` - the free-look orbit keys (press-to-toggle and momentary hold) and the cursor freeze (the orbit feel is per-preset)
 - `[Collision]` - the collision probe and radius, `UseOccluderFade` (fade the props that hide your character instead of pulling in; buildings still stop the camera) with how much of them stays (enable, skin, and return speed are per-preset), `UseTreeSeeThrough` (open a dithered window around your character in the trees, bushes and tall grass in front of it) with how much of the plants stays, its size, where it starts up the body and its softness, `UseLensCut` (cut away what comes right up to the lens), `HeadClearance`, the room the camera needs behind your character, and `CloseUpFade` (fade the character and everything it wears and holds instead of switching to first person when there is less) with how much of the character always stays
 - `[StateBehavior]` - switch first/third person on entering a situation (combat, aiming, dialogue, minigame, mount, menu, overlay), restore the prior view on exit (manual toggles during it stick), suspend/restore free-look in chosen situations, choose where the native turn animation is switched off (`NativeTurnExcludeState`), and whether loading a crossbow already counts as aiming (`ReloadCountsAsAiming`)
