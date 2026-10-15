@@ -505,8 +505,9 @@ namespace Constants
     // character leaves it, so a walking camera does not pay the octree query every frame. Its entity proxies and
     // movable brushes, which move and appear with the box held still, are queried again every OCCLUDER_SCAN_MAX_AGE
     // seconds; its static brushes, vegetation and merged patches, which only the level streaming changes, every
-    // OCCLUDER_SCAN_STATIC_MAX_AGE seconds.
-    constexpr float OCCLUDER_SCAN_MARGIN = 1.5f;
+    // OCCLUDER_SCAN_STATIC_MAX_AGE seconds. An octree query costs about the same for a box this size or a little
+    // larger, so the margin is set where turning the view around in a town takes under one full rescan a second.
+    constexpr float OCCLUDER_SCAN_MARGIN = 2.0f;
     constexpr float OCCLUDER_SCAN_MAX_AGE = 0.5f;
     constexpr float OCCLUDER_SCAN_STATIC_MAX_AGE = 2.0f;
     // A sightline does not count crossings within this many meters of the character end: whatever Henry holds,
