@@ -194,8 +194,7 @@ namespace TPVCamera
         state_behavior.bind_parsed("OrbitExcludeState", "Orbit Exclude State", s.orbit_exclude_mask, parse_state_mask,
                                    "Overlay,Aiming,Cart,Combat,Mount,Lockpicking,Dice,Reading,Alchemy,Pickpocketing,"
                                    "Blacksmithing,ForgeBuilder,Sharpening,StoneThrowing,BattleArchery,Distract");
-        state_behavior.bind<float>("StateSwitchHoldSeconds", "State Switch Hold Seconds", s.state_switch_hold_seconds,
-                                   0.2f);
+        state_behavior.bind<float>("StateExitHoldSeconds", "State Exit Hold Seconds", s.state_exit_hold_seconds, 0.2f);
         // Whether a crossbow reload already counts as Aiming (see LiveSettings). Not gated by EnableStateBehavior: it
         // shapes the detected state itself.
         state_behavior.bind<bool>("ReloadCountsAsAiming", "Reload Counts As Aiming", s.reload_counts_as_aiming, false);
@@ -210,9 +209,9 @@ namespace TPVCamera
         state_behavior.bind_parsed("NativeTurnExcludeState", "Native Turn Exclude State", s.native_turn_exclude_mask,
                                    parse_state_mask, "Combat,Aiming,Mount,Cart,Dialogue,Minigame,Lying,Sitting,Kneel");
 
-        // Preset manager (always active). PresetBlendSpeed is the exponential ease rate used when
-        // switching presets on a state edge.
-        presets.bind<float>("PresetBlendSpeed", "Preset Blend Speed", s.preset_blend_speed, 8.0f);
+        // Preset manager (always active). Each preset carries its own blend time; PresetBlendSpeed, the single rate
+        // older INIs set, is read only to give the presets of an older presets file the same feel (PresetStore::load).
+        presets.bind<float>("PresetBlendSpeed", "Preset Blend Speed", s.legacy_preset_blend_speed, 8.0f);
     }
 
 } // namespace TPVCamera

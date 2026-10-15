@@ -49,8 +49,8 @@ namespace TPVCamera::Presets
          */
         std::string bind_state = "none";
 
-        // Follow framing. These defaults equal the built-in DEFAULT preset (default_presets.hpp); retuning the
-        // factory DEFAULT means changing both, in agreement.
+        // Follow framing. These defaults are the built-in DEFAULT preset, whose factory entry lists no fields
+        // (default_presets.hpp).
         float follow_distance = 3.5f;
         float follow_distance_min = 0.8f;
         float follow_distance_max = 10.0f;
@@ -62,6 +62,9 @@ namespace TPVCamera::Presets
         float follow_yaw = 0.0f;   // static resting orbit yaw around the pivot, degrees (0 = directly behind)
         float follow_pitch = 0.0f; // static resting orbit pitch around the pivot, degrees (0 = level)
         float fov = 60.0f;         // third-person FOV in degrees (0 = use the game FOV / no override)
+        // Seconds the camera takes to settle (99%) into this preset when it becomes the active one, the framing and the
+        // FOV alike; 0 cuts. 0.52 s is the feel of the single blend speed 8 older versions used for every preset.
+        float blend_in_seconds = 0.52f;
 
         // Free-look orbit. Sensitivity (mouse) and speed (gamepad) are split per axis so each axis can be
         // inverted on its own: a negative value flips that axis. X drives yaw (look left/right); Y drives

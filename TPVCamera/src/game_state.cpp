@@ -740,12 +740,12 @@ namespace TPVCamera
         return s_last_debounce_wait;
     }
 
-    uint32_t debounce_game_state(uint32_t raw_mask, float delta_seconds, float hold_seconds) noexcept
+    uint32_t debounce_game_state(uint32_t raw_mask, float delta_seconds, float exit_hold_seconds) noexcept
     {
         static uint32_t s_stable_mask = 0;
         static std::array<float, k_game_state_bit_count> s_bit_timer{};
 
-        if (hold_seconds <= 0.0f)
+        if (exit_hold_seconds <= 0.0f)
         {
             // Debounce disabled (hot-reloadable): pass through and clear the per-bit dwell so a later
             // re-enable does not flip a bit early off a stale, partially-accumulated timer.
@@ -766,10 +766,17 @@ namespace TPVCamera
                 // clears before the hold elapses never flips the stable mask.
                 s_bit_timer[i] = 0.0f;
             }
+            else if (raw_on)
+            {
+                // An entry takes effect at once: the camera answers drawing a bow on the frame it starts.
+                s_stable_mask |= bit;
+                s_last_debounce_wait = 0.0f;
+                s_bit_timer[i] = 0.0f;
+            }
             else
             {
                 s_bit_timer[i] += delta_seconds;
-                if (s_bit_timer[i] >= hold_seconds)
+                if (s_bit_timer[i] >= exit_hold_seconds)
                 {
                     s_stable_mask ^= bit;
                     s_last_debounce_wait = s_bit_timer[i];

@@ -26,6 +26,7 @@ namespace TPVCamera::Presets
         s.follow_yaw.store(preset.follow_yaw, rel);
         s.follow_pitch.store(preset.follow_pitch, rel);
         s.fov.store(preset.fov, rel);
+        s.preset_blend_in_seconds.store(preset.blend_in_seconds, rel);
 
         s.orbit_sensitivity_x.store(preset.orbit_sensitivity_x, rel);
         s.orbit_sensitivity_y.store(preset.orbit_sensitivity_y, rel);
@@ -72,6 +73,8 @@ namespace TPVCamera::Presets
         // the rendered FOV toward the target - or toward the live GAME FOV when the target is 0 (off) - so
         // turning a preset's FOV on/off glides through the game FOV instead of snapping across the 0 boundary.
         a.fov = t.fov;
+        // The blend time belongs to the preset being blended into, so it is taken as it is, never blended.
+        a.blend_in_seconds = t.blend_in_seconds;
 
         a.orbit_sensitivity_x = lerp(a.orbit_sensitivity_x, t.orbit_sensitivity_x);
         a.orbit_sensitivity_y = lerp(a.orbit_sensitivity_y, t.orbit_sensitivity_y);

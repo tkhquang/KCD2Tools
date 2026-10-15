@@ -5,11 +5,14 @@
 - Added the tree see-through: trees, bushes and tall grass in front of Henry open a dithered window around him, from his hips up (UseTreeSeeThrough and the TreeSeeThrough options).
 - Added camera rules: choose by folder or by model which objects stop the camera, fade, open in the window or are left alone, other mods' models included, in KCD2_TPVCamera_rules_User.txt or a mod's own rules file, applied while the game runs.
 - Added ExportRules to write the built-in camera rules to KCD2_TPVCamera_rules.default.txt for reference.
+- Added Blend In Seconds to every preset: how long the camera takes to settle into it (aiming 0.3 s, mount and cart 1 s, the rest 0.52 s); presets you already have keep the feel PresetBlendSpeed gave them.
 - Changed the camera to keep its distance and pass through bushes and tree trunks, while buildings, walls, tall fences, platforms, covered wagons, big haystacks, rocks and the ground still stop it.
 - Changed leaves and prop corners right at the lens to be cut away instead of filling the view.
 - Changed the shaders behind the fades and the window to be prepared at loading screens and pauses, never while you play.
 - Changed the INFO log to be quieter; diagnostics moved to DEBUG and TRACE.
+- Changed the camera to switch to a situation's preset the moment it starts, such as drawing a bow; only leaving one waits, for StateExitHoldSeconds (was StateSwitchHoldSeconds).
 - Removed UseCoverageCollision, CoverageThreshold, CameraProbeSize and UseRenderOcclusion, which the fade replaces.
+- Removed PresetBlendSpeed, replaced by each preset's Blend In Seconds.
 - Fixed the camera jiggling when swung up and down next to a market stall, a roof edge or a counter.
 - Fixed the camera stopping at the small invisible collision boxes around buildings and props.
 - Fixed closed animated doors letting the camera through and hiding Henry behind them.

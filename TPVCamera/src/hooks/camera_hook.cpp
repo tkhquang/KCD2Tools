@@ -1139,7 +1139,7 @@ namespace TPVCamera
             const float fov_target_degrees = cfg.fov.load(std::memory_order_relaxed);
             const float desired_fov =
                 (fov_target_degrees > 0.0f) ? DMK::math::degrees_to_radians(fov_target_degrees) : game_fov;
-            const float speed = cfg.preset_blend_speed.load(std::memory_order_relaxed);
+            const float blend_seconds = cfg.preset_blend_in_seconds.load(std::memory_order_relaxed);
             if (!cam.fov_ease_valid) // first engaged frame after a first-person gap: snap, no ease across the gap
             {
                 cam.fov_ease.snap(desired_fov);
@@ -1147,9 +1147,8 @@ namespace TPVCamera
             }
             else
             {
-                // The preset blend's filter at its rate; PresetBlendSpeed 0 snaps.
-                cam.fov_ease.step(desired_fov,
-                                  (speed > 0.0f) ? stage_alpha(speed * k_spring_rate_scale, delta_time) : 1.0f);
+                // The preset blend's filter in the active preset's blend time; 0 snaps.
+                cam.fov_ease.step(desired_fov, spring_alpha(blend_seconds, delta_time));
             }
             // Override while a preset wants a FOV or while still easing back toward the game FOV; otherwise pass
             // through (preset off + settled) so the game keeps its own FOV (including any dynamic FOV).
@@ -2460,7 +2459,7 @@ namespace TPVCamera
         // active preset and, when state behaviour is on, to drive the forced-view / orbit-exclude policies).
         const uint32_t raw_state = poll_game_state(c_player);
         const uint32_t state =
-            debounce_game_state(raw_state, delta_time, cfg.state_switch_hold_seconds.load(std::memory_order_relaxed));
+            debounce_game_state(raw_state, delta_time, cfg.state_exit_hold_seconds.load(std::memory_order_relaxed));
         // The frame the orbit-exclude policy turns free-look off raises the aim hand-off (see offset_game_view_camera),
         // unless the game sets the character's facing in that situation. The policy reads the menu and the overlays
         // live, as should_apply_view does, so free-look comes back on the frame third person does. The raw state
