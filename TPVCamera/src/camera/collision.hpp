@@ -130,8 +130,8 @@ namespace TPVCamera
      *          k_collision_recompute_dist of where it was computed, for at most k_collision_max_age_ms of real time; a
      *          recompute walks the arm with the ray fan, refines a fan hit with the swept sphere, stops at a drawn
      *          structure mesh the physics misses, holds a pull-in for k_collision_hold_seconds, eases the distance and
-     *          casts the fade's sightlines. With it off, the collision carry-over is dropped and the objects in front
-     *          of the character still fade. Main thread only.
+     *          casts the fade's sightlines. With it off, the distance eases out to the desired one like after any
+     *          obstruction (no jump), and the objects in front of the character still fade. Main thread only.
      * @return The camera position after collision.
      */
     [[nodiscard]] Vector3 resolve_camera_collision(CameraState &cam, CollisionState &state, const CollisionInput &in);

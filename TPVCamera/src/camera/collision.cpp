@@ -415,13 +415,22 @@ namespace TPVCamera
             state.sight_age = 1e9f;
         }
 
+        const Vector3 to_camera = in.desired - in.pivot;
+        const float desired_distance = to_camera.magnitude();
+        // CollisionSkin is the gap the camera keeps from whatever surface the probes found. A pull-in may lag its
+        // target by the skin less the lens margin.
+        const float skin = cfg.collision_skin.load(std::memory_order_relaxed);
+        const float pull_slack = std::max(0.0f, skin - k_lens_near_margin);
+        const float return_speed = cfg.collision_return_speed.load(std::memory_order_relaxed);
         if (!cfg.enable_collision.load(std::memory_order_relaxed))
         {
-            // No collision in this preset: the camera goes wherever the rig puts it, and the objects in front of the
-            // character still fade. The collision state is dropped, so turning collision back on starts afresh.
+            // No collision in this preset: nothing holds the camera in, so it eases out to where the rig puts it, as
+            // after any obstruction clears, instead of jumping there; the objects in front of the character still
+            // fade. The hold goes, and the throttle with it, so turning collision back on walks the arm at once.
+            cam.collision_hold_timer = 0.0f;
+            state.throttle_valid = false;
             if (!in.repeat_build)
             {
-                reset_collision_carry(cam);
                 state.fade_count = 0;
                 state.arm_fade_count = 0;
                 const Vector3 scan_points[4] = {in.pivot, in.desired, in.head, in.hip};
@@ -431,11 +440,15 @@ namespace TPVCamera
                     add_sightline_nodes(state, in.desired, in);
                 }
             }
-            return in.desired;
+            if (!(desired_distance > 1e-3f))
+            {
+                return in.desired;
+            }
+            note_collision_motion(ease_collision_toward(cam, desired_distance, desired_distance, in.delta_time,
+                                                        return_speed, pull_slack));
+            return in.pivot + (to_camera / desired_distance) * cam.collision_distance;
         }
 
-        const Vector3 to_camera = in.desired - in.pivot;
-        const float desired_distance = to_camera.magnitude();
         if (!(desired_distance > 1e-3f))
         {
             return in.desired; // the camera sits on the pivot (or the arm is not a number): nothing to walk
@@ -448,11 +461,6 @@ namespace TPVCamera
                                now_ms - state.stamp_ms >= k_collision_max_age_ms ||
                                (in.pivot - state.throttle_pivot).magnitude_squared() > recompute_d2 ||
                                (in.desired - state.throttle_cam).magnitude_squared() > recompute_d2;
-        // CollisionSkin is the gap the camera keeps from whatever surface the probes found. A pull-in may lag its
-        // target by the skin less the lens margin.
-        const float skin = cfg.collision_skin.load(std::memory_order_relaxed);
-        const float pull_slack = std::max(0.0f, skin - k_lens_near_margin);
-        const float return_speed = cfg.collision_return_speed.load(std::memory_order_relaxed);
         if (!recompute && cam.collision_valid)
         {
             return reuse_collision(cam, state, in, ray_dir, desired_distance, return_speed, pull_slack);
