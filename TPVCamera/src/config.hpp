@@ -98,12 +98,12 @@ namespace TPVCamera
         std::atomic<bool> use_occluder_fade{true};
         // How much of a faded object always stays: 0 (it can almost vanish) .. 1 (stays solid). A prop or a bush the
         // camera is buried in, or a prop whose physics the camera is inside, starts fading at once but keeps this
-        // too; what only touches the lens is cut by the near clip plane.
+        // too; what only touches the lens is cut by the near clip plane (use_lens_cut).
         std::atomic<float> occluder_fade_min_opacity{0.2f};
         // Tree see-through (see hooks/shader_twins.hpp): the trees, bushes and grass between the camera and the
         // character open a dithered window around the character, only where they stand nearer than him. The rest of
         // the plant and its shadow stay. Independent of the occluder fade. Off = trees and bushes stay solid (the
-        // leaves right at the lens are still cut).
+        // leaves right at the lens are still cut while use_lens_cut is on).
         std::atomic<bool> use_tree_see_through{true};
         // How much of the plants in the window always stays: 0 (fully open, with a dithered rim) .. 1 (stays solid).
         std::atomic<float> tree_see_through_min_opacity{0.2f};
@@ -114,6 +114,11 @@ namespace TPVCamera
         std::atomic<float> tree_see_through_start_height{0.5f};
         // The dithered rim around the window, as a share of the window's size: 0 (hard edge) .. 1 (as wide again).
         std::atomic<float> tree_see_through_softness{0.35f};
+        // Lens cut (see camera/lens.hpp): in third person the near clip plane is pushed out, held short of the
+        // ground, buildings and the character's head, and the trees, bushes and bare frames close to the lens thin
+        // away in the dither (the near cut), so a leaf, a branch or a beam right at the lens does not fill the view.
+        // Off = the game's own near plane, and no near cut.
+        std::atomic<bool> use_lens_cut{true};
         // First-person fallback: when collision leaves the camera less than this many meters from the pivot (a low
         // lintel in a doorway, a wall right behind), it would sit inside the player's head. Instead it eases onto the
         // real eye and the head is hidden by the game's own first-person rig, until the camera has this much room

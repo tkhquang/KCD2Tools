@@ -72,6 +72,16 @@ namespace TPVCamera
     [[nodiscard]] bool shader_twins_available() noexcept;
 
     /**
+     * @brief Whether a feature that draws with twins is on: the tree see-through (UseTreeSeeThrough), the lens cut
+     *        (UseLensCut) or the close-up fade (CloseUpFade).
+     * @details While none is, no twin is created: a loading screen drops what it captured and creates none, a pause
+     *          creates none, and the materials loaded during play are not captured. The camera stops advancing the
+     *          twins once every swapped node has gone back to its stock shader. The level's inventory is then left to
+     *          the first pause after one of them turns on (service_shader_twins_paused()). Any thread.
+     */
+    [[nodiscard]] bool shader_twins_wanted() noexcept;
+
+    /**
      * @brief The window the trees open, around the character and on his vertical plane facing the camera, and the near
      *        cut the trees and the frames make at the lens.
      */

@@ -5,6 +5,7 @@
 
 #include "camera/lens.hpp"
 #include "camera/collision.hpp"
+#include "config.hpp"
 #include "constants.hpp"
 #include "physics_raycast.hpp"
 #include "query_ledger.hpp"
@@ -204,7 +205,8 @@ namespace TPVCamera
     {
         auto *near_corner = reinterpret_cast<float *>(camera + Constants::CCAMERA_NEAR_CORNER_OFFSET);
         const float game_near = near_corner[1];
-        if (!(view_blend > 0.0f && game_near > 1e-4f && game_near < k_lens_near_max))
+        if (!(view_blend > 0.0f && game_near > 1e-4f && game_near < k_lens_near_max) ||
+            !settings().use_lens_cut.load(std::memory_order_relaxed))
         {
             s_lens_near = 0.0f;
             s_lens_sample.valid = false;

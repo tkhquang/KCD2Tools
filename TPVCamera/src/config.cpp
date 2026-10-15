@@ -162,7 +162,8 @@ namespace TPVCamera
         // the props between the camera and the character instead of pulling in front of them, and lets the camera pass
         // through bushes and trees; OFF reverts to plain nearest-solid collision. UseTreeSeeThrough opens a window in
         // the trees, bushes and grass in front of the character; the minimum opacity, size, start height and softness
-        // shape that window. The fade amounts and the window's shape are clamped where they are read.
+        // shape that window. UseLensCut cuts what touches the lens away. The fade amounts and the window's shape are
+        // clamped where they are read.
         collision.bind<float>("CollisionRadius", "Collision Radius", s.collision_radius, 0.15f);
         collision.bind<bool>("UseBeamGate", "Use Beam Gate", s.use_beam_gate, false);
         collision.bind<float>("CollisionPullInSeconds", "Collision Pull In Seconds", s.collision_pull_in_seconds,
@@ -177,6 +178,7 @@ namespace TPVCamera
                               s.tree_see_through_start_height, 0.5f);
         collision.bind<float>("TreeSeeThroughSoftness", "Tree See Through Softness", s.tree_see_through_softness,
                               0.35f);
+        collision.bind<bool>("UseLensCut", "Use Lens Cut", s.use_lens_cut, true);
         collision.bind<float>("HeadClearance", "Head Clearance", s.head_clearance, 0.35f);
         collision.bind<bool>("CloseUpFade", "Close Up Fade", s.close_up_fade, true);
         collision.bind<float>("CloseUpFadeMinOpacity", "Close Up Fade Min Opacity", s.close_up_fade_min_opacity, 0.25f);

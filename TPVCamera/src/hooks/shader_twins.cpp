@@ -64,6 +64,7 @@
  */
 
 #include "hooks/shader_twins.hpp"
+#include "config.hpp"
 #include "hooks/twins/twin_state.hpp"
 
 namespace TPVCamera
@@ -292,6 +293,13 @@ namespace TPVCamera
         return s_available.load(std::memory_order_acquire) && !s_disabled.load(std::memory_order_acquire);
     }
 
+    bool shader_twins_wanted() noexcept
+    {
+        const LiveSettings &cfg = settings();
+        return cfg.use_tree_see_through.load(std::memory_order_relaxed) ||
+               cfg.use_lens_cut.load(std::memory_order_relaxed) || cfg.close_up_fade.load(std::memory_order_relaxed);
+    }
+
     bool eye_fade_ready() noexcept
     {
         return shader_twins_available() && s_eye_ready.load(std::memory_order_acquire);
@@ -440,7 +448,8 @@ namespace TPVCamera
         const std::uint64_t now = GetTickCount64();
         const PauseReason reason = pause_reason(signals);
         if (reason == PauseReason::None || s_disabled.load(std::memory_order_acquire) ||
-            s_loading_finalizing.load(std::memory_order_acquire) || loading_materials_admitted())
+            s_loading_finalizing.load(std::memory_order_acquire) || loading_materials_admitted() ||
+            !shader_twins_wanted())
         {
             end_pause(now);
             return;

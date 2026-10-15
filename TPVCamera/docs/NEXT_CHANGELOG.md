@@ -11,9 +11,10 @@
 - Added the Indoors state for your own presets: bind one to Indoors, alone or with another state such as Crouch, to use it inside houses, sheds, barns and cellars.
 - Added CollisionPullInSeconds (0.12 by default): when something comes between the camera and Henry, the camera eases in over that long instead of jumping in one frame, moving only through open air, so it never passes into a wall; 0 brings back the jump.
 - Changed the camera to keep its distance and pass through bushes and tree trunks, while buildings, walls, tall fences, platforms, covered wagons, big haystacks, rocks and the ground still stop it.
-- Changed leaves and prop corners right at the lens to be cut away instead of filling the view.
+- Changed leaves and prop corners right at the lens to be cut away instead of filling the view (UseLensCut, on by default).
 - Changed the shaders behind the fades and the window to be prepared at loading screens and pauses, never while you play.
 - Changed the camera to cost less each frame in busy towns, and to spread its look at the objects around it over several frames, so it no longer adds an occasional hitch of 1 to 2 ms.
+- Changed the shaders to be prepared only while UseTreeSeeThrough, UseLensCut or CloseUpFade is on: with UseOccluderFade off too and CollisionPullInSeconds at 0, the camera behaves as in 2.0.0, with this version's fixes, and costs about what it did.
 - Changed the INFO log to be quieter; diagnostics moved to DEBUG and TRACE.
 - Changed the camera to switch to a situation's preset the moment it starts, such as drawing a bow; only leaving one waits, for StateExitHoldSeconds (was StateSwitchHoldSeconds).
 - Changed HeadClearance to only set where the close-up fade happens: HeadClearance 0 no longer turns CloseUpFade off.
