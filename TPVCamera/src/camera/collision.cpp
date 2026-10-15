@@ -278,16 +278,30 @@ namespace TPVCamera
                 occluder_rule_where(matched, rule, static_cast<int>(sizeof(rule)));
                 float cbox[6] = {};
                 (void)read_collider_box(collider, cbox);
+                // The flags of the part hit (its geom_colltype bits): which probes a part stops is read off them.
+                std::uint32_t part_flags = 0;
+                if (collider != 0 && id_hit.m_part >= 0)
+                {
+                    if (const auto parts = DMK::memory::read<std::uintptr_t>(
+                            DMK::Address{collider + Constants::PHYS_ENTITY_PARTS_OFFSET});
+                        parts && *parts != 0)
+                    {
+                        const auto flags = DMK::memory::read<std::uint32_t>(DMK::Address{
+                            *parts + static_cast<std::uintptr_t>(id_hit.m_part) * Constants::PHYS_PART_STRIDE +
+                            Constants::PHYS_PART_FLAGS_OFFSET});
+                        part_flags = flags ? *flags : 0;
+                    }
+                }
                 (void)DMK::log().try_log(
                     DMK::LogLevel::Trace,
-                    "PhysicsCollision HIT: src={} bTerrain={} dist={} of {} stepped={} collider={:#x} "
-                    "colliderExt=({}, {}, {}) linked={:#x} \"{}\" matched=\"{}\" class={} rule={} point=({}, {}, {}) "
-                    "normal=({}, {}, {}) cam=({}, {}, {}) pivot=({}, {}, {})",
+                    "PhysicsCollision HIT: src={} bTerrain={} dist={} of {} stepped={} collider={:#x} part={} "
+                    "partFlags={:#x} surface={} colliderExt=({}, {}, {}) linked={:#x} \"{}\" matched=\"{}\" class={} "
+                    "rule={} point=({}, {}, {}) normal=({}, {}, {}) cam=({}, {}, {}) pivot=({}, {}, {})",
                     from_sphere ? "sphere" : "fan", hit_terrain, surface, desired_distance, walk.n_stepped, collider,
-                    cbox[3] - cbox[0], cbox[4] - cbox[1], cbox[5] - cbox[2], reinterpret_cast<uintptr_t>(linked),
-                    linked_name, matched_name, matched != nullptr ? Rules::behaviour_name(matched_cls) : "unmatched",
-                    rule[0] != '\0' ? rule : "-", hp.x, hp.y, hp.z, hn.x, hn.y, hn.z, camera.x, camera.y, camera.z,
-                    pivot.x, pivot.y, pivot.z);
+                    id_hit.m_part, part_flags, id_hit.m_surface, cbox[3] - cbox[0], cbox[4] - cbox[1],
+                    cbox[5] - cbox[2], reinterpret_cast<uintptr_t>(linked), linked_name, matched_name,
+                    matched != nullptr ? Rules::behaviour_name(matched_cls) : "unmatched", rule[0] != '\0' ? rule : "-",
+                    hp.x, hp.y, hp.z, hn.x, hn.y, hn.z, camera.x, camera.y, camera.z, pivot.x, pivot.y, pivot.z);
             }
             state.traced_blocked = blocked;
             if (blocked)

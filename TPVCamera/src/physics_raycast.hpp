@@ -41,6 +41,10 @@ namespace TPVCamera
          *          to always block the terrain so the camera cannot clip under the world.
          */
         int m_terrain{0};
+        /// The geometry part of the collider hit (ray_hit.ipart; ray path only).
+        int m_part{0};
+        /// The mapped surface type of the hit (ray_hit.surface_idx; ray path only).
+        int m_surface{0};
     };
 
     /**

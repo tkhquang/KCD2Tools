@@ -251,6 +251,8 @@ namespace Constants
     constexpr size_t RAY_HIT_SIZE = 0x50;
     constexpr ptrdiff_t RAY_HIT_OFFSET_DISTANCE = 0x00; // float, world distance along dir
     constexpr ptrdiff_t RAY_HIT_OFFSET_COLLIDER = 0x08; // IPhysicalEntity* pCollider (the entity hit)
+    constexpr ptrdiff_t RAY_HIT_OFFSET_PART = 0x10;     // int ipart, the index of the entity's geometry part hit
+    constexpr ptrdiff_t RAY_HIT_OFFSET_SURFACE = 0x18;  // short surface_idx, the mapped surface type of the hit
     constexpr ptrdiff_t RAY_HIT_OFFSET_POINT = 0x24;    // Vec3 world hit position
     constexpr ptrdiff_t RAY_HIT_OFFSET_NORMAL = 0x30;   // Vec3 surface normal
     constexpr ptrdiff_t RAY_HIT_OFFSET_TERRAIN = 0x3C;  // int bTerrain (non-zero == global terrain heightmap hit)
@@ -261,6 +263,11 @@ namespace Constants
     // matches a hit to the render node that holds this box.
     constexpr ptrdiff_t PHYS_ENTITY_BBOX_MIN_OFFSET = 0x08;
     constexpr ptrdiff_t PHYS_ENTITY_BBOX_MAX_OFFSET = 0x14;
+    // CPhysicalEntity m_parts (geom part array) and one part's stride and flags (its geom_colltype bits, which decide
+    // which probes stop on it), for the Trace collision line only.
+    constexpr ptrdiff_t PHYS_ENTITY_PARTS_OFFSET = 0x118;
+    constexpr ptrdiff_t PHYS_PART_STRIDE = 0x88;
+    constexpr ptrdiff_t PHYS_PART_FLAGS_OFFSET = 0x50;
 
     // CPhysicalEntity foreign data: m_pForeignData @ +0x20, and at +0x28 two 16-bit fields: m_iForeignData (the
     // PHYS_FOREIGN_ID, low word; 1 == PHYS_FOREIGN_ID_STATIC = a static brush) and m_iForeignFlags (high word: the
