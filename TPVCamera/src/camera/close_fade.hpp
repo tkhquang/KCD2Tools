@@ -33,9 +33,10 @@ namespace TPVCamera
      *          wall right behind - collision pulls the camera onto the pivot, inside the head, and the view shows the
      *          head's inside until the player moves. With CloseUpFade the camera stays where the collision put it and
      *          the character dithers out instead, as far as CloseUpFadeMinOpacity lets him from HeadClearance of arm
-     *          (0: against the head) and starting k_close_fade_band before it, so the view never jumps; the fade then
-     *          replaces the fallback below, and HeadClearance only places it. What he carries fades with him,
-     *          found by its attachment link. When his eyes and hair cannot fade with him, his head is hidden like in
+     *          (0: against the head) and starting k_close_fade_band before it, so the view never jumps; the dither
+     *          follows at the occluder fade's timings while the head decisions take the measured amount at once; the
+     *          fade then replaces the fallback below, and HeadClearance only places it. What he carries fades with
+     *          him, found by its attachment link. When his eyes and hair cannot fade with him, his head is hidden like in
      *          first person once he is mostly faded (set_head_close_fade()). Otherwise (or without the character fade
      *          hook), below HeadClearance the camera eases onto the real eye and the head is hidden by the game's own
      *          first-person rig (set_head_fallback(), read by the head re-assert and the head-visibility detour), so
@@ -45,6 +46,12 @@ namespace TPVCamera
      * @return The camera position after the fallback's ease toward the eye.
      */
     [[nodiscard]] Vector3 apply_close_up(CameraState &cam, const CharacterNodes &character, const CloseUpInput &in);
+
+    /**
+     * @brief Drops the close-up fade's slewed amount when the view leaves third person, so the next close-up starts
+     *        from a solid character. Main thread only.
+     */
+    void reset_close_up() noexcept;
 } // namespace TPVCamera
 
 #endif // TPVCAMERA_CAMERA_CLOSE_FADE_HPP

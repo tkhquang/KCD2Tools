@@ -6,6 +6,7 @@
 #include "camera/close_fade.hpp"
 #include "camera/blend.hpp"
 #include "config.hpp"
+#include "constants.hpp"
 #include "hooks/character_fade.hpp"
 #include "hooks/head_visibility.hpp"
 #include "hooks/shader_twins.hpp"
@@ -47,15 +48,28 @@ namespace TPVCamera
         // face is gone, 2 never hidden. Main thread only.
         int s_logged_head_path = -1;
 
+        // The close amount the character is dithered by: the measured one, slewed at the occluder fade's timings
+        // (fully in over OCCLUDER_FADE_IN_SECONDS, out over OCCLUDER_FADE_OUT_SECONDS), since the arm it is measured
+        // from moves in one frame when the collision pulls the camera in or lets it out, and the character would pop
+        // from solid to faded and back. Main thread only.
+        float s_dithered_amount = 0.0f;
+
         /**
          * @brief Dissolves the character by @p close_amount and decides whether his head is hidden on top.
          * @details With the eye fade ready (the shader twins) the face and the eyes dither out with the body and the
          *          head is hidden only once the face is gone; with the eyelashes, hair, beard and eye film ready too
          *          nothing of the head stays solid and it is never hidden; otherwise it is hidden most of the way along.
          */
-        void fade_character(const CharacterNodes &character, std::uintptr_t entity, float close_amount, bool close_fade)
+        void fade_character(const CharacterNodes &character, std::uintptr_t entity, float close_amount, bool close_fade,
+                            float delta_time)
         {
-            set_character_fade(entity, close_amount, &character);
+            // The dither follows the measured amount at the occluder fade's pace; the head decisions below take the
+            // measured amount itself, so the head is hidden on the frame the camera reaches it.
+            s_dithered_amount =
+                close_amount > s_dithered_amount
+                    ? std::min(close_amount, s_dithered_amount + delta_time / Constants::OCCLUDER_FADE_IN_SECONDS)
+                    : std::max(close_amount, s_dithered_amount - delta_time / Constants::OCCLUDER_FADE_OUT_SECONDS);
+            set_character_fade(entity, s_dithered_amount, &character);
             const bool eyes_fade = eye_fade_ready();
             const bool all_fade = eyes_fade && character_fade_ready();
             const int head_path = all_fade ? 2 : (eyes_fade ? 1 : 0);
@@ -86,6 +100,11 @@ namespace TPVCamera
         }
     } // namespace
 
+    void reset_close_up() noexcept
+    {
+        s_dithered_amount = 0.0f;
+    }
+
     Vector3 apply_close_up(CameraState &cam, const CharacterNodes &character, const CloseUpInput &in)
     {
         LiveSettings &cfg = settings();
@@ -100,7 +119,7 @@ namespace TPVCamera
                 in.close_fade ? std::clamp((std::max(clearance, 0.0f) + k_close_fade_band - in.arm) / k_close_fade_band,
                                            0.0f, close_most)
                               : 0.0f;
-            fade_character(character, in.entity, close_amount, in.close_fade);
+            fade_character(character, in.entity, close_amount, in.close_fade, in.delta_time);
         }
         if (clearance <= 0.0f || in.close_fade)
         {

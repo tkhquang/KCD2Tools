@@ -18,3 +18,4 @@
 - Fixed the camera stopping at the small invisible collision boxes around buildings and props.
 - Fixed closed animated doors letting the camera through and hiding Henry behind them.
 - Fixed the camera jumping out from a wall when a preset with Enable Collision off becomes active; it now eases out, and only once the switch into that preset has settled.
+- Fixed Henry popping between solid and faded in one frame when the camera jumps in or out at a wall; the close-up fade now eases like the obstacle fade.
