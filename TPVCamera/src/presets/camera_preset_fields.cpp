@@ -73,6 +73,15 @@ namespace TPVCamera::Presets
                         "(0 = level, positive lifts the camera and looks down). This rotates the camera, and "
                         "because aiming follows the camera it also shifts your effective aim/shot direction.",
                         "Framing", &CameraPreset::follow_pitch, -89.0f, 89.0f, 0.01f),
+            float_field("arm_follow_up", "Arm Follow Up",
+                        "Looking up: how much the camera swings down around you with the look. 1 swings it all the "
+                        "way, which can drive it toward the ground behind you; 0 keeps it at your height. Looking "
+                        "level or down is not changed.",
+                        "Framing", &CameraPreset::arm_follow_up, 0.0f, 1.0f, 0.01f),
+            float_field("lens_drop_up", "Lens Drop Up",
+                        "Looking up: how far the camera is lowered, in meters, growing with the look's pitch up to "
+                        "43 degrees (two thirds of this value there). 0 is off. Looking level or down is not changed.",
+                        "Framing", &CameraPreset::lens_drop_up, 0.0f, 1.5f, 0.01f),
             float_field("fov", "FOV",
                         "Third-person field of view, in degrees. 0 = use the game's FOV (no override). Higher is "
                         "wider (more peripheral / zoomed-out), lower is narrower (zoomed in). Per preset, so e.g. "

@@ -198,6 +198,9 @@ namespace TPVCamera
     // camera is.
     constexpr float k_shoulder_swap_seconds = 0.3f;
 
+    // Lens Drop Up stops growing at this look pitch (43 deg), as Ryse's aim camera clamps its pitch slide.
+    constexpr float k_aim_rig_drop_pitch = 0.75f; // rad
+
     // The states read from the live UI signals rather than the debounced mask: the suppression gate and the
     // orbit-exclude policy both react on the frame a menu or an overlay opens or closes.
     constexpr uint32_t k_live_ui_states = state_bit(GameState::Menu) | state_bit(GameState::Overlay);
@@ -2122,6 +2125,33 @@ namespace TPVCamera
             set_occluder_player_nodes(std::span<const std::uintptr_t>(
                 s_character_nodes.nodes.data(), static_cast<std::size_t>(s_character_nodes.count + 1)));
         }
+        // Looking up, Arm Follow Up and Lens Drop Up reshape the arm: at the plain rig the camera sits `distance` back
+        // along the rendered look from the pivot (the follow angle, the orbit and the hand-off all turn the offset with
+        // the look), so it swings down on a sphere as the look rises and can end low behind the character, near the
+        // ground. The arm instead pitches by Arm Follow Up's share of the look's pitch, so the camera's height still
+        // changes steadily with the look, and the camera is lowered by a bounded slide. Both depend on the rendered
+        // look alone, so a turned rig is still the plain rig of the turned look and the aim hand-off and free-look
+        // engage do not step. Below level the sphere is kept: the crosshair line then passes beside the eye at the
+        // shoulder offset, which parapet and steep downward shots rely on (the crosshair ray starts at the eye's depth
+        // along it).
+        {
+            const float arm_follow_up = std::clamp(cfg.arm_follow_up.load(std::memory_order_relaxed), 0.0f, 1.0f);
+            const float lens_drop_up = std::max(0.0f, cfg.lens_drop_up.load(std::memory_order_relaxed));
+            const float look_pitch = std::asin(std::clamp(look_forward.z, -1.0f, 1.0f));
+            if ((arm_follow_up < 1.0f || lens_drop_up > 0.0f) && look_pitch > 0.0f)
+            {
+                // The level heading under the look, from the rig's right so a look straight up still has one.
+                const Vector3 heading = world_up.cross(look_forward.cross(look_up));
+                if (heading.magnitude_squared() > 1e-6f)
+                {
+                    const float arm_pitch = look_pitch * arm_follow_up;
+                    const Vector3 arm_dir = heading.normalized() * std::cos(arm_pitch) + world_up * std::sin(arm_pitch);
+                    const float drop = lens_drop_up * std::sin(std::min(look_pitch, k_aim_rig_drop_pitch));
+                    camera_position = camera_position + (look_forward - arm_dir) * distance - world_up * drop;
+                }
+            }
+        }
+
         // Shoulder collision: a wall at the shoulder narrows the shoulder offset first, so the arm below runs from the
         // pivot to a camera nearer the look line and keeps its distance. The offset lies along the finished rig's right
         // (the follow angle and the orbit turn it with the look), toward the side its sign puts it.

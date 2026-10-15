@@ -62,6 +62,12 @@ namespace TPVCamera::Presets
         float follow_yaw = 0.0f;   // static resting orbit yaw around the pivot, degrees (0 = directly behind)
         float follow_pitch = 0.0f; // static resting orbit pitch around the pivot, degrees (0 = level)
         float fov = 60.0f;         // third-person FOV in degrees (0 = use the game FOV / no override)
+        // Looking up only: the share of the look's pitch the arm follows (1 swings it on the sphere about the pivot,
+        // 0 keeps it level, so the camera does not dive toward the ground behind), and how far the camera is lowered,
+        // meters times the sine of the look's pitch, which stops growing at 43 deg (0.68 x the value there). 1 and 0
+        // are the plain rig.
+        float arm_follow_up = 1.0f;
+        float lens_drop_up = 0.0f;
         // Seconds the camera takes to settle (99%) into this preset when it becomes the active one, the framing and the
         // FOV alike; 0 cuts. 0.52 s is the feel of the single blend speed 8 older versions used for every preset.
         float blend_in_seconds = 0.52f;

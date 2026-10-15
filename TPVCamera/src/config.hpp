@@ -42,6 +42,8 @@ namespace TPVCamera
         std::atomic<float> offset_right{};    // pivot shift along the camera right axis
         std::atomic<float> follow_yaw{};   // static resting orbit yaw around the pivot, degrees (0 = directly behind)
         std::atomic<float> follow_pitch{}; // static resting orbit pitch around the pivot, degrees (0 = level)
+        std::atomic<float> arm_follow_up{}; // looking up: share of the look pitch the arm follows (CameraPreset)
+        std::atomic<float> lens_drop_up{};  // looking up: how far the camera is lowered, meters (CameraPreset)
         std::atomic<float> fov{};          // third-person field of view, degrees (0 = use the game FOV)
 
         // Free-look orbit. The orbit-feel values are preset-owned (seeded/overwritten like the framing
