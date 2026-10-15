@@ -2887,6 +2887,26 @@ namespace TPVCamera
         return tube_spanned(QueryLedger::Tag::Fan, node, tube, 0.0f, budget);
     }
 
+    bool stopping_node_near(const float *box, float pad) noexcept
+    {
+        if (!s_scan_valid || box == nullptr)
+        {
+            return true;
+        }
+        const float padded[6] = {box[0] - pad, box[1] - pad, box[2] - pad, box[3] + pad, box[4] + pad, box[5] + pad};
+        for (int i = 0; i < s_scan_count; ++i)
+        {
+            const ScannedNode &s = s_scan[i];
+            if (s.cls == Rules::Behaviour::Collide && s.bbox[0] <= padded[3] && s.bbox[3] >= padded[0] &&
+                s.bbox[1] <= padded[4] && s.bbox[4] >= padded[1] && s.bbox[2] <= padded[5] && s.bbox[5] >= padded[2] &&
+                node_alive(s))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     int frames_near(const Vector3 &point, float reach, void **out, int cap) noexcept
     {
         if (!s_scan_valid || s_scan_count == 0 || out == nullptr || cap <= 0)

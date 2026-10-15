@@ -45,6 +45,14 @@ namespace TPVCamera
         constexpr float k_lens_reuse_turn = 0.00087f;
         constexpr std::uint64_t k_lens_reuse_ms = 100;
 
+        // The broad phase before the nine rays (lens_may_meet()). A scanned stopping node counts while its box comes
+        // within k_lens_broad_pad of the rays' box, which covers a collider standing a little out of its drawn box.
+        // The ground counts while a ray straight down from the top of that box meets it within the box's height plus
+        // k_lens_ground_slope times its half-diagonal across: ground rising toward an edge of the box at up to that
+        // slope (about 63 degrees) is still found; steeper ground is rock or a cliff, which are scanned nodes.
+        constexpr float k_lens_broad_pad = 0.25f;
+        constexpr float k_lens_ground_slope = 2.0f;
+
         // The near distance the last measured game-view frame eased to; 0 while the plane is the game's own.
         float s_lens_near = 0.0f;
 
@@ -104,6 +112,40 @@ namespace TPVCamera
         }
 
         /**
+         * @brief Whether anything the lens stops on can lie along @p rays: a scanned stopping node near the box around
+         *        them, or the ground under it (see k_lens_broad_pad). When neither can, the rays would meet nothing
+         *        that counts, so they are not cast.
+         */
+        [[nodiscard]] bool lens_may_meet(const Sightline (&rays)[9])
+        {
+            float box[6] = {rays[0].from.x, rays[0].from.y, rays[0].from.z,
+                            rays[0].from.x, rays[0].from.y, rays[0].from.z};
+            for (const Sightline &ray : rays)
+            {
+                for (const Vector3 &p : {ray.from, ray.to})
+                {
+                    box[0] = std::min(box[0], p.x);
+                    box[1] = std::min(box[1], p.y);
+                    box[2] = std::min(box[2], p.z);
+                    box[3] = std::max(box[3], p.x);
+                    box[4] = std::max(box[4], p.y);
+                    box[5] = std::max(box[5], p.z);
+                }
+            }
+            if (stopping_node_near(box, k_lens_broad_pad))
+            {
+                return true;
+            }
+            const float half_across = 0.5f * std::hypot(box[3] - box[0], box[4] - box[1]);
+            const float depth = (box[5] - box[2]) + k_lens_ground_slope * half_across;
+            const Vector3 top{0.5f * (box[0] + box[3]), 0.5f * (box[1] + box[4]), box[5]};
+            return ray_world_intersection(QueryLedger::Tag::Lens, top, Vector3{0.0f, 0.0f, -depth},
+                                          Constants::RWI_OBJTYPES_TERRAIN, Constants::RWI_FLAGS_STOP_AT_SOLID, nullptr,
+                                          0)
+                .has_value();
+        }
+
+        /**
          * @brief The view depth of the nearest surface within @p reach meters of the camera that the near clip plane
          *        must not cut: the ground, a structure (its physics or its drawn mesh), or anything that matches no
          *        scanned node.
@@ -115,6 +157,10 @@ namespace TPVCamera
         [[nodiscard]] float lens_clearance(const Sightline (&rays)[9], float reach)
         {
             float nearest = reach;
+            if (!lens_may_meet(rays))
+            {
+                return nearest;
+            }
             for (const Sightline &ray : rays)
             {
                 // A hit's view depth is its distance along the ray over the ray's length per meter of view depth.
