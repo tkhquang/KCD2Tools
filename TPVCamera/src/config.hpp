@@ -72,12 +72,13 @@ namespace TPVCamera
             true}; // hold the free-look orbit still while the game shows the OS cursor (a UI is up: menu / loot / trade
                    // / dialogue) so cursor motion does not turn the camera
 
-        // Camera collision. Enable/Skin/ReturnSpeed are preset-owned (seeded/overwritten like the framing
+        // Camera collision. Enable/Skin/ReturnSpeed/Shoulder are preset-owned (seeded/overwritten like the framing
         // above); CollisionRadius, the occluder fade, the tree see-through, HeadClearance and the close-up fade are
         // always-live INI settings, so they keep their registered defaults.
         std::atomic<bool> enable_collision{};        // keep the view out of walls
         std::atomic<float> collision_skin{};         // gap kept from the surface any probe found, meters
         std::atomic<float> collision_return_speed{}; // ease-out speed once an obstruction clears (0 = instant)
+        std::atomic<bool> shoulder_collision{};      // narrow the shoulder offset at a wall before the arm
         std::atomic<float> collision_radius{0.15f};  // the probes' half-width (the fan's ray offset), meters
         // Beam gate, a flex of the rule that whatever matches no visible object stops the camera: such a hit stops it
         // only when all five of the fan's rays are blocked, by it or by anything else, so an unknown collider narrower

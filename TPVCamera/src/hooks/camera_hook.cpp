@@ -2122,6 +2122,31 @@ namespace TPVCamera
             set_occluder_player_nodes(std::span<const std::uintptr_t>(
                 s_character_nodes.nodes.data(), static_cast<std::size_t>(s_character_nodes.count + 1)));
         }
+        // Shoulder collision: a wall at the shoulder narrows the shoulder offset first, so the arm below runs from the
+        // pivot to a camera nearer the look line and keeps its distance. The offset lies along the finished rig's right
+        // (the follow angle and the orbit turn it with the look), toward the side its sign puts it.
+        {
+            const Vector3 rig_right = look_forward.cross(look_up);
+            const float lateral = std::fabs(offset_right);
+            if (rig_right.magnitude_squared() > 1e-6f && lateral > 0.0f)
+            {
+                const Vector3 lateral_dir = rig_right.normalized() * (offset_right < 0.0f ? -1.0f : 1.0f);
+                const ShoulderInput shoulder{
+                    .pivot = pivot,
+                    .direction = lateral_dir,
+                    .lateral = lateral,
+                    .delta_time = delta_time,
+                    .enabled = cfg.shoulder_collision.load(std::memory_order_relaxed) &&
+                               cfg.enable_collision.load(std::memory_order_relaxed),
+                    .fade_on = fade_on,
+                };
+                const float allowed = resolve_shoulder_collision(s_collision, shoulder);
+                if (allowed < lateral)
+                {
+                    camera_position = camera_position - lateral_dir * (lateral - allowed);
+                }
+            }
+        }
         const bool wall_class_changed = !step.repeat_build && advance_fence_classification();
         const CollisionInput collision_input{
             .pivot = pivot,
@@ -2742,6 +2767,7 @@ namespace TPVCamera
                 s_orbit_was_engaged = false;
             }
             reset_collision_carry(cam);
+            reset_shoulder_carry(s_collision);
             cam.head_fallback = false;
             cam.head_fallback_blend = 0.0f;
             set_head_fallback(false);

@@ -67,11 +67,41 @@ namespace TPVCamera
                                                   Rules::Behaviour *cls);
 
     /**
+     * @brief The shoulder collision's carry-over: how far the shoulder offset is allowed out (see
+     *        resolve_shoulder_collision()).
+     * @details The four collision_* fields are the ease's own (ease_collision_toward() runs on them as on the arm's),
+     *          measured along the shoulder offset from the pivot instead of along the arm. Main thread only.
+     */
+    struct ShoulderCollision
+    {
+        bool collision_valid = false;
+        float collision_distance = 0.0f;
+        float collision_desired = 0.0f;
+        float collision_speed = 0.0f;
+        // Seconds a pull-in is still held after the last probe that met a surface, as the arm's hold.
+        float hold_timer = 0.0f;
+        // The throttle: the last probe's pivot and shoulder point, and the offset it allowed, reused while neither
+        // moved by a recompute step, for at most the arm's recompute age.
+        bool throttle_valid = false;
+        Vector3 throttle_pivot{};
+        Vector3 throttle_focal{};
+        float cached_allowed = 0.0f;
+        bool cached_held_in = false;
+        std::uint64_t stamp_ms = 0;
+        // What the trace last named: the surface the probe stopped at, or none.
+        bool traced_blocked = false;
+        void *traced_node = nullptr;
+    };
+
+    /**
      * @brief The collision and occluder fade carry-over between camera frames.
      * @note Main thread only (the camera detour). One instance, owned by the camera frame.
      */
     struct CollisionState
     {
+        // The shoulder collision ahead of the arm (Shoulder Collision in the preset).
+        ShoulderCollision shoulder{};
+
         // The render nodes faded this frame. Refreshed on every collision recompute and held in between, since the
         // throttle reuses the whole arm while nothing moved. The arm walk's entries come first (arm_fade_count of
         // them); the sightline entries follow.
@@ -129,6 +159,34 @@ namespace TPVCamera
         bool repeat_build = false;       // the frame's second build
     };
 
+    /** @brief One camera frame's input to the shoulder collision. */
+    struct ShoulderInput
+    {
+        Vector3 pivot{}; // the arm's start, on the body's column
+        // Unit direction of the shoulder offset: the rig's right, or its left for a negative offset.
+        Vector3 direction{};
+        float lateral = 0.0f; // the shoulder offset's length, meters
+        float delta_time = 0.0f;
+        bool enabled = false; // Shoulder Collision and Enable Collision are both on in the preset
+        bool fade_on = false; // UseOccluderFade with the dissolve hook available
+    };
+
+    /**
+     * @brief How far out the shoulder offset is allowed: the shoulder collision of the over-the-shoulder rig.
+     * @details One ray runs from the pivot out along the shoulder offset, CollisionSkin past it, and walks what it
+     *          meets as the arm does (classify_probe_hit()): terrain, a structure where it draws something and
+     *          anything that matches no scanned node stop it, a structure's undrawn collision is walked past, and a
+     *          prop or a plant is stepped past while the occluder fade is on. A stop pulls the offset in to
+     *          CollisionSkin short of the surface, held for the arm's hold time, and it eases back out at Collision
+     *          Return Speed. The arm then runs from the pivot to the camera the narrower offset places, so a wall at the
+     *          shoulder moves the camera toward the look line instead of pulling it in along the diagonal arm, and it
+     *          keeps its distance. The ray's result is reused while the pivot and the shoulder point move less than a
+     *          recompute step. Turned off, a pulled-in offset eases back out, and once out the offset is left exactly
+     *          as the rig made it. Main thread only (uses the occluder scan).
+     * @return The shoulder offset's allowed length, at most @p in.lateral.
+     */
+    [[nodiscard]] float resolve_shoulder_collision(CollisionState &state, const ShoulderInput &in);
+
     /**
      * @brief Runs the camera collision along the arm and refreshes the fade set.
      * @details With EnableCollision on, the arm's result is reused while the pivot and the desired camera stay within
@@ -154,6 +212,9 @@ namespace TPVCamera
      *        gap.
      */
     void reset_collision_carry(CameraState &cam) noexcept;
+
+    /** @brief Drops the shoulder collision's carry-over, so the next third-person frame probes afresh. */
+    void reset_shoulder_carry(CollisionState &state) noexcept;
 } // namespace TPVCamera
 
 #endif // TPVCAMERA_CAMERA_COLLISION_HPP

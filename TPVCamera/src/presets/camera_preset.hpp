@@ -95,6 +95,9 @@ namespace TPVCamera::Presets
         bool enable_collision = true;
         float collision_skin = 0.2f;
         float collision_return_speed = 6.0f;
+        // A wall at the shoulder narrows the shoulder offset before the arm is walked, so the camera keeps its distance
+        // instead of pulling in along the diagonal arm (resolve_shoulder_collision()). Off in every built-in.
+        bool shoulder_collision = false;
 
         // Content equality over every persisted field, so the store can detect when an edit has been reverted
         // back to the saved value and clear the unsaved-changes indicator (see PresetStore::recompute_dirty).
