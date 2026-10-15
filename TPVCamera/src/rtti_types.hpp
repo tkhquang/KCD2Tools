@@ -101,6 +101,8 @@ namespace TPVCamera
         StandardPipeline,
         /// CActorSystem, whose EntityId lookup distinguishes actors from animated props.
         ActorSystem,
+        /// CClipVolumeManager, the level's clip volumes (building interiors) the Indoors state is read from.
+        ClipVolumeManager,
         /// Enumerator count. Not a class.
         Count,
     };

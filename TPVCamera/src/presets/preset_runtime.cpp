@@ -25,6 +25,8 @@ namespace TPVCamera::Presets
         // Written only by compare-exchange (publish_table, republish_picks), read by the main thread via an atomic
         // shared_ptr load each frame (a spinlock-guarded refcount bump on MSVC, no heap allocation).
         std::atomic<std::shared_ptr<const StateBindingTable>> s_table{nullptr};
+        // The union of the published table's masks (bound_state_bits()), stored after each publish.
+        std::atomic<std::uint32_t> s_bound_states{0};
 
         // Main-thread-only transition state (resolve_and_apply / reset_transition run only there): the two-stage
         // preset blend, whose applied stage is the live preset.
@@ -66,33 +68,53 @@ namespace TPVCamera::Presets
             return text.substr(begin, text.find_last_not_of(whitespace) - begin + 1);
         }
 
+        /// Every per-minigame child bit of k_minigames.
+        constexpr std::uint32_t k_minigame_child_bits = []
+        {
+            std::uint32_t bits = 0;
+            for (const MinigameInfo &minigame : k_minigames)
+            {
+                bits |= state_bit(minigame.bit);
+            }
+            return bits;
+        }();
+
+        /// winning_mask's weight of one set bit, above any bind_priority_weight sum.
+        constexpr std::uint32_t k_specificity_weight = 1024;
+
         /**
          * @brief Equal-specificity tiebreak weight for a bind mask.
-         * @details Each framing bit gets a distinct power of two, so any mask's summed weight is unique
-         *          (a bitset) and a tie resolves by the highest-priority bit present. Priority, high to
-         *          low: Aiming > Crouch > Combat > Mount > Lying > Sitting > Kneel > Cart. The stance bits
-         *          (Mount, Crouch, Lying, Sitting, Kneel, Cart) are mutually exclusive in practice, so their
-         *          order only matters versus the orthogonal Combat / Aiming bits. winning_mask scales
-         *          popcount above this sum (which is < 256), so specificity still dominates.
+         * @details Each bit gets a distinct power of two, so any mask's summed weight is unique (a bitset) and a tie
+         *          resolves by the highest-priority bit present. Priority, high to low: Aiming > Crouch > Combat >
+         *          Mount > Lying > Sitting > Kneel > Cart > Minigame > a per-minigame child > Indoors. The stance bits
+         *          (Mount, Crouch, Lying, Sitting, Kneel, Cart) are mutually exclusive in practice, so their order only
+         *          matters versus the orthogonal Combat / Aiming bits. The minigame children share one weight, since
+         *          at most one is active. Indoors weighs nothing: it only narrows a binding, so "crouch,indoors" beats
+         *          "crouch" by specificity while "crouch" beats "indoors". winning_mask scales popcount by
+         *          k_specificity_weight, above this sum, so specificity still dominates.
          */
         [[nodiscard]] std::uint32_t bind_priority_weight(std::uint32_t mask) noexcept
         {
             std::uint32_t weight = 0;
             if ((mask & state_bit(GameState::Aiming)) != 0)
-                weight += 128;
+                weight += 512;
             if ((mask & state_bit(GameState::Crouch)) != 0)
-                weight += 64;
+                weight += 256;
             if ((mask & state_bit(GameState::Combat)) != 0)
-                weight += 32;
+                weight += 128;
             if ((mask & state_bit(GameState::Mount)) != 0)
-                weight += 16;
+                weight += 64;
             if ((mask & state_bit(GameState::Lying)) != 0)
-                weight += 8;
+                weight += 32;
             if ((mask & state_bit(GameState::Sitting)) != 0)
-                weight += 4;
+                weight += 16;
             if ((mask & state_bit(GameState::Kneel)) != 0)
-                weight += 2;
+                weight += 8;
             if ((mask & state_bit(GameState::Cart)) != 0)
+                weight += 4;
+            if ((mask & state_bit(GameState::Minigame)) != 0)
+                weight += 2;
+            if ((mask & k_minigame_child_bits) != 0)
                 weight += 1;
             return weight;
         }
@@ -106,9 +128,10 @@ namespace TPVCamera::Presets
         /**
          * @brief The mask of the most-specific binding in @p masks that is a subset of @p active_state.
          * @details Specificity (set-bit count) dominates and bind_priority_weight breaks equal-specificity ties.
-         *          Two masks that match together with an equal score are identical: the weight is unique per
-         *          framing-bit set, the only unweighted bits are the minigame umbrella and its children, and at most
-         *          one child is active at a time. A zero mask always matches (the floor).
+         *          Two masks that match together with an equal score are identical: the weight is unique per set of
+         *          bits that can be active together (the children share one weight, and at most one child is active
+         *          at a time), and a mask that differs only by Indoors differs in popcount. A zero mask always
+         *          matches (the floor).
          * @return The winning mask, or std::nullopt when no mask is a subset of @p active_state.
          */
         [[nodiscard]] std::optional<std::uint32_t> winning_mask(std::uint32_t active_state,
@@ -124,7 +147,7 @@ namespace TPVCamera::Presets
                     continue;
                 }
                 const std::uint32_t score =
-                    static_cast<std::uint32_t>(std::popcount(mask)) * 256u + bind_priority_weight(mask);
+                    static_cast<std::uint32_t>(std::popcount(mask)) * k_specificity_weight + bind_priority_weight(mask);
                 if (!best || score > best_score)
                 {
                     best = mask;
@@ -365,6 +388,11 @@ namespace TPVCamera::Presets
                     mask |= state_bit(GameState::Cart);
                     bound = true;
                 }
+                else if (token == "indoors")
+                {
+                    mask |= state_bit(GameState::Indoors);
+                    bound = true;
+                }
                 else if (token == "minigame")
                 {
                     mask |= state_bit(GameState::Minigame);
@@ -443,6 +471,7 @@ namespace TPVCamera::Presets
         {
             append(GameState::Minigame, "minigame");
         }
+        append(GameState::Indoors, "indoors");
         return out.empty() ? std::string("none") : out;
     }
 
@@ -498,6 +527,11 @@ namespace TPVCamera::Presets
         // exchange takes a separate owner of `next`, and a failed one drops it unpublished, which leaves `next`
         // owned here alone and safe to rewrite.
         const auto next = std::make_shared<StateBindingTable>(std::move(table));
+        std::uint32_t bound_states = 0;
+        for (const std::uint32_t mask : next->masks)
+        {
+            bound_states |= mask;
+        }
         std::shared_ptr<const StateBindingTable> current = s_table.load(std::memory_order_acquire);
         do
         {
@@ -505,11 +539,17 @@ namespace TPVCamera::Presets
             edit_picks(next->cycle_picks);
         } while (!s_table.compare_exchange_weak(current, std::shared_ptr<const StateBindingTable>(next),
                                                 std::memory_order_acq_rel, std::memory_order_acquire));
+        s_bound_states.store(bound_states, std::memory_order_relaxed);
     }
 
     std::shared_ptr<const StateBindingTable> published_table() noexcept
     {
         return s_table.load(std::memory_order_acquire);
+    }
+
+    std::uint32_t bound_state_bits() noexcept
+    {
+        return s_bound_states.load(std::memory_order_relaxed);
     }
 
     void set_cycle_pick(std::uint32_t mask, std::string_view preset)

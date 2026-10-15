@@ -1077,6 +1077,41 @@ namespace TPVCamera
                                                "1E [8-16] E8 ?? ?? ?? ?? | 4C 8D 4B 28 [0-4] 4C 8D 43 20 [0-4] E8")),
         };
 
+        // The indoors query's anchors (indoor_state.cpp, optional: a miss leaves the `indoors` token never matching).
+        // The CClipVolumeManager global (qword_185496F88; GOG 0x18547F0B8, Game Pass 0x185555648), RipRelative on its
+        // load in three functions. P1 and P2 are C3DEngine's CreateClipVolume and DeleteClipVolume forwarders: the
+        // clip-volume dirty-flag store `mov byte [rcx+6A4h], 1`, the load, then the tail call through the manager's
+        // vtable, `jmp [rax+8]` (create) or `jmp [rax+10h]` (delete), which keeps the two apart. P3 is C3DEngine's
+        // point query (vtable slot 50, 0x1820D1C30): the load, a null ignored volume (`xor r8d, r8d`), the call of
+        // GetClipVolumeByPos and `setnz al` on its result.
+        inline const Candidate k_clipVolumeManagerCandidates[] = {
+            Candidate::rip_relative(
+                "ClipVolumeManager_P1_CreateForwarder",
+                Pattern::literal("C6 81 A4 06 00 00 01 | 48 8B 0D ?? ?? ?? ?? 48 8B 01 48 FF 60 08"), 3, 7),
+            Candidate::rip_relative(
+                "ClipVolumeManager_P2_DeleteForwarder",
+                Pattern::literal("C6 81 A4 06 00 00 01 | 48 8B 0D ?? ?? ?? ?? 48 8B 01 48 FF 60 10"), 3, 7),
+            Candidate::rip_relative("ClipVolumeManager_P3_PointQuery",
+                                    Pattern::literal("48 83 EC 28 | 48 8B 0D ?? ?? ?? ?? 45 33 C0 E8 ?? ?? ?? ?? 48 85 "
+                                                     "C0 0F 95 C0 48 83 C4 28 C3"),
+                                    3, 7),
+        };
+        // CClipVolumeManager::GetClipVolumeByPos entry (sub_18063C970; GOG 0x180661FE0, Game Pass 0x1806085C0), called,
+        // not hooked. P1 is the prologue through the argument moves (`mov r15, r8; mov r14, rdx; mov rbx, rcx`) and the
+        // e_ClipVolumes test (`cmp dword [cvars+disp32], 0; je`). P2 is the volume walk, which skips an inactive volume
+        // (`cmp byte [rdi+0F8h], 0`) and the ignored one, then asks the volume (IsPointInsideClipVolume,
+        // `call [rax+18h]`), walking back 0x10B to the entry.
+        inline const Candidate k_getClipVolumeByPosCandidates[] = {
+            Candidate::direct("GetClipVolumeByPos_P1_PrologueCVar",
+                              Pattern::literal("48 89 5C 24 18 55 56 57 41 56 41 57 48 8D AC 24 80 FE FF FF 48 81 EC "
+                                               "80 02 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 85 70 01 00 00 48 8B "
+                                               "05 ?? ?? ?? ?? 4D 8B F8 4C 8B F2 48 8B D9 83 B8 ?? ?? 00 00 00 0F 84")),
+            Candidate::direct("GetClipVolumeByPos_P2_VolumeWalk",
+                              Pattern::literal("48 8B 79 08 80 BF F8 00 00 00 00 74 ?? 49 3B FF 74 ?? 48 8B 07 49 8B "
+                                               "D6 48 8B CF FF 50 18 84 C0"),
+                              -0x10B),
+        };
+
         // Loading-only shader preparation: fail-closed entry anchors, with no gameplay-creation fallback.
         // CSystem::SetSystemGlobalState(this, int state) (sub_1809B315C; GOG 0x1809D7B7C, Game Pass 0x18091263C), a
         // direct entry hook. States 1..9 cover level preparation, and the closure runs before the transition out of
@@ -1551,9 +1586,10 @@ namespace TPVCamera
      *          scalars. AddOrCreateRO is an address, and so are the window ids (PerViewUpload is a call site the mid
      *          hook sits on). ResourceLookup is an address, ResourceLock and ShaderResourceContainer globals, and the
      *          three PSO builder ids call sites. VegetationGroups is a global, and LevelBrushTables an instruction site
-     *          that only proves two member offsets. Of the DEV-only ids, HardwareShaderForName is an address and
-     *          HardwareShaderLockSite an instruction site its consumer decodes; the ids from TechniqueLayout to
-     *          HardwareShaderCache are instruction sites that only prove layouts.
+     *          that only proves two member offsets. ClipVolumeManager is a global and GetClipVolumeByPos an address. Of
+     *          the DEV-only ids, HardwareShaderForName is an address and HardwareShaderLockSite an instruction site its
+     *          consumer decodes; the ids from TechniqueLayout to HardwareShaderCache are instruction sites that only
+     *          prove layouts.
      */
     enum class AnchorId : std::size_t
     {
@@ -1619,6 +1655,8 @@ namespace TPVCamera
         PlantGBufferPsosCall,     // CreatePipelineStates' call of the G-buffer pass builder (a call site)
         VegetationGroups,         // the global that holds CObjManager (the level inventory's vegetation groups)
         LevelBrushTables,         // proof of C3DEngine's level statobj and brush material table offsets (not read)
+        ClipVolumeManager,        // the global that holds CClipVolumeManager (the indoors query)
+        GetClipVolumeByPos,       // CClipVolumeManager::GetClipVolumeByPos (the indoors query; called, not hooked)
 #if defined(TPVCAMERA_DEV_BUILD)
         HardwareShaderForName,  // CHWShader::mfForName (the DEV twin clone's factory)
         HardwareShaderLockSite, // the HW shader factory's SRWLOCK lea (an instruction site the consumer decodes)
@@ -1677,6 +1715,7 @@ namespace TPVCamera
                               // draws are built and waited for (needs ShaderTwins)
         TwinInventory,        // Genv, VegetationGroups, LevelBrushTables: the level inventory at loading boundaries
                               // (needs ShaderTwins; without it the twins come from captured materials only)
+        IndoorState,          // ClipVolumeManager, GetClipVolumeByPos: the Indoors state the `indoors` bind token reads
 #if defined(TPVCAMERA_DEV_BUILD)
         TwinCloneDryRun,      // the layout proofs (TechniqueLayout to HardwareShaderCache), the HW shader factory and
                               // its lock, ResourceLookup: the twin clone's read-only dry-run (needs ShaderTwins)

@@ -139,6 +139,7 @@ set(COMMON_SOURCES
   src/config.cpp
   src/game_interface.cpp
   src/game_state.cpp
+  src/indoor_state.cpp
   src/global_state.cpp
   src/offset_heal.cpp
   src/physics_raycast.cpp

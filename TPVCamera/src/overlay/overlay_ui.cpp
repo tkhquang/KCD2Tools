@@ -99,6 +99,7 @@ namespace TPVCamera::Overlay
             {"Sitting (bench / chair)", GameState::Sitting},
             {"Kneeling", GameState::Kneel},
             {"Cart (riding / driving)", GameState::Cart},
+            {"Indoors (inside a house, shed or barn)", GameState::Indoors},
         };
 
         /**
