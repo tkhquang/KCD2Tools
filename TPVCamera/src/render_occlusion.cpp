@@ -1141,11 +1141,14 @@ namespace TPVCamera
      *          rest of the table. POD-only body: a fault ends the scan with what was collected.
      * @param dynamic_only Collect only what can move or appear while the box stays put: entity proxies and movable
      *        brushes (see refresh_occluder_scan()).
+     * @param pass_mask With the typed query, collect only the types of the passes whose bits are set (bit n for the
+     *        n-th of vegetation, merged patches, entity proxies, movable brushes, brushes); ~0u for all.
      * @param truncated Set when a type had more nodes than the octree query or the table holds.
      * @return The number of nodes written.
      */
     static int scan_nodes_guarded(void *p3d, const float *qbox, const Rules::RuleSet &rules, bool trace,
-                                  bool dynamic_only, ScannedNode *out, int cap, bool *truncated) noexcept
+                                  bool dynamic_only, ScannedNode *out, int cap, bool *truncated,
+                                  unsigned pass_mask = ~0u) noexcept
     {
         int n = 0;
         __try
@@ -1160,6 +1163,10 @@ namespace TPVCamera
             const int passes = typed ? static_cast<int>(std::size(k_types)) : 1;
             for (int pass = 0; pass < passes; ++pass)
             {
+                if (typed && (pass_mask & (1u << pass)) == 0)
+                {
+                    continue;
+                }
                 if (typed && dynamic_only &&
                     k_types[pass] != static_cast<std::uint32_t>(Constants::EERTYPE_ENTITY_PROXY) &&
                     k_types[pass] != static_cast<std::uint32_t>(Constants::EERTYPE_MOVABLE_BRUSH))
@@ -1353,6 +1360,119 @@ namespace TPVCamera
         return !truncated;
     }
 
+    // The next scan's frames (advance_next_scan()), each a set of scan_nodes_guarded() passes: the vegetation, the
+    // entity proxies and the movable brushes, which are few, then the merged patches, then the brushes, so each frame
+    // takes about one costly octree query, in the order a full scan fills its table.
+    constexpr unsigned k_ahead_frames[] = {(1u << 0) | (1u << 2) | (1u << 3), 1u << 1, 1u << 4};
+    constexpr int k_ahead_frame_count = static_cast<int>(std::size(k_ahead_frames));
+
+    // The next scan, built ahead of the one in use over a few camera frames (advance_next_scan()). Main-thread
+    // only.
+    static ScannedNode s_next[Constants::OCCLUDER_SCAN_MAX];
+    static int s_next_count = 0;
+    static int s_next_pass = -1; // the next frame of k_ahead_frames to query; -1 while no build runs
+    static float s_next_box[6] = {};
+    static std::uint64_t s_next_started_ms = 0;
+    static std::uint64_t s_next_rules_generation = 0;
+    static bool s_next_truncated = false;
+    // The points' box on the last call, and the most any of its faces moved in one call lately (a decaying peak).
+    static float s_last_want[6] = {};
+    static bool s_last_want_valid = false;
+    static float s_want_travel = 0.0f;
+
+    /** @brief Whether box @p want, less @p inner on every side, lies inside box @p box. */
+    [[nodiscard]] static bool box_holds(const float *box, const float *want, float inner) noexcept
+    {
+        return want[0] > box[0] + inner && want[1] > box[1] + inner && want[2] > box[2] + inner &&
+               want[3] < box[3] - inner && want[4] < box[4] - inner && want[5] < box[5] - inner;
+    }
+
+    /**
+     * @brief Builds the next scan a set of node types per call while the one in use still covers the points, and
+     *        puts it in use once complete, so a full scan's octree queries are spread over frames instead of landing
+     *        on the frame a point leaves the box or the static part runs out of age.
+     * @details A build starts around the points as they are when the room left to the box's usable edge is less than
+     *          OCCLUDER_SCAN_AHEAD_FRAMES calls of the points' recent travel, or the static part is within
+     *          OCCLUDER_SCAN_AHEAD_LEAD of OCCLUDER_SCAN_STATIC_MAX_AGE. Each call queries one set of types
+     *          (k_ahead_frames) into the next table. The complete table goes in use, as old as its first query, while
+     *          the points lie inside its box; a build is dropped when the rule set changes, a type does not fit, or the
+     *          points have left its box, and the scan in use then takes the full scan when it has to. No camera test
+     *          ever reads a partial table. Called on the frames the scan in use holds.
+     */
+    static void advance_next_scan(const float (&want)[6], float inner, const Rules::RuleSet &rules, bool trace,
+                                  std::uint64_t now_ms) noexcept
+    {
+        if (s_get_objects_by_type_in_box == nullptr)
+        {
+            return; // the untyped query cannot be split by type
+        }
+        float travel = 0.0f;
+        for (int k = 0; k < 6 && s_last_want_valid; ++k)
+        {
+            travel = std::max(travel, std::fabs(want[k] - s_last_want[k]));
+        }
+        std::copy_n(want, 6, s_last_want);
+        s_last_want_valid = true;
+        s_want_travel = std::max(travel, s_want_travel * Constants::OCCLUDER_SCAN_AHEAD_SPEED_KEEP);
+        if (s_next_pass < 0)
+        {
+            const float room =
+                std::clamp(s_want_travel * Constants::OCCLUDER_SCAN_AHEAD_FRAMES,
+                           Constants::OCCLUDER_SCAN_AHEAD_ROOM_MIN, Constants::OCCLUDER_SCAN_AHEAD_ROOM_MAX);
+            const bool near_edge = !box_holds(s_scan_box, want, inner + room);
+            const bool ageing =
+                now_ms - s_scan_static_stamp_ms >=
+                static_cast<std::uint64_t>(
+                    (Constants::OCCLUDER_SCAN_STATIC_MAX_AGE - Constants::OCCLUDER_SCAN_AHEAD_LEAD) * 1000.0f);
+            if (!near_edge && !ageing)
+            {
+                return;
+            }
+            const float m = Constants::OCCLUDER_SCAN_MARGIN;
+            const float box[6] = {want[0] - m, want[1] - m, want[2] - m, want[3] + m, want[4] + m, want[5] + m};
+            std::copy_n(box, 6, s_next_box);
+            s_next_count = 0;
+            s_next_pass = 0;
+            s_next_started_ms = now_ms;
+            s_next_rules_generation = rules.generation();
+            s_next_truncated = false;
+        }
+        const auto drop = []() noexcept
+        {
+            s_next_pass = -1;
+            HookProfile::count(HookProfile::Counter::ScanAheadDropped);
+        };
+        const auto p3d = DMK::memory::read<uintptr_t>(DMK::Address{s_p3d_engine_slot_addr});
+        if (rules.generation() != s_next_rules_generation || !p3d || *p3d == 0 ||
+            !DMK::memory::is_plausible_ptr(DMK::Address{*p3d}))
+        {
+            drop();
+            return;
+        }
+        {
+            DMK_PROFILE_SCOPE("render.scan_ahead");
+            s_next_count += scan_nodes_guarded(reinterpret_cast<void *>(*p3d), s_next_box, rules, trace, false,
+                                               s_next + s_next_count, Constants::OCCLUDER_SCAN_MAX - s_next_count,
+                                               &s_next_truncated, k_ahead_frames[s_next_pass]);
+        }
+        if (s_next_truncated || !box_holds(s_next_box, want, inner))
+        {
+            drop();
+            return;
+        }
+        if (++s_next_pass < k_ahead_frame_count)
+        {
+            return;
+        }
+        std::copy_n(s_next, s_next_count, s_scan);
+        s_scan_count = s_next_count;
+        std::copy_n(s_next_box, 6, s_scan_box);
+        s_scan_stamp_ms = s_next_started_ms;
+        s_scan_static_stamp_ms = s_next_started_ms;
+        s_next_pass = -1;
+        HookProfile::count(HookProfile::Counter::ScanAhead);
+    }
+
     void refresh_occluder_scan(const Vector3 *points, int n_points)
     {
         DMK_PROFILE_SCOPE("render.occluder_scan");
@@ -1405,9 +1525,7 @@ namespace TPVCamera
                                    static_cast<std::uint64_t>(Constants::OCCLUDER_SCAN_STATIC_MAX_AGE * 1000.0f);
         // A scan classified with another rule set is never reused: every node takes the new rules.
         const bool same_rules = s_scan_rules != nullptr && s_scan_rules->generation() == rules->generation();
-        const bool inside = want[0] > s_scan_box[0] + k_inner && want[1] > s_scan_box[1] + k_inner &&
-                            want[2] > s_scan_box[2] + k_inner && want[3] < s_scan_box[3] - k_inner &&
-                            want[4] < s_scan_box[4] - k_inner && want[5] < s_scan_box[5] - k_inner;
+        const bool inside = box_holds(s_scan_box, want, k_inner);
         if (s_scan_valid && young && same_rules && inside)
         {
             DMK_PROFILE_SCOPE("render.instance_refresh");
@@ -1420,19 +1538,28 @@ namespace TPVCamera
                 s_entities_read_ms = now_ms;
             }
             const bool reused = refresh_scanned_state(*rules, trace, entities_due);
-            flush_rules_trace(*rules);
             if (reused)
             {
+                advance_next_scan(want, k_inner, *rules, trace, now_ms);
+                flush_rules_trace(*rules);
                 return;
             }
+            flush_rules_trace(*rules);
         }
         else if (s_scan_valid && statics_young && same_rules && inside && refresh_dynamic_nodes(*rules, trace))
         {
-            flush_rules_trace(*rules);
             s_scan_stamp_ms = now_ms;
+            advance_next_scan(want, k_inner, *rules, trace, now_ms);
+            flush_rules_trace(*rules);
             return;
         }
 
+        // The full scan replaces whatever the next one had collected so far.
+        if (s_next_pass >= 0)
+        {
+            s_next_pass = -1;
+            HookProfile::count(HookProfile::Counter::ScanAheadDropped);
+        }
         const bool had_scan = s_scan_valid;
         s_scan_count = 0;
         s_scan_valid = false;

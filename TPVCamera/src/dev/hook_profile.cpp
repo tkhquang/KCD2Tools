@@ -48,9 +48,12 @@ namespace TPVCamera::HookProfile
         static_assert(k_names.size() == k_paths);
         constexpr std::size_t k_counters = static_cast<std::size_t>(Counter::Count);
         constexpr std::array k_counter_names = {
-            "render.scan_truncated",  "render.scan_full",      "render.scan_dynamic",
-            "render.scan_full.exit",  "render.scan_full.aged", "render.scan_full.changed",
-            "render.scan_full.first", "twins.untwinned_retry", "twins.char_build_over_budget",
+            "render.scan_truncated",        "render.scan_full",
+            "render.scan_dynamic",          "render.scan_full.exit",
+            "render.scan_full.aged",        "render.scan_full.changed",
+            "render.scan_full.first",       "render.scan_ahead",
+            "render.scan_ahead.dropped",    "twins.untwinned_retry",
+            "twins.char_build_over_budget",
         };
         static_assert(k_counter_names.size() == k_counters);
 
