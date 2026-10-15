@@ -3466,6 +3466,11 @@ namespace TPVCamera
         dst[k] = '\0';
     }
 
+    std::uint64_t occluder_rules_generation() noexcept
+    {
+        return s_scan_rules != nullptr ? s_scan_rules->generation() : 0;
+    }
+
     void occluder_rule_where(void *node, char *out, int cap) noexcept
     {
         if (out == nullptr || cap <= 0)
