@@ -116,6 +116,8 @@ namespace TPVCamera
         hit.m_normal = *reinterpret_cast<const Vector3 *>(hit_buffer + Constants::RAY_HIT_OFFSET_NORMAL);
         hit.m_collider = *reinterpret_cast<const uintptr_t *>(hit_buffer + Constants::RAY_HIT_OFFSET_COLLIDER);
         hit.m_terrain = *reinterpret_cast<const int *>(hit_buffer + Constants::RAY_HIT_OFFSET_TERRAIN);
+        hit.m_part = *reinterpret_cast<const int *>(hit_buffer + Constants::RAY_HIT_OFFSET_PART);
+        hit.m_surface = *reinterpret_cast<const std::int16_t *>(hit_buffer + Constants::RAY_HIT_OFFSET_SURFACE);
         return hit;
     }
 
