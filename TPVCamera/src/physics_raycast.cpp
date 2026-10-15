@@ -249,9 +249,11 @@ namespace TPVCamera
         *reinterpret_cast<int *>(params + Constants::SPWI_OFF_ENTTYPES) = objtypes & ~0x800;
         *reinterpret_cast<void **>(params + Constants::SPWI_OFF_PPCONTACT) = &contact;
         *reinterpret_cast<int *>(params + Constants::SPWI_OFF_GEOMFLAGSALL) = 0;
-        // Broad collision-type mask so the sphere stops on any solid surface (mirrors the RWI colltype_any
-        // intent). A wrong value here only changes which parts block (functional, not a safety issue).
-        *reinterpret_cast<int *>(params + Constants::SPWI_OFF_GEOMFLAGSANY) = Constants::SPWI_GEOMFLAGS_ANY_SOLID;
+        // The camera's part collide types, the ones its rays request (CAMERA_GEOM_COLLTYPES): the sphere stops on
+        // the parts the fan stops on, so only the sweep's continuous contact separates the two probes. A wrong value
+        // here only changes which parts block (functional, not a safety issue).
+        *reinterpret_cast<int *>(params + Constants::SPWI_OFF_GEOMFLAGSANY) =
+            static_cast<int>(Constants::CAMERA_GEOM_COLLTYPES);
         // Skip the entities the caller lists (the faded occluders the camera steps past), so the sweep reports a
         // clean WORLD distance. The synchronous PWI
         // walks every nSkipEnts entry (only its queued path clamps the count to 4); a negative count would make

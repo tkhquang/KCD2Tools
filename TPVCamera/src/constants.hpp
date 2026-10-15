@@ -322,12 +322,16 @@ namespace Constants
     //
     // Composed from the named physinterface.h bit values rather than a magic literal so the intent is
     // self-documenting and each contributing flag is independently auditable.
+    //
+    // CAMERA_GEOM_COLLTYPES is that one set of part collide types, geom_colltype_ray (0x8000) | geom_colltype_player
+    // (0x0002): the fan's rays carry it in their high word and the swept sphere tests it as its geomFlagsAny, so a part
+    // only one probe can hit (a horse-only collider, a ray-only pane) cannot make the two disagree.
+    constexpr unsigned int CAMERA_GEOM_COLLTYPES = 0x8002;
     constexpr unsigned int RWI_STOP_AT_PIERCEABLE = 0x0000000F; // stop at the first solid (non-pierceable) hit
     constexpr unsigned int RWI_COLLTYPE_ANY = 0x00000400;       // match any (not all) of the requested colltype bits
-    constexpr unsigned int GEOM_COLLTYPE_RAY = 0x80000000;      // geom_colltype_ray (0x8000) << 16
-    constexpr unsigned int GEOM_COLLTYPE_PLAYER = 0x00020000;   // geom_colltype_player (0x0002) << 16 (fabric roofs)
     constexpr unsigned int RWI_FLAGS_STOP_AT_SOLID =
-        RWI_STOP_AT_PIERCEABLE | RWI_COLLTYPE_ANY | GEOM_COLLTYPE_RAY | GEOM_COLLTYPE_PLAYER; // 0x8002040F
+        RWI_STOP_AT_PIERCEABLE | RWI_COLLTYPE_ANY | (CAMERA_GEOM_COLLTYPES << 16); // 0x8002040F
+    static_assert(RWI_FLAGS_STOP_AT_SOLID == 0x8002040Fu);
 
     // Swept-sphere camera collision (IPhysicalWorld::PrimitiveWorldIntersection)
     // A single thin RayWorldIntersection ray to a sweeping endpoint (the camera rotates+moves
@@ -380,11 +384,6 @@ namespace Constants
     constexpr ptrdiff_t SPWI_OFF_LOCK_IACTIVE = 0xD8; // int  WriteLockCond.iActive (CONFIRMED)
     constexpr ptrdiff_t SPWI_OFF_LOCK_PRW =
         0xE0; // int* WriteLockCond.prw     (CONFIRMED; self-ptr = thread-safe, no global lock)
-
-    // SPWI field VALUES (written INTO the fields above; the offsets are the field positions, these are the
-    // contents). Kept named alongside the offsets so a tuning change is one edit, not a hunt through the impl.
-    // Colltype mask for SPWI_OFF_GEOMFLAGSANY: stop the sphere on ANY solid surface (mirrors the RWI intent).
-    constexpr int SPWI_GEOMFLAGS_ANY_SOLID = 0x0FFF;
 
     // Render-octree occluder scan (the objects the camera fades instead of pulling in front of)
     // The physics rays see collision proxies, not what is drawn, and some objects carry no ray-collidable physics at
