@@ -2581,6 +2581,7 @@ namespace TPVCamera
             // starts from an empty fade set instead of node addresses from before the gap.
             reset_occluder_fade();
             set_character_fade(0, 0.0f);
+            reset_close_up();
             // The carried list goes too, and the next third-person walk logs its set afresh.
             if (s_character_nodes.entity != 0)
             {
