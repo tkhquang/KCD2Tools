@@ -506,10 +506,15 @@ namespace Constants
     // movable brushes, which move and appear with the box held still, are queried again every OCCLUDER_SCAN_MAX_AGE
     // seconds; its static brushes, vegetation and merged patches, which only the level streaming changes, every
     // OCCLUDER_SCAN_STATIC_MAX_AGE seconds. An octree query costs about the same for a box this size or a little
-    // larger, so the margin is set where turning the view around in a town takes under one full rescan a second.
+    // larger, so the margin is set where turning the view around in a town takes under one full rescan a second. The
+    // scanned entities' boxes and states follow them between those queries (OCCLUDER_ENTITY_REFRESH_MS), so the dynamic
+    // query is for what arrives, and something that arrives meanwhile stops the camera like any unmatched hit.
     constexpr float OCCLUDER_SCAN_MARGIN = 2.0f;
-    constexpr float OCCLUDER_SCAN_MAX_AGE = 0.5f;
+    constexpr float OCCLUDER_SCAN_MAX_AGE = 1.0f;
     constexpr float OCCLUDER_SCAN_STATIC_MAX_AGE = 2.0f;
+    // How often a reused scan reads its entities' boxes and states again (milliseconds): a door that starts to swing or
+    // a cart that rolls on is followed within this, and the frames in between keep what the last read found.
+    constexpr std::uint64_t OCCLUDER_ENTITY_REFRESH_MS = 50;
     // A sightline does not count crossings within this many meters of the character end: whatever Henry holds,
     // wears or stands in is not between him and the camera.
     constexpr float OCCLUDER_SIGHTLINE_END_MARGIN = 0.35f;

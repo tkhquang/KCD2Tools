@@ -1028,9 +1028,11 @@ namespace TPVCamera
      *        octree query.
      * @details An entity is named and classified again (its visible model, actor and animation can change), and one
      *          the rules now exclude leaves the scan. Brushes keep their verdict and re-run only its check.
+     * @param entities Whether to read the entities' and movable brushes' boxes and states again; without it they keep
+     *        what the last read found.
      * @return False when a brush's model, its revision or its material changed: the scan must be taken again.
      */
-    static bool refresh_scanned_state(const Rules::RuleSet &rules, bool trace) noexcept
+    static bool refresh_scanned_state(const Rules::RuleSet &rules, bool trace, bool entities = true) noexcept
     {
         int kept = 0;
         for (int i = 0; i < s_scan_count; ++i)
@@ -1042,37 +1044,54 @@ namespace TPVCamera
             }
             __try
             {
+                // The node's world box, read again; false when its GetBBox is not in the game image or returns none.
+                const auto read_box = [](ScannedNode &n) noexcept
+                {
+                    void **vt = *reinterpret_cast<void ***>(n.node);
+                    const auto get_bbox =
+                        reinterpret_cast<GetBBoxFn>(vt[Constants::RENDERNODE_VTABLE_GETBBOX_OFFSET / 8]);
+                    if (!s_game_module.contains(DMK::Address{reinterpret_cast<uintptr_t>(get_bbox)}))
+                    {
+                        return false;
+                    }
+                    float box[6] = {};
+                    const auto *bounds = static_cast<const float *>(get_bbox(n.node, box));
+                    if (bounds == nullptr)
+                    {
+                        return false;
+                    }
+                    std::copy_n(bounds, 6, n.bbox);
+                    return true;
+                };
                 if (node.brush)
                 {
                     const auto *bytes = static_cast<const std::byte *>(node.node);
                     const auto *model =
                         *reinterpret_cast<const void *const *>(bytes + Constants::CBRUSH_STATOBJ_OFFSET);
-                    if (model != node.model || (model != nullptr && statobj_revision(model) != node.model_revision) ||
-                        *reinterpret_cast<const void *const *>(bytes + Constants::CBRUSH_MATERIAL_OFFSET) !=
-                            node.material)
+                    if (model != node.model || *reinterpret_cast<const void *const *>(
+                                                   bytes + Constants::CBRUSH_MATERIAL_OFFSET) != node.material)
                     {
-                        // Replacement / stream commit / a material change can change the verdict and bounds. Re-query
-                        // only on a change, keeping unchanged brush checks to three field reads without rescanning
-                        // their geometry.
+                        // Another model or material can change the verdict and bounds: the scan is taken again.
+                        // Unchanged brushes cost three field reads, without rescanning their geometry.
                         return false;
                     }
+                    if (model != nullptr && statobj_revision(model) != node.model_revision)
+                    {
+                        // A stream commit of the same model keeps its name, state and verdict, and the mesh caches key
+                        // on the revision; only its box is read again, in case the commit moved it.
+                        node.model_revision = statobj_revision(model);
+                        if (!read_box(node))
+                        {
+                            continue;
+                        }
+                    }
                 }
-                if (node.entity || node.movable)
+                if ((node.entity || node.movable) && entities)
                 {
-                    void **vt = *reinterpret_cast<void ***>(node.node);
-                    const auto get_bbox =
-                        reinterpret_cast<GetBBoxFn>(vt[Constants::RENDERNODE_VTABLE_GETBBOX_OFFSET / 8]);
-                    if (!s_game_module.contains(DMK::Address{reinterpret_cast<uintptr_t>(get_bbox)}))
+                    if (!read_box(node))
                     {
                         continue;
                     }
-                    float box[6] = {};
-                    const auto *bounds = static_cast<const float *>(get_bbox(node.node, box));
-                    if (bounds == nullptr)
-                    {
-                        continue;
-                    }
-                    std::copy_n(bounds, 6, node.bbox);
                     if (node.entity)
                     {
                         // A door that starts to swing or a person picking an item up changes the state at once; a
@@ -1392,7 +1411,15 @@ namespace TPVCamera
         if (s_scan_valid && young && same_rules && inside)
         {
             DMK_PROFILE_SCOPE("render.instance_refresh");
-            const bool reused = refresh_scanned_state(*rules, trace);
+            // The entities' boxes and states are read every OCCLUDER_ENTITY_REFRESH_MS, the brushes' identity on every
+            // reuse (three field reads each, and a change takes the scan again).
+            static std::uint64_t s_entities_read_ms = 0;
+            const bool entities_due = now_ms - s_entities_read_ms >= Constants::OCCLUDER_ENTITY_REFRESH_MS;
+            if (entities_due)
+            {
+                s_entities_read_ms = now_ms;
+            }
+            const bool reused = refresh_scanned_state(*rules, trace, entities_due);
             flush_rules_trace(*rules);
             if (reused)
             {
