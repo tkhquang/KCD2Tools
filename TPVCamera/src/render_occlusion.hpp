@@ -234,6 +234,14 @@ namespace TPVCamera
     void render_node_name(void *node, char *out, int cap) noexcept;
 
     /**
+     * @brief What @p node is beyond its address: its type with its model (a brush), its entity id (an entity proxy) or
+     *        where it stands (vegetation). A node freed and built again at the same address for another object reads
+     *        a different value; one that moves or changes its mesh keeps its own.
+     * @return The identity, or 0 for a null or unreadable node. SEH-guarded.
+     */
+    [[nodiscard]] std::uint64_t render_node_identity(void *node) noexcept;
+
+    /**
      * @brief Advances at most one cached-mesh fence coverage row. Call once per game frame, never per view build.
      * @return True when a scanned fence changed class, or the scan took a new rule set, and the camera's cached
      *         collision/fade must be recomputed.

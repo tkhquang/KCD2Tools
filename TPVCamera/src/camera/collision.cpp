@@ -675,7 +675,7 @@ namespace TPVCamera
             // OccluderFadeMinOpacity of every object stays, the camera inside it or not: one the camera is buried in or
             // inside only starts at once instead of after the listing delay. A full fade there makes it vanish and pop
             // back once the camera leaves it, on every pass.
-            requests[i] = FadeRequest{e.node, strength, e.buried || e.inside};
+            requests[i] = FadeRequest{e.node, strength, e.buried || e.inside, render_node_identity(e.node)};
         }
         log_fade_set_change(std::span<const FadeEntry>(state.fade_nodes.data(), n));
         update_occluder_fade(std::span<const FadeRequest>(requests.data(), n), delta_time);

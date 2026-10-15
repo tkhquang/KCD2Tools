@@ -55,6 +55,7 @@ namespace TPVCamera
         struct Track
         {
             std::uintptr_t node = 0;
+            std::uint64_t identity = 0; // FadeRequest::identity of the object the track fades
             float level = 0.0f;         // 0 = solid, 1 = fully faded
             float strength = 0.0f;      // how far a fully faded node dithers away now
             float target = 0.0f;        // the strength it was last listed with, which strength eases toward
@@ -223,6 +224,13 @@ namespace TPVCamera
                     continue;
                 }
                 int found = find_track(node);
+                if (found >= 0 && !s_tracks[static_cast<std::size_t>(found)].fresh &&
+                    s_tracks[static_cast<std::size_t>(found)].identity != request.identity)
+                {
+                    // The address holds another object now: it starts solid in the old one's slot.
+                    s_tracks[static_cast<std::size_t>(found)] =
+                        Track{.node = node, .identity = request.identity, .fresh = true};
+                }
                 // Pass 0 takes the nodes that already had a track; pass 1 gives the others a slot, and merges a second
                 // request for a node that got its slot earlier in the same pass.
                 if ((pass == 0 && found < 0) ||
@@ -251,7 +259,8 @@ namespace TPVCamera
                             continue;
                         }
                     }
-                    s_tracks[static_cast<std::size_t>(found)] = Track{.node = node, .fresh = true};
+                    s_tracks[static_cast<std::size_t>(found)] =
+                        Track{.node = node, .identity = request.identity, .fresh = true};
                 }
                 Track &track = s_tracks[static_cast<std::size_t>(found)];
                 // A node listed twice in one frame keeps the stronger request.
