@@ -84,6 +84,11 @@ namespace TPVCamera
         // behaviour. An object about the probe's width can block four rays on one frame and five on the next; the
         // 0.3 s collision hold bridges that. Off = every unmatched hit stops the camera.
         std::atomic<bool> use_beam_gate{false};
+        // How long a pull-in takes to settle, seconds. 0 = at once: the camera never trails the surface that stopped it
+        // by more than CollisionSkin less the lens margin, so a big pull-in is one frame's jump. Above 0 it eases in,
+        // ~95% of the way in this long, while it moves through open air: the view of the character can be blocked
+        // for that long, and the lens never passes into or through a surface (where it would, the pull-in is at once).
+        std::atomic<float> collision_pull_in_seconds{0.12f};
         // Occluder fade: props between the camera and the character (posts, fences, open carts, lamps) dither out
         // instead of pulling the camera in front of them, so the camera keeps its distance. The camera passes through
         // bushes and tree trunks, but a bush or a tree never fades whole for hiding the character (the tree see-through

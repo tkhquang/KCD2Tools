@@ -28,8 +28,8 @@ namespace
     // The shipped presets' CollisionReturnSpeed: the release runs critically damped at twice it.
     constexpr float k_return_speed = 6.0f;
     constexpr float k_release_rate = 2.0f * k_return_speed;
-    // The pull-in rate inside ease_collision_toward (1/s).
-    constexpr float k_pull_in_rate = 25.0f;
+    // The default pull-in rate of ease_collision_toward (1/s).
+    constexpr float k_pull_in_rate = TPVCamera::k_pull_in_speed;
     // A pull_slack too large to bind, so a pull-in follows the plain exponential.
     constexpr float k_unbound_slack = 100.0f;
 
@@ -49,13 +49,13 @@ namespace
      *        time at which the share of the change still to go first drops to @p remaining, or -1 if it never does.
      */
     [[nodiscard]] float time_to_remaining(std::span<const float> frames, EaseState state, float target, float desired,
-                                          float remaining, float pull_slack)
+                                          float remaining, float pull_slack, float pull_in_speed = k_pull_in_rate)
     {
         const float start = state.collision_distance;
         float time = 0.0f;
         for (const float dt : frames)
         {
-            (void)ease_collision_toward(state, target, desired, dt, k_return_speed, pull_slack);
+            (void)ease_collision_toward(state, target, desired, dt, k_return_speed, pull_slack, pull_in_speed);
             time += dt;
             if (std::fabs(target - state.collision_distance) <= remaining * std::fabs(target - start))
             {
@@ -131,6 +131,25 @@ TEST(CollisionEase, PullInNeverTrailsTheTargetByMoreThanTheSlack)
     for (int frame = 0; frame < 60; ++frame)
     {
         (void)ease_collision_toward(state, 0.5f, 4.0f, 1.0f / 60.0f, k_return_speed, 0.15f);
+        EXPECT_LE(state.collision_distance, 0.5f + 0.15f + 1e-6f) << "frame " << frame;
+    }
+}
+
+TEST(CollisionEase, PullInFollowsTheGivenRate)
+{
+    // CollisionPullInSeconds 0.2 asks for 3 / 0.2 = 15 1/s: 95% of the way in ln 20 / 15 = 0.200 s.
+    const std::vector<float> frames(400, 0.001f);
+    const float rate = 3.0f / 0.2f;
+    const float most = time_to_remaining(frames, settled_at(4.0f, 4.0f), 1.0f, 4.0f, 0.05f, k_unbound_slack, rate);
+    EXPECT_NEAR(most, std::log(20.0f) / rate, 0.001f);
+}
+
+TEST(CollisionEase, SlowerPullInStillHonoursTheSlack)
+{
+    EaseState state = settled_at(4.0f, 4.0f);
+    for (int frame = 0; frame < 60; ++frame)
+    {
+        (void)ease_collision_toward(state, 0.5f, 4.0f, 1.0f / 60.0f, k_return_speed, 0.15f, 3.0f / 0.2f);
         EXPECT_LE(state.collision_distance, 0.5f + 0.15f + 1e-6f) << "frame " << frame;
     }
 }

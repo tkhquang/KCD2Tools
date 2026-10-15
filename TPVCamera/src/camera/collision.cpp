@@ -360,6 +360,161 @@ namespace TPVCamera
             return false;
         }
 
+        /** @brief How a pull-in follows its target this frame. */
+        struct PullIn
+        {
+            // The most an immediate pull-in trails its target by: CollisionSkin less the lens margin.
+            float slack = 0.0f;
+            // The rate it follows the target at (1/s).
+            float speed = k_pull_in_speed;
+            // CollisionPullInSeconds is on: it may trail by more along a path through open air.
+            bool eased = false;
+        };
+
+        /** @brief The pull-in for CollisionPullInSeconds @p seconds: 0 is at once, else ~95% of the way that long. */
+        [[nodiscard]] PullIn pull_in_for(float skin, float seconds) noexcept
+        {
+            PullIn pull;
+            pull.slack = std::max(0.0f, skin - k_lens_near_margin);
+            if (seconds > 0.0f)
+            {
+                pull.speed = 3.0f / seconds;
+                pull.eased = true;
+            }
+            return pull;
+        }
+
+        // The open-air path test re-casts its ray this far past each surface it walks past, at most this many times.
+        constexpr float k_open_path_step = 0.02f;
+        constexpr int k_open_path_casts = 4;
+
+        /**
+         * @brief Whether the camera can move from @p from to @p to through open air.
+         * @details A ray along the path meets nothing that would stop a camera probe (classify_probe_hit(): terrain, a
+         *          structure where it draws something, anything unmatched, and a prop too when the fade is off), and
+         *          the path crosses no drawn man-made structure mesh (structure_on_arm(), so a cloth canopy with no
+         *          physics counts). A prop or a plant the fade lets the camera through, and a structure's collision
+         *          where it draws nothing, are walked past as the arm walks them. A path with more on it than
+         *          k_open_path_casts rays can walk past is not open. Main thread only (uses the occluder scan).
+         */
+        [[nodiscard]] bool open_path(const Vector3 &from, const Vector3 &to, bool fade_on)
+        {
+            DMK_PROFILE_SCOPE("camera.pull_in_path");
+            const Vector3 span = to - from;
+            const float length = span.magnitude();
+            if (!(length >= 1e-3f))
+            {
+                return length < 1e-3f; // no distance to cover is open; a length that is not a number is not
+            }
+            const Vector3 unit = span / length;
+            float walked = 0.0f;
+            for (int casts = 0; walked < length; ++casts)
+            {
+                if (casts == k_open_path_casts)
+                {
+                    return false;
+                }
+                const std::optional<RayHit> h = ray_world_intersection(
+                    QueryLedger::Tag::PullIn, from + unit * walked, unit * (length - walked),
+                    Constants::RWI_OBJTYPES_CAMERA, Constants::RWI_FLAGS_STOP_AT_SOLID, nullptr, 0);
+                if (!h.has_value())
+                {
+                    break;
+                }
+                const float along = walked + h->m_distance;
+                void *node = nullptr;
+                Rules::Behaviour cls = Rules::Behaviour::Collide;
+                const ProbeVerdict verdict = classify_probe_hit(QueryLedger::Tag::PullIn, *h, along,
+                                                                std::span<const Vector3>(&from, 1), unit, &node, &cls);
+                if (verdict == ProbeVerdict::Stop || (verdict == ProbeVerdict::PassThrough && !fade_on))
+                {
+                    return false;
+                }
+                walked = along + k_open_path_step;
+            }
+            const Sightline path{from, to};
+            return structure_on_arm(QueryLedger::Tag::PullIn, &path, 1, 1, 1.0f, nullptr) > 1.0f;
+        }
+
+        /** @brief What the pull-in trace last named. */
+        enum class PullInTrace : std::uint8_t
+        {
+            Caught,   // the camera does not trail its target by more than the immediate pull-in's slack
+            Trailing, // an eased pull-in trails its target through open air
+            Blocked,  // an eased pull-in's path was not open, so it pulled in at once
+        };
+
+        /** @brief Logs a change of what the eased pull-in does, at Trace. */
+        void trace_pull_in(CollisionState &state, PullInTrace now, float behind)
+        {
+            if (static_cast<std::uint8_t>(now) == state.pull_in_traced)
+            {
+                return;
+            }
+            state.pull_in_traced = static_cast<std::uint8_t>(now);
+            switch (now)
+            {
+            case PullInTrace::Trailing:
+                (void)DMK::log().try_log(DMK::LogLevel::Trace,
+                                         "Camera: the pull-in eases in through open air, {:.2f} m behind its target",
+                                         behind);
+                break;
+            case PullInTrace::Blocked:
+                (void)DMK::log().try_log(DMK::LogLevel::Trace,
+                                         "Camera: the pull-in's path is not open, so it pulls in at once");
+                break;
+            case PullInTrace::Caught:
+                (void)DMK::log().try_log(DMK::LogLevel::Trace, "Camera: the pull-in caught up with its target");
+                break;
+            }
+        }
+
+        /**
+         * @brief One step of the collision ease toward @p target (see ease_collision_toward()).
+         * @details An immediate pull-in never trails its target by more than PullIn::slack, so the lens stays short of
+         *          the surface that stopped it. An eased one (CollisionPullInSeconds) follows at its own rate and may
+         *          trail by more, but only where the camera gets from where it was on the last frame to where the
+         *          ease puts it through open air (open_path()): the view of the character can be blocked while it
+         *          catches up, and the lens never passes into or through a surface. Where the path is not open, the
+         *          same frame is the immediate pull-in.
+         */
+        [[nodiscard]] EaseMotion ease_collision(CameraState &cam, CollisionState &state, float target, float desired,
+                                                const CollisionInput &in, const Vector3 &ray_dir, float return_speed,
+                                                const PullIn &pull)
+        {
+            if (pull.eased && cam.collision_valid)
+            {
+                const float distance = cam.collision_distance;
+                const float desired_before = cam.collision_desired;
+                const float speed = cam.collision_speed;
+                const EaseMotion motion =
+                    ease_collision_toward(cam, target, desired, in.delta_time, return_speed, desired, pull.speed);
+                const float behind = cam.collision_distance - target;
+                if (behind <= pull.slack)
+                {
+                    trace_pull_in(state, PullInTrace::Caught, 0.0f);
+                    return motion;
+                }
+                if (open_path(state.last_camera, in.pivot + ray_dir * cam.collision_distance, in.fade_on))
+                {
+                    trace_pull_in(state, PullInTrace::Trailing, behind);
+                    return motion;
+                }
+                cam.collision_distance = distance;
+                cam.collision_desired = desired_before;
+                cam.collision_speed = speed;
+                trace_pull_in(state, PullInTrace::Blocked, 0.0f);
+            }
+            return ease_collision_toward(cam, target, desired, in.delta_time, return_speed, pull.slack, pull.speed);
+        }
+
+        /** @brief Records @p camera as where the collision put the camera this frame, and returns it. */
+        [[nodiscard]] Vector3 placed(CollisionState &state, const Vector3 &camera) noexcept
+        {
+            state.last_camera = camera;
+            return camera;
+        }
+
         /**
          * @brief The throttled frame: reuses the last recompute's allowed distance and fade set, skipping the whole
          *        walk / sightline computation.
@@ -370,11 +525,11 @@ namespace TPVCamera
          */
         [[nodiscard]] Vector3 reuse_collision(CameraState &cam, CollisionState &state, const CollisionInput &in,
                                               const Vector3 &ray_dir, float desired_distance, float return_speed,
-                                              float pull_slack)
+                                              const PullIn &pull)
         {
-            note_collision_motion(ease_collision_toward(cam,
-                                                        state.cached_held_in ? state.cached_allowed : desired_distance,
-                                                        desired_distance, in.delta_time, return_speed, pull_slack));
+            note_collision_motion(ease_collision(cam, state,
+                                                 state.cached_held_in ? state.cached_allowed : desired_distance,
+                                                 desired_distance, in, ray_dir, return_speed, pull));
             const Vector3 camera = in.pivot + ray_dir * cam.collision_distance;
             if (drain_hold(cam.collision_hold_timer, in.delta_time) == HoldDrain::RanOut)
             {
@@ -390,7 +545,7 @@ namespace TPVCamera
                 }
                 add_sightline_nodes(state, camera, in);
             }
-            return camera;
+            return placed(state, camera);
         }
     } // namespace
 
@@ -441,9 +596,9 @@ namespace TPVCamera
         const Vector3 to_camera = in.desired - in.pivot;
         const float desired_distance = to_camera.magnitude();
         // CollisionSkin is the gap the camera keeps from whatever surface the probes found. A pull-in may lag its
-        // target by the skin less the lens margin.
+        // target by the skin less the lens margin, or, eased (CollisionPullInSeconds), by more through open air.
         const float skin = cfg.collision_skin.load(std::memory_order_relaxed);
-        const float pull_slack = std::max(0.0f, skin - k_lens_near_margin);
+        const PullIn pull = pull_in_for(skin, cfg.collision_pull_in_seconds.load(std::memory_order_relaxed));
         const float return_speed = cfg.collision_return_speed.load(std::memory_order_relaxed);
         if (!cfg.enable_collision.load(std::memory_order_relaxed))
         {
@@ -465,16 +620,17 @@ namespace TPVCamera
             }
             if (!(desired_distance > 1e-3f))
             {
-                return in.desired;
+                return placed(state, in.desired);
             }
             note_collision_motion(ease_collision_toward(cam, desired_distance, desired_distance, in.delta_time,
-                                                        return_speed, pull_slack));
-            return in.pivot + (to_camera / desired_distance) * cam.collision_distance;
+                                                        return_speed, pull.slack, pull.speed));
+            return placed(state, in.pivot + (to_camera / desired_distance) * cam.collision_distance);
         }
 
         if (!(desired_distance > 1e-3f))
         {
-            return in.desired; // the camera sits on the pivot (or the arm is not a number): nothing to walk
+            // The camera sits on the pivot (or the arm is not a number): nothing to walk.
+            return placed(state, in.desired);
         }
         const Vector3 ray_dir = to_camera / desired_distance;
 
@@ -486,7 +642,7 @@ namespace TPVCamera
                                (in.desired - state.throttle_cam).magnitude_squared() > recompute_d2;
         if (!recompute && cam.collision_valid)
         {
-            return reuse_collision(cam, state, in, ray_dir, desired_distance, return_speed, pull_slack);
+            return reuse_collision(cam, state, in, ray_dir, desired_distance, return_speed, pull);
         }
 
         DMK_PROFILE_SCOPE("camera.collision_recompute");
@@ -617,10 +773,10 @@ namespace TPVCamera
             }
         }
 
-        // Ease toward the allowed distance (fast pull-IN so a wall is never clipped, a critically damped return-OUT),
-        // via the shared helper the throttled frames also use.
+        // Ease toward the allowed distance (a pull-IN that never clips a wall, a critically damped return-OUT), via the
+        // shared helper the throttled frames also use.
         note_collision_motion(
-            ease_collision_toward(cam, allowed_distance, desired_distance, in.delta_time, return_speed, pull_slack));
+            ease_collision(cam, state, allowed_distance, desired_distance, in, ray_dir, return_speed, pull));
         const Vector3 camera = in.pivot + ray_dir * cam.collision_distance;
 
         // Fade whatever still hides the character from where the camera is: the sightlines from it to the head, chest
@@ -642,7 +798,7 @@ namespace TPVCamera
         state.cached_allowed = allowed_distance;
         state.cached_held_in = allowed_distance < desired_distance - k_collision_clear_slack;
         state.stamp_ms = now_ms;
-        return camera;
+        return placed(state, camera);
     }
 
     void submit_fade_set(const CollisionState &state, float delta_time)
