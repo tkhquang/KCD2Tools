@@ -309,6 +309,8 @@ namespace Constants
     // leaf, cows/horses).
     constexpr int RWI_OBJTYPES_CAMERA =
         0x101; // ent_static | ent_terrain (static world incl. invisible designer volumes)
+    // ent_terrain alone: the lens's ground probe (camera/lens.cpp), which asks only whether the ground is near.
+    constexpr int RWI_OBJTYPES_TERRAIN = 0x100;
     // rwi_stop_at_pierceable (0x0F) | rwi_colltype_any (0x400). rwi_colltype_any does not widen the ray to every
     // collision class. It only changes how the colltype bits in the high word are matched: with it a geometry part
     // needs ANY one of them, without it ALL of them (an empty high word means geom_colltype_ray alone). With the two

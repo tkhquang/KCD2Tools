@@ -125,6 +125,15 @@ namespace TPVCamera
     [[nodiscard]] int frames_near(const Vector3 &point, float reach, void **out, int cap) noexcept;
 
     /**
+     * @brief Whether a scanned node that stops a camera probe (Rules::Behaviour::Collide, as classify_probe_hit()
+     *        reads it) has a box within @p pad of box @p box: the broad phase the lens asks before its rays.
+     * @details True without a valid scan, so the rays then run. The scan covers the arm and the camera with its margin,
+     *          so a collider near the camera that matches no node lies in the scanned box as well. Main thread only.
+     * @param box {min.xyz, max.xyz}.
+     */
+    [[nodiscard]] bool stopping_node_near(const float *box, float pad) noexcept;
+
+    /**
      * @brief Where @p lines meet the drawn mesh of a man-made structure.
      * @details A building's drawn mesh can stand inside its physics: a thatched roof's physics is its outer surface
      *          while the drawn thatch hangs below it, so a camera the physics lets through can still sit inside the
