@@ -685,6 +685,12 @@ namespace TPVCamera::Twins
     inline Prepare s_prepare = Prepare::Pending;
     inline std::uint64_t s_prepare_retry_ms = 0;
     inline std::uintptr_t s_shader_manager = 0;
+    // revalidate_twins()'s cadence: where the engine keeps its shader reload count (shader_reload_count_address()),
+    // the count its last check saw, when that check ran (GetTickCount64), and whether a ready twin was stale after it.
+    inline std::uintptr_t s_reload_count_address = 0;
+    inline std::int32_t s_revalidate_reloads = -1; // -1 until the count is read
+    inline std::uint64_t s_revalidate_ms = 0;
+    inline bool s_revalidate_stale = false;
     inline std::array<Source, k_max_sources> s_sources{};
     inline int s_source_count = 0;
 #if defined(TPVCAMERA_DEV_BUILD)
@@ -1175,6 +1181,12 @@ namespace TPVCamera::Twins
      *          flag (the feature word aside, which only the twin's own name sets), the twin takes its source's
      *          feature bits again, is ready with the new values, and the nodes refill with it; one that never
      *          checks out keeps the stock shader for the session. Nothing is parsed or created here.
+     *
+     *          The check reads two shader states per ready twin, so it runs every frame only while a twin is stale
+     *          (its wait to check out again is timed per frame) and on the frame the engine's shader reload count
+     *          (Constants::SHADER_MAN_FRAME_FORCE_RELOAD_OFFSET) moves or cannot be read; otherwise every
+     *          SHADER_TWIN_REVALIDATE_SWEEP_MS, which bounds a change no reload announces (a later mfForName of the
+     *          name rewriting the gen mask).
      * @note Main thread, each camera frame, after refresh_twins().
      */
     void revalidate_twins(std::uint64_t now) noexcept;

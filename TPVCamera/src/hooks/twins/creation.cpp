@@ -224,6 +224,42 @@ namespace TPVCamera::Twins
             return main_thread != 0 && main_thread == GetCurrentThreadId();
         }
 
+        /**
+         * @brief The address of the engine's shader reload count (CShaderMan m_nFrameForceReload), resolved once from
+         *        g_env's renderer and proven like prepare_engine() proves the manager, or 0 while it does not check out.
+         * @details Resolved apart from prepare_engine(), which a hot reload whose twins come back from the cache never
+         *          runs.
+         * @note Main thread.
+         */
+        [[nodiscard]] std::uintptr_t shader_reload_count_address() noexcept
+        {
+            if (s_reload_count_address != 0 || s_genv == 0)
+            {
+                return s_reload_count_address;
+            }
+            const auto renderer =
+                DMK::memory::read<std::uintptr_t>(DMK::Address{s_genv + Constants::GENV_RENDERER_OFFSET});
+            if (!renderer || *renderer == 0)
+            {
+                return 0;
+            }
+            const auto renderer_vtable = DMK::memory::read<std::uintptr_t>(DMK::Address{*renderer});
+            if (!renderer_vtable || !vtable_is(GameClass::Renderer, *renderer_vtable))
+            {
+                return 0;
+            }
+            const std::uintptr_t manager = *renderer + Constants::RENDERER_SHADER_MAN_OFFSET;
+            std::array<char, 32> shaders_path{};
+            copy_text_field_guarded(manager, Constants::SHADER_MAN_SHADERS_PATH_OFFSET, shaders_path.data(),
+                                    shaders_path.size());
+            if (std::string_view{shaders_path.data()} != Constants::SHADER_MAN_SHADERS_PATH)
+            {
+                return 0;
+            }
+            s_reload_count_address = manager + Constants::SHADER_MAN_FRAME_FORCE_RELOAD_OFFSET;
+            return s_reload_count_address;
+        }
+
         /** @brief How far take_candidate_refs() got. */
         enum class Ownership : std::uint8_t
         {
@@ -2773,6 +2809,31 @@ namespace TPVCamera::Twins
 
     void revalidate_twins(std::uint64_t now) noexcept
     {
+        // The engine's shader reload count, or none while the manager does not check out or the read faults.
+        std::optional<std::int32_t> reloads;
+        if (const std::uintptr_t address = shader_reload_count_address(); address != 0)
+        {
+            if (const auto count = DMK::memory::read<std::int32_t>(DMK::Address{address}); count)
+            {
+                reloads = *count;
+            }
+        }
+        const bool reloaded = !reloads.has_value() || *reloads != s_revalidate_reloads;
+        if (!s_revalidate_stale && !reloaded && now - s_revalidate_ms < Constants::SHADER_TWIN_REVALIDATE_SWEEP_MS)
+        {
+            return;
+        }
+        if (reloads.has_value() && *reloads != s_revalidate_reloads)
+        {
+            (void)DMK::log().try_log(
+                DMK::LogLevel::Debug,
+                "ShaderTwins: the engine's shader reload count is {} (was {}); the ready twins are "
+                "checked against their sources",
+                *reloads, s_revalidate_reloads);
+        }
+        s_revalidate_reloads = reloads.value_or(s_revalidate_reloads);
+        s_revalidate_ms = now;
+        bool any_stale = false;
         int went_stale = 0;
         int revalidated = 0;
         const Source *first_stale = nullptr;
@@ -2849,6 +2910,12 @@ namespace TPVCamera::Twins
                                          source.techniques, source.mask, features);
             }
         }
+        for (int i = 0; i < s_source_count; ++i)
+        {
+            const Source &source = s_sources[static_cast<std::size_t>(i)];
+            any_stale = any_stale || (source.state == TwinState::Ready && source.stale);
+        }
+        s_revalidate_stale = any_stale;
         if (went_stale != 0)
         {
             (void)DMK::log().try_log(

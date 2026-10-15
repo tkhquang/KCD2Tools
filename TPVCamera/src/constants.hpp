@@ -664,6 +664,9 @@ namespace Constants
     // render thread, and EF_LOADED need not clear meanwhile, so one consistent read alone does not prove the parse is
     // over.
     constexpr uint64_t SHADER_TWIN_REVALIDATE_MS = 250;
+    // How often the ready twins are checked against their sources while nothing is stale and the engine's shader
+    // reload count holds (see revalidate_twins()).
+    constexpr uint64_t SHADER_TWIN_REVALIDATE_SWEEP_MS = 250;
     // A variant that first draws or loads after its level's loading boundary (content spawned later, a mod's, or every
     // missing one after a DEV hot reload) gets its twin only while the game stands still: the game clock stopped, under
     // the Esc game menu, a UI overlay (inventory, map, codex) or neither (the Esc menu open across a DEV hot reload,
@@ -945,6 +948,10 @@ namespace Constants
     // m_ShadersPath (char *) at +0x1F8, which holds "Shaders/HWScripts/" at runtime.
     constexpr ptrdiff_t RENDERER_SHADER_MAN_OFFSET = 0xF00;
     constexpr ptrdiff_t SHADER_MAN_SHADERS_PATH_OFFSET = 0x1F8;
+    // CShaderMan m_nFrameForceReload (int): the engine's shader reload count. mfReloadAllShaders (every shader-quality
+    // change) and mfReloadFile raise it first thing (1.5.6 sub_18250EE9C opens with inc dword ptr [rcx+228h], rcx the
+    // manager); it follows m_ShadersPath and the five fields after it as in the CryEngine source.
+    constexpr ptrdiff_t SHADER_MAN_FRAME_FORCE_RELOAD_OFFSET = 0x228;
     constexpr std::string_view SHADER_MAN_SHADERS_PATH = "Shaders/HWScripts/";
 
     // The DEV twin clone (dev/twin_clone/twin_clone.cpp, a read-only dry-run): what it reads of a stock CShader, its techniques
