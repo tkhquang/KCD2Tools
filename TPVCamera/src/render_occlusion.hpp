@@ -45,6 +45,13 @@ namespace TPVCamera
      */
     [[nodiscard]] bool initialize_render_occlusion(uintptr_t module_base, size_t module_size, uintptr_t g_env);
 
+    /**
+     * @brief Frees the vector the occluder scan's octree queries collect into, through the engine's deallocator that
+     *        matches the allocator it was grown with, and returns the scan to counting and filling.
+     * @note Call once no camera frame can run any more (shutdown, after the hooks retired).
+     */
+    void release_render_occlusion() noexcept;
+
     /** @brief A world-space sightline from the camera to a point on the character. */
     struct Sightline
     {

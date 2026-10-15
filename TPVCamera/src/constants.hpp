@@ -404,6 +404,12 @@ namespace Constants
     // is trusted only while the GetObjectsInBox slot of the same vtable holds the resolved AnchorId::GetObjectsInBox
     // entry, which pins the slot numbering; otherwise the untyped query is used and the callers' own type filter
     // applies.
+    // Inside, GetObjectsByTypeInBox zeroes a local std::vector<IRenderNode*> (first, last, end of capacity), gathers
+    // into it through a collector (AnchorId::OctreeCollectByType: this /*rcx, not read*/, type /*edx*/, bbox /*r8*/,
+    // vector* /*r9*/, rnd_flags_mask /*stack*/; the octree root, then the VisAreas), copies it out and frees it with
+    // std::_Deallocate (AnchorId::EngineDeallocate: block, capacity bytes). The count call and the fill call each walk
+    // the octree, so the occluder scan calls the collector once per query instead, into one vector it keeps and frees
+    // at shutdown with that deallocator (the engine allocator grew it).
     constexpr ptrdiff_t ENGINE3D_VTABLE_GET_OBJECTS_BY_TYPE_IN_BOX_OFFSET = 242 * 8;
     constexpr ptrdiff_t ENGINE3D_VTABLE_GET_OBJECTS_IN_BOX_OFFSET = 243 * 8;
     constexpr uint64_t ENGINE3D_QUERY_ANY_RNDFLAGS = ~0ull;
