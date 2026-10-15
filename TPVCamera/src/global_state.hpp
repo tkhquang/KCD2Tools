@@ -148,6 +148,10 @@ namespace TPVCamera
         // (and cleared) on the main thread; relaxed atomics (a one-frame-stale deflection is harmless).
         std::atomic<float> orbit_pad_yaw{0.0f};
         std::atomic<float> orbit_pad_pitch{0.0f};
+        // The latched deflection read through the preset's response curve and eased by its gamepad smoothing (main
+        // thread only): the deflection the orbit is turned by. Snapped to 0 whenever the latch is cleared.
+        Spring<float> orbit_pad_yaw_eased{};
+        Spring<float> orbit_pad_pitch_eased{};
 
         // Orbit angle low-pass (main thread only). The rendered orbit yaw/pitch (degrees) ease toward
         // the raw accumulated orbit_yaw/orbit_pitch target each frame, so free-look is not as jittery as

@@ -32,6 +32,8 @@ namespace TPVCamera::Presets
         s.orbit_sensitivity_y.store(preset.orbit_sensitivity_y, rel);
         s.gamepad_orbit_speed_x.store(preset.gamepad_orbit_speed_x, rel);
         s.gamepad_orbit_speed_y.store(preset.gamepad_orbit_speed_y, rel);
+        s.gamepad_orbit_curve.store(preset.gamepad_orbit_curve, rel);
+        s.gamepad_orbit_smoothing.store(preset.gamepad_orbit_smoothing, rel);
         s.orbit_pitch_min.store(preset.orbit_pitch_min, rel);
         s.orbit_pitch_max.store(preset.orbit_pitch_max, rel);
         s.orbit_return_speed.store(preset.orbit_return_speed, rel);
@@ -81,6 +83,8 @@ namespace TPVCamera::Presets
         a.orbit_sensitivity_y = lerp(a.orbit_sensitivity_y, t.orbit_sensitivity_y);
         a.gamepad_orbit_speed_x = lerp(a.gamepad_orbit_speed_x, t.gamepad_orbit_speed_x);
         a.gamepad_orbit_speed_y = lerp(a.gamepad_orbit_speed_y, t.gamepad_orbit_speed_y);
+        a.gamepad_orbit_curve = lerp(a.gamepad_orbit_curve, t.gamepad_orbit_curve);
+        a.gamepad_orbit_smoothing = lerp(a.gamepad_orbit_smoothing, t.gamepad_orbit_smoothing);
         a.orbit_pitch_min = lerp(a.orbit_pitch_min, t.orbit_pitch_min);
         a.orbit_pitch_max = lerp(a.orbit_pitch_max, t.orbit_pitch_max);
         a.orbit_return_speed = lerp(a.orbit_return_speed, t.orbit_return_speed);
