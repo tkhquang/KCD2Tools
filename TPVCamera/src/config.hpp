@@ -216,7 +216,8 @@ namespace TPVCamera
         // Ranged (always-live, NOT preset-owned). The player's shot leaves the bow along the bow's own axis, so in
         // third person it misses the screen center by the shoulder parallax. ranged_aim_at_crosshair re-aims it as the
         // first-person shot with the crosshair on the point the crosshair ray hits, so it lands where that shot lands
-        // (third person only, never in free-look). ranged_max_correction (degrees) leaves a shot untouched when
+        // (third person only, never in free-look); scatter shot's pellets are turned with their volley and keep the
+        // game's spread. ranged_max_correction (degrees) leaves a shot untouched when
         // the re-aim lies further than that from the bow's own aim, and also limits the sideways turn that brings the
         // landing in line with the crosshair. ranged_show_trail draws each player shot's flight path, the crosshair
         // point and the impact for ranged_trail_seconds.

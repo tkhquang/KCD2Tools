@@ -28,8 +28,11 @@
  *          bow sway lives in the look the camera follows, so the crosshair carries the sway and the re-aimed shot keeps
  *          it. The bow sits beside the camera, so a shot that comes down off the point (or falls from the open sky
  *          onto something nearer) is turned about the vertical until its traced arc lands in the camera's vertical
- *          plane: straight above or below the crosshair on screen, never beside it. First person, free-look, shotgun
- *          pellets and corrections past MaxAimCorrection keep the game's own shot. The player's distraction stone is
+ *          plane: straight above or below the crosshair on screen, never beside it. A pellet of a spread weapon
+ *          (scatter shot) is turned the same way from its own direction, so the volley keeps the game's spread around
+ *          the crosshair point, without the landing turn, which would swing every pellet onto the crosshair's plane and
+ *          close the spread. First person, free-look and corrections past MaxAimCorrection keep the game's own shot.
+ *          The player's distraction stone is
  *          re-aimed straight at the point from where it leaves the hand: the game throws it along the look from beside
  *          the eye, which in third person lands it beside the crosshair.
  *
@@ -391,6 +394,7 @@ namespace TPVCamera
         enum class ShotOutcome : std::uint8_t
         {
             Redirected,
+            PelletRedirected,
             AimOff,
             NoTarget,
             FreeLook,
@@ -407,6 +411,8 @@ namespace TPVCamera
             {
             case ShotOutcome::Redirected:
                 return "re-aimed at the crosshair";
+            case ShotOutcome::PelletRedirected:
+                return "re-aimed at the crosshair with its volley, the game's spread kept";
             case ShotOutcome::AimOff:
                 return "kept: AimAtCrosshair is off";
             case ShotOutcome::NoTarget:
@@ -414,7 +420,7 @@ namespace TPVCamera
             case ShotOutcome::FreeLook:
                 return "kept: free-look orbit is active";
             case ShotOutcome::Pellets:
-                return "kept: pellet of a spread weapon";
+                return "kept: pellet of a spread weapon, without the first-person eye to turn it by";
             case ShotOutcome::TooClose:
                 return "kept: crosshair point too near the bow";
             case ShotOutcome::TooFar:
@@ -1737,11 +1743,7 @@ namespace TPVCamera
                 shot.outcome = ShotOutcome::AimOff;
                 return false;
             }
-            if (!s_fire_single_shot.load(std::memory_order_relaxed))
-            {
-                shot.outcome = ShotOutcome::Pellets;
-                return false;
-            }
+            const bool pellet = !s_fire_single_shot.load(std::memory_order_relaxed);
             if (shot.free_look)
             {
                 shot.outcome = ShotOutcome::FreeLook;
@@ -1766,6 +1768,12 @@ namespace TPVCamera
             }
             const std::optional<Vector3> sighted = sighted_direction(target, look, native, start);
             shot.sighted = sighted.has_value();
+            // A pellet aimed straight at the point would lose its spread with every other pellet of the volley.
+            if (pellet && !sighted)
+            {
+                shot.outcome = ShotOutcome::Pellets;
+                return false;
+            }
             const Vector3 aimed = sighted.value_or(to_point.normalized());
             shot.correction_deg = angle_deg(native, aimed);
             const float max_correction = max_aim_correction();
@@ -1773,6 +1781,17 @@ namespace TPVCamera
             {
                 shot.outcome = ShotOutcome::TooFar;
                 return false;
+            }
+            if (pellet)
+            {
+                // The turn with the look is a rotation shared by the whole volley (the steer onto the point is the
+                // same to well under a millimeter for the few degrees of spread), so the pellets keep their pattern
+                // around the crosshair point. No landing turn: it would close the spread onto one vertical plane.
+                shot.flown_dir = to_vec3f(aimed);
+                flown.dir = shot.flown_dir;
+                flown.vel = to_vec3f(aimed * vel_length);
+                shot.outcome = ShotOutcome::PelletRedirected;
+                return true;
             }
             if (!aim_launch(start, native, aimed, vel_length, max_correction, arrow_ray_flags(shot.pierceability),
                             s_fire_skip.load(std::memory_order_relaxed), shot, flown))
@@ -2655,6 +2674,10 @@ namespace TPVCamera
                     flown_as = shot.sighted ? " | flown as the first-person shot at the crosshair point"
                                             : " | flown straight at the crosshair point (no first-person eye)";
                 }
+                else if (shot.outcome == ShotOutcome::PelletRedirected)
+                {
+                    flown_as = " | flown as the first-person pellet with the crosshair on the point";
+                }
                 (void)DMK::log().try_log(DMK::LogLevel::Debug,
                                          "Ranged SHOT #{} bow: aimed {:+.3f} deg up and {:+.3f} deg right of the "
                                          "look{}",
@@ -2674,7 +2697,8 @@ namespace TPVCamera
         void learn_aim_profile(const ShotRecord &shot) noexcept
         {
             if (!shot.look_valid || !shot.target_valid || !shot.target.eye_valid ||
-                shot.outcome == ShotOutcome::Pellets || shot.outcome == ShotOutcome::Faulted)
+                shot.outcome == ShotOutcome::Pellets || shot.outcome == ShotOutcome::PelletRedirected ||
+                shot.outcome == ShotOutcome::Faulted)
             {
                 return;
             }
@@ -3177,8 +3201,11 @@ namespace TPVCamera
                     s_vertices[n++] = flight.points[i - 1];
                     s_vertices[n++] = flight.points[i];
                 }
-                const AuxColor trail =
-                    faded(flight.shot.outcome == ShotOutcome::Redirected ? k_color_redirected : k_color_native, share);
+                const AuxColor trail = faded(flight.shot.outcome == ShotOutcome::Redirected ||
+                                                     flight.shot.outcome == ShotOutcome::PelletRedirected
+                                                 ? k_color_redirected
+                                                 : k_color_native,
+                                             share);
                 if (n > 0)
                 {
                     ok = draw_lines_guarded(session.draw_lines, session.aux, s_vertices.data(),
