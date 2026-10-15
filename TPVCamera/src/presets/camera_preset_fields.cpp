@@ -115,6 +115,12 @@ namespace TPVCamera::Presets
                         "How fast free-look eases back to center when you release it. 0 leaves the camera where you "
                         "left it.",
                         "Orbit", &CameraPreset::orbit_return_speed, 0.0f, 20.0f, 0.01f),
+            float_field("orbit_follow_speed", "Orbit Follow Speed",
+                        "Riding a horse or a cart with free-look on, the camera turns back behind the mount at Orbit "
+                        "Return Speed once the mount moves this fast (meters/second), slower below it, and not while "
+                        "it stands. Moving free-look stops it; it comes back 2 seconds after you stop. 0 = off: "
+                        "free-look stays where you left it.",
+                        "Orbit", &CameraPreset::orbit_follow_speed, 0.0f, 20.0f, 0.01f),
             float_field("orbit_smoothing", "Orbit Smoothing",
                         "Smooths free-look motion from the mouse and the gamepad (0 = raw/instant, higher = smoother "
                         "but more lag). Free-look bypasses the engine's own look smoothing, so this adds it back. It "

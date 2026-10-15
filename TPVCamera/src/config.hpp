@@ -58,6 +58,8 @@ namespace TPVCamera
         std::atomic<float> orbit_pitch_min{};       // lowest free-look pitch, degrees
         std::atomic<float> orbit_pitch_max{};       // highest free-look pitch, degrees
         std::atomic<float> orbit_return_speed{};    // ease-back-to-center speed on release (0 = stay)
+        std::atomic<float> orbit_follow_speed{};    // mount speed (m/s) at which riding turns free-look back at
+                                                    // orbit_return_speed (0 = off)
         std::atomic<float>
             orbit_smoothing{}; // free-look angle low-pass strength, 0..1 (0 = off/raw, higher = smoother but more lag)
         std::atomic<bool> orbit_level_aim{};        // level the real player aim/head while orbiting

@@ -981,6 +981,70 @@ namespace TPVCamera
         }
     }
 
+    // Mount follow (OrbitFollowSpeed): how long the follow takes to come back once free-look input ends, and the
+    // smallest change of the free-look yaw accumulator (degrees) that counts as input.
+    constexpr float k_mount_follow_ramp_seconds = 2.0f;
+    constexpr float k_mount_follow_input_deg = 1e-3f;
+
+    /**
+     * @brief Turns free-look back behind the mount while riding (OrbitFollowSpeed), a flex of the rule that free-look
+     *        stays where the player left it.
+     * @details Riding a horse or a cart with free-look on, the camera's heading eases toward the mount's (the rider's
+     *          body yaw) by OrbitReturnSpeed x min(step / OrbitFollowSpeed, dt) per frame, where step is the body's
+     *          horizontal move since the last frame: at OrbitReturnSpeed once the mount covers OrbitFollowSpeed meters
+     *          a second, proportionally slower below that, never while it stands, and not on the frame's second build.
+     *          Free-look input (the mouse or the stick moving the orbit) stops it at once; it comes back over
+     *          k_mount_follow_ramp_seconds (smoothstep) after the input ends, and ramps in the same way when it turns
+     *          on. With a captured heading (camera-relative movement) the heading turns, and the look and the body
+     *          written to it with it; otherwise the orbit angle turns. Main thread only.
+     * @param forward_yaw The rig's forward yaw this frame (radians).
+     * @param body_yaw The rider's body yaw (radians), the mount's heading.
+     * @param active Free-look is on, a horse or a cart is ridden, OrbitFollowSpeed is set and the body was read.
+     * @param move_orbit Moving with a captured heading.
+     * @param orbit_yaw_deg The frame's orbit yaw (degrees), turned in place.
+     */
+    static void follow_mount_heading(CameraState &cam, const LiveSettings &cfg, float forward_yaw, float body_yaw,
+                                     bool active, bool move_orbit, float delta_time, float &orbit_yaw_deg)
+    {
+        const float follow_speed = cfg.orbit_follow_speed.load(std::memory_order_relaxed);
+        if (!active || !(follow_speed > 0.0f))
+        {
+            cam.mount_follow_seen_valid = false;
+            cam.mount_follow_idle = 0.0f;
+            return;
+        }
+        const float accumulator = cam.orbit_yaw.load(std::memory_order_relaxed);
+        const bool input = (cam.mount_follow_seen_valid &&
+                            std::fabs(accumulator - cam.mount_follow_seen_yaw) > k_mount_follow_input_deg) ||
+                           cam.orbit_pad_yaw.load(std::memory_order_relaxed) != 0.0f ||
+                           cam.orbit_pad_pitch.load(std::memory_order_relaxed) != 0.0f;
+        cam.mount_follow_idle = input ? 0.0f : cam.mount_follow_idle + delta_time;
+        cam.mount_follow_seen_yaw = accumulator;
+        cam.mount_follow_seen_valid = true;
+
+        const float ramp = smoothstep(std::clamp(cam.mount_follow_idle / k_mount_follow_ramp_seconds, 0.0f, 1.0f));
+        const float rate = cfg.orbit_return_speed.load(std::memory_order_relaxed) *
+                           std::min(cam.turn_track_step / follow_speed, delta_time) * ramp;
+        if (!(rate > 0.0f))
+        {
+            return;
+        }
+        const float camera_yaw = forward_yaw + DMK::math::degrees_to_radians(orbit_yaw_deg);
+        const float turn = std::remainder(body_yaw - camera_yaw, 2.0f * DirectX::XM_PI) * (1.0f - std::exp(-rate));
+        const float turn_deg = DMK::math::radians_to_degrees(turn);
+        if (move_orbit)
+        {
+            cam.orbit_target_yaw += turn;
+        }
+        else
+        {
+            // The input thread adds the mouse's deltas to the same accumulator, so the turn is added atomically too,
+            // and what the follow saw is its own result: a delta landing in between shows as input next frame.
+            cam.mount_follow_seen_yaw = cam.orbit_yaw.fetch_add(turn_deg, std::memory_order_relaxed) + turn_deg;
+        }
+        orbit_yaw_deg = std::remainder(orbit_yaw_deg + turn_deg, 360.0f);
+    }
+
     /**
      * @brief Offsets the game view camera matrix behind the player and advances zoom/smoothing.
      * @details Reads the eye anchor and orientation from the untouched CView pose (position at
@@ -1422,6 +1486,12 @@ namespace TPVCamera
         {
             cam.orbit_steer_valid = false; // not move-orbiting: the next engage snaps the steer low-pass
         }
+
+        // Riding with free-look on, the camera turns back behind the mount as it moves (OrbitFollowSpeed).
+        const bool riding = (game_state_mask().load(std::memory_order_relaxed) &
+                             (state_bit(GameState::Mount) | state_bit(GameState::Cart))) != 0u;
+        follow_mount_heading(cam, cfg, forward_yaw, body_yaw, orbit_held && riding && body_valid, move_orbit,
+                             delta_time, orbit_yaw_deg);
 
         if (!orbit_held)
         {
