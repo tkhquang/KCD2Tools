@@ -160,6 +160,10 @@ set(COMMON_SOURCES
   src/hooks/occluder_fade.cpp
   src/hooks/player_onaction_hook.cpp
   src/hooks/shader_twins.cpp
+  src/hooks/twins/creation.cpp
+  src/hooks/twins/pso_guard.cpp
+  src/hooks/twins/render_swap.cpp
+  src/hooks/twins/tracks.cpp
   src/hooks/twin_inventory.cpp
   src/hooks/vtable_slots.cpp
   src/overlay/overlay.cpp
