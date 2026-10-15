@@ -78,6 +78,9 @@ namespace TPVCamera::Presets
         float orbit_pitch_min = -50.0f;
         float orbit_pitch_max = 75.0f;
         float orbit_return_speed = 8.0f;
+        // Riding with free-look on, the camera turns back behind the mount at orbit_return_speed once the mount moves
+        // this fast (m/s), slower below, never while it stands; 0 = off (free-look stays where it was left).
+        float orbit_follow_speed = 0.0f;
         float orbit_smoothing = 0.5f; // free-look angle low-pass strength, 0..1 (0 = off/raw, higher = smoother)
         bool orbit_level_aim = true;
         bool orbit_body_turn = true;

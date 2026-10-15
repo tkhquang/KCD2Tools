@@ -170,6 +170,14 @@ namespace TPVCamera
 
         bool orbit_steer_valid{false};
 
+        // Mount follow (main thread only, see follow_mount_heading in camera_hook.cpp): the seconds since free-look
+        // input last moved the orbit, and the yaw accumulator as the follow left it, whose change since tells input
+        // apart from the follow's own turn. mount_follow_seen_valid is false while the follow is off, so it starts
+        // with no input seen and ramps in.
+        float mount_follow_idle{0.0f};
+        float mount_follow_seen_yaw{0.0f};
+        bool mount_follow_seen_valid{false};
+
         // Orbit move-detection re-arm latch (main thread only). A genuine sub-stop movement-input reading must
         // be observed since orbit engaged, or the game's own move input must show the movement too, before a
         // move-start is honored, so a stranded input latch (a held-move release swallowed on a combat action-map

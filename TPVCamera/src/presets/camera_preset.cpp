@@ -35,6 +35,7 @@ namespace TPVCamera::Presets
         s.orbit_pitch_min.store(preset.orbit_pitch_min, rel);
         s.orbit_pitch_max.store(preset.orbit_pitch_max, rel);
         s.orbit_return_speed.store(preset.orbit_return_speed, rel);
+        s.orbit_follow_speed.store(preset.orbit_follow_speed, rel);
         s.orbit_smoothing.store(preset.orbit_smoothing, rel);
         s.orbit_level_aim.store(preset.orbit_level_aim, rel);
         s.orbit_body_turn.store(preset.orbit_body_turn, rel);
@@ -83,6 +84,7 @@ namespace TPVCamera::Presets
         a.orbit_pitch_min = lerp(a.orbit_pitch_min, t.orbit_pitch_min);
         a.orbit_pitch_max = lerp(a.orbit_pitch_max, t.orbit_pitch_max);
         a.orbit_return_speed = lerp(a.orbit_return_speed, t.orbit_return_speed);
+        a.orbit_follow_speed = lerp(a.orbit_follow_speed, t.orbit_follow_speed);
         a.orbit_smoothing = lerp(a.orbit_smoothing, t.orbit_smoothing);
 
         a.collision_skin = lerp(a.collision_skin, t.collision_skin);

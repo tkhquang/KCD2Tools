@@ -5,6 +5,7 @@
 - Added the tree see-through: trees, bushes and tall grass in front of Henry open a dithered window around him, from his hips up (UseTreeSeeThrough and the TreeSeeThrough options).
 - Added camera rules: choose by folder or by model which objects stop the camera, fade, open in the window or are left alone, other mods' models included, in KCD2_TPVCamera_rules_User.txt or a mod's own rules file, applied while the game runs.
 - Added UseBeamGate (off by default): an obstacle that matches nothing drawn, such as an invisible collision box, stops the camera only when the whole collision probe is blocked, so a thin one with open space beside it no longer pulls the camera in.
+- Added Orbit Follow Speed to every preset (off by default): riding a horse or a cart with free-look on, the camera turns back behind the mount as it moves, faster the faster it goes; moving free-look stops it for 2 seconds.
 - Added ExportRules to write the built-in camera rules to KCD2_TPVCamera_rules.default.txt for reference.
 - Added Blend In Seconds to every preset: how long the camera takes to settle into it (aiming 0.3 s, mount and cart 1 s, the rest 0.52 s); presets you already have keep the feel PresetBlendSpeed gave them.
 - Added the Indoors state for your own presets: bind one to Indoors, alone or with another state such as Crouch, to use it inside houses, sheds, barns and cellars.
