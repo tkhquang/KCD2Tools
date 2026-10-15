@@ -46,6 +46,11 @@ namespace TPVCamera::Presets
 
         // A framing change smaller than this (meters, or tens of degrees) settles at once.
         constexpr float k_settle_min_change = 1e-3f;
+        // Collision turns off only once the blend into a preset without it is this close to its framing (meters, or
+        // tens of degrees, as framing_error() counts them), and s_collision_latched holds it on until then: a quick
+        // switch away and back never releases the camera from a wall only to pull it in again. Main thread only.
+        constexpr float k_collision_latch_settle = 1e-3f;
+        bool s_collision_latched = true;
         // Follow angles count in units of this many degrees against the meters of the distance and offsets.
         constexpr float k_settle_degrees_per_meter = 10.0f;
 
@@ -595,6 +600,10 @@ namespace TPVCamera::Presets
         track_settle(target, dt);
 
         apply_to_live(s_blend.applied, cfg);
+        s_collision_latched =
+            target.enable_collision ||
+            (s_collision_latched && framing_error(s_blend.applied, target) > k_collision_latch_settle);
+        cfg.enable_collision.store(s_collision_latched, std::memory_order_relaxed);
     }
 
     void ease_out_zoom_offset(float offset) noexcept

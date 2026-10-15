@@ -17,3 +17,4 @@
 - Fixed the camera jiggling when swung up and down next to a market stall, a roof edge or a counter.
 - Fixed the camera stopping at the small invisible collision boxes around buildings and props.
 - Fixed closed animated doors letting the camera through and hiding Henry behind them.
+- Fixed the camera jumping out from a wall when a preset with Enable Collision off becomes active; it now eases out, and only once the switch into that preset has settled.
