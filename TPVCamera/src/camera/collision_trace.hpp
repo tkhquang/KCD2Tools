@@ -35,7 +35,8 @@ namespace TPVCamera
         float distance = 0.0f;
         Rules::Behaviour cls = Rules::Behaviour::Collide;
         // 'p' stepped past, 'c' the collision, 't' terrain, 'r' re-hit and walked past, 'x' re-hit too often, 'u' a
-        // structure's collision with nothing drawn there, walked past
+        // structure's collision with nothing drawn there, walked past, 'g' a collider that matches nothing drawn
+        // while part of the fan is clear, walked past (UseBeamGate)
         char what = '?';
     };
 
