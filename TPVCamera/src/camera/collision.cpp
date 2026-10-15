@@ -549,6 +549,89 @@ namespace TPVCamera
             }
             return placed(state, camera);
         }
+
+        /** @brief Where the shoulder ray stopped, and at what. */
+        struct ShoulderStop
+        {
+            float distance = 0.0f; // meters from the pivot
+            void *node = nullptr;  // the scanned render node it matched, or nullptr (terrain, unmatched)
+            Rules::Behaviour cls = Rules::Behaviour::Collide;
+        };
+
+        /**
+         * @brief Walks one ray from @p pivot along @p dir for @p reach meters, as walk_arm() walks the fan.
+         * @details A collider met a second time (RayWorldIntersection can return a skipped baked collider) or a
+         *          structure's undrawn collision is walked past from just beyond the hit; past
+         *          COLLISION_WALK_RESUME_MAX such resumes the ray counts as clear, so the offset is not pulled in by a
+         *          surface the walk could not tell. A prop or a plant is skipped while @p fade_on, as the arm steps
+         *          past it.
+         * @return The stop, or std::nullopt when the ray reaches @p reach.
+         */
+        [[nodiscard]] std::optional<ShoulderStop> walk_shoulder(const Vector3 &pivot, const Vector3 &dir, float reach,
+                                                                bool fade_on)
+        {
+            uintptr_t skip[Constants::COLLISION_FADE_SKIP_MAX]{};
+            int n_skip = 0;
+            float from = 0.0f;
+            int resumes = 0;
+            while (from < reach)
+            {
+                const std::optional<RayHit> h = ray_world_intersection(
+                    QueryLedger::Tag::Shoulder, pivot + dir * from, dir * (reach - from),
+                    Constants::RWI_OBJTYPES_CAMERA, Constants::RWI_FLAGS_STOP_AT_SOLID, skip, n_skip);
+                if (!h.has_value())
+                {
+                    return std::nullopt;
+                }
+                const float along = from + h->m_distance;
+                const bool met_before =
+                    h->m_collider != 0 && std::find(skip, skip + n_skip, h->m_collider) != skip + n_skip;
+                ShoulderStop stop{.distance = along};
+                const ProbeVerdict verdict =
+                    met_before ? ProbeVerdict::Undrawn
+                               : classify_probe_hit(QueryLedger::Tag::Shoulder, *h, along,
+                                                    std::span<const Vector3>(&pivot, 1), dir, &stop.node, &stop.cls);
+                if (verdict == ProbeVerdict::Undrawn)
+                {
+                    if (++resumes > Constants::COLLISION_WALK_RESUME_MAX)
+                    {
+                        return std::nullopt;
+                    }
+                    from = along + Constants::COLLISION_WALK_RESUME_STEP;
+                    continue;
+                }
+                if (verdict == ProbeVerdict::PassThrough && fade_on && n_skip < Constants::COLLISION_FADE_SKIP_MAX)
+                {
+                    skip[n_skip++] = h->m_collider;
+                    continue;
+                }
+                return stop;
+            }
+            return std::nullopt;
+        }
+
+        /** @brief Logs a change of what stops the shoulder offset, at Trace. */
+        void trace_shoulder(ShoulderCollision &s, const std::optional<ShoulderStop> &stop, float lateral)
+        {
+            void *const node = stop.has_value() ? stop->node : nullptr;
+            if (stop.has_value() == s.traced_blocked && node == s.traced_node)
+            {
+                return;
+            }
+            s.traced_blocked = stop.has_value();
+            s.traced_node = node;
+            if (!stop.has_value())
+            {
+                (void)DMK::log().try_log(DMK::LogLevel::Trace, "Camera: shoulder clear ({:.2f} m)", lateral);
+                return;
+            }
+            char name[160] = {};
+            render_node_name(node, name, static_cast<int>(sizeof(name)));
+            (void)DMK::log().try_log(DMK::LogLevel::Trace,
+                                     "Camera: shoulder stops at {:.2f} of {:.2f} m on \"{}\" ({})", stop->distance,
+                                     lateral, node != nullptr ? name : "terrain or unmatched",
+                                     node != nullptr ? Rules::behaviour_name(stop->cls) : "-");
+        }
     } // namespace
 
     ProbeVerdict classify_probe_hit(QueryLedger::Tag tag, const RayHit &hit, float along,
@@ -826,5 +909,88 @@ namespace TPVCamera
         cam.collision_valid = false;
         cam.collision_speed = 0.0f;
         cam.collision_hold_timer = 0.0f;
+    }
+
+    float resolve_shoulder_collision(CollisionState &state, const ShoulderInput &in)
+    {
+        ShoulderCollision &s = state.shoulder;
+        LiveSettings &cfg = settings();
+        const float skin = cfg.collision_skin.load(std::memory_order_relaxed);
+        const float return_speed = cfg.collision_return_speed.load(std::memory_order_relaxed);
+        const PullIn pull = pull_in_for(skin, 0.0f);
+        if (!in.enabled || !(in.lateral > 1e-3f))
+        {
+            // Off (or no offset to probe): a pulled-in offset eases back out, and once it is out the carry-over goes,
+            // so the offset is the rig's own from then on.
+            s.hold_timer = 0.0f;
+            s.throttle_valid = false;
+            if (!s.collision_valid || !(in.lateral > 1e-3f))
+            {
+                s.collision_valid = false;
+                return in.lateral;
+            }
+            (void)ease_collision_toward(s, in.lateral, in.lateral, in.delta_time, return_speed, pull.slack, pull.speed);
+            if (s.collision_distance >= in.lateral - k_collision_clear_slack)
+            {
+                s.collision_valid = false;
+                return in.lateral;
+            }
+            return std::min(s.collision_distance, in.lateral);
+        }
+
+        const Vector3 focal = in.pivot + in.direction * in.lateral;
+        const float recompute_d2 = k_collision_recompute_dist * k_collision_recompute_dist;
+        const std::uint64_t now_ms = GetTickCount64();
+        const bool recompute = !s.throttle_valid || !s.collision_valid ||
+                               now_ms - s.stamp_ms >= k_collision_max_age_ms ||
+                               (in.pivot - s.throttle_pivot).magnitude_squared() > recompute_d2 ||
+                               (focal - s.throttle_focal).magnitude_squared() > recompute_d2;
+        float allowed = in.lateral;
+        if (recompute)
+        {
+            const std::optional<ShoulderStop> stop =
+                walk_shoulder(in.pivot, in.direction, in.lateral + skin, in.fade_on);
+            trace_shoulder(s, stop, in.lateral);
+            // The ray reaches CollisionSkin past the shoulder, so any stop holds the offset in.
+            const bool blocked = stop.has_value();
+            if (blocked)
+            {
+                allowed = std::max(0.0f, stop->distance - skin);
+            }
+            // The arm's hold: a surface that holds the offset where it is, or nearer, keeps it from easing back out
+            // for k_collision_hold_seconds, so a ray that grazes a post on alternate frames does not swing the camera.
+            if (blocked && (!s.collision_valid || allowed <= s.collision_distance + k_collision_recompute_dist))
+            {
+                s.hold_timer = k_collision_hold_seconds;
+            }
+            else if (s.collision_valid && drain_hold(s.hold_timer, in.delta_time) == HoldDrain::Holding)
+            {
+                allowed = std::min(allowed, s.collision_distance);
+            }
+            s.throttle_valid = true;
+            s.throttle_pivot = in.pivot;
+            s.throttle_focal = focal;
+            s.cached_allowed = allowed;
+            s.cached_held_in = allowed < in.lateral - k_collision_clear_slack;
+            s.stamp_ms = now_ms;
+        }
+        else
+        {
+            allowed = s.cached_held_in ? s.cached_allowed : in.lateral;
+            if (drain_hold(s.hold_timer, in.delta_time) == HoldDrain::RanOut)
+            {
+                s.throttle_valid = false;
+            }
+        }
+        (void)ease_collision_toward(s, allowed, in.lateral, in.delta_time, return_speed, pull.slack, pull.speed);
+        return std::min(s.collision_distance, in.lateral);
+    }
+
+    void reset_shoulder_carry(CollisionState &state) noexcept
+    {
+        state.shoulder.collision_valid = false;
+        state.shoulder.collision_speed = 0.0f;
+        state.shoulder.hold_timer = 0.0f;
+        state.shoulder.throttle_valid = false;
     }
 } // namespace TPVCamera

@@ -161,6 +161,10 @@ namespace TPVCamera::Presets
                         "How fast the camera eases back out once the obstruction clears. Lower is smoother, higher "
                         "settles faster; 0 snaps out at once.",
                         "Collision", &CameraPreset::collision_return_speed, 0.0f, 20.0f, 0.01f),
+            bool_field("shoulder_collision", "Shoulder Collision",
+                       "A wall beside the shoulder the camera sits over moves the camera in toward the middle instead "
+                       "of pulling it closer, so it keeps its distance. You then stand a little nearer the crosshair.",
+                       "Collision", &CameraPreset::shoulder_collision),
         };
 
     } // namespace

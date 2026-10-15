@@ -46,6 +46,7 @@ namespace TPVCamera::Presets
         s.enable_collision.store(preset.enable_collision, rel);
         s.collision_skin.store(preset.collision_skin, rel);
         s.collision_return_speed.store(preset.collision_return_speed, rel);
+        s.shoulder_collision.store(preset.shoulder_collision, rel);
     }
 
     void ease_toward(CameraPreset &a, const CameraPreset &t, float alpha) noexcept
@@ -99,6 +100,7 @@ namespace TPVCamera::Presets
         a.orbit_body_turn = t.orbit_body_turn;
         a.orbit_continuous_align = t.orbit_continuous_align;
         a.enable_collision = t.enable_collision;
+        a.shoulder_collision = t.shoulder_collision;
         a.dynamic_eye_sync = t.dynamic_eye_sync;
     }
 
