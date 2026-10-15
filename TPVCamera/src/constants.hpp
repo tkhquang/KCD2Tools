@@ -514,6 +514,17 @@ namespace Constants
     constexpr float OCCLUDER_SCAN_MARGIN = 2.0f;
     constexpr float OCCLUDER_SCAN_MAX_AGE = 1.0f;
     constexpr float OCCLUDER_SCAN_STATIC_MAX_AGE = 2.0f;
+    // The next scan is built ahead over three camera frames (a costly octree query each), so it is usually in use
+    // before the one it replaces runs out: once the room left to the box's usable edge is less than
+    // OCCLUDER_SCAN_AHEAD_FRAMES frames of the points' recent travel (kept between OCCLUDER_SCAN_AHEAD_ROOM_MIN and
+    // _MAX meters), or the static part is within OCCLUDER_SCAN_AHEAD_LEAD seconds of OCCLUDER_SCAN_STATIC_MAX_AGE. A
+    // walk then builds rarely and a fast turn early enough.
+    constexpr float OCCLUDER_SCAN_AHEAD_FRAMES = 5.0f;
+    constexpr float OCCLUDER_SCAN_AHEAD_ROOM_MIN = 0.3f;
+    constexpr float OCCLUDER_SCAN_AHEAD_ROOM_MAX = 1.0f;
+    // How much of the points' recent travel per frame is kept from one frame to the next (a decaying peak).
+    constexpr float OCCLUDER_SCAN_AHEAD_SPEED_KEEP = 0.9f;
+    constexpr float OCCLUDER_SCAN_AHEAD_LEAD = 0.5f;
     // How often a reused scan reads its entities' boxes and states again (milliseconds): a door that starts to swing or
     // a cart that rolls on is followed within this, and the frames in between keep what the last read found.
     constexpr std::uint64_t OCCLUDER_ENTITY_REFRESH_MS = 50;

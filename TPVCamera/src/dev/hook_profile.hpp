@@ -53,6 +53,11 @@ namespace TPVCamera::HookProfile
         ScanFullChanged,
         /// A full occluder scan because there was no valid scan or the camera rules changed.
         ScanFullFirst,
+        /// A scan built ahead a type per frame that went in use.
+        ScanAhead,
+        /// A scan built ahead that was dropped (rules changed, a type did not fit, the points left its box, a full
+        /// scan).
+        ScanAheadDropped,
         /// A draw of a listed item whose shader has no twin yet, which asked the creation queue again.
         UntwinnedRetry,
         /// A character twin PSO build (fade-ahead or warming) that took longer than the 2 ms per-frame budget.
