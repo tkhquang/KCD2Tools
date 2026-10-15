@@ -94,10 +94,12 @@ namespace TPVCamera
         {
             const float close_most =
                 1.0f - std::clamp(cfg.close_up_fade_min_opacity.load(std::memory_order_relaxed), 0.0f, 1.0f);
+            // HeadClearance only places the fade: it reaches its full amount at that much arm (0 = against the head).
+            // CloseUpFade alone turns it on and off.
             const float close_amount =
-                (in.close_fade && clearance > 0.0f)
-                    ? std::clamp((clearance + k_close_fade_band - in.arm) / k_close_fade_band, 0.0f, close_most)
-                    : 0.0f;
+                in.close_fade ? std::clamp((std::max(clearance, 0.0f) + k_close_fade_band - in.arm) / k_close_fade_band,
+                                           0.0f, close_most)
+                              : 0.0f;
             fade_character(character, in.entity, close_amount, in.close_fade);
         }
         if (clearance <= 0.0f || in.close_fade)

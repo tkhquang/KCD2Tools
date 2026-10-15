@@ -11,6 +11,7 @@
 - Changed the shaders behind the fades and the window to be prepared at loading screens and pauses, never while you play.
 - Changed the INFO log to be quieter; diagnostics moved to DEBUG and TRACE.
 - Changed the camera to switch to a situation's preset the moment it starts, such as drawing a bow; only leaving one waits, for StateExitHoldSeconds (was StateSwitchHoldSeconds).
+- Changed HeadClearance to only set where the close-up fade happens: HeadClearance 0 no longer turns CloseUpFade off.
 - Removed UseCoverageCollision, CoverageThreshold, CameraProbeSize and UseRenderOcclusion, which the fade replaces.
 - Removed PresetBlendSpeed, replaced by each preset's Blend In Seconds.
 - Fixed the camera jiggling when swung up and down next to a market stall, a roof edge or a counter.
