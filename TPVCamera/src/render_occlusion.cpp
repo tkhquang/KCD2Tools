@@ -765,6 +765,9 @@ namespace TPVCamera
     // When the scan was taken (GetTickCount64), so a scan from before a pause, a first-person stretch or a load is
     // never reused.
     static std::uint64_t s_scan_stamp_ms = 0;
+    // When the scan's static part (brushes, vegetation, merged patches) was queried: by the full scan only, while the
+    // dynamic refresh moves s_scan_stamp_ms on.
+    static std::uint64_t s_scan_static_stamp_ms = 0;
     static bool s_scan_valid = false;
     // The rule set the scan was classified with: its verdicts index its rules, and a set of another generation takes a
     // new scan. A scan with a new set reports a class change once (advance_fence_classification()).
@@ -1015,11 +1018,13 @@ namespace TPVCamera
      *          or what is attached to one, an entity that plays an animation, vegetation without a model path.
      *          Vegetation and entities are taken first: they are few, and the brushes, which fill a town, then take the
      *          rest of the table. POD-only body: a fault ends the scan with what was collected.
+     * @param dynamic_only Collect only what can move or appear while the box stays put: entity proxies and movable
+     *        brushes (see refresh_occluder_scan()).
      * @param truncated Set when a type had more nodes than the octree query or the table holds.
      * @return The number of nodes written.
      */
     static int scan_nodes_guarded(void *p3d, const float *qbox, const Rules::RuleSet &rules, bool trace,
-                                  ScannedNode *out, int cap, bool *truncated) noexcept
+                                  bool dynamic_only, ScannedNode *out, int cap, bool *truncated) noexcept
     {
         int n = 0;
         __try
@@ -1034,6 +1039,12 @@ namespace TPVCamera
             const int passes = typed ? static_cast<int>(std::size(k_types)) : 1;
             for (int pass = 0; pass < passes; ++pass)
             {
+                if (typed && dynamic_only &&
+                    k_types[pass] != static_cast<std::uint32_t>(Constants::EERTYPE_ENTITY_PROXY) &&
+                    k_types[pass] != static_cast<std::uint32_t>(Constants::EERTYPE_MOVABLE_BRUSH))
+                {
+                    continue;
+                }
                 const std::uint32_t count =
                     query_nodes(QueryLedger::Tag::OccluderScan, p3d, k_types[pass], qbox, nodes, truncated);
                 for (std::uint32_t i = 0; i < count; ++i)
@@ -1064,6 +1075,10 @@ namespace TPVCamera
                     if (!brush && !entity && !merged && type != Constants::EERTYPE_VEGETATION)
                     {
                         continue;
+                    }
+                    if (dynamic_only && !entity && type != Constants::EERTYPE_MOVABLE_BRUSH)
+                    {
+                        continue; // the untyped query's static nodes, which the scan already holds
                     }
                     const auto get_bbox =
                         reinterpret_cast<GetBBoxFn>(vt[Constants::RENDERNODE_VTABLE_GETBBOX_OFFSET / 8]);
@@ -1178,6 +1193,44 @@ namespace TPVCamera
         return n;
     }
 
+    /**
+     * @brief Re-queries the scan's moving part, the entity proxies and movable brushes in the scanned box, and keeps
+     *        its static part, the brushes, vegetation and merged patches.
+     * @details The scanned entities and movable brushes are dropped, the static entries go through the reuse
+     *          refresh (refresh_scanned_state(), whose brush checks still demand a full scan on a model or material
+     *          change), and the dynamic types are queried and classified again into the rest of the table.
+     * @return False when the full scan is needed instead: the static entries changed, the engine object is
+     *         unreadable, or the dynamic nodes do not fit; the scan is then invalid.
+     */
+    static bool refresh_dynamic_nodes(const Rules::RuleSet &rules, bool trace)
+    {
+        DMK_PROFILE_SCOPE("render.scan_dynamic");
+        int kept = 0;
+        for (int i = 0; i < s_scan_count; ++i)
+        {
+            if (!s_scan[i].entity && !s_scan[i].movable)
+            {
+                s_scan[kept++] = s_scan[i];
+            }
+        }
+        s_scan_count = kept;
+        if (!refresh_scanned_state(rules, trace))
+        {
+            return false;
+        }
+        const auto p3d = DMK::memory::read<uintptr_t>(DMK::Address{s_p3d_engine_slot_addr});
+        if (!p3d || *p3d == 0 || !DMK::memory::is_plausible_ptr(DMK::Address{*p3d}))
+        {
+            return false;
+        }
+        bool truncated = false;
+        HookProfile::count(HookProfile::Counter::ScanDynamic);
+        s_scan_count +=
+            scan_nodes_guarded(reinterpret_cast<void *>(*p3d), s_scan_box, rules, trace, true, s_scan + s_scan_count,
+                               Constants::OCCLUDER_SCAN_MAX - s_scan_count, &truncated);
+        return !truncated;
+    }
+
     void refresh_occluder_scan(const Vector3 *points, int n_points)
     {
         DMK_PROFILE_SCOPE("render.occluder_scan");
@@ -1217,16 +1270,23 @@ namespace TPVCamera
             return;
         }
         // Reuse the scan while every point is still inside the scanned box and it is young enough: the nodes near a
-        // walking camera stay the same for a while, and the octree query is the expensive part.
+        // walking camera stay the same for a while, and the octree query is the expensive part. What can move or
+        // appear while the box stays put, the entity proxies (a cart, a door, a person) and the movable brushes, is
+        // queried again every OCCLUDER_SCAN_MAX_AGE; the static brushes, vegetation and merged patches, which only
+        // the level streaming changes, are kept for OCCLUDER_SCAN_STATIC_MAX_AGE. The static types' queries are most
+        // of a full scan's cost (the merged-patch query alone about 0.4 ms in a town), the dynamic ones about a fifth.
         constexpr float k_inner = 0.25f; // keep this much of the margin in hand, for the triangles near the edge
         const std::uint64_t now_ms = GetTickCount64();
         const bool young =
             now_ms - s_scan_stamp_ms < static_cast<std::uint64_t>(Constants::OCCLUDER_SCAN_MAX_AGE * 1000.0f);
+        const bool statics_young = now_ms - s_scan_static_stamp_ms <
+                                   static_cast<std::uint64_t>(Constants::OCCLUDER_SCAN_STATIC_MAX_AGE * 1000.0f);
         // A scan classified with another rule set is never reused: every node takes the new rules.
         const bool same_rules = s_scan_rules != nullptr && s_scan_rules->generation() == rules->generation();
-        if (s_scan_valid && young && same_rules && want[0] > s_scan_box[0] + k_inner &&
-            want[1] > s_scan_box[1] + k_inner && want[2] > s_scan_box[2] + k_inner &&
-            want[3] < s_scan_box[3] - k_inner && want[4] < s_scan_box[4] - k_inner && want[5] < s_scan_box[5] - k_inner)
+        const bool inside = want[0] > s_scan_box[0] + k_inner && want[1] > s_scan_box[1] + k_inner &&
+                            want[2] > s_scan_box[2] + k_inner && want[3] < s_scan_box[3] - k_inner &&
+                            want[4] < s_scan_box[4] - k_inner && want[5] < s_scan_box[5] - k_inner;
+        if (s_scan_valid && young && same_rules && inside)
         {
             DMK_PROFILE_SCOPE("render.instance_refresh");
             const bool reused = refresh_scanned_state(*rules, trace);
@@ -1235,6 +1295,12 @@ namespace TPVCamera
             {
                 return;
             }
+        }
+        else if (s_scan_valid && statics_young && same_rules && inside && refresh_dynamic_nodes(*rules, trace))
+        {
+            flush_rules_trace(*rules);
+            s_scan_stamp_ms = now_ms;
+            return;
         }
 
         s_scan_count = 0;
@@ -1255,7 +1321,7 @@ namespace TPVCamera
         float qbox[6] = {want[0] - m, want[1] - m, want[2] - m, want[3] + m, want[4] + m, want[5] + m};
         bool truncated = false;
         HookProfile::count(HookProfile::Counter::ScanFull);
-        s_scan_count = scan_nodes_guarded(reinterpret_cast<void *>(*p3d), qbox, *rules, trace, s_scan,
+        s_scan_count = scan_nodes_guarded(reinterpret_cast<void *>(*p3d), qbox, *rules, trace, false, s_scan,
                                           Constants::OCCLUDER_SCAN_MAX, &truncated);
         if (!same_rules)
         {
@@ -1269,6 +1335,7 @@ namespace TPVCamera
         }
         // A truncated scan holds only part of the box, so it is not reused: the next refresh queries again.
         s_scan_stamp_ms = truncated ? 0 : now_ms;
+        s_scan_static_stamp_ms = s_scan_stamp_ms;
         if (truncated)
         {
             HookProfile::count(HookProfile::Counter::ScanTruncated);
