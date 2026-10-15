@@ -443,6 +443,10 @@ namespace TPVCamera::Presets
             }
         }
 
+        // The file is read; close it before a repair save below renames the new copy over it, which Windows refuses
+        // while a stream still holds the file open.
+        in.close();
+
         // Missing or corrupt file, or a valid file that lost all its presets: seed the canonical built-ins, their
         // starting points and the picks that keep the built-ins in use from the embedded factory defaults.
         const bool seeded = m_presets.empty();
