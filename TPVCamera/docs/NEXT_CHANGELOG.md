@@ -9,6 +9,7 @@
 - Added ExportRules to write the built-in camera rules to KCD2_TPVCamera_rules.default.txt for reference.
 - Added Blend In Seconds to every preset: how long the camera takes to settle into it (aiming 0.3 s, mount and cart 1 s, the rest 0.52 s); presets you already have keep the feel PresetBlendSpeed gave them.
 - Added the Indoors state for your own presets: bind one to Indoors, alone or with another state such as Crouch, to use it inside houses, sheds, barns and cellars.
+- Added CollisionPullInSeconds (0.12 by default): when something comes between the camera and Henry, the camera eases in over that long instead of jumping in one frame, moving only through open air, so it never passes into a wall; 0 brings back the jump.
 - Changed the camera to keep its distance and pass through bushes and tree trunks, while buildings, walls, tall fences, platforms, covered wagons, big haystacks, rocks and the ground still stop it.
 - Changed leaves and prop corners right at the lens to be cut away instead of filling the view.
 - Changed the shaders behind the fades and the window to be prepared at loading screens and pauses, never while you play.

@@ -165,6 +165,8 @@ namespace TPVCamera
         // shape that window. The fade amounts and the window's shape are clamped where they are read.
         collision.bind<float>("CollisionRadius", "Collision Radius", s.collision_radius, 0.15f);
         collision.bind<bool>("UseBeamGate", "Use Beam Gate", s.use_beam_gate, false);
+        collision.bind<float>("CollisionPullInSeconds", "Collision Pull In Seconds", s.collision_pull_in_seconds,
+                              0.12f);
         collision.bind<bool>("UseOccluderFade", "Use Occluder Fade", s.use_occluder_fade, true);
         collision.bind<float>("OccluderFadeMinOpacity", "Occluder Fade Min Opacity", s.occluder_fade_min_opacity, 0.2f);
         collision.bind<bool>("UseTreeSeeThrough", "Use Tree See Through", s.use_tree_see_through, true);

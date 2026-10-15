@@ -16,6 +16,8 @@ namespace TPVCamera
     // A collision target within this of the desired distance (meters) holds nothing in. The ease and the throttle
     // cache both compare against it, so a reused result takes the same branch as the frame that computed it.
     constexpr float k_collision_clear_slack = 1e-4f;
+    // How fast a pull-in follows its target (1/s): near-instant but still smooth.
+    constexpr float k_pull_in_speed = 25.0f;
 
     /** @brief Which way one collision ease step moved the camera along its arm. */
     enum class EaseMotion : std::uint8_t
@@ -37,7 +39,7 @@ namespace TPVCamera
     /**
      * @brief Eases the camera collision distance toward @p target: a fast pull-in, so a wall is never clipped, and a
      *        critically damped return-out.
-     * @details Pulling in follows at k_pull_in_speed (1/s) and never trails the target by more than @p pull_slack, so
+     * @details Pulling in follows at @p pull_in_speed (1/s) and never trails the target by more than @p pull_slack, so
      *          the lens never comes nearer to the surface that stopped it than k_lens_near_margin. Easing back out is
      *          critically damped at twice @p return_speed and starts from rest, so a release begins gently and
      *          settles on the target without a jolt. A @p return_speed of 0 snaps out. The first valid frame snaps to
@@ -51,11 +53,13 @@ namespace TPVCamera
      * @param target Allowed distance this frame.
      * @param desired Uncollided distance this frame.
      * @param pull_slack Most the pull-in can trail @p target by (meters).
+     * @param pull_in_speed Rate the pull-in follows @p target at (1/s).
      * @return Whether the step pulled the camera in, released it outward, or left it where the shortfall had it.
      */
     template <CollisionEaseState State>
     [[nodiscard]] EaseMotion ease_collision_toward(State &cam, float target, float desired, float delta_time,
-                                                   float return_speed, float pull_slack) noexcept
+                                                   float return_speed, float pull_slack,
+                                                   float pull_in_speed = k_pull_in_speed) noexcept
     {
         if (!cam.collision_valid)
         {
@@ -65,7 +69,6 @@ namespace TPVCamera
             cam.collision_valid = true;
             return EaseMotion::Settled;
         }
-        constexpr float k_pull_in_speed = 25.0f; // near-instant but still smooth
         const bool clear = target >= desired - k_collision_clear_slack;
         const float sat = cam.collision_distance;
         // With nothing holding the camera in, the last frame's shortfall carries onto this frame's desired distance,
@@ -75,7 +78,7 @@ namespace TPVCamera
         float speed_next = 0.0f;
         if (from > target)
         {
-            const float eased = from + (target - from) * (1.0f - std::exp(-k_pull_in_speed * delta_time));
+            const float eased = from + (target - from) * (1.0f - std::exp(-pull_in_speed * delta_time));
             next = std::min(eased, target + pull_slack);
         }
         else if (return_speed > 0.0f)

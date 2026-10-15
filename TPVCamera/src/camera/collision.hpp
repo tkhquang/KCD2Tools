@@ -107,6 +107,11 @@ namespace TPVCamera
         bool traced_blocked = false;
         float traced_distance = -1.0f;
         void *traced_mesh = nullptr;
+
+        // Where the collision put the camera on the last frame: an eased pull-in (CollisionPullInSeconds) may trail
+        // its target only along a path through open air from here. What the pull-in trace last named.
+        Vector3 last_camera{};
+        std::uint8_t pull_in_traced = 0;
     };
 
     /** @brief One camera frame's input to the collision. */
