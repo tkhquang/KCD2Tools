@@ -78,6 +78,19 @@ namespace TPVCamera
     inline constexpr int k_fan_rays = 5;
 
     /**
+     * @brief What each ray of a fan met, kept across the casts of one walk along one sweep (see ray_fan_sweep()).
+     * @details A walk casts the fan again after it steps past a hit, from the same start with one more collider skipped
+     *          or from a little past the hit. A ray that met nothing meets nothing on any later part of its line, and a
+     *          ray whose first hit lies past the new start on a collider still not skipped meets that same hit, so only
+     *          the other rays are cast again. Distances are measured from the walk's start.
+     */
+    struct FanMemory
+    {
+        bool cast[k_fan_rays]{};               // the ray has been cast in this walk
+        std::optional<RayHit> hit[k_fan_rays]; // its first hit then, or none along the rest of the sweep
+    };
+
+    /**
      * @brief Multi-ray "fan" probe of a tube along the sweep, built on RayWorldIntersection.
      * @details Casts the centre ray plus four rays offset perpendicular to the sweep by @p radius (a square
      *          tube of half-width radius) and returns the NEAREST hit across all five, so the camera distance does
@@ -93,12 +106,16 @@ namespace TPVCamera
      * @param rays_blocked Optional out: how many of the k_fan_rays rays hit something (0 on a miss), which tells an
      *        obstacle narrower than the fan with open space beside it from one where the whole fan is blocked. A sweep
      *        straight along the world axes casts the centre ray alone and reports k_fan_rays for its hit.
+     * @param memory Optional: what this walk's earlier casts met along the same sweep direction, read to skip the rays
+     *        whose answer cannot have changed and updated with this cast (see FanMemory).
+     * @param walked How far @p origin lies along the sweep from the walk's start, where @p memory measures from.
      * @return The nearest hit across the fan, or std::nullopt if every ray misses.
      */
     [[nodiscard]] std::optional<RayHit> ray_fan_sweep(QueryLedger::Tag tag, const Vector3 &origin, const Vector3 &sweep,
                                                       float radius, int objtypes, unsigned int flags,
                                                       const uintptr_t *skip_ents = nullptr, int n_skip_ents = 0,
-                                                      int *rays_blocked = nullptr);
+                                                      int *rays_blocked = nullptr, FanMemory *memory = nullptr,
+                                                      float walked = 0.0f);
 
     /**
      * @brief The visible render node (IRenderNode) a physics collider belongs to, via its foreign data.

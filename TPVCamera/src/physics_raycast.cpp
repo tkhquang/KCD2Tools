@@ -11,6 +11,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cstring>
 
 namespace TPVCamera
@@ -114,7 +115,7 @@ namespace TPVCamera
 
     std::optional<RayHit> ray_fan_sweep(QueryLedger::Tag tag, const Vector3 &origin, const Vector3 &sweep, float radius,
                                         int objtypes, unsigned int flags, const uintptr_t *skip_ents, int n_skip_ents,
-                                        int *rays_blocked)
+                                        int *rays_blocked, FanMemory *memory, float walked)
     {
         DMK_PROFILE_SCOPE("phys.ray_fan");
         if (rays_blocked != nullptr)
@@ -156,11 +157,44 @@ namespace TPVCamera
         const Vector3 offsets[k_fan_rays] = {Vector3{0.0f, 0.0f, 0.0f}, right * radius, right * (-radius), up * radius,
                                              up * (-radius)};
 
+        // A remembered first hit past this start on a collider not skipped is still the first hit; one this close to
+        // the start or nearer is cast again.
+        constexpr float k_memory_ahead = 1e-3f;
+        const auto skipped = [skip_ents, n_skip_ents](uintptr_t collider)
+        {
+            return skip_ents != nullptr && collider != 0 &&
+                   std::find(skip_ents, skip_ents + n_skip_ents, collider) != skip_ents + n_skip_ents;
+        };
         std::optional<RayHit> best;
         int blocked = 0;
-        for (const Vector3 &off : offsets)
+        for (int ray = 0; ray < k_fan_rays; ++ray)
         {
-            const auto h = ray_world_intersection(tag, origin + off, sweep, objtypes, flags, skip_ents, n_skip_ents);
+            std::optional<RayHit> h;
+            const bool remembered =
+                memory != nullptr && memory->cast[ray] &&
+                (!memory->hit[ray].has_value() ||
+                 (memory->hit[ray]->m_distance > walked + k_memory_ahead && !skipped(memory->hit[ray]->m_collider)));
+            if (remembered)
+            {
+                h = memory->hit[ray];
+                if (h.has_value())
+                {
+                    h->m_distance -= walked;
+                }
+            }
+            else
+            {
+                h = ray_world_intersection(tag, origin + offsets[ray], sweep, objtypes, flags, skip_ents, n_skip_ents);
+                if (memory != nullptr)
+                {
+                    memory->cast[ray] = true;
+                    memory->hit[ray] = h;
+                    if (h.has_value())
+                    {
+                        memory->hit[ray]->m_distance += walked;
+                    }
+                }
+            }
             if (!h.has_value())
             {
                 continue;
