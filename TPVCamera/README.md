@@ -420,10 +420,11 @@ See the full list at the [Supported Input Names](https://github.com/tkhquang/Det
 - In busy towns the fades, the see-through window and the lens cut take the camera about 0.3 ms per frame, against about 0.2 ms without them. For the lowest cost, set `UseOccluderFade`, `UseTreeSeeThrough`, `UseLensCut` and `CloseUpFade` to false and `CollisionPullInSeconds` to 0 in `[Collision]`: the camera then stops at what it hits, as in 2.0.0 (with this version's fixes), prepares no shaders at loading screens or pauses, and costs about what 2.0.0 did.
 - The raycast-based crosshair fix is partial: it does not cover every interaction type, so some
   still show parallax or an offset.
-- A third-person shot at a target almost touching Henry (closer than about half a meter past the
-  bow) can still land beside the crosshair. Hitting it would turn the shot more than
-  `MaxAimCorrection` (45 degrees by default) away from where the bow points, so the game's own shot
-  flies instead. Raising `MaxAimCorrection` in `[Ranged]` covers closer targets.
+- A third-person shot at a close target, such as the ground at Henry's feet, is turned up to about
+  50 degrees from where the bow points, so the arrow visibly leaves the bow at an angle before it hits
+  the crosshair. A target behind the bow cannot be reached that way and takes the game's own shot.
+  Lower `MaxAimCorrection` in `[Ranged]` (90 degrees by default) to keep the game's shot for close
+  targets instead.
 - A large Offset Right (above about 1 m) can put the crosshair out of Henry's reach. The game only
   offers herbs within about 1.5 m of his eyes and doors, beds and other usables within about 1 m
   to his side, so the use prompt does not show for what the crosshair rests on. Lower the offset,

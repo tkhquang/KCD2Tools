@@ -24,6 +24,7 @@
 - Changed the INFO log to be quieter; diagnostics moved to DEBUG and TRACE.
 - Changed the camera to switch to a situation's preset the moment it starts, such as drawing a bow; only leaving one waits, for StateExitHoldSeconds (was StateSwitchHoldSeconds).
 - Changed HeadClearance to only set where the close-up fade happens: HeadClearance 0 no longer turns CloseUpFade off.
+- Changed MaxAimCorrection to default to 90, so shots at the ground at Henry's feet and other close targets land on the crosshair (an existing INI keeps its value).
 - Changed the first-person/third-person switch with ViewTransitionDuration above 0: the camera now swings out around Henry instead of sliding straight from the eye, stops at walls along the way, keeps his head hidden while it passes through it, eases the FOV with it, and no longer flips halfway when free-look has the camera facing him.
 - Removed UseCoverageCollision, CoverageThreshold, CameraProbeSize and UseRenderOcclusion, which the fade replaces.
 - Removed PresetBlendSpeed, replaced by each preset's Blend In Seconds.
