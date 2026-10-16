@@ -229,21 +229,28 @@ namespace TPVCamera::Twins
             }
             blobs::TwinScope scope = blobs::TwinScope::ListedPlants;
             bool dissolving = false;
+            bool npc = false;
             if (!listed_object(set, object, scope, matched_node))
             {
                 observation.reason = trace::ItemReason::BindingExpired;
-                if (set.character_count <= 0 || object[Constants::RENDER_OBJECT_PERSISTENT_OFFSET] != 0)
+                if ((set.character_count <= 0 && set.npc_count <= 0) ||
+                    object[Constants::RENDER_OBJECT_PERSISTENT_OFFSET] != 0)
                 {
                     return false;
                 }
                 dissolving = dissolving_object(object);
                 if (!character_object(set, object))
                 {
-                    if (dissolving)
+                    // A person or an animal the NPC lens fade dissolves: only its dissolving items take a twin.
+                    npc = dissolving && npc_object(set, object);
+                    if (!npc)
                     {
-                        s_node_rejects.fetch_add(1, std::memory_order_relaxed);
+                        if (dissolving)
+                        {
+                            s_node_rejects.fetch_add(1, std::memory_order_relaxed);
+                        }
+                        return false;
                     }
-                    return false;
                 }
                 scope = blobs::TwinScope::Dissolving;
             }
@@ -273,7 +280,7 @@ namespace TPVCamera::Twins
                     note_opacity_skip(dissolving);
                     return false;
                 }
-                if (character)
+                if (character && !npc)
                 {
                     s_character_seen_ms[slot].store(now, std::memory_order_relaxed);
                 }
@@ -282,7 +289,15 @@ namespace TPVCamera::Twins
                 if (set.twins[slot] == 0 || (dissolving && !set.fade_ready[slot]))
                 {
                     observation.reason = trace::ItemReason::TwinUnavailable;
+                    if (npc)
+                    {
+                        s_npc_misses.fetch_add(1, std::memory_order_relaxed);
+                    }
                     return false;
+                }
+                if (npc)
+                {
+                    s_npc_swaps.fetch_add(1, std::memory_order_relaxed);
                 }
                 out = item;
                 out.shader = set.twins[slot];
@@ -309,6 +324,14 @@ namespace TPVCamera::Twins
             {
                 observation.reason = trace::ItemReason::Opacity;
                 note_opacity_skip(dissolving);
+                return false;
+            }
+            if (npc)
+            {
+                // A shader of a person's that the twins have no entry for: no twin is asked for here, the player's
+                // close-up fade decides which twins exist.
+                observation.reason = trace::ItemReason::TwinUnavailable;
+                s_npc_misses.fetch_add(1, std::memory_order_relaxed);
                 return false;
             }
             if (character && !set.sources_full)
@@ -582,6 +605,25 @@ namespace TPVCamera::Twins
         for (int i = 0; i < count; ++i)
         {
             if (set.character_nodes[static_cast<std::size_t>(i)] == node)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool npc_object(const SwapSet &set, const std::uint8_t *object) noexcept
+    {
+        const std::uintptr_t node =
+            *reinterpret_cast<const std::uintptr_t *>(object + Constants::RENDER_OBJECT_NODE_OFFSET);
+        if (node == 0)
+        {
+            return false;
+        }
+        const int count = std::min(set.npc_count, Constants::NPC_FADE_MAX_ENTITIES);
+        for (int i = 0; i < count; ++i)
+        {
+            if (set.npc_nodes[static_cast<std::size_t>(i)] == node)
             {
                 return true;
             }

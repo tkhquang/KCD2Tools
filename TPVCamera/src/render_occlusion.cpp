@@ -617,9 +617,69 @@ namespace TPVCamera
     }
 
     /**
+     * @brief The registered actor @p entity is, or the nearest one up its attachment parents (a carried sword's chain
+     *        ends at the person carrying it). Decided by the actor registry and the attachment parents, never by a
+     *        model name. SEH caller.
+     * @param entity A CEntity, or nullptr.
+     * @param actor_id Receives the actor's EntityId when one is found.
+     * @return The actor's CEntity, or nullptr when neither the entity nor any parent within eight hops is an actor.
+     */
+    static void *actor_root(void *entity, std::uint32_t *actor_id) noexcept
+    {
+        const auto slot = g_global_context_ptr_address.load(std::memory_order_relaxed);
+        const auto *context = slot != nullptr ? *reinterpret_cast<const std::byte *const *>(slot) : nullptr;
+        if (context == nullptr)
+        {
+            return nullptr;
+        }
+        void *actors = *reinterpret_cast<void *const *>(context + Constants::CONTEXT_ACTOR_SYSTEM_OFFSET);
+        if (actors == nullptr || !vtable_is(GameClass::ActorSystem, *reinterpret_cast<uintptr_t *>(actors)))
+        {
+            return nullptr;
+        }
+        using GetActorFn = void *(__fastcall *)(void *, std::uint32_t);
+        const auto get_actor = reinterpret_cast<GetActorFn>(
+            (*reinterpret_cast<void ***>(actors))[Constants::ACTOR_SYSTEM_VTABLE_GET_ACTOR_OFFSET / 8]);
+        if (!s_game_module.contains(DMK::Address{reinterpret_cast<uintptr_t>(get_actor)}))
+        {
+            return nullptr;
+        }
+        for (int depth = 0; depth < 8 && entity != nullptr; ++depth)
+        {
+            void **vt = *reinterpret_cast<void ***>(entity);
+            if (!vtable_is(GameClass::Entity, reinterpret_cast<uintptr_t>(vt)))
+            {
+                return nullptr;
+            }
+            const auto id = *reinterpret_cast<const std::uint32_t *>(static_cast<const std::byte *>(entity) +
+                                                                     Constants::ENTITY_ID_OFFSET);
+            if (id != 0 && get_actor(actors, id) != nullptr)
+            {
+                if (actor_id != nullptr)
+                {
+                    *actor_id = id;
+                }
+                return entity;
+            }
+            using GetParentFn = void *(__fastcall *)(void *);
+            const auto get_parent = reinterpret_cast<GetParentFn>(vt[Constants::ENTITY_VTABLE_GETPARENT_OFFSET / 8]);
+            if (!s_game_module.contains(DMK::Address{reinterpret_cast<uintptr_t>(get_parent)}))
+            {
+                return nullptr;
+            }
+            void *parent = get_parent(entity);
+            if (parent == entity)
+            {
+                return nullptr;
+            }
+            entity = parent;
+        }
+        return nullptr;
+    }
+
+    /**
      * @brief Whether @p node is one of the player's nodes, or an entity proxy whose entity or an attachment parent of
-     *        it is a registered actor. Decided by the actor registry and the attachment parents, never by the model
-     *        name. SEH caller.
+     *        it is a registered actor (actor_root()). SEH caller.
      */
     static bool entity_is_actor_or_attachment(void *node) noexcept
     {
@@ -632,53 +692,9 @@ namespace TPVCamera
         {
             return false;
         }
-        const auto slot = g_global_context_ptr_address.load(std::memory_order_relaxed);
-        const auto *context = slot != nullptr ? *reinterpret_cast<const std::byte *const *>(slot) : nullptr;
-        if (context == nullptr)
-        {
-            return false;
-        }
-        void *actors = *reinterpret_cast<void *const *>(context + Constants::CONTEXT_ACTOR_SYSTEM_OFFSET);
-        if (actors == nullptr || !vtable_is(GameClass::ActorSystem, *reinterpret_cast<uintptr_t *>(actors)))
-        {
-            return false;
-        }
-        using GetActorFn = void *(__fastcall *)(void *, std::uint32_t);
-        const auto get_actor = reinterpret_cast<GetActorFn>(
-            (*reinterpret_cast<void ***>(actors))[Constants::ACTOR_SYSTEM_VTABLE_GET_ACTOR_OFFSET / 8]);
-        if (!s_game_module.contains(DMK::Address{reinterpret_cast<uintptr_t>(get_actor)}))
-        {
-            return false;
-        }
-        void *entity =
-            *reinterpret_cast<void **>(static_cast<std::byte *>(node) + Constants::RENDER_PROXY_ENTITY_OFFSET);
-        for (int depth = 0; depth < 8 && entity != nullptr; ++depth)
-        {
-            void **vt = *reinterpret_cast<void ***>(entity);
-            if (!vtable_is(GameClass::Entity, reinterpret_cast<uintptr_t>(vt)))
-            {
-                return false;
-            }
-            const auto id = *reinterpret_cast<const std::uint32_t *>(static_cast<const std::byte *>(entity) +
-                                                                     Constants::ENTITY_ID_OFFSET);
-            if (id != 0 && get_actor(actors, id) != nullptr)
-            {
-                return true;
-            }
-            using GetParentFn = void *(__fastcall *)(void *);
-            const auto get_parent = reinterpret_cast<GetParentFn>(vt[Constants::ENTITY_VTABLE_GETPARENT_OFFSET / 8]);
-            if (!s_game_module.contains(DMK::Address{reinterpret_cast<uintptr_t>(get_parent)}))
-            {
-                return false;
-            }
-            void *parent = get_parent(entity);
-            if (parent == entity)
-            {
-                return false;
-            }
-            entity = parent;
-        }
-        return false;
+        return actor_root(
+                   *reinterpret_cast<void **>(static_cast<std::byte *>(node) + Constants::RENDER_PROXY_ENTITY_OFFSET),
+                   nullptr) != nullptr;
     }
 
     /** @brief The engine revision of a static model, read inside the caller's SEH frame. */
@@ -3052,6 +3068,59 @@ namespace TPVCamera
             {
                 out[n++] = s.node;
             }
+        }
+        return n;
+    }
+
+    /** @brief actor_root() inside its own SEH frame: a fault reads as no actor. */
+    static void *actor_root_guarded(void *entity, std::uint32_t *actor_id) noexcept
+    {
+        __try
+        {
+            return actor_root(entity, actor_id);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+
+    int actors_before_lens(const ViewAxes &view, float reach, std::uintptr_t player_entity, LensActorPart *out,
+                           int cap) noexcept
+    {
+        if (!s_scan_valid || s_scan_count == 0 || out == nullptr || cap <= 0)
+        {
+            return 0;
+        }
+        int n = 0;
+        for (int i = 0; i < s_scan_count && n < cap; ++i)
+        {
+            const ScannedNode &s = s_scan[i];
+            // A person, an animal or what one carries, which the rules leave to the camera as a character. A user
+            // line such as `@actor = exclude` keeps it out of the scan, and so out of the fade.
+            if (!s.entity || s.state != Rules::State::Actor || s.cls != Rules::Behaviour::Character || s.owner == 0 ||
+                s.owner == player_entity)
+            {
+                continue;
+            }
+            const float depth = box_depth_in_view(s.bbox, view, reach);
+            if (depth < 0.0f || !node_alive(s))
+            {
+                continue;
+            }
+            std::uint32_t actor_id = 0;
+            void *actor = actor_root_guarded(reinterpret_cast<void *>(s.owner), &actor_id);
+            if (actor == nullptr || reinterpret_cast<std::uintptr_t>(actor) == player_entity)
+            {
+                continue;
+            }
+            LensActorPart &part = out[n++];
+            part.node = s.node;
+            part.entity = s.owner;
+            part.actor = reinterpret_cast<std::uintptr_t>(actor);
+            part.actor_id = actor_id;
+            part.depth = depth;
+            std::copy_n(s.bbox, 6, part.bbox);
         }
         return n;
     }

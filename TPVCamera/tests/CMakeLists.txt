@@ -1,7 +1,8 @@
 # Local tests (TPVCAMERA_BUILD_TESTS). Build them with the msvc-tests preset and run them with its ctest preset.
 #
 # tpvcamera_tests holds the engine-free units: the camera eases, the collision ease, the preset blend filter, the
-# right stick's response curve and the fence wall policy, each with its rate matrix where it integrates over time.
+# right stick's response curve, the view-box depth and the fence wall policy, each with its rate matrix where it
+# integrates over time.
 # The camera rules parity runs the C++ classifier against the Python reference on every scenario; it needs the local
 # tools folder, so it is registered only when that folder and a Python 3 interpreter are present.
 
@@ -25,6 +26,7 @@ add_executable(tpvcamera_tests
   test_fence_coverage.cpp
   test_preset_filter.cpp
   test_stick.cpp
+  test_view_box.cpp
 )
 target_include_directories(tpvcamera_tests PRIVATE ${PROJECT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options(tpvcamera_tests PRIVATE /W4 /permissive- /utf-8)

@@ -59,6 +59,56 @@ namespace TPVCamera
         std::atomic<bool> s_watch_character{false};
         std::atomic<std::uint32_t> s_character_draws{0};
 
+        constexpr int k_max_npc = Constants::NPC_FADE_MAX_ENTITIES;
+
+        /**
+         * @brief One published frame of the NPC lens fade: the entities and the byte each gets, behind a 256-bit
+         *        filter of the entities (npc_filter_bit()), which rejects nearly every other draw before the compares.
+         */
+        struct NpcFadeSet
+        {
+            std::uint64_t stamp_ms = 0;
+            int count = 0;
+            std::array<std::uint64_t, 4> filter{};
+            std::array<std::uintptr_t, k_max_npc> entities{};
+            std::array<std::uint8_t, k_max_npc> bytes{};
+        };
+
+        // Three tables, published through the pointer, so a render job still reading the table of two frames ago never
+        // sees it rewritten (the occluder fade's scheme). nullptr while no NPC fades, which is the draw's fast path.
+        std::array<NpcFadeSet, 3> s_npc_sets{};
+        int s_next_npc_set = 0;
+        std::atomic<const NpcFadeSet *> s_npc_published{nullptr};
+        // Main-view draws the detour raised for an NPC, for the NPC fade's debug line.
+        std::atomic<std::uint32_t> s_npc_applies{0};
+
+        /** @brief The filter bit of @p entity: the top 8 bits of a Fibonacci hash of its address (16-byte aligned). */
+        [[nodiscard]] constexpr unsigned npc_filter_bit(std::uintptr_t entity) noexcept
+        {
+            return static_cast<unsigned>(((static_cast<std::uint64_t>(entity) >> 4) * 0x9E3779B97F4A7C15ull) >> 56);
+        }
+
+        /** @brief The dissolve byte @p set gives @p entity, or 0 when it does not list it or is stale. */
+        [[nodiscard]] std::uint8_t npc_byte(const NpcFadeSet &set, std::uintptr_t entity) noexcept
+        {
+            const unsigned bit = npc_filter_bit(entity);
+            if (((set.filter[bit >> 6] >> (bit & 63u)) & 1u) == 0)
+            {
+                return 0;
+            }
+            const int count = std::min(set.count, k_max_npc);
+            for (int i = 0; i < count; ++i)
+            {
+                if (set.entities[static_cast<std::size_t>(i)] == entity)
+                {
+                    return GetTickCount64() - set.stamp_ms <= Constants::FADE_STALE_MS
+                               ? set.bytes[static_cast<std::size_t>(i)]
+                               : std::uint8_t{0};
+                }
+            }
+            return 0;
+        }
+
         /** @brief What a drawn render proxy is to the character fade. */
         enum class ProxyKind : std::uint8_t
         {
@@ -120,17 +170,19 @@ namespace TPVCamera
          *          raised for the call and restored after it, so the caller's parameters are left as they were. Shadow
          *          passes are left alone, so the character keeps its shadow. Each main-view draw of the character
          *          publishes its proxy (character_render_node()), and while the character-render watch is on it is
-         *          counted.
+         *          counted. A proxy that is not the player's is raised by the NPC lens fade's table when it lists the
+         *          proxy's entity (set_npc_fade()).
          * @note Raw arbitrary-signature detour (DMK [B-84]): it must not throw, and every call in it is noexcept.
          */
         void __fastcall proxy_render_detour(void *proxy, std::uint8_t *params, const std::uint8_t *pass) noexcept
         {
             const DetourScope in_flight;
             const ProxyRenderFn original = s_original.load(std::memory_order_acquire);
+            const bool main_view = proxy != nullptr && pass != nullptr && main_view_pass(pass);
+            const auto address = reinterpret_cast<std::uintptr_t>(proxy);
             const std::uintptr_t character = s_entity.load(std::memory_order_relaxed);
-            if (character != 0 && proxy != nullptr && pass != nullptr && main_view_pass(pass))
+            if (character != 0 && main_view)
             {
-                const auto address = reinterpret_cast<std::uintptr_t>(proxy);
                 if (*reinterpret_cast<const std::uintptr_t *>(address + Constants::RENDER_PROXY_ENTITY_OFFSET) ==
                     character)
                 {
@@ -144,21 +196,41 @@ namespace TPVCamera
                     }
                 }
             }
-            const auto ours = static_cast<std::uint8_t>(s_byte.load(std::memory_order_relaxed));
-            if (ours != 0 && proxy != nullptr && params != nullptr && pass != nullptr && main_view_pass(pass))
+            std::uint8_t byte = 0;
+            if (main_view && params != nullptr)
             {
-                if (const ProxyKind kind = character_proxy_kind(proxy);
-                    kind != ProxyKind::None &&
-                    GetTickCount64() - s_stamp_ms.load(std::memory_order_relaxed) <= Constants::FADE_STALE_MS)
+                const auto ours = static_cast<std::uint8_t>(s_byte.load(std::memory_order_relaxed));
+                if (ours != 0)
                 {
-                    count_apply(kind);
-                    std::uint8_t *lod = params + Constants::SRENDPARAMS_LOD_OFFSET;
-                    const std::uint8_t saved = lod[Constants::CLODVALUE_DISSOLVE_OFFSET];
-                    raise_dissolve(lod, ours);
-                    original(proxy, params, pass);
-                    lod[Constants::CLODVALUE_DISSOLVE_OFFSET] = saved;
-                    return;
+                    if (const ProxyKind kind = character_proxy_kind(proxy);
+                        kind != ProxyKind::None &&
+                        GetTickCount64() - s_stamp_ms.load(std::memory_order_relaxed) <= Constants::FADE_STALE_MS)
+                    {
+                        count_apply(kind);
+                        byte = ours;
+                    }
                 }
+                if (byte == 0)
+                {
+                    if (const NpcFadeSet *npc = s_npc_published.load(std::memory_order_acquire); npc != nullptr)
+                    {
+                        byte = npc_byte(*npc, *reinterpret_cast<const std::uintptr_t *>(
+                                                  address + Constants::RENDER_PROXY_ENTITY_OFFSET));
+                        if (byte != 0)
+                        {
+                            s_npc_applies.fetch_add(1, std::memory_order_relaxed);
+                        }
+                    }
+                }
+            }
+            if (byte != 0)
+            {
+                std::uint8_t *lod = params + Constants::SRENDPARAMS_LOD_OFFSET;
+                const std::uint8_t saved = lod[Constants::CLODVALUE_DISSOLVE_OFFSET];
+                raise_dissolve(lod, byte);
+                original(proxy, params, pass);
+                lod[Constants::CLODVALUE_DISSOLVE_OFFSET] = saved;
+                return;
             }
             original(proxy, params, pass);
         }
@@ -297,6 +369,42 @@ namespace TPVCamera
         }
         s_stamp_ms.store(GetTickCount64(), std::memory_order_relaxed);
         s_byte.store(entity != 0 ? static_cast<std::uint32_t>(byte) : 0u, std::memory_order_relaxed);
+    }
+
+    void set_npc_fade(std::span<const NpcFadeEntry> entries) noexcept
+    {
+        int n = 0;
+        NpcFadeSet &set = s_npc_sets[static_cast<std::size_t>(s_next_npc_set)];
+        if (!entries.empty())
+        {
+            s_next_npc_set = (s_next_npc_set + 1) % static_cast<int>(s_npc_sets.size());
+            set.filter = {};
+            for (const NpcFadeEntry &entry : entries)
+            {
+                if (n == k_max_npc)
+                {
+                    break;
+                }
+                if (entry.entity == 0 || entry.byte == 0)
+                {
+                    continue;
+                }
+                const unsigned bit = npc_filter_bit(entry.entity);
+                set.filter[bit >> 6] |= 1ull << (bit & 63u);
+                set.entities[static_cast<std::size_t>(n)] = entry.entity;
+                set.bytes[static_cast<std::size_t>(n)] =
+                    std::min(entry.byte, static_cast<std::uint8_t>(Constants::DISSOLVE_MAX_BYTE));
+                ++n;
+            }
+            set.count = n;
+            set.stamp_ms = GetTickCount64();
+        }
+        s_npc_published.store(n > 0 ? &set : nullptr, std::memory_order_release);
+    }
+
+    std::uint32_t take_npc_fade_applies() noexcept
+    {
+        return s_npc_applies.exchange(0, std::memory_order_relaxed);
     }
 
     std::uintptr_t character_render_node() noexcept

@@ -801,9 +801,10 @@ namespace TPVCamera::Twins
                                  s_fade_miss_flags.load(std::memory_order_relaxed));
     }
 
-    void publish_set(std::span<const std::uintptr_t> character_nodes, std::uint64_t now) noexcept
+    void publish_set(std::span<const std::uintptr_t> character_nodes, std::span<const std::uintptr_t> npc_nodes,
+                     std::uint64_t now) noexcept
     {
-        if (s_track_count == 0 && character_nodes.empty())
+        if (s_track_count == 0 && character_nodes.empty() && npc_nodes.empty())
         {
             trace_event(trace::Event::SetPublished, 0, 0, 0, now);
             s_set_published.store(nullptr, std::memory_order_release);
@@ -822,6 +823,8 @@ namespace TPVCamera::Twins
         }
         set.character_count = static_cast<int>(std::min(character_nodes.size(), set.character_nodes.size()));
         std::copy_n(character_nodes.begin(), set.character_count, set.character_nodes.begin());
+        set.npc_count = static_cast<int>(std::min(npc_nodes.size(), set.npc_nodes.size()));
+        std::copy_n(npc_nodes.begin(), set.npc_count, set.npc_nodes.begin());
         set.sources_full = s_source_count >= k_max_sources;
         set.source_count = s_source_count;
         set.character_source_count = 0;
@@ -1038,6 +1041,8 @@ namespace TPVCamera::Twins
             dissolve_swaps += blobs::k_twins[kind].scope == blobs::TwinScope::Dissolving ? kind_swaps[at] : 0u;
         }
         const std::uint32_t node_rejects = s_node_rejects.exchange(0, std::memory_order_relaxed);
+        const std::uint32_t npc_swaps = s_npc_swaps.exchange(0, std::memory_order_relaxed);
+        const std::uint32_t npc_misses = s_npc_misses.exchange(0, std::memory_order_relaxed);
         const std::uint32_t opacity_skips = s_opacity_skips.exchange(0, std::memory_order_relaxed);
         const std::uint32_t aliases = s_ext_aliases.exchange(0, std::memory_order_relaxed);
         const std::uint32_t rows = s_rows_written.exchange(0, std::memory_order_relaxed);
@@ -1073,7 +1078,7 @@ namespace TPVCamera::Twins
                                     s_warm_pending_count != s_last_logged_pending;
         if (swaps == rest_swaps && aliases == 0 && faults == 0 && dropped == 0 && guarded == 0 && deferred == 0 &&
             carryovers == 0 && busy_deferrals == 0 && promotions == 0 && records_dropped == 0 && stale == 0 &&
-            !character_news && active == s_last_logged_swapped)
+            npc_misses == 0 && !character_news && active == s_last_logged_swapped)
         {
             return;
         }
@@ -1111,6 +1116,13 @@ namespace TPVCamera::Twins
                                      "another character kept the stock shader (node filter), {} opaque item(s) "
                                      "kept it (opacity)",
                                      per_kind.data(), node_rejects, opacity_skips);
+        }
+        if (npc_swaps != 0 || npc_misses != 0)
+        {
+            (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                     "ShaderTwins: NPC lens fade in the last second: {} dissolving item(s) took a "
+                                     "twin, {} kept the stock shader (no twin warm for the fade)",
+                                     npc_swaps, npc_misses);
         }
         s_last_logged_swapped = active;
         (void)DMK::log().try_log(DMK::LogLevel::Debug,

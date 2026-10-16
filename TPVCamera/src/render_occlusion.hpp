@@ -15,6 +15,7 @@
 #ifndef TPVCAMERA_RENDER_OCCLUSION_HPP
 #define TPVCAMERA_RENDER_OCCLUSION_HPP
 
+#include "camera/view_box.hpp"
 #include "camera_rules.hpp"
 #include "math_utils.hpp"
 #include "query_ledger.hpp"
@@ -123,6 +124,30 @@ namespace TPVCamera
      * @return The number of nodes written.
      */
     [[nodiscard]] int frames_near(const Vector3 &point, float reach, void **out, int cap) noexcept;
+
+    /** @brief A drawn part of a person or an animal in front of the lens: its body, or something it carries. */
+    struct LensActorPart
+    {
+        void *node = nullptr;       // the part's render proxy
+        std::uintptr_t entity = 0;  // the part's CEntity, which its render proxy names
+        std::uintptr_t actor = 0;   // the CEntity of the actor it is or belongs to
+        std::uint32_t actor_id = 0; // that actor's EntityId
+        float depth = 0.0f;         // view depth of the nearest part of its box inside the view (box_depth_in_view())
+        float bbox[6] = {};         // its world AABB {min.xyz, max.xyz}
+    };
+
+    /**
+     * @brief The scanned parts of people and animals whose boxes show in @p view within @p reach meters of depth.
+     * @details A part is an entity render proxy the scan classes as an actor (the actor itself or an item bound to one)
+     *          that the camera rules leave to the camera as a character, and each is tied to its actor through the
+     *          actor registry and the attachment parents. The player's own parts (@p player_entity and what it
+     *          carries) are left out. The depth is exact for the box (box_depth_in_view()); a box is looser than the
+     *          body it holds, by up to a limb's reach. Main thread only (uses the occluder scan).
+     * @param cap Size of @p out.
+     * @return The number of parts written, in scan order.
+     */
+    [[nodiscard]] int actors_before_lens(const ViewAxes &view, float reach, std::uintptr_t player_entity,
+                                         LensActorPart *out, int cap) noexcept;
 
     /**
      * @brief Whether a scanned node that stops a camera probe (Rules::Behaviour::Collide, as classify_probe_hit()
