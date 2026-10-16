@@ -26,63 +26,17 @@ namespace TPVCamera
      */
     struct LiveSettings
     {
-        // Preset-owned framing: the main-thread preset resolver OVERWRITES these every active frame
-        // (apply_to_live) and the frustum-builder detour reads them. They are NOT INI settings - they
-        // live in the presets JSON and are tuned in the overlay. The factory default VALUES live in
-        // CameraPreset (camera_preset.hpp, equal to the built-in DEFAULT preset); settings() seeds these
-        // atomics from a default-constructed CameraPreset at startup, so they are only value-initialized
-        // here. Do NOT add literal defaults: they would duplicate CameraPreset and drift from it.
-        std::atomic<float> follow_distance{};     // follow distance, units behind the pivot
-        std::atomic<float> follow_distance_min{}; // closest the zoom keys allow
-        std::atomic<float> follow_distance_max{}; // farthest the zoom keys allow
-        std::atomic<float> zoom_step{};           // distance change per second while a zoom key is held
-        std::atomic<float> offset_up{};           // pivot raise along the world-up axis
-        std::atomic<float>
-            eye_height{}; // anchor height above the player body origin (0 = anchor to the bobbing FP eye)
-        std::atomic<bool> dynamic_eye_sync{}; // re-anchor eye height to the real FP eye on low poses (kneel/pray) out
-                                              // of EyeHeight range
-        std::atomic<float> offset_right{};    // pivot shift along the camera right axis
-        std::atomic<float> follow_yaw{};   // static resting orbit yaw around the pivot, degrees (0 = directly behind)
-        std::atomic<float> follow_pitch{}; // static resting orbit pitch around the pivot, degrees (0 = level)
-        std::atomic<float> arm_follow_up{}; // looking up: share of the look pitch the arm follows (CameraPreset)
-        std::atomic<float> lens_drop_up{};  // looking up: how far the camera is lowered, meters (CameraPreset)
-        std::atomic<float> fov{};          // third-person field of view, degrees (0 = use the game FOV)
+        // The framing, the orbit feel and Enable/Skin/ReturnSpeed/Shoulder of the collision are preset-owned: the
+        // camera frame reads them from the live preset (Presets::live_params()), other threads from
+        // Presets::preset_readout(). Everything here is INI-owned.
 
-        // Free-look orbit. The orbit-feel values are preset-owned (seeded/overwritten like the framing
-        // above); freeze_orbit_on_cursor is an always-live INI setting (not preset-owned), so it keeps
-        // its registered default.
-        std::atomic<float>
-            orbit_sensitivity_x{}; // free-look MOUSE yaw sensitivity multiplier (mouse delta * this; negative inverts)
-        std::atomic<float> orbit_sensitivity_y{}; // free-look MOUSE pitch sensitivity multiplier (mouse delta * this;
-                                                  // negative inverts)
-        std::atomic<float>
-            gamepad_orbit_speed_x{}; // free-look GAMEPAD right-stick yaw rate, deg/sec at full deflection (neg inverts)
-        std::atomic<float> gamepad_orbit_speed_y{}; // free-look GAMEPAD right-stick pitch rate, deg/sec at full
-                                                    // deflection (neg inverts)
-        std::atomic<float> gamepad_orbit_curve{};   // right-stick response exponent (CameraPreset)
-        std::atomic<float> gamepad_orbit_smoothing{}; // right-stick rate settle time, seconds (CameraPreset)
-        std::atomic<float> orbit_pitch_min{};       // lowest free-look pitch, degrees
-        std::atomic<float> orbit_pitch_max{};       // highest free-look pitch, degrees
-        std::atomic<float> orbit_return_speed{};    // ease-back-to-center speed on release (0 = stay)
-        std::atomic<float> orbit_follow_speed{};    // mount speed (m/s) at which riding turns free-look back at
-                                                    // orbit_return_speed (0 = off)
-        std::atomic<float>
-            orbit_smoothing{}; // free-look angle low-pass strength, 0..1 (0 = off/raw, higher = smoother but more lag)
-        std::atomic<bool> orbit_level_aim{};        // level the real player aim/head while orbiting
-        std::atomic<bool> orbit_body_turn{};        // force the character body to face the camera heading while moving
-        std::atomic<bool> orbit_continuous_align{}; // GTA-style: body continuously follows the camera while moving
-                                                    // (false = capture heading once, hold it)
+        // Free-look orbit.
         std::atomic<bool> freeze_orbit_on_cursor{
             true}; // hold the free-look orbit still while the game shows the OS cursor (a UI is up: menu / loot / trade
                    // / dialogue) so cursor motion does not turn the camera
 
-        // Camera collision. Enable/Skin/ReturnSpeed/Shoulder are preset-owned (seeded/overwritten like the framing
-        // above); CollisionRadius, the occluder fade, the tree see-through, HeadClearance and the close-up fade are
-        // always-live INI settings, so they keep their registered defaults.
-        std::atomic<bool> enable_collision{};        // keep the view out of walls
-        std::atomic<float> collision_skin{};         // gap kept from the surface any probe found, meters
-        std::atomic<float> collision_return_speed{}; // ease-out speed once an obstruction clears (0 = instant)
-        std::atomic<bool> shoulder_collision{};      // narrow the shoulder offset at a wall before the arm
+        // Camera collision. Enable/Skin/ReturnSpeed/Shoulder are preset-owned (Presets::live_params());
+        // CollisionRadius, the occluder fade, the tree see-through, HeadClearance and the close-up fade are INI-owned.
         std::atomic<float> collision_radius{0.15f};  // the probes' half-width (the fan's ray offset), meters
         // Beam gate, a flex of the rule that whatever matches no visible object stops the camera: such a hit stops it
         // only when all five of the fan's rays are blocked, by it or by anything else, so an unknown collider narrower
@@ -177,19 +131,15 @@ namespace TPVCamera
         // on Aiming) waits until the reload is done; on keeps the game's own timing.
         std::atomic<bool> reload_counts_as_aiming{false};
 
-        // Preset manager (see presets/). Presets are always active: the main-thread resolver selects a
-        // camera preset by the debounced game state (DEFAULT/COMBAT/AIMING/MOUNT/STEALTH) - or by the
-        // overlay's editing pin - and eases the preset-owned framing fields above toward it each active
-        // frame, OVERWRITING them. Those framing fields are NOT INI settings; they live in the presets
-        // JSON (created automatically from embedded defaults, see presets/default_presets.hpp) and are
-        // tuned in the overlay. preset_blend_in_seconds is the active preset's blend time (CameraPreset::
-        // blend_in_seconds), which the FOV ease follows too.
-        std::atomic<float> preset_blend_in_seconds{0.52f};
+        // Preset manager (see presets/). Presets are always active: the main-thread resolver selects a camera preset
+        // by the debounced game state (DEFAULT/COMBAT/AIMING/MOUNT/STEALTH) - or by the overlay's editing pin - and
+        // eases the live preset toward it (Presets::live_params()). The presets live in the presets JSON (created
+        // automatically from embedded defaults, see presets/default_presets.hpp) and are tuned in the overlay.
         // The PresetBlendSpeed key of an INI from before the per-preset blend times, read only to migrate a presets
         // file of schema 2 or older (PresetStore::load); the shipped INI no longer has it.
         std::atomic<float> legacy_preset_blend_speed{8.0f};
 
-        // Always-live "Camera" INI settings (NOT preset-owned; apply_to_live never writes them).
+        // Always-live "Camera" INI settings.
         // Re-origin the player use/interaction cone onto the render camera + crosshair (third person)
         // so the use-target matches screen centre at all ranges.
         std::atomic<bool> interact_from_camera{true};

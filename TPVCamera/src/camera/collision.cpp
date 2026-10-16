@@ -13,6 +13,7 @@
 #endif
 #include "hooks/occluder_fade.hpp"
 #include "physics_raycast.hpp"
+#include "presets/preset_runtime.hpp"
 #include "render_occlusion.hpp"
 
 #include <DetourModKit.hpp>
@@ -148,11 +149,12 @@ namespace TPVCamera
     CollisionParams collision_params() noexcept
     {
         const LiveSettings &cfg = settings();
+        const Presets::CameraPreset &preset = Presets::live_params();
         constexpr auto rel = std::memory_order_relaxed;
         return CollisionParams{
-            .enable = cfg.enable_collision.load(rel),
-            .skin = cfg.collision_skin.load(rel),
-            .return_speed = cfg.collision_return_speed.load(rel),
+            .enable = Presets::live_collision_enabled(),
+            .skin = preset.collision_skin,
+            .return_speed = preset.collision_return_speed,
             .pull_in_seconds = cfg.collision_pull_in_seconds.load(rel),
             .radius = cfg.collision_radius.load(rel),
             .beam_gate = cfg.use_beam_gate.load(rel),

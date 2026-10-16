@@ -76,18 +76,6 @@ namespace TPVCamera
     LiveSettings &settings() noexcept
     {
         static LiveSettings s;
-        // Seed the preset-owned atomics from the factory DEFAULT exactly once on first access. A default-
-        // constructed CameraPreset carries the DEFAULT framing values (camera_preset.hpp is the single source
-        // of those values, equal to the built-in DEFAULT preset), so the live atomics start at the factory
-        // default until the main-thread resolver applies the per-state preset each active frame. Seeding here
-        // rather than via literal initializers keeps the default values in one place so they cannot drift.
-        // s has static storage, so the lambda references it directly: a simple capture of a static-storage
-        // variable is ill-formed (MSVC C3495 under /permissive-).
-        [[maybe_unused]] static const bool seeded = []
-        {
-            Presets::apply_to_live(Presets::CameraPreset{}, s);
-            return true;
-        }();
         return s;
     }
 
@@ -142,7 +130,7 @@ namespace TPVCamera
 
         // Camera framing. The follow distance, offsets, eye height, follow yaw/pitch, the orbit
         // tuning, and the per-preset collision values are all OWNED BY PRESETS (in the shipped presets JSON,
-        // applied to the live atomics each frame), so they are NOT INI settings - tune them in the overlay.
+        // blended into the live preset each frame), so they are NOT INI settings - tune them in the overlay.
         // Only the non-preset, always-live camera options remain here:
         camera.bind<bool>("InteractFromCamera", "Interact From Camera", s.interact_from_camera, true);
         camera.bind<float>("ViewTransitionDuration", "View Transition Duration", s.view_transition_duration, 0.0f);

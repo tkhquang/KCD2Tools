@@ -1023,39 +1023,39 @@ namespace TPVCamera
             ViewWrite &m_write;
         };
 
-        /** @brief The settings the rig reads, taken once per build. */
-        [[nodiscard]] RigParams rig_params(const LiveSettings &cfg) noexcept
+        /** @brief The settings the rig reads, taken once per build: the live preset's and two INI options. */
+        [[nodiscard]] RigParams rig_params(const Presets::CameraPreset &preset, const LiveSettings &cfg) noexcept
         {
             constexpr auto rel = std::memory_order_relaxed;
             return RigParams{
-                .follow_distance = cfg.follow_distance.load(rel),
-                .follow_distance_min = cfg.follow_distance_min.load(rel),
-                .follow_distance_max = cfg.follow_distance_max.load(rel),
-                .zoom_step = cfg.zoom_step.load(rel),
-                .offset_up = cfg.offset_up.load(rel),
-                .eye_height = cfg.eye_height.load(rel),
-                .offset_right = cfg.offset_right.load(rel),
-                .follow_yaw = cfg.follow_yaw.load(rel),
-                .follow_pitch = cfg.follow_pitch.load(rel),
-                .arm_follow_up = cfg.arm_follow_up.load(rel),
-                .lens_drop_up = cfg.lens_drop_up.load(rel),
-                .fov = cfg.fov.load(rel),
-                .preset_blend_in_seconds = cfg.preset_blend_in_seconds.load(rel),
+                .follow_distance = preset.follow_distance,
+                .follow_distance_min = preset.follow_distance_min,
+                .follow_distance_max = preset.follow_distance_max,
+                .zoom_step = preset.zoom_step,
+                .offset_up = preset.offset_up,
+                .eye_height = preset.eye_height,
+                .offset_right = preset.offset_right,
+                .follow_yaw = preset.follow_yaw,
+                .follow_pitch = preset.follow_pitch,
+                .arm_follow_up = preset.arm_follow_up,
+                .lens_drop_up = preset.lens_drop_up,
+                .fov = preset.fov,
+                .preset_blend_in_seconds = preset.blend_in_seconds,
                 .aim_basis_smoothing = cfg.aim_basis_smoothing.load(rel),
-                .gamepad_orbit_speed_x = cfg.gamepad_orbit_speed_x.load(rel),
-                .gamepad_orbit_speed_y = cfg.gamepad_orbit_speed_y.load(rel),
-                .gamepad_orbit_curve = cfg.gamepad_orbit_curve.load(rel),
-                .gamepad_orbit_smoothing = cfg.gamepad_orbit_smoothing.load(rel),
-                .orbit_pitch_min = cfg.orbit_pitch_min.load(rel),
-                .orbit_pitch_max = cfg.orbit_pitch_max.load(rel),
-                .orbit_return_speed = cfg.orbit_return_speed.load(rel),
-                .orbit_follow_speed = cfg.orbit_follow_speed.load(rel),
-                .orbit_smoothing = cfg.orbit_smoothing.load(rel),
-                .dynamic_eye_sync = cfg.dynamic_eye_sync.load(rel),
+                .gamepad_orbit_speed_x = preset.gamepad_orbit_speed_x,
+                .gamepad_orbit_speed_y = preset.gamepad_orbit_speed_y,
+                .gamepad_orbit_curve = preset.gamepad_orbit_curve,
+                .gamepad_orbit_smoothing = preset.gamepad_orbit_smoothing,
+                .orbit_pitch_min = preset.orbit_pitch_min,
+                .orbit_pitch_max = preset.orbit_pitch_max,
+                .orbit_return_speed = preset.orbit_return_speed,
+                .orbit_follow_speed = preset.orbit_follow_speed,
+                .orbit_smoothing = preset.orbit_smoothing,
+                .dynamic_eye_sync = preset.dynamic_eye_sync,
                 .stable_aim_basis = cfg.stable_aim_basis.load(rel),
-                .orbit_level_aim = cfg.orbit_level_aim.load(rel),
-                .orbit_body_turn = cfg.orbit_body_turn.load(rel),
-                .orbit_continuous_align = cfg.orbit_continuous_align.load(rel),
+                .orbit_level_aim = preset.orbit_level_aim,
+                .orbit_body_turn = preset.orbit_body_turn,
+                .orbit_continuous_align = preset.orbit_continuous_align,
             };
         }
     } // namespace
@@ -1104,7 +1104,7 @@ namespace TPVCamera
         write.forward = frustum.forward;
         write.up = frustum.up;
         LiveRigPort port{cview, frustum, write};
-        const RigParams params = rig_params(cfg);
+        const RigParams params = rig_params(Presets::live_params(), cfg);
         const RigInput rig_input{
             .c_player = c_player,
             .view_blend = view_blend,
@@ -1151,7 +1151,7 @@ namespace TPVCamera
         {
             // One attachment walk serves the occluder scan's exclusion of what the character carries and the close-up
             // fade. Bone-bound items need not have an IEntity parent, so the actor registry alone cannot identify them.
-            if (rig.entity != 0 && (close_fade || fade_on || cfg.enable_collision.load(std::memory_order_relaxed)))
+            if (rig.entity != 0 && (close_fade || fade_on || Presets::live_collision_enabled()))
             {
                 (void)collect_character_nodes(rig.entity, s_character_nodes);
             }
@@ -1178,8 +1178,7 @@ namespace TPVCamera
                     .direction = lateral_dir,
                     .lateral = lateral,
                     .delta_time = delta_time,
-                    .enabled = cfg.shoulder_collision.load(std::memory_order_relaxed) &&
-                               cfg.enable_collision.load(std::memory_order_relaxed),
+                    .enabled = Presets::live_params().shoulder_collision && Presets::live_collision_enabled(),
                     .fade_on = fade_on,
                 };
                 const float allowed = resolve_shoulder_collision(s_collision, shoulder);
@@ -1816,7 +1815,7 @@ namespace TPVCamera
         // The body's native turn-in-place animation follows the offset too (it follows the look again once the view is
         // back at the eye), and is off while the view rides the first-person eye (the head fallback, or an Eye Height 0
         // preset anchored to it). No turn starts under free-look.
-        const bool eye_anchored = head_fallback() || cfg.eye_height.load(std::memory_order_relaxed) <= 0.0f;
+        const bool eye_anchored = head_fallback() || Presets::live_params().eye_height <= 0.0f;
         update_native_turn(c_player, offset_engaged, state, eye_anchored,
                            !cam.orbit_active.load(std::memory_order_relaxed), delta_time);
 

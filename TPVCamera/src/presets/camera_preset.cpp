@@ -1,55 +1,12 @@
 /**
  * @file camera_preset.cpp
- * @brief Apply/ease helpers bridging CameraPreset and the live atomics.
+ * @brief The preset blend's ease helper.
  */
 
 #include "camera_preset.hpp"
-#include "config.hpp"
-
-#include <atomic>
 
 namespace TPVCamera::Presets
 {
-
-    void apply_to_live(const CameraPreset &preset, LiveSettings &s) noexcept
-    {
-        constexpr auto rel = std::memory_order_relaxed;
-
-        s.follow_distance.store(preset.follow_distance, rel);
-        s.follow_distance_min.store(preset.follow_distance_min, rel);
-        s.follow_distance_max.store(preset.follow_distance_max, rel);
-        s.zoom_step.store(preset.zoom_step, rel);
-        s.offset_up.store(preset.offset_up, rel);
-        s.eye_height.store(preset.eye_height, rel);
-        s.dynamic_eye_sync.store(preset.dynamic_eye_sync, rel);
-        s.offset_right.store(preset.offset_right, rel);
-        s.follow_yaw.store(preset.follow_yaw, rel);
-        s.follow_pitch.store(preset.follow_pitch, rel);
-        s.fov.store(preset.fov, rel);
-        s.arm_follow_up.store(preset.arm_follow_up, rel);
-        s.lens_drop_up.store(preset.lens_drop_up, rel);
-        s.preset_blend_in_seconds.store(preset.blend_in_seconds, rel);
-
-        s.orbit_sensitivity_x.store(preset.orbit_sensitivity_x, rel);
-        s.orbit_sensitivity_y.store(preset.orbit_sensitivity_y, rel);
-        s.gamepad_orbit_speed_x.store(preset.gamepad_orbit_speed_x, rel);
-        s.gamepad_orbit_speed_y.store(preset.gamepad_orbit_speed_y, rel);
-        s.gamepad_orbit_curve.store(preset.gamepad_orbit_curve, rel);
-        s.gamepad_orbit_smoothing.store(preset.gamepad_orbit_smoothing, rel);
-        s.orbit_pitch_min.store(preset.orbit_pitch_min, rel);
-        s.orbit_pitch_max.store(preset.orbit_pitch_max, rel);
-        s.orbit_return_speed.store(preset.orbit_return_speed, rel);
-        s.orbit_follow_speed.store(preset.orbit_follow_speed, rel);
-        s.orbit_smoothing.store(preset.orbit_smoothing, rel);
-        s.orbit_level_aim.store(preset.orbit_level_aim, rel);
-        s.orbit_body_turn.store(preset.orbit_body_turn, rel);
-        s.orbit_continuous_align.store(preset.orbit_continuous_align, rel);
-
-        s.enable_collision.store(preset.enable_collision, rel);
-        s.collision_skin.store(preset.collision_skin, rel);
-        s.collision_return_speed.store(preset.collision_return_speed, rel);
-        s.shoulder_collision.store(preset.shoulder_collision, rel);
-    }
 
     void ease_toward(CameraPreset &a, const CameraPreset &t, float alpha) noexcept
     {

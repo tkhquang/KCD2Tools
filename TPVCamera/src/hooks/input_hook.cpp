@@ -9,6 +9,7 @@
 #include "constants.hpp"
 #include "global_state.hpp"
 #include "hooks/camera_hook.hpp"
+#include "presets/preset_runtime.hpp"
 
 #include <DetourModKit.hpp>
 
@@ -77,14 +78,14 @@ namespace TPVCamera
                     {
                         // Negated so mouse-left orbits the camera left and mouse-right orbits right; a negative X
                         // sensitivity inverts that.
-                        const float sensitivity_x = settings().orbit_sensitivity_x.load(std::memory_order_relaxed);
+                        const float sensitivity_x = Presets::preset_readout().orbit_sensitivity_x;
                         cam.orbit_yaw.store(cam.orbit_yaw.load(std::memory_order_relaxed) - value * sensitivity_x,
                                             std::memory_order_relaxed);
                     }
                     else
                     {
                         // Mouse-up raises the camera, mouse-down lowers it; a negative Y sensitivity inverts that.
-                        const float sensitivity_y = settings().orbit_sensitivity_y.load(std::memory_order_relaxed);
+                        const float sensitivity_y = Presets::preset_readout().orbit_sensitivity_y;
                         // Within the range the main thread published (see CameraState::orbit_pitch_lo); a value
                         // already outside it is kept but cannot grow.
                         const float old_pitch = cam.orbit_pitch.load(std::memory_order_relaxed);

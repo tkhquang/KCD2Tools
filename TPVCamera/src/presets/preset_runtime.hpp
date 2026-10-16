@@ -193,13 +193,44 @@ namespace TPVCamera::Presets
     [[nodiscard]] std::optional<CycleStep> step_cycle(int step, std::uint32_t state);
 
     /**
-     * @brief Resolves the target preset for @p state, eases toward it, and applies it live.
-     * @details Main-thread only. No-op until a binding table has been published. Reads the preset
-     *          blend speed from LiveSettings.
+     * @brief Resolves the target preset for @p state and eases the live preset toward it (live_params()).
+     * @details Main-thread only. No-op until a binding table has been published. Publishes preset_readout() for the
+     *          other threads.
      * @param state Debounced GameState mask for this frame.
      * @param delta_seconds Seconds since the previous active frame.
      */
     void resolve_and_apply(uint32_t state, float delta_seconds) noexcept;
+
+    /**
+     * @brief The preset the camera uses this frame: the blend toward the active preset, the factory DEFAULT until the
+     *        first resolve_and_apply().
+     * @note Main thread only (the camera frame); other threads read preset_readout().
+     */
+    [[nodiscard]] const CameraPreset &live_params() noexcept;
+
+    /**
+     * @brief Whether the camera collides this frame: the active preset's Enable Collision, held on through a blend out
+     *        of a preset with it until the framing settles (see k_collision_latch_settle).
+     * @note Main thread only (the camera frame).
+     */
+    [[nodiscard]] bool live_collision_enabled() noexcept;
+
+    /** @brief The live preset's values other threads read: the overlay's read-outs and the mouse orbit. */
+    struct PresetReadout
+    {
+        float follow_distance = 0.0f;
+        float follow_distance_min = 0.0f;
+        float follow_distance_max = 0.0f;
+        float orbit_sensitivity_x = 0.0f;
+        float orbit_sensitivity_y = 0.0f;
+        bool dynamic_eye_sync = false;
+    };
+
+    /**
+     * @brief The live preset's read-outs as the camera frame last published them (the factory DEFAULT's before).
+     * @note Any thread.
+     */
+    [[nodiscard]] PresetReadout preset_readout() noexcept;
 
     /**
      * @brief Adds @p offset to the follow distance the preset ease currently holds.
