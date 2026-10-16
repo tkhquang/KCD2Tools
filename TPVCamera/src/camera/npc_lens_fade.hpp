@@ -13,7 +13,7 @@
 #ifndef TPVCAMERA_CAMERA_NPC_LENS_FADE_HPP
 #define TPVCAMERA_CAMERA_NPC_LENS_FADE_HPP
 
-#include "camera/view_box.hpp"
+#include "core/view/view_box.hpp"
 #include "math_utils.hpp"
 
 #include <cstdint>
@@ -33,7 +33,7 @@ namespace TPVCamera
 
     /**
      * @brief Measures the people and animals at the lens and publishes how far each fades.
-     * @details Each actor's fade follows the nearest view depth of its parts' boxes (camera/view_box.hpp) through a
+     * @details Each actor's fade follows the nearest view depth of its parts' boxes (core/view/view_box.hpp) through a
      *          smoothstep from k_npc_full_depth to k_npc_clear_depth, rising over k_npc_fade_in_seconds and falling
      *          over k_npc_fade_out_seconds of real time; every part fades by its actor's amount, so a sword fades with
      *          the hand that holds it. An actor that leaves the band, or the whole fade turned off, fades back in over

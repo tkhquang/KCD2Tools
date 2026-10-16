@@ -1,13 +1,13 @@
 /**
- * @file fence_coverage.hpp
+ * @file core/occlusion/fence_coverage.hpp
  * @brief Bounded upper-body coverage policy for camera-blocking fences.
  * @details A fence model is probed in rows of horizontal lines across it, one row per height from k_first_height up in
  *          k_height_step steps. A row whose probes mostly meet the drawn mesh is solid. A fence is a wall when enough
  *          rows are solid, enough of them at the upper body, so broad panels with seams stay walls while low panels
  *          with tall posts and open rails do not.
  */
-#ifndef TPVCAMERA_FENCE_COVERAGE_HPP
-#define TPVCAMERA_FENCE_COVERAGE_HPP
+#ifndef TPVCAMERA_CORE_OCCLUSION_FENCE_COVERAGE_HPP
+#define TPVCAMERA_CORE_OCCLUSION_FENCE_COVERAGE_HPP
 
 #include <array>
 #include <cstdint>
@@ -121,4 +121,4 @@ namespace TPVCamera::FenceCoverage
     };
 } // namespace TPVCamera::FenceCoverage
 
-#endif // TPVCAMERA_FENCE_COVERAGE_HPP
+#endif // TPVCAMERA_CORE_OCCLUSION_FENCE_COVERAGE_HPP

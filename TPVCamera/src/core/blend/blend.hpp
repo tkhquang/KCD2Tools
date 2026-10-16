@@ -1,12 +1,12 @@
 /**
- * @file camera/blend.hpp
+ * @file core/blend/blend.hpp
  * @brief The camera's eases: the two-stage critically damped filter the preset blend and the FOV share, and the 0..1
  *        weights the view switch and the first-person fallback ride.
  *
  * @details Engine-free (no Windows or DetourModKit header), so the local tests compile it as is.
  */
-#ifndef TPVCAMERA_CAMERA_BLEND_HPP
-#define TPVCAMERA_CAMERA_BLEND_HPP
+#ifndef TPVCAMERA_CORE_BLEND_BLEND_HPP
+#define TPVCAMERA_CORE_BLEND_BLEND_HPP
 
 #include <algorithm>
 #include <cmath>
@@ -98,4 +98,4 @@ namespace TPVCamera
     }
 } // namespace TPVCamera
 
-#endif // TPVCAMERA_CAMERA_BLEND_HPP
+#endif // TPVCAMERA_CORE_BLEND_BLEND_HPP

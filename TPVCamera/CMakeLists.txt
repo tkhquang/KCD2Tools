@@ -134,7 +134,6 @@ set(COMMON_SOURCES
   src/camera/lens.cpp
   src/camera/npc_lens_fade.cpp
   src/camera/see_through_driver.cpp
-  src/camera_rules.cpp
   src/camera_rules_files.cpp
   src/character_attachments.cpp
   src/config.cpp
@@ -191,6 +190,15 @@ string(REPEAT "0x[0-9a-f][0-9a-f]," 16 _rules_row)
 string(REGEX REPLACE "(${_rules_row})" "\\1\n" _rules_bytes "${_rules_bytes}")
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/default_rules.inc" CONTENT "${_rules_bytes}0x00\n")
 
+# --- Engine-free core ---
+# src/core holds the camera's pure parts: the eases, the stick curve, the view-box depth, the state policy rows, the
+# fence wall policy and the camera rules parser and classifier. No <windows.h>, no DetourModKit and no engine read, so
+# the local tests link it as it ships. Its own sources see no DetourModKit include path: a core source that reaches for
+# one fails to compile. The mod targets and the tests link it; it builds once for both.
+add_library(tpv_core STATIC src/core/rules/camera_rules.cpp)
+target_include_directories(tpv_core PUBLIC src)
+target_compile_options(tpv_core PRIVATE /W4 $<$<CONFIG:Release>:/O2 /Gy /Gw>)
+
 # Applies the settings shared by the production ASI and the dev logic DLL: include
 # paths, link libraries, and the Release speed/opt flags. /O2 favors speed: the
 # overlay renders through a software WARP device with a per-pixel premultiply loop
@@ -204,7 +212,7 @@ function(configure_logic_target target)
   # d3d11/dxgi back the private WARP device; gdi32 backs the layered-window
   # composite; winmm backs timeBeginPeriod (also pinned via #pragma comment).
   target_link_libraries(${target} PRIVATE
-    DetourModKit imgui_lib nlohmann_json::nlohmann_json
+    tpv_core DetourModKit imgui_lib nlohmann_json::nlohmann_json
     user32 kernel32 d3d11 dxgi gdi32 winmm)
   target_compile_options(${target} PRIVATE $<$<CONFIG:Release>:/O2 /Gy /Gw>)
   target_link_options(${target} PRIVATE $<$<CONFIG:Release>:/OPT:REF /OPT:ICF>)
@@ -224,7 +232,7 @@ if(NOT TPVCAMERA_DEV_BUILD)
   include(CheckIPOSupported)
   check_ipo_supported(RESULT _ipo_supported LANGUAGES CXX OUTPUT _ipo_error)
   if(_ipo_supported)
-    set_target_properties(${PROJECT_NAME}-ASI PROPERTIES INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+    set_target_properties(${PROJECT_NAME}-ASI tpv_core PROPERTIES INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
     message(STATUS "LTO enabled for ${PROJECT_NAME}-ASI Release builds")
   else()
     message(STATUS "LTO not supported for ${PROJECT_NAME}-ASI: ${_ipo_error}")

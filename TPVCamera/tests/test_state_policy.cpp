@@ -1,10 +1,11 @@
 /**
  * @file test_state_policy.cpp
- * @brief state_policy.hpp: the rows built from the five [StateBehavior] lists, first person winning over third, and
+ * @brief core/policy/state_policy.hpp: the rows built from the five [StateBehavior] lists, first person winning over
+ * third, and
  *        EnableStateBehavior gating only the edge-triggered lists.
  */
 
-#include "state_policy.hpp"
+#include "core/policy/state_policy.hpp"
 
 #include <gtest/gtest.h>
 

@@ -1,5 +1,5 @@
 /**
- * @file camera_rules.hpp
+ * @file core/rules/camera_rules.hpp
  * @brief The camera rules: how the third-person camera treats each object, read from KCD2_TPVCamera_rules.txt.
  *
  * Every list that decides how the camera treats an object (collide, fade, pass, the see-through window, the lens cut,
@@ -9,8 +9,8 @@
  * offline tool can link it and check it against every model the game ships. camera_rules_files.hpp loads the files
  * and publishes the set in force.
  */
-#ifndef TPVCAMERA_CAMERA_RULES_HPP
-#define TPVCAMERA_CAMERA_RULES_HPP
+#ifndef TPVCAMERA_CORE_RULES_CAMERA_RULES_HPP
+#define TPVCAMERA_CORE_RULES_CAMERA_RULES_HPP
 
 #include <array>
 #include <cstddef>
@@ -398,4 +398,4 @@ namespace TPVCamera::Rules
 
 } // namespace TPVCamera::Rules
 
-#endif // TPVCAMERA_CAMERA_RULES_HPP
+#endif // TPVCAMERA_CORE_RULES_CAMERA_RULES_HPP

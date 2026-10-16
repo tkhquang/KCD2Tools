@@ -6,17 +6,17 @@
  * This module finds them in the render octree (I3DEngine::GetObjectsInBox, octree nodes only: a node flagged
  * ERF_RENDER_ALWAYS sits in the engine's always-visible list and is never returned). It keeps a cached list of the
  * brushes, vegetation and entities around the camera arm, each classed as a structure (stops the camera) or a prop
- * (passed through and faded) by the camera rules (camera_rules.hpp), matches a physics collider to the node it belongs
- * to (so the camera collision can step past a fence post instead of stopping at it), tests sightlines from the camera
- * to the character against each prop's render mesh, and names the trees, bushes and grass in front of the character
- * for the tree see-through (see hooks/shader_twins.hpp). Every engine call is SEH-guarded and degrades to "nothing
- * found", so a layout or version drift can never crash the game.
+ * (passed through and faded) by the camera rules (core/rules/camera_rules.hpp), matches a physics collider to the node
+ * it belongs to (so the camera collision can step past a fence post instead of stopping at it), tests sightlines from
+ * the camera to the character against each prop's render mesh, and names the trees, bushes and grass in front of the
+ * character for the tree see-through (see hooks/shader_twins.hpp). Every engine call is SEH-guarded and degrades to
+ * "nothing found", so a layout or version drift can never crash the game.
  */
 #ifndef TPVCAMERA_RENDER_OCCLUSION_HPP
 #define TPVCAMERA_RENDER_OCCLUSION_HPP
 
-#include "camera/view_box.hpp"
-#include "camera_rules.hpp"
+#include "core/rules/camera_rules.hpp"
+#include "core/view/view_box.hpp"
 #include "math_utils.hpp"
 #include "query_ledger.hpp"
 

@@ -1,6 +1,7 @@
 /**
  * @file test_blend.cpp
- * @brief The camera eases of camera/blend.hpp against the arithmetic each site ran before it: bit-equal over the rate
+ * @brief The camera eases of core/blend/blend.hpp against the arithmetic each site ran before it: bit-equal over the
+ * rate
  *        matrix.
  *
  * @details Each reference repeats the replaced code as it was: the two-stage filter of the preset blend and the FOV
@@ -8,7 +9,7 @@
  *          its landing.
  */
 
-#include "camera/blend.hpp"
+#include "core/blend/blend.hpp"
 #include "frame_patterns.hpp"
 
 #include <gtest/gtest.h>

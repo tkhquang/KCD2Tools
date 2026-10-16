@@ -1,11 +1,11 @@
 /**
- * @file camera/stick.hpp
+ * @file core/input/stick.hpp
  * @brief The response curve the gamepad right stick's free-look deflection is read through.
  *
  * @details Engine-free (no Windows or DetourModKit header), so the local tests compile it as is.
  */
-#ifndef TPVCAMERA_CAMERA_STICK_HPP
-#define TPVCAMERA_CAMERA_STICK_HPP
+#ifndef TPVCAMERA_CORE_INPUT_STICK_HPP
+#define TPVCAMERA_CORE_INPUT_STICK_HPP
 
 #include <algorithm>
 #include <cmath>
@@ -40,4 +40,4 @@ namespace TPVCamera
     }
 } // namespace TPVCamera
 
-#endif // TPVCAMERA_CAMERA_STICK_HPP
+#endif // TPVCAMERA_CORE_INPUT_STICK_HPP

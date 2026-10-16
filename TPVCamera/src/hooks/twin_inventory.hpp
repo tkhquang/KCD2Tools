@@ -11,8 +11,8 @@
  * their plants stay solid without this inventory. This module walks those tables on the main thread inside the loading
  * finalizer (or, the first time the game stands still after a DEV hot reload or after a camera rules edit, in that
  * paused frame) and hands back every material of a plant or bare-frame asset with the scope the camera rules give its
- * asset path (camera_rules.hpp), so the finalizer can queue a twin for each of their shader items, with the gen masks
- * the engine itself computed (mods included).
+ * asset path (core/rules/camera_rules.hpp), so the finalizer can queue a twin for each of their shader items, with the
+ * gen masks the engine itself computed (mods included).
  *
  * Reads only: no engine call, no engine lock, every read SEH-guarded and bounded. The tables are read fresh on every
  * call; a null table (the main menu, a level unloading) means there is no level.

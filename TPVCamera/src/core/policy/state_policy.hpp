@@ -1,5 +1,5 @@
 /**
- * @file state_policy.hpp
+ * @file core/policy/state_policy.hpp
  * @brief What each game situation asks of the camera, built from the five [StateBehavior] lists: one row per situation.
  *
  * @details The INI keeps its five lists (ForcedFPVState, ForcedTPVState, OrbitExcludeState, NativeTurnExcludeState,
@@ -9,8 +9,8 @@
  *          exclusion, and first person wins where both views are forced. Engine-free (no Windows or DetourModKit
  *          header), so the local tests compile it as is.
  */
-#ifndef TPVCAMERA_STATE_POLICY_HPP
-#define TPVCAMERA_STATE_POLICY_HPP
+#ifndef TPVCAMERA_CORE_POLICY_STATE_POLICY_HPP
+#define TPVCAMERA_CORE_POLICY_STATE_POLICY_HPP
 
 #include <array>
 #include <bit>
@@ -123,4 +123,4 @@ namespace TPVCamera
     };
 } // namespace TPVCamera
 
-#endif // TPVCAMERA_STATE_POLICY_HPP
+#endif // TPVCAMERA_CORE_POLICY_STATE_POLICY_HPP

@@ -9,7 +9,7 @@
 #ifndef TPVCAMERA_CAMERA_COLLISION_TRACE_HPP
 #define TPVCAMERA_CAMERA_COLLISION_TRACE_HPP
 
-#include "camera/ease.hpp"
+#include "core/blend/ease.hpp"
 #include "hooks/shader_twins.hpp"
 #include "render_occlusion.hpp"
 

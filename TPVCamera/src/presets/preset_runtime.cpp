@@ -4,8 +4,8 @@
  */
 
 #include "preset_runtime.hpp"
-#include "camera/blend.hpp"
 #include "config.hpp"
+#include "core/blend/blend.hpp"
 #include "game_state.hpp"
 #include "switch_log.hpp"
 

@@ -31,7 +31,7 @@ add_executable(tpvcamera_tests
 )
 target_include_directories(tpvcamera_tests PRIVATE ${PROJECT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options(tpvcamera_tests PRIVATE /W4 /permissive- /utf-8)
-target_link_libraries(tpvcamera_tests PRIVATE GTest::gtest_main)
+target_link_libraries(tpvcamera_tests PRIVATE tpv_core GTest::gtest_main)
 gtest_discover_tests(tpvcamera_tests DISCOVERY_MODE PRE_TEST)
 
 add_custom_target(tpvcamera_all_tests DEPENDS tpvcamera_tests)
@@ -41,11 +41,11 @@ set(TPVCAMERA_RULES_PARITY_DIR "${PROJECT_SOURCE_DIR}/../tools/model-analysis/ca
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(EXISTS "${TPVCAMERA_RULES_PARITY_DIR}/rules_ref.py" AND EXISTS "${TPVCAMERA_RULES_PARITY_DIR}/parity/rules_dump.cpp"
    AND Python3_Interpreter_FOUND)
-  add_executable(tpvcamera_rules_dump
-    ${TPVCAMERA_RULES_PARITY_DIR}/parity/rules_dump.cpp
-    ${PROJECT_SOURCE_DIR}/src/camera_rules.cpp
-  )
-  target_include_directories(tpvcamera_rules_dump PRIVATE ${PROJECT_SOURCE_DIR}/src ${TPVCAMERA_RULES_PARITY_DIR}/parity)
+  add_executable(tpvcamera_rules_dump ${TPVCAMERA_RULES_PARITY_DIR}/parity/rules_dump.cpp)
+  # The local tool includes "camera_rules.hpp" by its bare name.
+  target_include_directories(tpvcamera_rules_dump PRIVATE ${PROJECT_SOURCE_DIR}/src/core/rules
+                                                          ${TPVCAMERA_RULES_PARITY_DIR}/parity)
+  target_link_libraries(tpvcamera_rules_dump PRIVATE tpv_core)
   target_compile_options(tpvcamera_rules_dump PRIVATE /W4 /permissive- /utf-8 /EHsc)
   add_dependencies(tpvcamera_all_tests tpvcamera_rules_dump)
   add_test(NAME CameraRules.Parity

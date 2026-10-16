@@ -1,9 +1,9 @@
 /**
  * @file test_ease.cpp
- * @brief The collision ease (camera/ease.hpp): its step responses, edge cases and frame-rate independence.
+ * @brief The collision ease (core/blend/ease.hpp): its step responses, edge cases and frame-rate independence.
  */
 
-#include "camera/ease.hpp"
+#include "core/blend/ease.hpp"
 #include "frame_patterns.hpp"
 
 #include <gtest/gtest.h>
