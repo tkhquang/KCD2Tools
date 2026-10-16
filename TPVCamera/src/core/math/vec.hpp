@@ -3,8 +3,7 @@
  * @brief The camera's vector and quaternion: plain float aggregates in the engine's layout, with a DirectXMath bridge.
  *
  * @details Engine-free (no Windows or DetourModKit header; DirectXMath is header-only), so the local tests compile it
- * as
- *          is. math_utils.hpp adds the DetourModKit opt-in that lets memory::read copy them out of engine memory.
+ *          as is. math_utils.hpp adds the DetourModKit opt-in that lets memory::read copy them out of engine memory.
  */
 #ifndef TPVCAMERA_CORE_MATH_VEC_HPP
 #define TPVCAMERA_CORE_MATH_VEC_HPP

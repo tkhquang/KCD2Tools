@@ -3,9 +3,8 @@
  * @brief The third-person lens near plane: how far out the near clip plane goes so what touches the lens is cut away.
  *
  * @details Engine-free (no Windows or DetourModKit header): the world is asked through a WorldProbe, so a recorded
- * frame
- *          replays exactly (core/collision/probe_record.hpp). camera/lens.hpp reads the camera and scales its near
- *          corner by the plane this plans.
+ *          frame replays exactly (core/collision/probe_record.hpp). camera/lens.hpp reads the camera and scales its
+ *          near corner by the plane this plans.
  */
 #ifndef TPVCAMERA_CORE_LENS_LENS_PLAN_HPP
 #define TPVCAMERA_CORE_LENS_LENS_PLAN_HPP
