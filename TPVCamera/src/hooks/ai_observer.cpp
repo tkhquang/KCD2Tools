@@ -6,6 +6,7 @@
 #include "hooks/ai_observer.hpp"
 #include "aob_resolver.hpp"
 #include "constants.hpp"
+#include "global_state.hpp"
 #include "hooks/camera_hook.hpp"
 #include "hooks/vtable_slots.hpp"
 #include "rtti_types.hpp"
@@ -27,23 +28,14 @@ namespace TPVCamera
                                                             float *direction, bool *direction_valid, float *fov);
         std::atomic<CameraObserverUpdateFunc> s_camera_observer_update_original{nullptr};
 
-        // The first-person eye position of the last game-view frame that rendered the third-person offset, published by
-        // the frustum detour for the camera-observer detour. The components are separate atomics: a reader racing a
-        // writer can mix two consecutive frames' eyes, which differ by a frame of movement and do not matter to the AI.
-        // s_ai_eye_valid is released after the components and cleared when the offset disengages.
-        std::atomic<float> s_ai_eye_x{0.0f};
-        std::atomic<float> s_ai_eye_y{0.0f};
-        std::atomic<float> s_ai_eye_z{0.0f};
-        std::atomic<bool> s_ai_eye_valid{false};
-
         /**
          * @brief Camera-observer update detour: keeps the AI's camera observer at the first-person eye in third person.
          * @details The engine's camera observer copies the system view camera, which carries the third-person offset.
          *          The AI selects which NPCs to update in full, and which to hide and pause, from that observer, so an
          *          NPC a few metres beyond its reach from the pulled-back camera (a sleeper in a house, someone inside a
          *          shop) vanishes in third person while first person, whose camera is the eye, shows it. The original
-         *          runs first. While the offset renders, its position is replaced with the eye the frustum detour last
-         *          published, so every consumer of the observer sees what it sees in first person. The direction and
+         *          runs first. While the offset renders, its position is replaced with the eye of the last camera
+         *          frame (last_final()), so every consumer of the observer sees what it sees in first person. The direction and
          *          field of view stay as the original set them: the offset camera looks the same way as the eye.
          */
         bool __fastcall detour_camera_observer_update(uintptr_t observer, float *position, bool *position_valid,
@@ -54,12 +46,14 @@ namespace TPVCamera
             const bool updated =
                 original != nullptr && original(observer, position, position_valid, direction, direction_valid, fov);
             // The original has just written through this pointer, so writing it again is as safe as its own store.
-            if (updated && position != nullptr && camera_offset_active() &&
-                s_ai_eye_valid.load(std::memory_order_acquire))
+            if (updated && position != nullptr && camera_offset_active())
             {
-                position[0] = s_ai_eye_x.load(std::memory_order_relaxed);
-                position[1] = s_ai_eye_y.load(std::memory_order_relaxed);
-                position[2] = s_ai_eye_z.load(std::memory_order_relaxed);
+                if (const FrameRecord frame = last_final(); frame.valid)
+                {
+                    position[0] = frame.eye.x;
+                    position[1] = frame.eye.y;
+                    position[2] = frame.eye.z;
+                }
             }
             return updated;
         }
@@ -110,18 +104,5 @@ namespace TPVCamera
         logger.info("Camera: the AI camera observer follows the first-person eye in third person (C_CameraObserver "
                     "slot {} at {})",
                     Constants::CAMERA_OBSERVER_VTABLE_UPDATE_SLOT, DMK::format::format_address(target));
-    }
-
-    void publish_ai_observer_eye(const Vector3 &eye) noexcept
-    {
-        s_ai_eye_x.store(eye.x, std::memory_order_relaxed);
-        s_ai_eye_y.store(eye.y, std::memory_order_relaxed);
-        s_ai_eye_z.store(eye.z, std::memory_order_relaxed);
-        s_ai_eye_valid.store(true, std::memory_order_release);
-    }
-
-    void withdraw_ai_observer_eye() noexcept
-    {
-        s_ai_eye_valid.store(false, std::memory_order_release);
     }
 } // namespace TPVCamera

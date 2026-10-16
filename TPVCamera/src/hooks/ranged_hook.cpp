@@ -454,8 +454,8 @@ namespace TPVCamera
          * @brief Single-producer seqlock for the AimTarget.
          * @details The main-thread frame step writes it and the Launch detour reads it on the shot's thread, so a read
          *          must see one frame's target, never a camera from one frame and a point from the next. Same protocol
-         *          as InteractionAimPose: an odd sequence marks a write in progress, and a read retries or fails
-         *          closed.
+         *          as SeqlockSnapshot (core/frame/channels.hpp): an odd sequence marks a write in progress, and a read
+         *          retries or fails closed.
          */
         class AimTargetChannel
         {
@@ -2299,7 +2299,7 @@ namespace TPVCamera
             // Cast even with AimAtCrosshair off: a shot the game aims on its own is still measured against the
             // crosshair, and the aim preview places the bow from the eye the target carries.
             float cx = 0.0f, cy = 0.0f, cz = 0.0f, dx = 0.0f, dy = 1.0f, dz = 0.0f;
-            if (!armed || !interaction_aim_pose().load(cx, cy, cz, dx, dy, dz))
+            if (!armed || !last_final_pose(cx, cy, cz, dx, dy, dz))
             {
                 if (s_was_valid)
                 {
@@ -3836,7 +3836,7 @@ namespace TPVCamera
         {
             view = to_vector(target.camera);
         }
-        else if (interaction_aim_pose().load(cx, cy, cz, dx, dy, dz))
+        else if (last_final_pose(cx, cy, cz, dx, dy, dz))
         {
             view = Vector3{cx, cy, cz};
         }
