@@ -1320,14 +1320,16 @@ namespace TPVCamera
         // The build's one write into the camera: the matrix, the FOV and the cull edges, the near corner.
         commit_view(camera, write);
 
-        // Publish the rendered camera pose + crosshair direction for the camera-space interaction hook
-        // (interaction_hook.cpp). The player use-cone is eye-anchored and never reads the render camera, so
-        // in third person the screen-centre crosshair and the use-target diverge by the shoulder offset
-        // (worst at close range - you cannot loot/use what the crosshair appears to be on). The hook
-        // re-origins the cone onto this pose when InteractFromCamera is set. valid is true only here (while
-        // the offset is engaged); the suppression path below clears it, so first person leaves the game alone.
-        interaction_aim_pose().store(final_position.x, final_position.y, final_position.z, screen_forward.x,
-                                     screen_forward.y, screen_forward.z);
+        // The frame's record (LastFinal) for the hooks that re-origin onto it: the interaction cone and the ranged
+        // ray onto the rendered camera and crosshair, the AI's camera observer onto the first-person eye (see
+        // publish_last_final()). It is valid only here, while the offset is engaged; the disengage path publishes an
+        // invalid one, so first person leaves the game alone.
+        publish_last_final(FrameRecord{
+            .eye = rig.eye_position,
+            .position = final_position,
+            .forward = screen_forward,
+            .valid = true,
+        });
         if (!step.repeat_build)
         {
             QueryLedger::note_view({
@@ -1866,10 +1868,9 @@ namespace TPVCamera
             {
                 stop_tree_see_through(delta_time);
             }
-            // First person (or suppressed): the camera is the eye, so the interaction hook must NOT redirect.
-            interaction_aim_pose().invalidate();
-            // Nor does the AI's camera observer need the eye substituted.
-            withdraw_ai_observer_eye();
+            // First person (or suppressed): the camera is the eye, so neither the interaction and ranged hooks nor the
+            // AI's camera observer re-origin.
+            publish_last_final(FrameRecord{});
             // The held base outlives a first-person gap while a situation holds free-look off, so free-look comes
             // back on the base it had.
             if (!cam.orbit_suspended.load(std::memory_order_relaxed))
@@ -1917,14 +1918,6 @@ namespace TPVCamera
         // Resolve the active preset (by debounced state, or the overlay's editing pin) and ease the
         // live framing toward it BEFORE the matrix offset reads those settings this frame.
         Presets::resolve_and_apply(state, delta_time);
-
-        // Publish the untouched first-person eye for the camera-observer detour before the matrix is offset: the AI
-        // judges which NPCs to update from the observer, and in first person that observer stands at the eye.
-        if (const auto eye = DMK::memory::read<Vector3>(DMK::Address{cview + Constants::SVIEWPARAMS_POSITION_OFFSET});
-            eye)
-        {
-            publish_ai_observer_eye(*eye);
-        }
 
         // Smoothstep the linear view blend for an ease-in/out feel, then offset with it.
         const float view_s = smoothstep(cam.view_blend);

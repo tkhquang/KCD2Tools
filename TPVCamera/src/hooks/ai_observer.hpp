@@ -22,18 +22,6 @@ namespace TPVCamera
      *          hooking another function.
      */
     void install_camera_observer_hook(std::uintptr_t module_base, std::size_t module_size, HookSet &hooks);
-
-    /**
-     * @brief Publishes the untouched first-person eye of this game-view frame for the camera-observer detour.
-     * @note Main thread (the frustum detour), before the matrix is offset.
-     */
-    void publish_ai_observer_eye(const Vector3 &eye) noexcept;
-
-    /**
-     * @brief Withdraws the published eye when the offset disengages, so the observer keeps the engine's position.
-     * @note Main thread (the frustum detour).
-     */
-    void withdraw_ai_observer_eye() noexcept;
 } // namespace TPVCamera
 
 #endif // TPVCAMERA_HOOKS_AI_OBSERVER_HPP

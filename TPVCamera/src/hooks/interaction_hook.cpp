@@ -113,7 +113,7 @@ namespace TPVCamera
         bool redirect_interaction_ray(uintptr_t origin, uintptr_t dir) noexcept
         {
             float px, py, pz, dx, dy, dz;
-            if (!interaction_aim_pose().load(px, py, pz, dx, dy, dz))
+            if (!last_final_pose(px, py, pz, dx, dy, dz))
             {
                 // No coherent valid pose (first person, or raced with an invalidate); leave the ray unchanged.
                 return false;
@@ -243,7 +243,7 @@ namespace TPVCamera
                 {
                     s_last_reason = "InteractFromCamera=off";
                 }
-                else if (!interaction_aim_pose().is_valid())
+                else if (!last_final().valid)
                 {
                     s_last_reason = "first-person (offset not engaged)";
                 }
@@ -343,7 +343,7 @@ namespace TPVCamera
             float px, py, pz, dx, dy, dz;
             float eye[3] = {0.0f, 0.0f, 0.0f};
             if (pose == nullptr || !settings().interact_from_camera.load(std::memory_order_relaxed) ||
-                !interaction_aim_pose().load(px, py, pz, dx, dy, dz) || !read_pose_position(pose, eye))
+                !last_final_pose(px, py, pz, dx, dy, dz) || !read_pose_position(pose, eye))
             {
                 return original(interactor, pose, mask);
             }
@@ -400,8 +400,7 @@ namespace TPVCamera
             float px, py, pz, dx, dy, dz;
             if (reinterpret_cast<uintptr_t>(_ReturnAddress()) == s_prompt_segment_return && segment != nullptr &&
                 settings().interact_from_camera.load(std::memory_order_relaxed) &&
-                interaction_aim_pose().load(px, py, pz, dx, dy, dz) &&
-                lay_segment_on_crosshair(segment, px, py, pz, dx, dy, dz))
+                last_final_pose(px, py, pz, dx, dy, dz) && lay_segment_on_crosshair(segment, px, py, pz, dx, dy, dz))
             {
                 s_prompt_segments.fetch_add(1, std::memory_order_relaxed);
             }
