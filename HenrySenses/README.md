@@ -347,3 +347,15 @@ Then rebuild the release ASI or dev logic DLL using the commands above. For the 
 The C++23 sources follow a hard 120-column baseline and DetourModKit's coding conventions, with `.clang-format` (clang-format 20 or newer), `.editorconfig` and an advisory `.clang-tidy`. Long messages use adjacent string literals split at phrase boundaries.
 
 Format changed source files before submitting changes and check them with `clang-format --dry-run --Werror <files>`. Editor IntelliSense, debugging and build tasks are configured in the repository-root `.vscode/` folder.
+
+## Credits
+
+- [DetourModKit](https://github.com/tkhquang/DetourModKit) - core modding framework
+- [ThirteenAG](https://github.com/ThirteenAG) - Ultimate ASI Loader
+- [cursey](https://github.com/cursey) - SafetyHook
+- [Florian Bernd and Joel Hoener](https://github.com/zyantific) - Zydis and Zycore, the disassembly used by SafetyHook
+- [Brodie Thiesfield](https://github.com/brofield) - SimpleIni
+- [Microsoft](https://github.com/microsoft/DirectXMath) - DirectXMath
+- [pointfeev](https://github.com/pointfeev) - HDR display support
+- Warhorse Studios - Kingdom Come: Deliverance II
+- Loot Beacon players - feedback on visibility and colour accessibility

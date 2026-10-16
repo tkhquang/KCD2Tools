@@ -644,6 +644,17 @@ namespace HenrySenses::constants
     inline constexpr std::ptrdiff_t PIPELINE_RESOURCES_OFFSET = 0x840;     // CGraphicsPipelineResources (inline)
     inline constexpr std::ptrdiff_t PIPELINE_CURRENT_VIEW_OFFSET = 0x1978; // CRenderView * being executed
     inline constexpr std::ptrdiff_t PIPELINE_FLAGS_OFFSET = 0x1980; // u64 execution flags, restored around the mask
+    // The pipeline's HDR output settings, which the OutputDeviceTransform setup (Steam 1.5.6 0x181E033E0) reads:
+    // i32 output mode, -1 under SDR output (the render output's HDR flag is set from it), and the f32 UI brightness in
+    // nits (r_HDRUIBrightness), where the transform puts the SDR UI's white.
+    inline constexpr std::ptrdiff_t PIPELINE_HDR_MODE_OFFSET = 0x1568;
+    inline constexpr std::ptrdiff_t PIPELINE_HDR_UI_BRIGHTNESS_OFFSET = 0x156C;
+    inline constexpr std::int32_t HDR_MODE_SDR = -1;
+    // Both PC HDR modes (1 scRGB, 2 Rec.2020 PQ) feed the transform a scene in which 1.0 is 80 nits (HDR_WHITE_VALUE,
+    // CommonColorTransforms.cfi). Mode 3, a 10000-nit linear scene, is Xbox only.
+    inline constexpr float HDR_WHITE_NITS = 80.0f;
+    // The transform keeps the UI brightness at 50 nits or more.
+    inline constexpr float HDR_MIN_UI_NITS = 50.0f;
     // Base CGraphicsStage members.
     inline constexpr std::ptrdiff_t STAGE_PIPELINE_OFFSET = 0x08;    // CGraphicsPipeline *
     inline constexpr std::ptrdiff_t STAGE_RESOURCES_OFFSET = 0x10;   // CGraphicsPipelineResources *
@@ -682,6 +693,14 @@ namespace HenrySenses::constants
     // $ZTarget, the view's linear depth (R32F at render resolution). The composite reads it to keep the nearer of
     // two touching objects' outlines.
     inline constexpr std::ptrdiff_t RESOURCES_LINEAR_DEPTH_OFFSET = 0x28;
+    // Under HDR output the pipeline copies $HDRTargetA (+0x238) into the transform's scene, $HDRTarget (+0x40), right
+    // before the after-LDR passes (Steam 1.5.6 0x180573C09). With an active upscaler it copies the upscaler's +0x108
+    // into its +0x80 instead. The composite draws into the scene (AnchorId::HdrSceneTarget) and reads the copy's
+    // source, which still holds the same picture.
+    inline constexpr std::ptrdiff_t RESOURCES_HDR_SCENE_SOURCE_OFFSET = 0x238;
+    inline constexpr std::ptrdiff_t RESOURCES_UPSCALER_OFFSET = 0x380;
+    inline constexpr std::ptrdiff_t UPSCALER_HDR_SCENE_OFFSET = 0x80;
+    inline constexpr std::ptrdiff_t UPSCALER_HDR_SCENE_SOURCE_OFFSET = 0x108;
     // CTexture members.
     inline constexpr std::ptrdiff_t TEXTURE_ID_OFFSET = 0x60; // u32
     // const char *: the lower-case name the engine finds the texture by.

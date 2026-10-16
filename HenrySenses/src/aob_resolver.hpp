@@ -1317,6 +1317,31 @@ namespace HenrySenses
                 -0x5F
             ),
         };
+
+        // HdrSceneTarget: the pipeline-resource lookup that hands the OutputDeviceTransform its scene (the upscaler's
+        // +0x80 when an upscaler runs, else the resources' +0x40). 3 rungs, most specific first. The +0x80 load tells it
+        // from its sibling, the copy-source lookup (+0x108 / +0x238).
+        inline const Candidate HDR_SCENE_TARGET_CANDIDATES[] = {
+            Candidate::direct(
+                "HdrSceneTarget_P1_UpscalerOrOwn",
+                Pattern::literal(
+                    "40 53 48 83 EC 20 48 8B D9 E8 ?? ?? ?? ?? 84 C0 74 ?? 48 8B 83 ?? ?? ?? ?? 48 8B 80 80 00 00 00 "
+                    "48 83 C4 20 5B C3 48 8B 43 40"
+                )
+            ),
+            Candidate::direct(
+                "HdrSceneTarget_P2_UpscalerOutputOrOwn",
+                Pattern::literal(
+                    "48 8B 83 ?? ?? ?? ?? 48 8B 80 80 00 00 00 48 83 C4 20 5B C3 48 8B 43 40 48 83 C4 20 5B C3"
+                ),
+                -0x12
+            ),
+            Candidate::direct(
+                "HdrSceneTarget_P3_TestUpscalerOutput",
+                Pattern::literal("84 C0 74 ?? 48 8B 83 ?? ?? ?? ?? 48 8B 80 80 00 00 00 48 83 C4 20 5B C3"),
+                -0xE
+            ),
+        };
     } // namespace aob
 
     /**
@@ -1454,6 +1479,8 @@ namespace HenrySenses
         PostFxDepthStencil,
         /// CClearSurfacePass::Execute, the depth-stencil overload (called, supersampled mask).
         ClearDepth,
+        /// The pipeline-resource lookup that hands the OutputDeviceTransform its scene (called, HDR output).
+        HdrSceneTarget,
         /// Enumerator count. Not an anchor.
         Count,
     };
@@ -1528,6 +1555,8 @@ namespace HenrySenses
         WorldEffects,
         /// The supersampled silhouette mask (the mod's own render targets, drawn into by the mask pass).
         SupersampledMask,
+        /// Highlights under HDR output (the after-LDR composite into the OutputDeviceTransform's scene).
+        HdrOutput,
         /// Enumerator count. Not a feature.
         Count,
     };

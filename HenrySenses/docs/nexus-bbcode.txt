@@ -242,6 +242,7 @@ Built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url] for 
 [*][url=https://github.com/zyantific/zydis]Zydis[/url] / [url=https://github.com/zyantific/zycore-c]Zycore[/url] by Florian Bernd & Joel Hoener - disassembly used by SafetyHook[/*]
 [*][url=https://github.com/brofield/simpleini]SimpleIni[/url] by Brodie Thiesfield - INI configuration[/*]
 [*][url=https://github.com/microsoft/DirectXMath]DirectXMath[/url] by Microsoft - math primitives[/*]
+[*][url=https://github.com/pointfeev]pointfeev[/url] - HDR display support[/*]
 [*]Warhorse Studios - Kingdom Come: Deliverance II[/*]
 [*]Loot Beacon players - feedback on visibility and colour accessibility[/*]
 [/list]
