@@ -632,7 +632,7 @@ namespace TPVCamera
         } const update_scope;
         const LiveSettings &cfg = settings();
         const bool enabled = cfg.native_turn_animation.load(std::memory_order_relaxed);
-        const bool excluded = (state & cfg.native_turn_exclude_mask.load(std::memory_order_relaxed)) != 0;
+        const bool excluded = (state & state_policy().native_turn_exclude()) != 0;
         const bool releasing = s_native_turn_release_requested.load(std::memory_order_seq_cst);
 
         // Without a resolved player there is no one to send the event to, so switching off would leave the action's

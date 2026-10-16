@@ -208,7 +208,7 @@ namespace TPVCamera
 
     bool should_apply_view() noexcept
     {
-        const uint32_t suppress = settings().suppress_tpv_mask.load(std::memory_order_relaxed);
+        const uint32_t suppress = state_policy().suppress();
         if (suppress == 0)
         {
             return true;
@@ -2338,22 +2338,13 @@ namespace TPVCamera
      *          plain file-scope static; cam.applying is atomic because the hotkeys write it too.
      * @param cam Camera state whose applying flag (the live view) is forced and restored.
      * @param state Current debounced GameState mask.
-     * @param forced_fpv_mask States that switch to first person on entry.
-     * @param forced_tpv_mask States that switch to third person on entry.
+     * @param policy The situations' rows: which force first or third person on entry (first person wins).
      */
-    static void apply_forced_view_policy(CameraState &cam, uint32_t state, uint32_t forced_fpv_mask,
-                                         uint32_t forced_tpv_mask)
+    static void apply_forced_view_policy(CameraState &cam, uint32_t state, const StatePolicyTable &policy)
     {
         // The view the policy wants this frame: -1 none, 0 force FPV, 1 force TPV (forced-FPV wins).
-        int forced_view = -1;
-        if ((state & forced_fpv_mask) != 0)
-        {
-            forced_view = 0;
-        }
-        else if ((state & forced_tpv_mask) != 0)
-        {
-            forced_view = 1;
-        }
+        const ViewForce force = policy.view(state);
+        const int forced_view = force == ViewForce::FirstPerson ? 0 : force == ViewForce::ThirdPerson ? 1 : -1;
 
         // s_prev_forced_view detects the edge; s_saved_applying is the view to restore on exit;
         // s_policy_owns is cleared once the player toggles the view while a forced state is active, so
@@ -2367,9 +2358,7 @@ namespace TPVCamera
             const bool view_before = cam.applying.load(std::memory_order_relaxed);
             Presets::SwitchEvent event{
                 .kind = Presets::SwitchKind::Policy,
-                .mask = state & (forced_view == 0   ? forced_fpv_mask
-                                 : forced_view == 1 ? forced_tpv_mask
-                                                    : 0u),
+                .mask = state & policy.forcing(force),
             };
             Presets::copy_switch_text(event.from, view_before ? "third person" : "first person");
             if (forced_view == -1)
@@ -2594,9 +2583,8 @@ namespace TPVCamera
         CameraState &cam = camera_state();
         LiveSettings &cfg = settings();
 
-        const bool state_policy = cfg.enable_state_behavior.load(std::memory_order_relaxed);
-        const uint32_t forced_fpv = state_policy ? cfg.forced_fpv_mask.load(std::memory_order_relaxed) : 0u;
-        const uint32_t forced_tpv = state_policy ? cfg.forced_tpv_mask.load(std::memory_order_relaxed) : 0u;
+        // The [StateBehavior] lists, one row per situation, read once for this build.
+        const StatePolicyTable policy = state_policy();
 
         // The camera is embedded in its CView at SVIEWPARAMS_VIEWMATRIX_OFFSET, so the CView is that
         // far below the camera. Confirm it by checking the CView vtable: shadow/reflection/portal
@@ -2668,7 +2656,7 @@ namespace TPVCamera
         // disengages).
         // A pending arrow keeps the full path too, so a first-person shot is still followed and drawn, and so does a
         // distraction stone in hand while the aim preview is on, so its landing is still shown.
-        if (!cam.applying.load(std::memory_order_relaxed) && (forced_fpv | forced_tpv) == 0 && !head_was_active() &&
+        if (!cam.applying.load(std::memory_order_relaxed) && !policy.forces_any_view() && !head_was_active() &&
             cam.view_blend <= 1e-3f && !native_turn_engaged() &&
             !ranged_wants_frame(cfg.ranged_show_aim_preview.load(std::memory_order_relaxed) ? resolve_c_player() : 0))
         {
@@ -2713,16 +2701,15 @@ namespace TPVCamera
         const uint32_t policy_state = (state & ~k_live_ui_states) | (raw_state & k_live_ui_states);
         const bool facing_held = ((state | raw_state) & k_game_held_facing_states) != 0u;
         cam.aim_handoff_requested = false;
-        if (state_policy)
+        if (policy.edge_rules())
         {
             // Both policies are edge-triggered (they act on state-change edges, not every frame) so the
             // player keeps manual control while a state lasts. The forced-view policy writes cam.applying
             // on entry and restores it on exit; the orbit-exclude policy suspends free-look on entry and
             // restores it on exit.
-            apply_forced_view_policy(cam, state, forced_fpv, forced_tpv);
+            apply_forced_view_policy(cam, state, policy);
             cam.aim_handoff_requested =
-                apply_orbit_exclude_policy(cam, policy_state, cfg.orbit_exclude_mask.load(std::memory_order_relaxed)) &&
-                !facing_held;
+                apply_orbit_exclude_policy(cam, policy_state, policy.orbit_exclude()) && !facing_held;
         }
         else
         {
