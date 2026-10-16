@@ -33,7 +33,8 @@ float4 HSSilhouetteParams0;
 // xy: the visibility mask's UV offset (it is drawn with the camera jitter; this moves it back), zw: target texel size
 // (1 / width, 1 / height).
 float4 HSSilhouetteParams1;
-// x: 1 when the visibility mask applies (SeeThrough = false), else 0.
+// x: 1 when the visibility mask applies (SeeThrough = false), else 0. y: under HDR output, SDR white in HDR scene units
+// (the UI brightness), else 0.
 float4 HSSilhouetteParams2;
 
 Texture2D    HSSilhouetteMask        : register(t0);
@@ -44,6 +45,9 @@ Texture2D    HSSilhouetteDepth       : register(t1);
 // The depth-tested mask (SeeThrough = false): a silhouette texel counts only where this mask has a word too. Bound to
 // the mask itself when HSSilhouetteParams2.x is 0.
 Texture2D    HSSilhouetteVisibility  : register(t2);
+// Under HDR output: the game's copy of the scene the composite draws into ($HDRTargetA, copied just before the after-LDR
+// passes). Bound to the mask when HSSilhouetteParams2.y is 0.
+Texture2D    HSSilhouetteScene       : register(t3);
 
 struct pixout
 {
@@ -189,6 +193,39 @@ void HSEvaluate(float2 baseTC, out float3 inside, out float3 outline, out float 
   coverage = saturate(centerCoverage + max(ring, frontAlpha));
 }
 
+// Under HDR output the composite draws into the scene that the game's OutputDeviceTransform encodes for the screen. The
+// scene is linear with Rec.2020 primaries, and the transform puts the SDR UI's white at the UI brightness with a 2.2
+// gamma (ColorSpaceUtils.cfx). An SDR frame adds the highlight to the gamma-encoded picture and clips each channel at
+// white. HSToOutput applies that sum to the pixel's SDR value, read from the game's copy of the scene, and returns the
+// change in light for the additive blend. Scene light above SDR white keeps its value, as white does in SDR.
+static const float3x3 HSFrom709To2020 =
+{
+  0.627402, 0.329292, 0.043306,
+  0.069095, 0.919544, 0.011360,
+  0.016394, 0.088028, 0.895578
+};
+
+static const float3x3 HSFrom2020To709 =
+{
+  1.660496, -0.587656, -0.072840,
+  -0.124547, 1.132895, -0.008348,
+  -0.018154, -0.100597, 1.118751
+};
+
+float3 HSToOutput(float3 color, float2 position)
+{
+  const float white = HSSilhouetteParams2.y;
+  if (white <= 0.0)
+    return color;
+  color = max(color, 0.0);
+  if (HSMax3(color) <= 0.0)
+    return 0.0;
+  const float3 scene = max(mul(HSFrom2020To709, HSSilhouetteScene.Load(int3(position, 0)).rgb) / white, 0.0);
+  const float3 sdr = pow(scene, 1.0 / 2.2);
+  const float3 added = min(sdr + color, max(sdr, 1.0));
+  return mul(HSFrom709To2020, (pow(added, 2.2) - scene) * white);
+}
+
 pixout HSSilhouettePS(vtxOutLBSilhouette IN)
 {
   pixout OUT = (pixout)0;
@@ -196,7 +233,7 @@ pixout HSSilhouettePS(vtxOutLBSilhouette IN)
   float3 outline;
   float  coverage;
   HSEvaluate(IN.baseTC.xy, inside, outline, coverage);
-  OUT.Color = float4(inside + outline, 0);
+  OUT.Color = float4(HSToOutput(inside + outline, IN.HPosition.xy), 0);
   return OUT;
 }
 

@@ -217,6 +217,7 @@ namespace HenrySenses
             std::uintptr_t post_fx_render_target{0};
             std::uintptr_t post_fx_depth_stencil{0};
             std::uintptr_t clear_depth{0};
+            std::uintptr_t hdr_scene_target{0};
         };
 
         RenderCalls s_calls{};
@@ -445,6 +446,7 @@ namespace HenrySenses
         std::uintptr_t s_bound_shader{0};
         std::uintptr_t s_bound_depth{0};
         std::uintptr_t s_bound_visibility{0};
+        std::uintptr_t s_bound_scene{0};
         std::uint32_t s_technique_key{DEFERRED_SILHOUETTES_CRC};
         std::uint32_t s_custom_technique_key{HENRY_SENSES_SILHOUETTE_CRC};
         std::uint32_t s_custom_coverage_key{HENRY_SENSES_COVERAGE_CRC};
@@ -2093,6 +2095,105 @@ namespace HenrySenses
         };
 
         /**
+         * @enum HdrState
+         * @brief The output that the after-LDR composite finds.
+         */
+        enum class HdrState : std::uint8_t
+        {
+            Sdr,
+            Hdr,
+            /// HDR output without a scene or source to use. The OutputDeviceTransform draws over a composite into the
+            /// render output, so no composite runs.
+            Unavailable,
+        };
+
+        /**
+         * @struct HdrOutput
+         * @brief The after-LDR composite's output. Under HDR output the OutputDeviceTransform redraws the whole back
+         *        buffer from its scene after the after-LDR passes, so the composite draws into that scene.
+         */
+        struct HdrOutput
+        {
+            /// The output mode. The other fields hold values only under HdrState::Hdr.
+            HdrState state{HdrState::Sdr};
+            /// The transform's scene, the composite's destination.
+            std::uintptr_t scene{0};
+            /// The texture that the pipeline copied into the scene right before the after-LDR passes. It still holds
+            /// the same picture, and the composite reads the scene from it.
+            std::uintptr_t source{0};
+            /// SDR white in scene units: the UI brightness, where the transform puts the SDR UI's white.
+            float sdr_white{0.0f};
+        };
+
+        /**
+         * @brief Reads the pipeline's HDR output mode and, under HDR output, the composite's scene, source and SDR
+         *        white (render thread).
+         * @param pipeline The CStandardGraphicsPipeline that runs the view.
+         * @param stage Its CSceneCustomStage.
+         * @return The output. A fault reads as HdrState::Unavailable.
+         */
+        [[nodiscard]] HdrOutput guarded_hdr_output(std::uintptr_t pipeline, std::uintptr_t stage) noexcept
+        {
+            HdrOutput output{
+                .state = HdrState::Unavailable,
+            };
+            __try
+            {
+                if (load<std::int32_t>(pipeline + constants::PIPELINE_HDR_MODE_OFFSET) == constants::HDR_MODE_SDR)
+                {
+                    output.state = HdrState::Sdr;
+                    return output;
+                }
+                const std::uintptr_t resources = load<std::uintptr_t>(stage + constants::STAGE_RESOURCES_OFFSET);
+                if (s_calls.hdr_scene_target == 0 || resources == 0)
+                {
+                    return output;
+                }
+                const std::uintptr_t scene = reinterpret_cast<DisplayTargetFn>(s_calls.hdr_scene_target)(
+                    resources,
+                    constants::DISPLAY_TARGET_STAGE
+                );
+                if (scene == 0)
+                {
+                    return output;
+                }
+                // The lookup returns the upscaler's scene while an upscaler runs, and the copy's source follows the
+                // same branch.
+                const std::uintptr_t upscaler = load<std::uintptr_t>(resources + constants::RESOURCES_UPSCALER_OFFSET);
+                const bool upscaled =
+                    upscaler != 0 && load<std::uintptr_t>(upscaler + constants::UPSCALER_HDR_SCENE_OFFSET) == scene;
+                const std::uintptr_t source = load<std::uintptr_t>(
+                    upscaled ? upscaler + constants::UPSCALER_HDR_SCENE_SOURCE_OFFSET
+                             : resources + constants::RESOURCES_HDR_SCENE_SOURCE_OFFSET
+                );
+                // The shader loads the source at the destination's pixel, so both textures must share one size.
+                if (source == 0 || source == scene ||
+                    load<std::uintptr_t>(scene + constants::TEXTURE_DEVICE_OFFSET) == 0 ||
+                    load<std::uintptr_t>(source + constants::TEXTURE_DEVICE_OFFSET) == 0 ||
+                    load<std::uint16_t>(scene + constants::TEXTURE_WIDTH_OFFSET) !=
+                        load<std::uint16_t>(source + constants::TEXTURE_WIDTH_OFFSET) ||
+                    load<std::uint16_t>(scene + constants::TEXTURE_HEIGHT_OFFSET) !=
+                        load<std::uint16_t>(source + constants::TEXTURE_HEIGHT_OFFSET))
+                {
+                    return output;
+                }
+                const float ui_nits = load<float>(pipeline + constants::PIPELINE_HDR_UI_BRIGHTNESS_OFFSET);
+                output.state = HdrState::Hdr;
+                output.scene = scene;
+                output.source = source;
+                output.sdr_white = std::max(std::isfinite(ui_nits) ? ui_nits : 0.0f, constants::HDR_MIN_UI_NITS) /
+                                   constants::HDR_WHITE_NITS;
+                return output;
+            }
+            __except (engine_fault_filter(GetExceptionCode()))
+            {
+                return {
+                    .state = HdrState::Unavailable,
+                };
+            }
+        }
+
+        /**
          * @brief The view's linear depth ($ZTarget) for the mod's technique, or 0 while it has no device texture.
          *        Raw reads: called inside the composite's SEH scope.
          */
@@ -2123,6 +2224,7 @@ namespace HenrySenses
          * @details The outline width is given in texels of the render-resolution mask (the INI's unit), whatever the
          *          mask's own size; the edge's soft band is one mask texel in target pixels. Raw loads: called inside
          *          a composite's SEH scope.
+         * @param sdr_white Under HDR output, SDR white in the destination's units. 0 for an SDR destination.
          * @return False when a size reads 0.
          */
         [[nodiscard]] bool set_custom_constants(
@@ -2133,7 +2235,8 @@ namespace HenrySenses
             const MaskVisibility &visibility,
             float strength,
             float interior,
-            float outline_width
+            float outline_width,
+            float sdr_white
         ) noexcept
         {
             const std::uintptr_t resources = load<std::uintptr_t>(stage + constants::STAGE_RESOURCES_OFFSET);
@@ -2155,7 +2258,7 @@ namespace HenrySenses
             };
             const float params1[4] =
                 {visibility.offset_u, visibility.offset_v, 1.0f / target_width, 1.0f / target_height};
-            const float params2[4] = {visibility.texture != 0 ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
+            const float params2[4] = {visibility.texture != 0 ? 1.0f : 0.0f, sdr_white, 0.0f, 0.0f};
             const auto set_constant = reinterpret_cast<SetConstantFn>(s_calls.set_constant);
             (void)set_constant(pass, &s_name_custom_params0, params0, 1);
             (void)set_constant(pass, &s_name_custom_params1, params1, 1);
@@ -2171,6 +2274,7 @@ namespace HenrySenses
          * @param ps_params psParams (strength, boost, brightness, fill strength).
          * @param vs_params vsParams (outline offset in texels, 0, 0, 0).
          * @param custom The mod's technique to draw with instead of the stock one, or nullptr.
+         * @param hdr Under HDR output, the scene to draw into and its source. nullptr for the point's own target.
          * @return The outcome.
          */
         [[nodiscard]] CompositeStatus guarded_composite(
@@ -2181,6 +2285,7 @@ namespace HenrySenses
             const float *vs_params,
             CompositePoint point,
             const CustomComposite *custom,
+            const HdrOutput *hdr,
             std::uint32_t *out_results,
             std::uintptr_t *out_destination
         ) noexcept
@@ -2214,9 +2319,14 @@ namespace HenrySenses
                 }
                 const std::uintptr_t resources = load<std::uintptr_t>(stage + constants::STAGE_RESOURCES_OFFSET);
                 // After the HDR chain the frame is $DisplayTargetDst (past the upscaler); after the LDR chain it is the
-                // render output's colour target, which the engine's own after-LDR pass fetches the same way.
+                // render output's colour target, which the engine's own after-LDR pass fetches the same way. Under HDR
+                // output the after-LDR frame is the OutputDeviceTransform's scene.
                 std::uintptr_t destination = 0;
-                if (point == CompositePoint::AfterLdr && s_calls.ldr_target != 0)
+                if (hdr != nullptr)
+                {
+                    destination = hdr->scene;
+                }
+                else if (point == CompositePoint::AfterLdr && s_calls.ldr_target != 0)
                 {
                     destination = reinterpret_cast<DisplayTargetFn>(s_calls.ldr_target)(
                         resources,
@@ -2247,11 +2357,15 @@ namespace HenrySenses
                 // The technique reads t2 in every permutation, so it is bound to the mask when nothing is depth-tested.
                 const std::uintptr_t visible =
                     custom != nullptr ? (visibility.texture != 0 ? visibility.texture : mask) : std::uintptr_t{0};
+                // So does t3, the scene's source under HDR output.
+                const std::uintptr_t scene =
+                    custom != nullptr ? (hdr != nullptr ? hdr->source : mask) : std::uintptr_t{0};
                 // Until the mod's technique has drawn once it is bound every frame: its parse and its permutation
                 // finish in the background, and a technique set before that is not taken.
                 if (pass != s_bound_pass || destination_id != s_bound_destination_id || mask != s_bound_mask ||
                     generation != s_bound_generation || shader != s_bound_shader || depth != s_bound_depth ||
-                    visible != s_bound_visibility || (custom != nullptr && !s_custom_confirmed))
+                    visible != s_bound_visibility || scene != s_bound_scene ||
+                    (custom != nullptr && !s_custom_confirmed))
                 {
                     reinterpret_cast<SetTechniqueFn>(s_calls.set_technique)(
                         pass + constants::FULLSCREEN_PRIMITIVE_OFFSET,
@@ -2307,6 +2421,16 @@ namespace HenrySenses
                             constants::SHADER_STAGE_PIXEL
                         );
                     }
+                    if (scene != 0)
+                    {
+                        reinterpret_cast<SetTextureFn>(s_calls.set_texture)(
+                            pass + constants::FULLSCREEN_RESOURCE_DESC_OFFSET,
+                            3,
+                            scene,
+                            0,
+                            constants::SHADER_STAGE_PIXEL
+                        );
+                    }
                     (void)reinterpret_cast<SetSamplerFn>(s_calls.set_sampler)(
                         pass + constants::FULLSCREEN_RESOURCE_DESC_OFFSET,
                         0,
@@ -2332,6 +2456,7 @@ namespace HenrySenses
                     s_bound_shader = shader;
                     s_bound_depth = depth;
                     s_bound_visibility = visible;
+                    s_bound_scene = scene;
                 }
 
                 reinterpret_cast<BeginConstantUpdateFn>(s_calls.begin_constant_update)(pass);
@@ -2345,7 +2470,8 @@ namespace HenrySenses
                             visibility,
                             custom->strength,
                             custom->interior,
-                            custom->outline_width
+                            custom->outline_width,
+                            hdr != nullptr ? hdr->sdr_white : 0.0f
                         ))
                     {
                         return CompositeStatus::NoTarget;
@@ -2521,7 +2647,7 @@ namespace HenrySenses
                 if (custom_shader != 0)
                 {
                     // The same outline the composite draws, at the coverage target's resolution.
-                    if (!set_custom_constants(pass, stage, mask, target, visibility, 0.0f, 0.0f, outline_width))
+                    if (!set_custom_constants(pass, stage, mask, target, visibility, 0.0f, 0.0f, outline_width, 0.0f))
                     {
                         return 0;
                     }
@@ -4116,6 +4242,57 @@ namespace HenrySenses
         }
 
         /**
+         * @brief Logs a change of the after-LDR composite's output (render thread).
+         */
+        void note_hdr_output(const HdrOutput &hdr) noexcept
+        {
+            static HdrOutput s_logged{};
+            if (hdr.state == s_logged.state && hdr.scene == s_logged.scene && hdr.source == s_logged.source)
+            {
+                return;
+            }
+            s_logged = hdr;
+            // A name that cannot be read or formatted logs as empty.
+            const auto texture_name = [](std::uintptr_t texture) noexcept -> std::string
+            {
+                try
+                {
+                    const auto name =
+                        DMK::memory::read<std::uintptr_t>(DMK::Address{texture + constants::TEXTURE_NAME_OFFSET});
+                    return name ? read_c_string(*name, 64) : std::string{};
+                }
+                catch (...)
+                {
+                    return {};
+                }
+            };
+            switch (hdr.state)
+            {
+            case HdrState::Sdr:
+                (void)DMK::log().try_log(DMK::LogLevel::Info, "EngineSilhouette: HDR output off");
+                break;
+            case HdrState::Hdr:
+                (void)DMK::log().try_log(
+                    DMK::LogLevel::Info,
+                    "EngineSilhouette: HDR output on: highlights composite into '{}' over its copy '{}', SDR white "
+                    "{:.3f} scene units",
+                    texture_name(hdr.scene),
+                    texture_name(hdr.source),
+                    hdr.sdr_white
+                );
+                break;
+            case HdrState::Unavailable:
+                (void)DMK::log().try_log(
+                    DMK::LogLevel::Warning,
+                    "EngineSilhouette: HDR output on, but its scene or the scene's copy was not found (HdrOutput "
+                    "gate {}), so highlights cannot show",
+                    s_calls.hdr_scene_target != 0 ? "ok" : "failed"
+                );
+                break;
+            }
+        }
+
+        /**
          * @brief Composites the masks P4 drew at @p point.
          * @param pipeline The executing CStandardGraphicsPipeline.
          * @param stage Its published, initialized CSceneCustomStage.
@@ -4140,6 +4317,18 @@ namespace HenrySenses
             {
                 return;
             }
+            // The OutputDeviceTransform redraws this composite's frame after the after-LDR passes.
+            HdrOutput hdr{};
+            if (point == CompositePoint::AfterLdr)
+            {
+                hdr = guarded_hdr_output(pipeline, stage);
+                note_hdr_output(hdr);
+                if (hdr.state == HdrState::Unavailable)
+                {
+                    return;
+                }
+            }
+            const HdrOutput *use_hdr = hdr.state == HdrState::Hdr ? &hdr : nullptr;
             const LiveSettings &s = settings();
             const float strength = s.strength.load(std::memory_order_relaxed);
             // The shader draws an outline pixel as colour * (interior + edge * boost) * strength, so the interior
@@ -4180,6 +4369,7 @@ namespace HenrySenses
                 vs_params,
                 point,
                 use_custom,
+                use_hdr,
                 &results,
                 &destination
             );
@@ -4210,6 +4400,7 @@ namespace HenrySenses
                         vs_params,
                         point,
                         nullptr,
+                        use_hdr,
                         &results,
                         &destination
                     );
@@ -4670,6 +4861,7 @@ namespace HenrySenses
         s_calls.post_fx_render_target = gated_anchor_address(Feature::SupersampledMask, AnchorId::PostFxRenderTarget);
         s_calls.post_fx_depth_stencil = gated_anchor_address(Feature::SupersampledMask, AnchorId::PostFxDepthStencil);
         s_calls.clear_depth = gated_anchor_address(Feature::SupersampledMask, AnchorId::ClearDepth);
+        s_calls.hdr_scene_target = gated_anchor_address(Feature::HdrOutput, AnchorId::HdrSceneTarget);
 
         const bool mask_ready = feature_ready(Feature::StageRegistration) && feature_ready(Feature::MaskDraw);
         const bool composite_ready = mask_ready && feature_ready(Feature::Composite);
