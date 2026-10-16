@@ -24,6 +24,7 @@ namespace TPVCamera
         std::uintptr_t entity = 0; // the player entity the character fade dissolves
         float delta_time = 0.0f;
         bool close_fade = false;   // CloseUpFade with the character fade hook available
+        bool switching = false;    // the first-person <-> third-person switch is under way (0 < view_blend < 1)
         bool repeat_build = false; // the frame's second build
     };
 
@@ -41,7 +42,10 @@ namespace TPVCamera
      *          hook), below HeadClearance the camera eases onto the real eye and the head is hidden by the game's own
      *          first-person rig (set_head_fallback(), read by the head re-assert and the head-visibility detour), so
      *          the view is plain first person until there is room again. A margin keeps a doorway from switching the
-     *          first-person view on and off as the arm hovers around the threshold. Main thread only.
+     *          first-person view on and off as the arm hovers around the threshold. While the view switch runs, its
+     *          arm grows from the eye or shrinks to it, so the fallback holds its state, and the fade is held to
+     *          the lens's distance from the eye: the character stays solid while the lens passes through the head
+     *          (hidden by the switch) instead of dithering out and back. Main thread only.
      * @param character The character's render nodes, dissolved with him.
      * @return The camera position after the fallback's ease toward the eye.
      */

@@ -22,6 +22,7 @@
 #include "core/rig/rig_record.hpp"
 #include "core/rig/rig_stage.hpp"
 #include "core/rules/camera_rules.hpp"
+#include "core/view/view_blend.hpp"
 #include "core/view/view_box.hpp"
 
 #include <gtest/gtest.h>

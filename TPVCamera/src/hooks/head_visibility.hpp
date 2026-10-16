@@ -1,7 +1,8 @@
 /**
  * @file hooks/head_visibility.hpp
  * @brief Keeps the player's head shown from behind while the third-person offset renders, and hidden like in first
- *        person when the camera sits at the eye or the close-up fade has him mostly faded.
+ *        person when the camera sits at the eye, the close-up fade has him mostly faded, or the view switch has the
+ *        lens at the head.
  */
 #ifndef TPVCAMERA_HOOKS_HEAD_VISIBILITY_HPP
 #define TPVCAMERA_HOOKS_HEAD_VISIBILITY_HPP
@@ -59,6 +60,16 @@ namespace TPVCamera
 
     /** @brief The close-up fade's head hide set_head_close_fade() published. */
     [[nodiscard]] bool head_close_fade() noexcept;
+
+    /**
+     * @brief Publishes the view switch's head hide: true while the first-person <-> third-person switch has the lens
+     *        within reach of the head, so it is hidden like in first person instead of filling the view from inside.
+     * @note Main thread (the camera frame); read by the head re-assert and the head-visibility detour.
+     */
+    void set_head_transition(bool hidden) noexcept;
+
+    /** @brief The view switch's head hide set_head_transition() published. */
+    [[nodiscard]] bool head_transition() noexcept;
 } // namespace TPVCamera
 
 #endif // TPVCAMERA_HOOKS_HEAD_VISIBILITY_HPP

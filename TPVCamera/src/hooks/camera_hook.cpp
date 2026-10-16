@@ -32,7 +32,9 @@
 #include "camera/npc_lens_fade.hpp"
 #include "camera/see_through_driver.hpp"
 #include "core/input/move_input.hpp"
+#include "core/math/angle.hpp"
 #include "core/rig/rig_stage.hpp"
+#include "core/view/view_blend.hpp"
 #include "aob_resolver.hpp"
 #include "character_attachments.hpp"
 #include "constants.hpp"
@@ -97,6 +99,14 @@ namespace TPVCamera
     // The camera collision's and the occluder fade's carry-over between frames (see camera/collision.hpp). Main thread
     // only (the camera detour).
     static CollisionState s_collision{};
+    // The first-person <-> third-person switch's yaw latch (see core/view/view_blend.hpp), cleared when the offset
+    // turns off. Main thread only (the camera detour).
+    static ViewBlendLatch s_view_latch{};
+
+    // The lens distance from the eye (meters) within which the switch hides the head like first person does, and the
+    // farther one it shows it again past, so a lens hovering at the edge of the head does not flicker it.
+    constexpr float k_switch_head_hide_on = 0.25f;
+    constexpr float k_switch_head_hide_off = 0.3f;
 
     // The render nodes of the character and of what it carries (what is bound to its attachments, a bow's nocked
     // arrow included), walked every third-person frame while CloseUpFade, UseOccluderFade or collision is on, and
@@ -1055,6 +1065,23 @@ namespace TPVCamera
     } // namespace
 
     /**
+     * @brief Hides the head like first person while the switch has the lens within reach of it (see
+     *        set_head_transition()).
+     * @param switching The first-person <-> third-person switch is under way (0 < view_blend < 1).
+     * @param lens_to_eye The rendered lens's distance from the first-person eye (meters).
+     */
+    static void update_head_transition(bool switching, float lens_to_eye) noexcept
+    {
+        if (!switching)
+        {
+            set_head_transition(false);
+            return;
+        }
+        set_head_transition(lens_to_eye < k_switch_head_hide_on ||
+                            (head_transition() && lens_to_eye < k_switch_head_hide_off));
+    }
+
+    /**
      * @brief Offsets the game view camera matrix behind the player and advances zoom/smoothing.
      * @details Builds the rig from the untouched CView pose (core/rig/rig_stage.hpp), runs the shoulder and arm
      *          collision, the close-up fade and the see-through on it, then writes the camera matrix translation and
@@ -1095,13 +1122,25 @@ namespace TPVCamera
         }
         GameStructures::Matrix34f *matrix = reinterpret_cast<GameStructures::Matrix34f *>(camera);
         const Vector3 world_up{0.0f, 0.0f, 1.0f};
-        Vector3 camera_position = rig.camera_position;
-        // First-person camera position - the blend source for the view-switch ease. Sourced from the untouched eye
-        // pose (RigFrame::eye_position), NOT the matrix translation this function overwrites, so a second same-frame
-        // frustum rebuild does not compound the FPV->TPV lerp (the same idempotency the rotation basis and the TPV
-        // anchor rely on). The engine builds the matrix translation from this eye pose, so at view_blend 0 the matrix
-        // is left exactly first person.
-        const Vector3 fpv_position = rig.eye_position;
+
+        // The first-person <-> third-person switch blends the eye and the rig around the pivot before collision, so
+        // the collision below runs once on the camera this build renders (see core/view/view_blend.hpp). At
+        // view_blend 1 the rig passes through unchanged. The eye is the untouched CView pose, not the matrix this
+        // function overwrites, so the frame's second build blends from the same eye.
+        const ViewBlendOutput view = blend_view(s_view_latch, ViewBlendInput{
+                                                                  .eye_position = rig.eye_position,
+                                                                  .eye_forward = rig.eye_forward,
+                                                                  .eye_up = rig.eye_up,
+                                                                  .pivot = rig.pivot,
+                                                                  .camera = rig.camera_position,
+                                                                  .look_forward = rig.look_forward,
+                                                                  .look_up = rig.look_up,
+                                                                  .s = view_blend,
+                                                                  .rebuild_basis = rig.rebuild_basis,
+                                                                  .repeat_build = step.repeat_build,
+                                                              });
+        const bool switching = view_blend < 1.0f;
+        Vector3 camera_position = view.camera;
 
         // Camera collision and the occluder fade (see camera/collision.hpp).
         const bool fade_on = cfg.use_occluder_fade.load(std::memory_order_relaxed) && occluder_fade_available();
@@ -1123,16 +1162,17 @@ namespace TPVCamera
         }
 
         // Shoulder collision: a wall at the shoulder narrows the shoulder offset first, so the arm below runs from the
-        // pivot to a camera nearer the look line and keeps its distance. The offset lies along the finished rig's right
-        // (the follow angle and the orbit turn it with the look), toward the side its sign puts it.
+        // pivot to a camera nearer the look line and keeps its distance. The offset lies along the blended rig's right
+        // (the follow angle and the orbit turn it with the look), toward the side its sign puts it, and grows with the
+        // switch like the rest of the arm.
         {
-            const Vector3 rig_right = rig.look_forward.cross(rig.look_up);
-            const float lateral = std::fabs(rig.offset_right);
+            const Vector3 rig_right = view.forward.cross(view.up);
+            const float lateral = std::fabs(rig.offset_right) * view_blend;
             if (rig_right.magnitude_squared() > 1e-6f && lateral > 0.0f)
             {
                 const Vector3 lateral_dir = rig_right.normalized() * (rig.offset_right < 0.0f ? -1.0f : 1.0f);
                 const ShoulderInput shoulder{
-                    .pivot = rig.pivot,
+                    .pivot = view.pivot,
                     .direction = lateral_dir,
                     .lateral = lateral,
                     .delta_time = delta_time,
@@ -1149,7 +1189,7 @@ namespace TPVCamera
         }
         const bool wall_class_changed = !step.repeat_build && advance_fence_classification();
         const CollisionInput collision_input{
-            .pivot = rig.pivot,
+            .pivot = view.pivot,
             .desired = camera_position,
             .world_up = world_up,
             .head = rig.anchor_base,
@@ -1169,9 +1209,9 @@ namespace TPVCamera
         }
 
         // The arm after collision, measured from the head where it really is: the pivot plus the turn hold, which
-        // keeps the pivot off the body while it steps through a turn. The close-up fade and the lens near plane keep
-        // their distance from the head by it.
-        const float arm_after_collision = (camera_position - (rig.pivot + rig.turn_hold)).magnitude();
+        // keeps the pivot off the body while it steps through a turn (both blended in from the eye by the switch). The
+        // close-up fade and the lens near plane keep their distance from the head by it.
+        const float arm_after_collision = (camera_position - (view.pivot + rig.turn_hold * view_blend)).magnitude();
 
         // The trees, bushes and grass, which never fade whole for hiding the character, open a window around him
         // instead (see run_tree_see_through), from the camera the fade's sightlines were cast from and the scan the
@@ -1188,57 +1228,64 @@ namespace TPVCamera
         // Too close to the character: the close-up fade, or the first-person fallback (see camera/close_fade.hpp).
         const CloseUpInput close_up{
             .camera = camera_position,
-            .eye = fpv_position,
+            .eye = rig.eye_position,
             .arm = arm_after_collision,
             .entity = rig.entity,
             .delta_time = delta_time,
             .close_fade = close_fade,
+            .switching = switching,
             .repeat_build = step.repeat_build,
         };
         camera_position = apply_close_up(cam, s_character_nodes, close_up);
 
-        // Write the offset position into the camera matrix translation column. The basis columns are
-        // left as the engine built them (from the eye quat) unless the follow angle/orbit changed the look,
-        // so the camera otherwise stays parallel to the player's view. The caller computes the cull
-        // planes from this matrix next, so culling follows the rendered view.
-        // Blend the final pose between first person (the engine's eye matrix) and the third-person pose
-        // by view_blend so toggling the view eases instead of snapping. At view_blend 1 this is the full
-        // third-person pose; at 0 it is the untouched first-person camera.
-        const Vector3 final_position = fpv_position + (camera_position - fpv_position) * view_blend;
+        // While the switch runs, the head is hidden like in first person once the lens comes within reach of it, from
+        // the frame the switch leaves the eye (the detour seeds the hide) until the lens is clear of the head, or the
+        // switch back reaches the eye.
+        if (!step.repeat_build)
+        {
+            const float lens_to_eye = (camera_position - rig.eye_position).magnitude();
+            update_head_transition(switching, lens_to_eye);
+            if (switching)
+            {
+                (void)DMK::log().try_log(DMK::LogLevel::Trace,
+                                         "Camera: view switch s={:.3f}, yaw {:.1f} deg, arm {:.2f} -> {:.2f} m, lens "
+                                         "{:.2f} m from the eye, head {}",
+                                         view_blend, radians_to_degrees(s_view_latch.yaw_accumulated),
+                                         (view.camera - view.pivot).magnitude(), arm_after_collision, lens_to_eye,
+                                         head_transition() ? "hidden" : "shown");
+            }
+        }
+
+        // Write the camera into the matrix translation column. The caller computes the cull planes from this matrix
+        // next, so culling follows the rendered view.
+        const Vector3 final_position = camera_position;
         matrix->m[0][3] = final_position.x;
         matrix->m[1][3] = final_position.y;
         matrix->m[2][3] = final_position.z;
 
-        // Orientation: only when the follow angle/orbit changed the look (otherwise the engine-built eye basis
-        // is already correct at every blend value, so the camera just sits behind the player looking where
-        // they look). Ease the look and its up from the eye basis to the rig's by view_blend, then rebuild
-        // the column basis (right = forward x up, up = right x forward; col0 = right, col1 = forward,
-        // col2 = up) so the orientation transitions smoothly too. The rig's up turned with its look, so an
-        // orbit away from a pitched look does not roll the view.
-        // Screen-centre forward (the crosshair direction): the turned look when we rebuilt the
-        // basis, else the engine eye forward. Published below for the camera-space interaction hook.
+        // Orientation: rebuilt when the rig shaped the look (the stable or smoothed basis, the follow angle or the
+        // orbit), as the column basis right = forward x up, up = right x forward (col0 = right, col1 = forward,
+        // col2 = up), through the switch's turn while it runs. Otherwise the engine-built eye basis stays, so the
+        // camera sits behind the player looking where they look. The rig's up turned with its look, so an orbit away
+        // from a pitched look does not roll the view. Screen-centre forward (the crosshair direction) is the rebuilt
+        // forward, else the engine eye forward; it is published below for the camera-space interaction hook.
         Vector3 screen_forward = rig.forward;
-        if (rig.rebuild_basis)
+        if (view.rebuild)
         {
-            // Blend the orientation from the engine EYE basis (FPV side, so view_blend 0 leaves the untouched
-            // first-person view) to the stable look (TPV side). At view_blend 0 this reconstructs the engine
-            // eye basis exactly (eye_forward x eye_up == eye_right); at view_blend 1 it is the stable look.
-            Vector3 blended_forward = rig.eye_forward + (rig.look_forward - rig.eye_forward) * view_blend;
-            blended_forward =
-                (blended_forward.magnitude_squared() > 1e-6f) ? blended_forward.normalized() : rig.look_forward;
-            screen_forward = blended_forward;
-            const Vector3 ref_up = rig.eye_up + (rig.look_up - rig.eye_up) * view_blend;
-            const Vector3 right_axis = blended_forward.cross(ref_up);
+            const Vector3 forward =
+                (view.forward.magnitude_squared() > 1e-6f) ? view.forward.normalized() : rig.look_forward;
+            screen_forward = forward;
+            const Vector3 right_axis = forward.cross(view.up);
             if (right_axis.magnitude_squared() > 1e-6f)
             {
                 const Vector3 new_right = right_axis.normalized();
-                const Vector3 new_up = new_right.cross(blended_forward);
+                const Vector3 new_up = new_right.cross(forward);
                 matrix->m[0][0] = new_right.x;
                 matrix->m[1][0] = new_right.y;
                 matrix->m[2][0] = new_right.z;
-                matrix->m[0][1] = blended_forward.x;
-                matrix->m[1][1] = blended_forward.y;
-                matrix->m[2][1] = blended_forward.z;
+                matrix->m[0][1] = forward.x;
+                matrix->m[1][1] = forward.y;
+                matrix->m[2][1] = forward.z;
                 matrix->m[0][2] = new_up.x;
                 matrix->m[1][2] = new_up.y;
                 matrix->m[2][2] = new_up.z;
@@ -1736,6 +1783,31 @@ namespace TPVCamera
         // The offset is rendered while heading TO or holding third person, so the ease-OUT renders too.
         const bool offset_engaged = want_tpv || cam.view_blend > 1e-3f;
         s_offset_active.store(offset_engaged, std::memory_order_relaxed);
+        // A switch into third person starts with the lens at the eye, so the head stays hidden from its first frame;
+        // the offset clears the hide once the lens is clear of the head. The re-assert below applies it this frame.
+        const bool switch_starts = offset_engaged && !head_was_active();
+        if (switch_starts && view_dur > 1e-4f)
+        {
+            set_head_transition(true);
+        }
+        {
+            static bool s_switch_logged = false;
+            const bool switching = offset_engaged && cam.view_blend < 1.0f;
+            if (switching != s_switch_logged)
+            {
+                s_switch_logged = switching;
+                const char *const person = want_tpv ? "third" : "first";
+                if (switching)
+                {
+                    (void)DMK::log().try_log(DMK::LogLevel::Debug, "Camera: view switch toward {} person over {:.2f} s",
+                                             person, view_dur);
+                }
+                else
+                {
+                    (void)DMK::log().try_log(DMK::LogLevel::Debug, "Camera: view switch done ({} person)", person);
+                }
+            }
+        }
         reassert_head_visibility(offset_engaged, c_player);
         // The body's native turn-in-place animation follows the offset too (it follows the look again once the view is
         // back at the eye), and is off while the view rides the first-person eye (the head fallback, or an Eye Height 0
@@ -1772,6 +1844,8 @@ namespace TPVCamera
             cam.head_fallback_blend = 0.0f;
             set_head_fallback(false);
             set_head_close_fade(false);
+            set_head_transition(false);
+            s_view_latch = ViewBlendLatch{};
             // Faded objects go solid at once (they are behind the first-person eye), and the next third-person frame
             // starts from an empty fade set instead of node addresses from before the gap.
             reset_occluder_fade();
