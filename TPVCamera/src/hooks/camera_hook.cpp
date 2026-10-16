@@ -32,6 +32,7 @@
 #include "camera/npc_lens_fade.hpp"
 #include "camera/see_through_driver.hpp"
 #include "core/input/stick.hpp"
+#include "core/rig/rig_math.hpp"
 #include "aob_resolver.hpp"
 #include "character_attachments.hpp"
 #include "constants.hpp"
@@ -198,9 +199,6 @@ namespace TPVCamera
     // smoothstep, so a press starts and lands without a kick, and a second press mid-slide turns back from where the
     // camera is.
     constexpr float k_shoulder_swap_seconds = 0.3f;
-
-    // Lens Drop Up stops growing at this look pitch (43 deg), as Ryse's aim camera clamps its pitch slide.
-    constexpr float k_aim_rig_drop_pitch = 0.75f; // rad
 
     // The states read from the live UI signals rather than the debounced mask: the suppression gate and the
     // orbit-exclude policy both react on the frame a menu or an overlay opens or closes.
@@ -930,91 +928,6 @@ namespace TPVCamera
         return Vector3{cam.turn_hold_x, cam.turn_hold_y, 0.0f};
     }
 
-    /**
-     * @brief Rebuilds the look orientation from its heading and the scalar pitch, without the stale roll.
-     * @details The raw look quat can carry a stale roll angle (see LOOK_CONTROLLER_QUAT_OFFSET).
-     *          C_CameraFirstPerson::Update never renders that quat directly. It takes only the heading of the look
-     *          forward vector and combines it with the scalar pitch that C_Player vtable slot 59 returns
-     *          (controller + LOOK_CONTROLLER_PITCH2_OFFSET), so the roll never reaches the first-person view. This
-     *          helper builds RotZ(heading) * RotX(pitch) from the same two inputs, which gives a level aim with no
-     *          view shake. The game's own third-person camera renders the raw quat instead, which is why it tilts on
-     *          horseback.
-     * @param look Look quat read from the controller.
-     * @param pitch Scalar look pitch in radians, 0 = level.
-     * @return Roll-free look orientation.
-     */
-    [[nodiscard]] static Quaternion level_look_rotation(const Quaternion &look, float pitch) noexcept
-    {
-        // Heading of forward = look * +Y, the yaw the engine extracts. The engine writes forward.y as
-        // 2 * (y * y + w * w) - 1, which holds only at unit length. The homogeneous form below keeps the heading
-        // exact for the slightly non-unit quats the caller's sanity check still accepts.
-        const float forward_x = 2.0f * (look.x * look.y - look.w * look.z);
-        const float forward_y = look.w * look.w - look.x * look.x + look.y * look.y - look.z * look.z;
-        const float heading = std::atan2(-forward_x, forward_y);
-        const float sin_heading = std::sin(heading * 0.5f);
-        const float cos_heading = std::cos(heading * 0.5f);
-        const float sin_pitch = std::sin(pitch * 0.5f);
-        const float cos_pitch = std::cos(pitch * 0.5f);
-        // Expanded product RotZ(heading) * RotX(pitch) in XYZW order.
-        return Quaternion{cos_heading * sin_pitch, sin_heading * sin_pitch, sin_heading * cos_pitch,
-                          cos_heading * cos_pitch};
-    }
-
-    /**
-     * @brief Turns the camera rig rigidly about its pivot, the way a spring arm turns with its control rotation.
-     * @details Yaws about world up, then pitches about the horizontal axis square to the yawed look heading. A
-     *          positive pitch raises the camera and tilts the look down by exactly that angle, and the look heading
-     *          and the shoulder axis stay put. The rotation depends only on the look, never on the arm length or the
-     *          shoulder offset, so a follow rig turned this way is the follow rig of the turned look: a change of the
-     *          follow distance then slides the camera straight along its own look and does not swing it.
-     * @param offset Camera offset from the pivot, turned in place.
-     * @param look Camera look direction, turned in place and renormalized.
-     * @param rig_up Camera up direction, turned in place. It gives the heading of a look straight up or down.
-     * @param yaw Turn about world up in radians, counter-clockwise seen from above.
-     * @param pitch Raise of the camera in radians. A positive pitch raises it and tilts the look down.
-     */
-    static void turn_rig(Vector3 &offset, Vector3 &look, Vector3 &rig_up, float yaw, float pitch) noexcept
-    {
-        const float cy = std::cos(yaw);
-        const float sy = std::sin(yaw);
-        const auto yaw_about_z = [cy, sy](const Vector3 &v) noexcept -> Vector3
-        { return Vector3{v.x * cy - v.y * sy, v.x * sy + v.y * cy, v.z}; };
-        offset = yaw_about_z(offset);
-        look = yaw_about_z(look);
-        rig_up = yaw_about_z(rig_up);
-
-        if (pitch < -1e-5f || pitch > 1e-5f)
-        {
-            // A look straight up or down has no heading of its own. Its up vector then leans along the heading:
-            // forward for a look down, backward for a look up.
-            Vector3 heading{look.x, look.y, 0.0f};
-            if (heading.magnitude_squared() < 1e-6f)
-            {
-                heading = Vector3{rig_up.x, rig_up.y, 0.0f} * (look.z < 0.0f ? 1.0f : -1.0f);
-            }
-            if (heading.magnitude_squared() > 1e-6f)
-            {
-                // up x heading points to the left of the heading. A positive turn about it lifts a camera behind the
-                // pivot.
-                const Vector3 axis = Vector3{0.0f, 0.0f, 1.0f}.cross(heading.normalized());
-                const float cp = std::cos(pitch);
-                const float sp = std::sin(pitch);
-                const auto rotate_about_axis = [&axis, cp, sp](const Vector3 &v) noexcept -> Vector3
-                {
-                    const float dot = axis.x * v.x + axis.y * v.y + axis.z * v.z;
-                    return v * cp + axis.cross(v) * sp + axis * (dot * (1.0f - cp));
-                };
-                offset = rotate_about_axis(offset);
-                look = rotate_about_axis(look);
-                rig_up = rotate_about_axis(rig_up);
-            }
-        }
-        if (look.magnitude_squared() > 1e-6f)
-        {
-            look = look.normalized();
-        }
-    }
-
     // Mount follow (OrbitFollowSpeed): how long the follow takes to come back once free-look input ends, and the
     // smallest change of the free-look yaw accumulator (degrees) that counts as input.
     constexpr float k_mount_follow_ramp_seconds = 2.0f;
@@ -1320,8 +1233,7 @@ namespace TPVCamera
                                 ? ramp_weight(cam.shoulder_swap, swap_target, k_shoulder_swap_seconds, delta_time)
                                 : swap_target;
         cam.shoulder_swap_valid = true;
-        const float offset_right =
-            cfg.offset_right.load(std::memory_order_relaxed) * (1.0f - 2.0f * smoothstep(cam.shoulder_swap));
+        const float offset_right = cfg.offset_right.load(std::memory_order_relaxed) * shoulder_side(cam.shoulder_swap);
         const Vector3 lateral_offset = right * offset_right;
 
         // Anchor the rig to a STABLE point. The first-person eye (eye_position, read from CView+0x14)
@@ -2126,32 +2038,12 @@ namespace TPVCamera
             set_occluder_player_nodes(std::span<const std::uintptr_t>(
                 s_character_nodes.nodes.data(), static_cast<std::size_t>(s_character_nodes.count + 1)));
         }
-        // Looking up, Arm Follow Up and Lens Drop Up reshape the arm: at the plain rig the camera sits `distance` back
-        // along the rendered look from the pivot (the follow angle, the orbit and the hand-off all turn the offset with
-        // the look), so it swings down on a sphere as the look rises and can end low behind the character, near the
-        // ground. The arm instead pitches by Arm Follow Up's share of the look's pitch, so the camera's height still
-        // changes steadily with the look, and the camera is lowered by a bounded slide. Both depend on the rendered
-        // look alone, so a turned rig is still the plain rig of the turned look and the aim hand-off and free-look
-        // engage do not step. Below level the sphere is kept: the crosshair line then passes beside the eye at the
-        // shoulder offset, which parapet and steep downward shots rely on (the crosshair ray starts at the eye's depth
-        // along it).
-        {
-            const float arm_follow_up = std::clamp(cfg.arm_follow_up.load(std::memory_order_relaxed), 0.0f, 1.0f);
-            const float lens_drop_up = std::max(0.0f, cfg.lens_drop_up.load(std::memory_order_relaxed));
-            const float look_pitch = std::asin(std::clamp(look_forward.z, -1.0f, 1.0f));
-            if ((arm_follow_up < 1.0f || lens_drop_up > 0.0f) && look_pitch > 0.0f)
-            {
-                // The level heading under the look, from the rig's right so a look straight up still has one.
-                const Vector3 heading = world_up.cross(look_forward.cross(look_up));
-                if (heading.magnitude_squared() > 1e-6f)
-                {
-                    const float arm_pitch = look_pitch * arm_follow_up;
-                    const Vector3 arm_dir = heading.normalized() * std::cos(arm_pitch) + world_up * std::sin(arm_pitch);
-                    const float drop = lens_drop_up * std::sin(std::min(look_pitch, k_aim_rig_drop_pitch));
-                    camera_position = camera_position + (look_forward - arm_dir) * distance - world_up * drop;
-                }
-            }
-        }
+        // Looking up, Arm Follow Up and Lens Drop Up bend the arm instead of swinging it down on the sphere toward the
+        // ground behind the character (see aim_arm_shift()). The shift depends on the rendered look alone, so the aim
+        // hand-off and free-look engage do not step.
+        camera_position = camera_position + aim_arm_shift(look_forward, look_up, distance,
+                                                          cfg.arm_follow_up.load(std::memory_order_relaxed),
+                                                          cfg.lens_drop_up.load(std::memory_order_relaxed));
 
         // Shoulder collision: a wall at the shoulder narrows the shoulder offset first, so the arm below runs from the
         // pivot to a camera nearer the look line and keeps its distance. The offset lies along the finished rig's right
