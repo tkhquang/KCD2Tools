@@ -15,6 +15,7 @@
 #ifndef TPVCAMERA_RENDER_OCCLUSION_HPP
 #define TPVCAMERA_RENDER_OCCLUSION_HPP
 
+#include "core/collision/probe_types.hpp"
 #include "core/rules/camera_rules.hpp"
 #include "core/view/view_box.hpp"
 #include "math_utils.hpp"
@@ -52,13 +53,6 @@ namespace TPVCamera
      * @note Call once no camera frame can run any more (shutdown, after the hooks retired).
      */
     void release_render_occlusion() noexcept;
-
-    /** @brief A world-space sightline from the camera to a point on the character. */
-    struct Sightline
-    {
-        Vector3 from{};
-        Vector3 to{};
-    };
 
     /**
      * @brief Refreshes the cached list of visible brushes, vegetation and entity proxies around @p points.
@@ -199,14 +193,6 @@ namespace TPVCamera
      * @param n_lines Count of @p lines (up to 9).
      */
     void prefetch_occluder_meshes(const Sightline *lines, int n_lines) noexcept;
-
-    /** @brief A node whose render mesh hides the character from the camera. */
-    struct SightlineOccluder
-    {
-        void *node = nullptr;
-        // The camera is buried in it (a prop or a bush): it fills the view and starts fading at once.
-        bool buried = false;
-    };
 
     /**
      * @brief Collects the scanned props whose render mesh crosses any of @p lines, and the props and bushes the camera

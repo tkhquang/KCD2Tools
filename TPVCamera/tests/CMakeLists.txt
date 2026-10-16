@@ -22,6 +22,7 @@ include(GoogleTest)
 
 add_executable(tpvcamera_tests
   test_blend.cpp
+  test_core_headers.cpp
   test_ease.cpp
   test_fence_coverage.cpp
   test_preset_filter.cpp
