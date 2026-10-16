@@ -135,6 +135,10 @@ namespace TPVCamera
         advanced.bind<bool>("ExportSignatures", "Export Signatures", s.export_signatures, false);
         // Advanced: write the built-in camera rules beside the ASI for reference (see camera_rules_files.hpp).
         advanced.bind<bool>("ExportRules", "Export Rules", s.export_rules, false);
+#ifdef TPVCAMERA_DEV_BUILD
+        const DMK::config::SectionBinder debug = DMK::config::section("Debug");
+        debug.bind<bool>("RecordFrames", "Record Frames", s.record_frames, false);
+#endif
 
         // Camera framing. The follow distance, offsets, eye height, follow yaw/pitch, the orbit
         // tuning, and the per-preset collision values are all OWNED BY PRESETS (in the shipped presets JSON,

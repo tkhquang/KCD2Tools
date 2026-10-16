@@ -38,6 +38,19 @@ gtest_discover_tests(tpvcamera_tests DISCOVERY_MODE PRE_TEST)
 
 add_custom_target(tpvcamera_all_tests DEPENDS tpvcamera_tests)
 
+# The collision replay: a recording a DEV build wrote with [Debug] RecordFrames (KCD2_TPVCamera_frames_genNNNN.tpvrec)
+# runs again through the core and must reproduce every probe call, output and state bit for bit. A recording is a
+# local fixture of the build that wrote it, so the test is registered only when TPVCAMERA_REPLAY_FILE names one.
+set(TPVCAMERA_REPLAY_FILE "" CACHE FILEPATH "A collision recording to replay through the core (empty: no replay test).")
+add_executable(tpvcamera_replay replay_main.cpp)
+target_include_directories(tpvcamera_replay PRIVATE ${PROJECT_SOURCE_DIR}/src)
+target_compile_options(tpvcamera_replay PRIVATE /W4 /permissive- /utf-8)
+target_link_libraries(tpvcamera_replay PRIVATE tpv_core)
+add_dependencies(tpvcamera_all_tests tpvcamera_replay)
+if(TPVCAMERA_REPLAY_FILE)
+  add_test(NAME Replay.Collision COMMAND tpvcamera_replay "${TPVCAMERA_REPLAY_FILE}")
+endif()
+
 set(TPVCAMERA_RULES_PARITY_DIR "${PROJECT_SOURCE_DIR}/../tools/model-analysis/camera_rules" CACHE PATH
   "Folder holding rules_ref.py and parity/ (local tools); the rules parity test is skipped when it is missing.")
 find_package(Python3 COMPONENTS Interpreter QUIET)

@@ -8,6 +8,9 @@
 #include "camera/live_probe.hpp"
 #include "config.hpp"
 #include "constants.hpp"
+#ifdef TPVCAMERA_DEV_BUILD
+#include "dev/frame_recorder.hpp"
+#endif
 #include "hooks/occluder_fade.hpp"
 #include "physics_raycast.hpp"
 #include "render_occlusion.hpp"
@@ -164,11 +167,23 @@ namespace TPVCamera
 
     Vector3 resolve_camera_collision(CollisionState &state, const CollisionInput &in)
     {
+#ifdef TPVCAMERA_DEV_BUILD
+        if (FrameRecorder::recording())
+        {
+            return FrameRecorder::arm(state, in, collision_params(), live_probe(), live_collision_trace());
+        }
+#endif
         return resolve_camera_collision(state, in, collision_params(), live_probe(), live_collision_trace());
     }
 
     float resolve_shoulder_collision(CollisionState &state, const ShoulderInput &in)
     {
+#ifdef TPVCAMERA_DEV_BUILD
+        if (FrameRecorder::recording())
+        {
+            return FrameRecorder::shoulder(state, in, collision_params(), live_probe(), live_collision_trace());
+        }
+#endif
         return resolve_shoulder_collision(state, in, collision_params(), live_probe(), live_collision_trace());
     }
 
