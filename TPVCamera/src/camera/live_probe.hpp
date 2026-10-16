@@ -47,8 +47,8 @@ namespace TPVCamera
             const char *name = nullptr;
             std::int64_t started = 0;
         };
-        std::array<OpenScope, k_max_scopes> scopes_{};
-        int depth_ = 0;
+        std::array<OpenScope, k_max_scopes> m_scopes{};
+        int m_depth = 0;
     };
 
     /** @brief The camera frame's live probe. Main thread only. */

@@ -293,153 +293,153 @@ namespace TPVCamera::ProbeRecord
 
     ZoomHeld RecordingRigPort::zoom_held()
     {
-        const ZoomHeld held = inner_.zoom_held();
-        out_.put(RigCall::ZoomHeld);
-        out_.put(held);
+        const ZoomHeld held = m_inner.zoom_held();
+        m_out.put(RigCall::ZoomHeld);
+        m_out.put(held);
         return held;
     }
 
     void RecordingRigPort::ease_out_zoom(float offset)
     {
-        inner_.ease_out_zoom(offset);
-        out_.put(RigCall::EaseOutZoom);
-        out_.put(offset);
+        m_inner.ease_out_zoom(offset);
+        m_out.put(RigCall::EaseOutZoom);
+        m_out.put(offset);
     }
 
     std::optional<EyePose> RecordingRigPort::eye_pose()
     {
-        const std::optional<EyePose> pose = inner_.eye_pose();
-        out_.put(RigCall::EyePose);
-        put_optional(out_, pose);
+        const std::optional<EyePose> pose = m_inner.eye_pose();
+        m_out.put(RigCall::EyePose);
+        put_optional(m_out, pose);
         return pose;
     }
 
     std::optional<LookReading> RecordingRigPort::look(std::uintptr_t c_player)
     {
-        const std::optional<LookReading> look = inner_.look(c_player);
-        out_.put(RigCall::Look);
-        out_.put(c_player);
-        put_optional(out_, look);
+        const std::optional<LookReading> look = m_inner.look(c_player);
+        m_out.put(RigCall::Look);
+        m_out.put(c_player);
+        put_optional(m_out, look);
         return look;
     }
 
     float RecordingRigPort::game_fov()
     {
-        const float fov = inner_.game_fov();
-        out_.put(RigCall::GameFov);
-        out_.put(fov);
+        const float fov = m_inner.game_fov();
+        m_out.put(RigCall::GameFov);
+        m_out.put(fov);
         return fov;
     }
 
     void RecordingRigPort::override_fov(float fov, float ratio)
     {
-        inner_.override_fov(fov, ratio);
-        out_.put(RigCall::OverrideFov);
-        out_.put(fov);
-        out_.put(ratio);
+        m_inner.override_fov(fov, ratio);
+        m_out.put(RigCall::OverrideFov);
+        m_out.put(fov);
+        m_out.put(ratio);
     }
 
     BodyReading RecordingRigPort::body(std::uintptr_t c_player)
     {
-        const BodyReading body = inner_.body(c_player);
-        out_.put(RigCall::Body);
-        out_.put(c_player);
-        out_.put(body);
+        const BodyReading body = m_inner.body(c_player);
+        m_out.put(RigCall::Body);
+        m_out.put(c_player);
+        m_out.put(body);
         return body;
     }
 
     bool RecordingRigPort::native_turn()
     {
-        const bool turning = inner_.native_turn();
-        out_.put(RigCall::NativeTurn);
-        out_.put(static_cast<std::uint8_t>(turning));
+        const bool turning = m_inner.native_turn();
+        m_out.put(RigCall::NativeTurn);
+        m_out.put(static_cast<std::uint8_t>(turning));
         return turning;
     }
 
     std::optional<float> RecordingRigPort::move_input()
     {
-        const std::optional<float> magnitude = inner_.move_input();
-        out_.put(RigCall::MoveInput);
-        put_optional(out_, magnitude);
+        const std::optional<float> magnitude = m_inner.move_input();
+        m_out.put(RigCall::MoveInput);
+        put_optional(m_out, magnitude);
         return magnitude;
     }
 
     std::optional<float> RecordingRigPort::game_move(std::uintptr_t c_player)
     {
-        const std::optional<float> magnitude = inner_.game_move(c_player);
-        out_.put(RigCall::GameMove);
-        out_.put(c_player);
-        put_optional(out_, magnitude);
+        const std::optional<float> magnitude = m_inner.game_move(c_player);
+        m_out.put(RigCall::GameMove);
+        m_out.put(c_player);
+        put_optional(m_out, magnitude);
         return magnitude;
     }
 
     bool RecordingRigPort::cursor_shown()
     {
-        const bool shown = inner_.cursor_shown();
-        out_.put(RigCall::CursorShown);
-        out_.put(static_cast<std::uint8_t>(shown));
+        const bool shown = m_inner.cursor_shown();
+        m_out.put(RigCall::CursorShown);
+        m_out.put(static_cast<std::uint8_t>(shown));
         return shown;
     }
 
     std::uint32_t RecordingRigPort::game_state()
     {
-        const std::uint32_t state = inner_.game_state();
-        out_.put(RigCall::GameState);
-        out_.put(state);
+        const std::uint32_t state = m_inner.game_state();
+        m_out.put(RigCall::GameState);
+        m_out.put(state);
         return state;
     }
 
     bool RecordingRigPort::aim_control(float pitch_ease, float pitch_target, bool set_yaw, float yaw)
     {
-        const bool wrote = inner_.aim_control(pitch_ease, pitch_target, set_yaw, yaw);
-        out_.put(RigCall::AimControl);
-        out_.put(pitch_ease);
-        out_.put(pitch_target);
-        out_.put(static_cast<std::uint8_t>(set_yaw));
-        out_.put(yaw);
-        out_.put(static_cast<std::uint8_t>(wrote));
+        const bool wrote = m_inner.aim_control(pitch_ease, pitch_target, set_yaw, yaw);
+        m_out.put(RigCall::AimControl);
+        m_out.put(pitch_ease);
+        m_out.put(pitch_target);
+        m_out.put(static_cast<std::uint8_t>(set_yaw));
+        m_out.put(yaw);
+        m_out.put(static_cast<std::uint8_t>(wrote));
         return wrote;
     }
 
     void RecordingRigPort::body_turn(float yaw)
     {
-        inner_.body_turn(yaw);
-        out_.put(RigCall::BodyTurn);
-        out_.put(yaw);
+        m_inner.body_turn(yaw);
+        m_out.put(RigCall::BodyTurn);
+        m_out.put(yaw);
     }
 
     void RecordingRigPort::publish_move_press(float heading, float body_yaw)
     {
-        inner_.publish_move_press(heading, body_yaw);
-        out_.put(RigCall::PublishMovePress);
-        out_.put(heading);
-        out_.put(body_yaw);
+        m_inner.publish_move_press(heading, body_yaw);
+        m_out.put(RigCall::PublishMovePress);
+        m_out.put(heading);
+        m_out.put(body_yaw);
     }
 
     void RecordingRigPort::withdraw_move_press()
     {
-        inner_.withdraw_move_press();
-        out_.put(RigCall::WithdrawMovePress);
+        m_inner.withdraw_move_press();
+        m_out.put(RigCall::WithdrawMovePress);
     }
 
     void RecordingRigPort::event(RigEvent event, float a, float b, float c, std::uint32_t mask)
     {
-        inner_.event(event, a, b, c, mask);
-        out_.put(RigCall::Event);
-        out_.put(event);
-        out_.put(a);
-        out_.put(b);
-        out_.put(c);
-        out_.put(mask);
+        m_inner.event(event, a, b, c, mask);
+        m_out.put(RigCall::Event);
+        m_out.put(event);
+        m_out.put(a);
+        m_out.put(b);
+        m_out.put(c);
+        m_out.put(mask);
     }
 
     // --- ReplayRigPort ---
 
     void ReplayRigPort::diverge(const std::string &why)
     {
-        if (divergence_.empty())
+        if (m_divergence.empty())
         {
-            divergence_ = std::format("rig call {}: {}", calls_, why);
+            m_divergence = std::format("rig call {}: {}", m_calls, why);
         }
     }
 
@@ -449,9 +449,9 @@ namespace TPVCamera::ProbeRecord
         {
             return false;
         }
-        ++calls_;
+        ++m_calls;
         RigCall recorded = RigCall::End;
-        if (!in_.get(recorded))
+        if (!m_in.get(recorded))
         {
             diverge(std::format("{} asked, the recording ended", rig_call_name(expected)));
             return false;
@@ -467,7 +467,7 @@ namespace TPVCamera::ProbeRecord
     template <typename T> bool ReplayRigPort::expect_value(const T &actual, const char *what)
     {
         T recorded{};
-        if (!in_.get(recorded))
+        if (!m_in.get(recorded))
         {
             diverge(std::format("{}: the recording ended", what));
             return false;
@@ -482,7 +482,7 @@ namespace TPVCamera::ProbeRecord
 
     template <typename T> bool ReplayRigPort::answer(T &value)
     {
-        if (!in_.get(value))
+        if (!m_in.get(value))
         {
             diverge("the answer: the recording ended");
             return false;
@@ -636,7 +636,7 @@ namespace TPVCamera::ProbeRecord
             return false;
         }
         RigCall recorded = RigCall::ZoomHeld;
-        if (!in_.get(recorded) || recorded != RigCall::End)
+        if (!m_in.get(recorded) || recorded != RigCall::End)
         {
             diverge(std::format("the build ended, the recording holds {} more", rig_call_name(recorded)));
             return false;

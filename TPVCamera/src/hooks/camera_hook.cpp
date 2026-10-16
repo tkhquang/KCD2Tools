@@ -806,7 +806,7 @@ namespace TPVCamera
         {
         public:
             LiveRigPort(uintptr_t cview, const CameraFrustum &frustum, ViewWrite &write) noexcept
-                : cview_(cview), frustum_(frustum), write_(write)
+                : m_cview(cview), m_frustum(frustum), m_write(write)
             {
             }
 
@@ -833,9 +833,9 @@ namespace TPVCamera
                 // avoids the type-pun UB of a placement reinterpret_cast read, so a stale/torn cview fails closed here
                 // rather than depending solely on the outer detour SEH frame.
                 const auto position =
-                    DMK::memory::read<Vector3>(DMK::Address{cview_ + Constants::SVIEWPARAMS_POSITION_OFFSET});
+                    DMK::memory::read<Vector3>(DMK::Address{m_cview + Constants::SVIEWPARAMS_POSITION_OFFSET});
                 const auto rotation =
-                    DMK::memory::read<Quaternion>(DMK::Address{cview_ + Constants::SVIEWPARAMS_ROTATION_OFFSET});
+                    DMK::memory::read<Quaternion>(DMK::Address{m_cview + Constants::SVIEWPARAMS_ROTATION_OFFSET});
                 if (!position || !rotation)
                 {
                     return std::nullopt;
@@ -866,13 +866,13 @@ namespace TPVCamera
                 return LookReading{*quat, *pitch};
             }
 
-            [[nodiscard]] float game_fov() override { return frustum_.fov; }
+            [[nodiscard]] float game_fov() override { return m_frustum.fov; }
 
             void override_fov(float fov, float ratio) override
             {
-                write_.fov = fov;
-                write_.fov_ratio = ratio;
-                write_.fov_override = true;
+                m_write.fov = fov;
+                m_write.fov_ratio = ratio;
+                m_write.fov_override = true;
             }
 
             [[nodiscard]] BodyReading body(std::uintptr_t c_player) override
@@ -1018,9 +1018,9 @@ namespace TPVCamera
             }
 
         private:
-            uintptr_t cview_;
-            const CameraFrustum &frustum_;
-            ViewWrite &write_;
+            uintptr_t m_cview;
+            const CameraFrustum &m_frustum;
+            ViewWrite &m_write;
         };
 
         /** @brief The settings the rig reads, taken once per build. */

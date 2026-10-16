@@ -55,12 +55,12 @@ namespace TPVCamera
 
         StatePolicyTable() noexcept = default;
 
-        explicit StatePolicyTable(const StatePolicyLists &lists) noexcept : edge_rules_(lists.edge_rules)
+        explicit StatePolicyTable(const StatePolicyLists &lists) noexcept : m_edge_rules(lists.edge_rules)
         {
             for (std::size_t bit = 0; bit < k_rows; ++bit)
             {
                 const std::uint32_t flag = 1u << bit;
-                StatePolicyRow &row = rows_[bit];
+                StatePolicyRow &row = m_rows[bit];
                 if (lists.edge_rules)
                 {
                     row.view = (lists.forced_fpv & flag) != 0   ? ViewForce::FirstPerson
@@ -70,18 +70,18 @@ namespace TPVCamera
                 }
                 row.native_turn_exclude = (lists.native_turn_exclude & flag) != 0;
                 row.suppress = (lists.suppress & flag) != 0;
-                first_person_ |= row.view == ViewForce::FirstPerson ? flag : 0u;
-                third_person_ |= row.view == ViewForce::ThirdPerson ? flag : 0u;
-                orbit_exclude_ |= row.orbit_exclude ? flag : 0u;
-                native_turn_exclude_ |= row.native_turn_exclude ? flag : 0u;
-                suppress_ |= row.suppress ? flag : 0u;
+                m_first_person |= row.view == ViewForce::FirstPerson ? flag : 0u;
+                m_third_person |= row.view == ViewForce::ThirdPerson ? flag : 0u;
+                m_orbit_exclude |= row.orbit_exclude ? flag : 0u;
+                m_native_turn_exclude |= row.native_turn_exclude ? flag : 0u;
+                m_suppress |= row.suppress ? flag : 0u;
             }
         }
 
         /** @brief The row of the situation with GameState bit @p flag (a single bit), or a plain row for none. */
         [[nodiscard]] StatePolicyRow row(std::uint32_t flag) const noexcept
         {
-            return std::has_single_bit(flag) ? rows_[static_cast<std::size_t>(std::countr_zero(flag))]
+            return std::has_single_bit(flag) ? m_rows[static_cast<std::size_t>(std::countr_zero(flag))]
                                              : StatePolicyRow{};
         }
 
@@ -91,35 +91,37 @@ namespace TPVCamera
          */
         [[nodiscard]] ViewForce view(std::uint32_t state) const noexcept
         {
-            return (state & first_person_) != 0   ? ViewForce::FirstPerson
-                   : (state & third_person_) != 0 ? ViewForce::ThirdPerson
-                                                  : ViewForce::None;
+            return (state & m_first_person) != 0   ? ViewForce::FirstPerson
+                   : (state & m_third_person) != 0 ? ViewForce::ThirdPerson
+                                                   : ViewForce::None;
         }
 
         /** @brief The situations that force @p view (none for ViewForce::None). */
         [[nodiscard]] std::uint32_t forcing(ViewForce view) const noexcept
         {
-            return view == ViewForce::FirstPerson ? first_person_ : view == ViewForce::ThirdPerson ? third_person_ : 0u;
+            return view == ViewForce::FirstPerson   ? m_first_person
+                   : view == ViewForce::ThirdPerson ? m_third_person
+                                                    : 0u;
         }
 
         /** @brief Whether any situation forces a view, so the policy must watch every frame for an entry. */
-        [[nodiscard]] bool forces_any_view() const noexcept { return (first_person_ | third_person_) != 0; }
+        [[nodiscard]] bool forces_any_view() const noexcept { return (m_first_person | m_third_person) != 0; }
 
         /** @brief EnableStateBehavior: the edge-triggered rules (the forced views, the free-look exclusion) run. */
-        [[nodiscard]] bool edge_rules() const noexcept { return edge_rules_; }
+        [[nodiscard]] bool edge_rules() const noexcept { return m_edge_rules; }
 
-        [[nodiscard]] std::uint32_t orbit_exclude() const noexcept { return orbit_exclude_; }
-        [[nodiscard]] std::uint32_t native_turn_exclude() const noexcept { return native_turn_exclude_; }
-        [[nodiscard]] std::uint32_t suppress() const noexcept { return suppress_; }
+        [[nodiscard]] std::uint32_t orbit_exclude() const noexcept { return m_orbit_exclude; }
+        [[nodiscard]] std::uint32_t native_turn_exclude() const noexcept { return m_native_turn_exclude; }
+        [[nodiscard]] std::uint32_t suppress() const noexcept { return m_suppress; }
 
     private:
-        std::array<StatePolicyRow, k_rows> rows_{};
-        std::uint32_t first_person_ = 0;
-        std::uint32_t third_person_ = 0;
-        std::uint32_t orbit_exclude_ = 0;
-        std::uint32_t native_turn_exclude_ = 0;
-        std::uint32_t suppress_ = 0;
-        bool edge_rules_ = true;
+        std::array<StatePolicyRow, k_rows> m_rows{};
+        std::uint32_t m_first_person = 0;
+        std::uint32_t m_third_person = 0;
+        std::uint32_t m_orbit_exclude = 0;
+        std::uint32_t m_native_turn_exclude = 0;
+        std::uint32_t m_suppress = 0;
+        bool m_edge_rules = true;
     };
 } // namespace TPVCamera
 
