@@ -100,6 +100,20 @@ namespace TPVCamera
     // The camera collision's and the occluder fade's carry-over between frames (see camera/collision.hpp). Main thread
     // only (the camera detour).
     static CollisionState s_collision{};
+    // The rig's carry-over between builds (core/rig/rig_stage.hpp). Main thread only: the camera frame, and between
+    // frames the input dispatcher (the free-look angles, the stick latch) and the action dispatcher
+    // (orbit_move_pressed()), which run on the same thread.
+    static RigState s_rig{};
+    // The first-person <-> third-person blend (main thread only): 0 = first person, 1 = third person. Eased toward the
+    // target view each frame (smoothstepped at use) so toggling and UI suppression slide instead of snapping. Not reset
+    // on suppression - it eases back to 0.
+    static float s_view_blend = 0.0f;
+    // The orbit-exclude policy (main thread only): true while it holds free-look off and will restore it. Suppression
+    // leaves it alone; the rig reads it for the aim hand-off (RigInput::orbit_suspended).
+    static bool s_orbit_suspended = false;
+    // Raised on the frame the orbit-exclude policy turns free-look off in a situation where the game leaves the facing
+    // to the player (main thread only): the rig's aim hand-off starts on it (RigInput::aim_handoff_requested).
+    static bool s_aim_handoff_requested = false;
     // The first-person <-> third-person switch's yaw latch (see core/view/view_blend.hpp), cleared when the offset
     // turns off. Main thread only (the camera detour).
     static ViewBlendLatch s_view_latch{};
@@ -147,6 +161,11 @@ namespace TPVCamera
     // frustum detour each frame. The head-visibility detour and the free-look input gate read it so
     // they mirror the live offset state without recomputing the whole forced-view policy themselves.
     static std::atomic<bool> s_offset_active{false};
+
+    RigState &rig_state() noexcept
+    {
+        return s_rig;
+    }
 
     bool camera_offset_active() noexcept
     {
@@ -446,8 +465,7 @@ namespace TPVCamera
             s_indoors = 0;
             return 0;
         }
-        const float eye_height =
-            std::clamp(camera_state().real_eye_height.load(std::memory_order_relaxed), 0.0f, k_max_eye_height);
+        const float eye_height = std::clamp(s_rig.real_eye_height, 0.0f, k_max_eye_height);
         s_indoors =
             point_indoors(Vector3{eye->x, eye->y, eye->z - 0.5f * eye_height}) ? state_bit(GameState::Indoors) : 0u;
         return s_indoors;
@@ -1094,7 +1112,7 @@ namespace TPVCamera
     {
         const float delta_time = step.seconds;
         LiveSettings &cfg = settings();
-        CameraState &cam = camera_state();
+        CameraControls &controls = camera_controls();
 
         // What this build found in the camera and what it will write there (camera/commit.hpp). The basis starts as
         // the engine's eye basis, which stays unless the rig or the switch rebuilds it.
@@ -1111,18 +1129,29 @@ namespace TPVCamera
             .seconds = delta_time,
             .repeat_build = step.repeat_build,
             .paused = step.paused,
+            .orbit_active = controls.orbit_active.load(std::memory_order_relaxed),
+            .shoulder_swapped = controls.shoulder_swapped.load(std::memory_order_relaxed),
+            .zoom_reset = controls.zoom_reset_requested.exchange(false, std::memory_order_relaxed),
+            .orbit_suspended = s_orbit_suspended,
+            .aim_handoff_requested = s_aim_handoff_requested,
         };
         RigFrame rig{};
 #ifdef TPVCAMERA_DEV_BUILD
-        const bool built = FrameRecorder::recording() ? FrameRecorder::rig(cam, params, rig_input, port, rig)
-                                                      : run_rig(cam, params, rig_input, port, rig);
+        const bool built = FrameRecorder::recording() ? FrameRecorder::rig(s_rig, params, rig_input, port, rig)
+                                                      : run_rig(s_rig, params, rig_input, port, rig);
 #else
-        const bool built = run_rig(cam, params, rig_input, port, rig);
+        const bool built = run_rig(s_rig, params, rig_input, port, rig);
 #endif
         if (!built)
         {
             return; // the CView pose did not read; leave the view untouched this frame
         }
+        publish_rig_readout(RigReadout{
+            .zoom_offset = s_rig.zoom_offset,
+            .real_eye_height = s_rig.real_eye_height,
+            .eye_sync_effective = s_rig.eye_sync_effective,
+            .eye_sync_engaged = s_rig.eye_sync_engaged,
+        });
         const Vector3 world_up{0.0f, 0.0f, 1.0f};
 
         // The first-person <-> third-person switch blends the eye and the rig around the pivot before collision, so
@@ -1223,7 +1252,7 @@ namespace TPVCamera
                 is_game_menu_open() || overlay_state().active.load(std::memory_order_relaxed) ||
                 (game_state_mask().load(std::memory_order_relaxed) & state_bit(GameState::Dialogue)) != 0u;
             run_tree_see_through(camera_position, rig.eye_position, rig.body_origin, rig.body_valid,
-                                 cam.turn_track_step, !ui_up, view_blend, delta_time, s_character_nodes);
+                                 s_rig.turn_track_step, !ui_up, view_blend, delta_time, s_character_nodes);
         }
 
         // Too close to the character: the close-up fade, or the first-person fallback (see camera/close_fade.hpp).
@@ -1237,7 +1266,7 @@ namespace TPVCamera
             .switching = switching,
             .repeat_build = step.repeat_build,
         };
-        camera_position = apply_close_up(cam, s_character_nodes, close_up);
+        camera_position = apply_close_up(s_character_nodes, close_up);
 
         // While the switch runs, the head is hidden like in first person once the lens comes within reach of it, from
         // the frame the switch leaves the eye (the detour seeds the hide) until the lens is clear of the head, or the
@@ -1347,12 +1376,12 @@ namespace TPVCamera
      *          lasts, and restores the pre-force view when the state ends - unless the player changed
      *          the view themselves meanwhile, in which case their choice stands. Forced-FPV wins over
      *          forced-TPV on overlap. Runs on the main thread only (the detour), so the latch state is
-     *          plain file-scope static; cam.applying is atomic because the hotkeys write it too.
-     * @param cam Camera state whose applying flag (the live view) is forced and restored.
+     *          plain file-scope static; controls.applying is atomic because the hotkeys write it too.
+     * @param controls The camera controls whose applying flag (the live view) is forced and restored.
      * @param state Current debounced GameState mask.
      * @param policy The situations' rows: which force first or third person on entry (first person wins).
      */
-    static void apply_forced_view_policy(CameraState &cam, uint32_t state, const StatePolicyTable &policy)
+    static void apply_forced_view_policy(CameraControls &controls, uint32_t state, const StatePolicyTable &policy)
     {
         // The view the policy wants this frame: -1 none, 0 force FPV, 1 force TPV (forced-FPV wins).
         const ViewForce force = policy.view(state);
@@ -1367,7 +1396,7 @@ namespace TPVCamera
 
         if (forced_view != s_prev_forced_view)
         {
-            const bool view_before = cam.applying.load(std::memory_order_relaxed);
+            const bool view_before = controls.applying.load(std::memory_order_relaxed);
             Presets::SwitchEvent event{
                 .kind = Presets::SwitchKind::Policy,
                 .mask = state & policy.forcing(force),
@@ -1380,7 +1409,7 @@ namespace TPVCamera
                 Presets::copy_switch_text(event.reason, s_policy_owns ? "forced view restore" : "forced view release");
                 if (s_policy_owns)
                 {
-                    cam.applying.store(s_saved_applying, std::memory_order_relaxed);
+                    controls.applying.store(s_saved_applying, std::memory_order_relaxed);
                     s_policy_owns = false;
                 }
             }
@@ -1391,19 +1420,19 @@ namespace TPVCamera
                 // exit, then apply the forced view exactly once.
                 if (s_prev_forced_view == -1)
                 {
-                    s_saved_applying = cam.applying.load(std::memory_order_relaxed);
+                    s_saved_applying = controls.applying.load(std::memory_order_relaxed);
                 }
-                cam.applying.store(forced_view == 1, std::memory_order_relaxed);
+                controls.applying.store(forced_view == 1, std::memory_order_relaxed);
                 s_policy_owns = true;
                 Presets::copy_switch_text(event.reason, forced_view == 1 ? "forced tpv" : "forced fpv");
             }
-            Presets::copy_switch_text(event.to,
-                                      cam.applying.load(std::memory_order_relaxed) ? "third person" : "first person");
+            Presets::copy_switch_text(event.to, controls.applying.load(std::memory_order_relaxed) ? "third person"
+                                                                                                  : "first person");
             Presets::record_switch(event);
             s_prev_forced_view = forced_view;
         }
         else if (forced_view != -1 && s_policy_owns &&
-                 cam.applying.load(std::memory_order_relaxed) != (forced_view == 1))
+                 controls.applying.load(std::memory_order_relaxed) != (forced_view == 1))
         {
             // Same forced state as last frame, but the player toggled the view away from the forced
             // value: release ownership so the policy stops forcing and does not restore on exit.
@@ -1423,12 +1452,13 @@ namespace TPVCamera
      *          orbit_active. The exit branch restores free-look, then consumes the flag and turns free-look back off
      *          when a release was posted, so every interleaving with a release ends with free-look off. These steps
      *          stay sequentially consistent because the protocol spans two variables.
-     * @param cam Camera state whose orbit_active flag is suspended and restored.
+     * @param controls The camera controls whose orbit_active flag is suspended and restored.
      * @param state Current GameState mask: debounced, except Menu and Overlay, which come from the live UI signals.
      * @param orbit_exclude_mask States in which free-look is disabled.
      * @return True on the frame it turns free-look off.
      */
-    [[nodiscard]] static bool apply_orbit_exclude_policy(CameraState &cam, uint32_t state, uint32_t orbit_exclude_mask)
+    [[nodiscard]] static bool apply_orbit_exclude_policy(CameraControls &controls, uint32_t state,
+                                                         uint32_t orbit_exclude_mask)
     {
         const bool excluded = (state & orbit_exclude_mask) != 0;
         static bool s_prev_excluded = false;
@@ -1438,10 +1468,9 @@ namespace TPVCamera
             // Still in the same state. If the policy suspended free-look on entry but the player has since
             // turned it back on by hand, release the suspension so the exit branch does not later re-assert
             // it against a manual choice (symmetric to apply_forced_view_policy's ownership release).
-            if (excluded && cam.orbit_suspended.load(std::memory_order_relaxed) &&
-                cam.orbit_active.load(std::memory_order_relaxed))
+            if (excluded && s_orbit_suspended && controls.orbit_active.load(std::memory_order_relaxed))
             {
-                cam.orbit_suspended.store(false, std::memory_order_relaxed);
+                s_orbit_suspended = false;
             }
             return false;
         }
@@ -1450,8 +1479,8 @@ namespace TPVCamera
             .kind = Presets::SwitchKind::Policy,
             .mask = state & orbit_exclude_mask,
         };
-        Presets::copy_switch_text(event.from,
-                                  cam.orbit_active.load(std::memory_order_relaxed) ? "free-look on" : "free-look off");
+        Presets::copy_switch_text(event.from, controls.orbit_active.load(std::memory_order_relaxed) ? "free-look on"
+                                                                                                    : "free-look off");
         Presets::copy_switch_text(event.reason, excluded ? "orbit exclude" : "orbit exclude end");
         if (excluded)
         {
@@ -1465,25 +1494,25 @@ namespace TPVCamera
                                      stranded, stranded > k_move_input_stop ? ", WAS STRANDED" : "");
             // If free-look was on, turn it off and remember to restore it.
             bool on = true;
-            const bool suspend = cam.orbit_active.compare_exchange_strong(on, false);
-            cam.orbit_suspended.store(suspend, std::memory_order_relaxed);
+            const bool suspend = controls.orbit_active.compare_exchange_strong(on, false);
+            s_orbit_suspended = suspend;
             suspended_now = suspend;
         }
-        else if (cam.orbit_suspended.load(std::memory_order_relaxed))
+        else if (s_orbit_suspended)
         {
             // Leaving the excluded state: re-enable free-look. Like a toggle-on, it takes over from the pose on
             // screen with the orbit angles it has, so the camera does not move. An OrbitHoldKey let go of meanwhile
             // keeps it off.
-            cam.orbit_suspended.store(false, std::memory_order_relaxed);
+            s_orbit_suspended = false;
             bool off = false;
-            const bool restored = cam.orbit_active.compare_exchange_strong(off, true);
-            if (cam.orbit_hold_released.exchange(false) && restored)
+            const bool restored = controls.orbit_active.compare_exchange_strong(off, true);
+            if (controls.orbit_hold_released.exchange(false) && restored)
             {
-                cam.orbit_active.store(false);
+                controls.orbit_active.store(false);
             }
         }
-        Presets::copy_switch_text(event.to,
-                                  cam.orbit_active.load(std::memory_order_relaxed) ? "free-look on" : "free-look off");
+        Presets::copy_switch_text(event.to, controls.orbit_active.load(std::memory_order_relaxed) ? "free-look on"
+                                                                                                  : "free-look off");
         Presets::record_switch(event);
         s_prev_excluded = excluded;
         return suspended_now;
@@ -1592,7 +1621,7 @@ namespace TPVCamera
      */
     static void detour_frustum_build_impl(uintptr_t camera, FrustumBuildProfile &profile)
     {
-        CameraState &cam = camera_state();
+        CameraControls &controls = camera_controls();
         LiveSettings &cfg = settings();
 
         // The [StateBehavior] lists, one row per situation, read once for this build.
@@ -1668,8 +1697,8 @@ namespace TPVCamera
         // disengages).
         // A pending arrow keeps the full path too, so a first-person shot is still followed and drawn, and so does a
         // distraction stone in hand while the aim preview is on, so its landing is still shown.
-        if (!cam.applying.load(std::memory_order_relaxed) && !policy.forces_any_view() && !head_was_active() &&
-            cam.view_blend <= 1e-3f && !native_turn_engaged() &&
+        if (!controls.applying.load(std::memory_order_relaxed) && !policy.forces_any_view() && !head_was_active() &&
+            s_view_blend <= 1e-3f && !native_turn_engaged() &&
             !ranged_wants_frame(cfg.ranged_show_aim_preview.load(std::memory_order_relaxed) ? resolve_c_player() : 0))
         {
             // Even while idle (first person, no forced state), probe for the player until the world is
@@ -1712,26 +1741,26 @@ namespace TPVCamera
         // already reacts to a screen. A same-frame rebuild reads the same state, so it is raised once.
         const uint32_t policy_state = (state & ~k_live_ui_states) | (raw_state & k_live_ui_states);
         const bool facing_held = ((state | raw_state) & k_game_held_facing_states) != 0u;
-        cam.aim_handoff_requested = false;
+        s_aim_handoff_requested = false;
         if (policy.edge_rules())
         {
             // Both policies are edge-triggered (they act on state-change edges, not every frame) so the
-            // player keeps manual control while a state lasts. The forced-view policy writes cam.applying
+            // player keeps manual control while a state lasts. The forced-view policy writes controls.applying
             // on entry and restores it on exit; the orbit-exclude policy suspends free-look on entry and
             // restores it on exit.
-            apply_forced_view_policy(cam, state, policy);
-            cam.aim_handoff_requested =
-                apply_orbit_exclude_policy(cam, policy_state, policy.orbit_exclude()) && !facing_held;
+            apply_forced_view_policy(controls, state, policy);
+            s_aim_handoff_requested =
+                apply_orbit_exclude_policy(controls, policy_state, policy.orbit_exclude()) && !facing_held;
         }
         else
         {
             // No policy restores free-look while state behavior is off, so nothing stays suspended.
-            cam.orbit_suspended.store(false, std::memory_order_relaxed);
+            s_orbit_suspended = false;
         }
         // One that shows up while a hand-off runs ends it after this frame's rig, and the camera eases back.
-        if (facing_held && cam.aim_handoff_active)
+        if (facing_held && s_rig.aim_handoff_active)
         {
-            cam.aim_handoff_cancel = true;
+            s_rig.aim_handoff_cancel = true;
         }
         game_state_mask().store(state, std::memory_order_relaxed);
         // While the game stands still, the shader twins create the twins of the variants that came after the loading
@@ -1746,8 +1775,8 @@ namespace TPVCamera
         // counter (g_env -> p_hardware_mouse -> + count) reads > 0 whenever any UI requests the cursor.
         // Every link is screened (memory::walk + memory::read), and any failed link - or the feature
         // being disabled - publishes false, so a layout miss or a load degrades to normal orbit rather
-        // than a stuck-frozen one. Read here on the main thread; the input thread only reads the
-        // published flag (same producer/consumer split as game_state_mask, so no new cross-thread race).
+        // than a stuck-frozen one. Read here on the main thread; the input dispatcher hook reads the
+        // published flag between frames on the same thread.
         // Non-game-view frustum frames (shadow/reflection) skip this publish, but cannot strand the orbit
         // frozen: s_offset_active is co-published on this same game-view path and the input gate tests it
         // first, so a stale true here is moot whenever the offset is not actively rendering the view.
@@ -1767,26 +1796,26 @@ namespace TPVCamera
 
         // Drive the player head from the offset state every frame (the engine only sets it on its own
         // transitions, so toggling the offset would otherwise leave the head stuck), then offset the
-        // matrix while active. The offset follows cam.applying directly - both the manual toggle and
+        // matrix while active. The offset follows controls.applying directly - both the manual toggle and
         // the edge-triggered policy write it - and should_apply_view() applies the SuppressTPVState hard
         // gate.
         // Ease the first-person <-> third-person blend toward the desired view so toggling (and UI
         // suppression) slides instead of snapping. ViewTransitionDuration 0 makes the switch instant. It runs on real
         // time: the inventory slows the game clock to 1/1000 as it opens, and a switch to first person paced on that
         // clock would leave the offset on the inventory's own view of the character.
-        const bool want_tpv = cam.applying.load(std::memory_order_relaxed) && should_apply_view();
+        const bool want_tpv = controls.applying.load(std::memory_order_relaxed) && should_apply_view();
         // A situation that also leaves third person (an overlay under SuppressTPVState) does not hand the look off:
         // the camera eases to the eye, whatever ViewTransitionDuration is.
         if (!want_tpv)
         {
-            cam.aim_handoff_requested = false;
+            s_aim_handoff_requested = false;
         }
         const float view_dur = cfg.view_transition_duration.load(std::memory_order_relaxed);
         const float view_target = want_tpv ? 1.0f : 0.0f;
-        cam.view_blend = ramp_weight(cam.view_blend, view_target, view_dur, step.real_seconds);
+        s_view_blend = ramp_weight(s_view_blend, view_target, view_dur, step.real_seconds);
 
         // The offset is rendered while heading TO or holding third person, so the ease-OUT renders too.
-        const bool offset_engaged = want_tpv || cam.view_blend > 1e-3f;
+        const bool offset_engaged = want_tpv || s_view_blend > 1e-3f;
         s_offset_active.store(offset_engaged, std::memory_order_relaxed);
         // A switch into third person starts with the lens at the eye, so the head stays hidden from its first frame;
         // the offset clears the hide once the lens is clear of the head. The re-assert below applies it this frame.
@@ -1797,7 +1826,7 @@ namespace TPVCamera
         }
         {
             static bool s_switch_logged = false;
-            const bool switching = offset_engaged && cam.view_blend < 1.0f;
+            const bool switching = offset_engaged && s_view_blend < 1.0f;
             if (switching != s_switch_logged)
             {
                 s_switch_logged = switching;
@@ -1819,7 +1848,7 @@ namespace TPVCamera
         // preset anchored to it). No turn starts under free-look.
         const bool eye_anchored = head_fallback() || Presets::live_params().eye_height <= 0.0f;
         update_native_turn(c_player, offset_engaged, state, eye_anchored,
-                           !cam.orbit_active.load(std::memory_order_relaxed), delta_time);
+                           !controls.orbit_active.load(std::memory_order_relaxed), delta_time);
 
         // Edge tracker for the disengage cleanup below: true while the offset is rendering, so the cleanup runs
         // ONCE on the third-person -> first-person transition, not every first-person frame.
@@ -1832,8 +1861,8 @@ namespace TPVCamera
                 // run-state so re-engaging is fresh: clear the move re-arm latch and force-clear any
                 // movement-input latch the game may have stranded on an action-map swap. Edge-gated so a key
                 // held in first person does not spam the reset/log every frame.
-                cam.orbit_move_armed = false;
-                cam.orbit_move_armed_by_game = false;
+                s_rig.orbit_move_armed = false;
+                s_rig.orbit_move_armed_by_game = false;
                 const float stranded = player_onaction_reset();
                 if (stranded > k_move_input_stop)
                 {
@@ -1845,8 +1874,6 @@ namespace TPVCamera
             }
             reset_collision_carry(s_collision);
             reset_shoulder_carry(s_collision);
-            cam.head_fallback = false;
-            cam.head_fallback_blend = 0.0f;
             set_head_fallback(false);
             set_head_close_fade(false);
             set_head_transition(false);
@@ -1873,40 +1900,40 @@ namespace TPVCamera
             publish_last_final(FrameRecord{});
             // The held base outlives a first-person gap while a situation holds free-look off, so free-look comes
             // back on the base it had.
-            if (!cam.orbit_suspended.load(std::memory_order_relaxed))
+            if (!s_orbit_suspended)
             {
-                cam.orbit_base_held = false;
+                s_rig.orbit_base_held = false;
             }
-            cam.orbit_render_valid =
+            s_rig.orbit_render_valid =
                 false; // next engaged frame snaps the orbit low-pass instead of easing across the gap
-            cam.orbit_steer_valid = false; // and the continuous-align steer low-pass
-            cam.eye_sync_valid = false;    // and the dynamic eye-height low-pass
-            cam.fov_ease_valid = false;    // and the per-preset FOV override ease
-            cam.basis_quat_valid = false;  // and the aim-basis low-pass
-            cam.turn_track_valid = false;  // and the turn-in-place pivot hold
-            cam.shoulder_swap_valid = false; // and the shoulder swap's slide
+            s_rig.orbit_steer_valid = false;   // and the continuous-align steer low-pass
+            s_rig.eye_sync_valid = false;      // and the dynamic eye-height low-pass
+            s_rig.fov_ease_valid = false;      // and the per-preset FOV override ease
+            s_rig.basis_quat_valid = false;    // and the aim-basis low-pass
+            s_rig.turn_track_valid = false;    // and the turn-in-place pivot hold
+            s_rig.shoulder_swap_valid = false; // and the shoulder swap's slide
             // A press in first person does not start a free-look move.
             s_move_press_stamp_ms.store(0, std::memory_order_release);
             clear_move_press_turn();
             // A move under way keeps the angle the camera last showed, as stopping does.
-            if (cam.orbit_moving && cam.orbit_target_valid)
+            if (s_rig.orbit_moving && s_rig.orbit_target_valid)
             {
-                cam.orbit_yaw.store(cam.orbit_yaw_render, std::memory_order_relaxed);
+                s_rig.orbit_yaw = s_rig.orbit_yaw_render;
             }
-            cam.orbit_moving = false;
-            cam.orbit_target_valid = false;
+            s_rig.orbit_moving = false;
+            s_rig.orbit_target_valid = false;
             // A hand-off that turned the look left angles measured against the old look; the look takes the camera
             // direction once play resumes, so they are centered.
-            if (cam.aim_handoff_active && cam.aim_handoff_written)
+            if (s_rig.aim_handoff_active && s_rig.aim_handoff_written)
             {
-                cam.orbit_yaw.store(0.0f, std::memory_order_relaxed);
-                cam.orbit_pitch.store(0.0f, std::memory_order_relaxed);
-                cam.orbit_yaw_render = 0.0f;
-                cam.orbit_pitch_render = 0.0f;
+                s_rig.orbit_yaw = 0.0f;
+                s_rig.orbit_pitch = 0.0f;
+                s_rig.orbit_yaw_render = 0.0f;
+                s_rig.orbit_pitch_render = 0.0f;
             }
-            cam.aim_handoff_active = false; // and the aim hand-off, which has no camera to hold
-            cam.aim_handoff_cancel = false;
-            cam.rig_last_orbited = false;
+            s_rig.aim_handoff_active = false; // and the aim hand-off, which has no camera to hold
+            s_rig.aim_handoff_cancel = false;
+            s_rig.rig_last_orbited = false;
             // Back to first person: the next engaged frame should snap the preset, not ease across the gap.
             Presets::reset_transition();
             // Shots loosed in first person are still followed and drawn (the pose is invalid, so none is re-aimed).
@@ -1920,7 +1947,7 @@ namespace TPVCamera
         Presets::resolve_and_apply(state, delta_time);
 
         // Smoothstep the linear view blend for an ease-in/out feel, then offset with it.
-        const float view_s = smoothstep(cam.view_blend);
+        const float view_s = smoothstep(s_view_blend);
         offset_game_view_camera(camera, cview, c_player, step, view_s);
         // After the offset, so the crosshair target is cast from the pose this frame renders.
         run_ranged_frame(cview, c_player, repeat_build);
@@ -2003,9 +2030,9 @@ namespace TPVCamera
         }
         // Third person and free-look must still be on: a view switch or a released hold key since the publish
         // leaves the heading unused.
-        CameraState &cam = camera_state();
-        if (!cam.applying.load(std::memory_order_relaxed) || !cam.orbit_active.load(std::memory_order_relaxed) ||
-            !s_offset_active.load(std::memory_order_relaxed))
+        CameraControls &controls = camera_controls();
+        if (!controls.applying.load(std::memory_order_relaxed) ||
+            !controls.orbit_active.load(std::memory_order_relaxed) || !s_offset_active.load(std::memory_order_relaxed))
         {
             return;
         }
@@ -2014,13 +2041,13 @@ namespace TPVCamera
         // while the look turns under it. The look and the body both turn at the press: the body override sets the
         // facing at the end of the animated-character update, and the look-driven release of the walk start
         // (LockBodyTurn) copies the look into the body one frame later, so an old look turns the body back.
-        cam.orbit_target_yaw = heading;
-        cam.orbit_target_valid = true;
-        cam.orbit_yaw_at_capture_deg = cam.orbit_yaw.load(std::memory_order_relaxed);
-        cam.orbit_moving = true;
+        s_rig.orbit_target_yaw = heading;
+        s_rig.orbit_target_valid = true;
+        s_rig.orbit_yaw_at_capture_deg = s_rig.orbit_yaw;
+        s_rig.orbit_moving = true;
         // The look jumps to the new heading, so the basis snaps to it rather than easing across the turn. A short
         // press then ends with the rig already on the new heading, and the angle baked on release stays put.
-        cam.basis_quat_valid = false;
+        s_rig.basis_quat_valid = false;
         (void)apply_orbit_aim_control(0.0f, 0.0f, true, heading);
         const std::uintptr_t anim_char = apply_orbit_body_turn(heading);
         const float turn =
@@ -2048,9 +2075,8 @@ namespace TPVCamera
         // Start in first-person (offset off) so the game looks normal on load; the view
         // hotkeys toggle/force the third-person offset on. The hooks below fast-path out
         // while the offset is off, so installing them unconditionally costs almost nothing.
-        CameraState &cam = camera_state();
-        cam.applying.store(false);
-        cam.zoom_offset.store(0.0f);
+        camera_controls().applying.store(false);
+        s_rig.zoom_offset = 0.0f;
 
         // Resolve g_env once (patch-resilient AOB). The CView vtable is identified lazily by RTTI on
         // the first game-view camera, so nothing is resolved here.

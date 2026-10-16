@@ -101,8 +101,8 @@ namespace TPVCamera
     static void orbit_engage()
     {
         // A hold released before this engage does not concern the orbit-exclude policy.
-        camera_state().orbit_hold_released.store(false);
-        camera_state().orbit_active.store(true);
+        camera_controls().orbit_hold_released.store(false);
+        camera_controls().orbit_active.store(true);
     }
 
     /**
@@ -114,7 +114,7 @@ namespace TPVCamera
      */
     static void orbit_disengage()
     {
-        camera_state().orbit_active.store(false);
+        camera_controls().orbit_active.store(false);
         const float stranded = player_onaction_reset();
         DMK::log().trace("Orbit: disengaged; cleared move-latch (had magnitude {:.2f})", stranded);
     }
@@ -143,7 +143,7 @@ namespace TPVCamera
             DMK::log().info("Preset cycle: '{}' is the only preset for {}", cycled->preset, states);
             return;
         }
-        camera_state().zoom_reset_requested.store(true, std::memory_order_relaxed);
+        camera_controls().zoom_reset_requested.store(true, std::memory_order_relaxed);
         DMK::log().info("Preset cycle: '{}' ({}/{}) now used for {}", cycled->preset, cycled->position, cycled->count,
                         states);
     }
@@ -311,9 +311,9 @@ namespace TPVCamera
             {
                 if (is_ui_blocking_input())
                     return;
-                CameraState &cam = camera_state();
-                const bool new_state = !cam.applying.load();
-                cam.applying.store(new_state);
+                CameraControls &controls = camera_controls();
+                const bool new_state = !controls.applying.load();
+                controls.applying.store(new_state);
                 DMK::log().info("Third-person camera {}", new_state ? "ENABLED" : "DISABLED");
             },
             "F3,Gamepad_LB+Gamepad_RB");
@@ -323,7 +323,7 @@ namespace TPVCamera
             settings_section, "ForceFPVKey", "Force FPV Key", "force_fpv",
             []
             {
-                camera_state().applying.store(false);
+                camera_controls().applying.store(false);
                 DMK::log().info("Third-person camera DISABLED (force FPV)");
             },
             "");
@@ -335,7 +335,7 @@ namespace TPVCamera
             {
                 if (is_ui_blocking_input())
                     return;
-                camera_state().applying.store(true);
+                camera_controls().applying.store(true);
                 DMK::log().info("Third-person camera ENABLED (force TPV)");
             },
             "");
@@ -348,9 +348,9 @@ namespace TPVCamera
             {
                 if (is_ui_blocking_input())
                     return;
-                CameraState &cam = camera_state();
-                const bool swapped = !cam.shoulder_swapped.load(std::memory_order_relaxed);
-                cam.shoulder_swapped.store(swapped, std::memory_order_relaxed);
+                CameraControls &controls = camera_controls();
+                const bool swapped = !controls.shoulder_swapped.load(std::memory_order_relaxed);
+                controls.shoulder_swapped.store(swapped, std::memory_order_relaxed);
                 DMK::log().info("Camera shoulder {}", swapped ? "SWAPPED" : "RESTORED");
             },
             "");
@@ -369,7 +369,7 @@ namespace TPVCamera
             {
                 if (is_ui_blocking_input())
                     return;
-                const bool new_state = !camera_state().orbit_active.load();
+                const bool new_state = !camera_controls().orbit_active.load();
                 if (new_state)
                     orbit_engage();
                 else
@@ -453,7 +453,7 @@ namespace TPVCamera
                 static bool s_engaged_by_hold = false;
                 if (pressed)
                 {
-                    if (is_ui_blocking_input() || camera_state().orbit_active.load())
+                    if (is_ui_blocking_input() || camera_controls().orbit_active.load())
                         return;
                     orbit_engage();
                     s_engaged_by_hold = true;
@@ -464,7 +464,7 @@ namespace TPVCamera
                     // A hold let go of while an OrbitExcludeState holds free-look off is not restored when it ends.
                     // Posted before free-look turns off: the policy's restore checks it afterward (see
                     // apply_orbit_exclude_policy).
-                    camera_state().orbit_hold_released.store(true);
+                    camera_controls().orbit_hold_released.store(true);
                     orbit_disengage();
                     s_engaged_by_hold = false;
                     DMK::log().info("Orbit camera DISABLED (hold released)");
@@ -590,10 +590,10 @@ namespace TPVCamera
         // the camera (it is gated on the offset being active), starting from the centred 0,0 angle.
         {
             const LiveSettings &startup = settings();
-            CameraState &cam = camera_state();
+            CameraControls &controls = camera_controls();
             if (startup.auto_enable_tpv.load(std::memory_order_relaxed))
             {
-                cam.applying.store(true, std::memory_order_relaxed);
+                controls.applying.store(true, std::memory_order_relaxed);
                 logger.info("AutoEnableTPV: third-person camera enabled on start");
             }
             if (startup.auto_enable_orbit.load(std::memory_order_relaxed))

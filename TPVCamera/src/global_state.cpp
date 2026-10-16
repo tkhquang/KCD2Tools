@@ -26,17 +26,31 @@ namespace TPVCamera
         return state;
     }
 
-    CameraState &camera_state() noexcept
+    CameraControls &camera_controls() noexcept
     {
-        static CameraState state;
-        return state;
+        static CameraControls controls;
+        return controls;
     }
 
     namespace
     {
         // Thread: published by the frustum detour (main thread), read by the interaction, ranged and AI observer hooks.
         SeqlockSnapshot<FrameRecord> s_last_final{};
+        // Thread: published by the frustum detour (main thread), read by the overlay.
+        SeqlockSnapshot<RigReadout> s_rig_readout{};
     } // namespace
+
+    void publish_rig_readout(const RigReadout &readout) noexcept
+    {
+        s_rig_readout.publish(readout);
+    }
+
+    RigReadout rig_readout() noexcept
+    {
+        RigReadout readout{};
+        (void)s_rig_readout.try_load(readout);
+        return readout;
+    }
 
     void publish_last_final(const FrameRecord &record) noexcept
     {

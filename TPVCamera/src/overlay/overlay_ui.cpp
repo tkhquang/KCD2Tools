@@ -535,7 +535,7 @@ namespace TPVCamera::Overlay
                         // key does.
                         if (frame.state_mask == group.mask)
                         {
-                            camera_state().zoom_reset_requested.store(true, std::memory_order_relaxed);
+                            camera_controls().zoom_reset_requested.store(true, std::memory_order_relaxed);
                         }
                     }
                 }
@@ -954,7 +954,7 @@ namespace TPVCamera::Overlay
          *          zoom-key offset and clamps the sum to the Min..Max window each engaged frame, so the slider
          *          value alone does not reveal where the camera actually sits after zooming. This reads the same
          *          values the detour uses (the live preset's Follow Distance from Presets::preset_readout() plus
-         *          camera_state().zoom_offset, clamped to its Min/Max) so the number is the true rendered distance,
+         *          the rig's zoom offset from rig_readout(), clamped to its Min/Max) so the number is the true rendered distance,
          *          updating in real time as the zoom keys are held. The button asks the detour to drop the zoom
          *          (zoom_reset_requested), which eases the camera back to the configured Follow Distance. It is
          *          disabled when there is no zoom to clear. A readout that is one frame stale is harmless.
@@ -962,8 +962,7 @@ namespace TPVCamera::Overlay
         void draw_applied_follow_distance(int decimals)
         {
             const Presets::PresetReadout live = Presets::preset_readout();
-            CameraState &cam = camera_state();
-            const float zoom = cam.zoom_offset.load(std::memory_order_relaxed);
+            const float zoom = rig_readout().zoom_offset;
             const float base = live.follow_distance;
             const float lo = live.follow_distance_min;
             const float hi = live.follow_distance_max;
@@ -979,7 +978,7 @@ namespace TPVCamera::Overlay
             ImGui::BeginDisabled(!zoomed);
             if (ImGui::SmallButton("Reset zoom"))
             {
-                cam.zoom_reset_requested.store(true, std::memory_order_relaxed);
+                camera_controls().zoom_reset_requested.store(true, std::memory_order_relaxed);
             }
             ImGui::EndDisabled();
             hover_tooltip(
@@ -989,14 +988,15 @@ namespace TPVCamera::Overlay
 
         /**
          * @brief Read-out: the player's live REAL first-person eye height above the feet (drops on kneel/pray/sit).
-         * @details Shows the same value Dynamic Eye Sync uses - camera_state().real_eye_height, published by the
+         * @details Shows the same value Dynamic Eye Sync uses - the rig's real_eye_height (rig_readout()), published by
+         * the
          *          frustum-builder detour each engaged frame. Reading the relaxed atomic from the overlay thread
          *          races only the render thread's own relaxed write, so a stale-by-a-frame readout is harmless.
          */
         void draw_applied_eye_height(int decimals)
         {
-            CameraState &cam = camera_state();
-            const float real_eye_height = cam.real_eye_height.load(std::memory_order_relaxed);
+            const RigReadout rig = rig_readout();
+            const float real_eye_height = rig.real_eye_height;
             ImGui::TextDisabled("Current eye height (real): %.*f m", decimals, real_eye_height);
             hover_tooltip("Your character's actual first-person eye height above the feet right now. It drops when\n"
                           "you kneel, pray, sit, etc. With Dynamic Eye Sync on, the camera re-anchors to this when it\n"
@@ -1006,9 +1006,9 @@ namespace TPVCamera::Overlay
             // camera is currently driven by the re-anchored real eye, vs. dim when the steady Eye Height is in effect.
             if (Presets::preset_readout().dynamic_eye_sync)
             {
-                if (cam.eye_sync_engaged.load(std::memory_order_relaxed))
+                if (rig.eye_sync_engaged)
                 {
-                    const float effective = cam.eye_sync_effective.load(std::memory_order_relaxed);
+                    const float effective = rig.eye_sync_effective;
                     ImGui::TextColored(ImVec4(0.40f, 0.85f, 0.45f, 1.0f),
                                        "  -> Dynamic Eye Sync ACTIVE: anchored to %.*f m (real eye)", decimals,
                                        effective);

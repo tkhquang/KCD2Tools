@@ -1508,7 +1508,7 @@ namespace TPVCamera
             shot.launch_ms = GetTickCount64();
             shot.ammo = s_fire_ammo.load(std::memory_order_relaxed);
             shot.weapon = s_fire_weapon.load(std::memory_order_relaxed);
-            shot.free_look = camera_state().orbit_active.load(std::memory_order_relaxed);
+            shot.free_look = camera_controls().orbit_active.load(std::memory_order_relaxed);
             // The look as the shot leaves is the look that posed the bow for it. First-person shots record it too, so
             // their log shows the bow's set against the line of sight.
             const std::uintptr_t shooter = s_fire_player.load(std::memory_order_relaxed);
@@ -1809,7 +1809,7 @@ namespace TPVCamera
                                           float speed_scale, FlownLaunch &flown) noexcept
         {
             if (!settings().ranged_aim_at_crosshair.load(std::memory_order_relaxed) ||
-                camera_state().orbit_active.load(std::memory_order_relaxed))
+                camera_controls().orbit_active.load(std::memory_order_relaxed))
             {
                 return false;
             }
@@ -3380,7 +3380,7 @@ namespace TPVCamera
             physics.pierceability = s_pierceability.load(std::memory_order_relaxed);
 
             // The profile placed the bow and its aim in the look's frame, so they turn with the look in free-look too.
-            const bool free_look = camera_state().orbit_active.load(std::memory_order_relaxed);
+            const bool free_look = camera_controls().orbit_active.load(std::memory_order_relaxed);
             const auto [right, up] = view_axes(*look);
             const Vector3 bow = to_vector(target.eye) + right * offset.x + up * offset.y + *look * offset.z;
             const Vector3 native = (right * aim.x + up * aim.y + *look * aim.z).normalized();
@@ -3523,7 +3523,7 @@ namespace TPVCamera
             bool aimed = false;
             // In third person the Launch detour re-aims the throw at the crosshair, within MaxAimCorrection.
             if (fresh && settings().ranged_aim_at_crosshair.load(std::memory_order_relaxed) &&
-                !camera_state().orbit_active.load(std::memory_order_relaxed))
+                !camera_controls().orbit_active.load(std::memory_order_relaxed))
             {
                 const Vector3 point = to_vector(target.point);
                 const float max_correction = max_aim_correction();

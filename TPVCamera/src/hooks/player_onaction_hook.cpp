@@ -49,8 +49,9 @@ namespace TPVCamera
     };
     static constexpr size_t k_move_count = k_move_actions.size();
 
-    // One latched |value| per movement action, written on the input thread and read on the main thread.
-    // Value-initialized to 0; relaxed atomics suffice (a one-frame-stale signal is harmless).
+    // One latched |value| per movement action, written by the action dispatcher (between camera frames, on the game's
+    // main thread) and read by the camera frame. Value-initialized to 0; relaxed atomics keep a read from another
+    // thread (a reset on a hotkey) well defined, and a one-frame-stale signal is harmless.
     static std::atomic<float> s_move_values[k_move_count]{};
 
     bool player_onaction_available()
@@ -96,7 +97,7 @@ namespace TPVCamera
     /**
      * @brief Trace-only vocabulary probe: logs each distinct action name once so the on-foot movement-action
      *        names can be confirmed at runtime. Inert unless the trace log level is on; the dedup list
-     *        is touched only here, on the input thread, under its own mutex.
+     *        is touched only here, in the action dispatcher, under its own mutex.
      */
     static void maybe_log_action_name(const char *name)
     {

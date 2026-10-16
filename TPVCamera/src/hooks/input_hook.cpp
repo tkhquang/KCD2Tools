@@ -7,6 +7,7 @@
 #include "aob_resolver.hpp"
 #include "config.hpp"
 #include "constants.hpp"
+#include "core/rig/rig_stage.hpp"
 #include "global_state.hpp"
 #include "hooks/camera_hook.hpp"
 #include "presets/preset_runtime.hpp"
@@ -42,7 +43,7 @@ namespace TPVCamera
          */
         [[nodiscard]] bool orbit_capture_and_decide(uintptr_t input_event)
         {
-            CameraState &cam = camera_state();
+            RigState &rig = rig_state();
             // Gate on the offset's effective active state (so free-look also works when a forced-TPV state
             // turned the offset on without the manual toggle), the orbit toggle, the cursor-shown flag (so a
             // UI being up holds the orbit instead of letting cursor motion turn it), and the shared UI gate
@@ -53,8 +54,8 @@ namespace TPVCamera
             // apply_orbit_exclude_policy), so capture stops there without forbidding a manual re-enable: a
             // player who toggles free-look back on in an excluded state (e.g. for a photo on a mount) still
             // gets mouse-look here. The cursor-shown gate freezes the orbit while any UI cursor is up.
-            if (!camera_offset_active() || !cam.orbit_active.load(std::memory_order_relaxed) || game_cursor_shown() ||
-                !should_apply_view())
+            if (!camera_offset_active() || !camera_controls().orbit_active.load(std::memory_order_relaxed) ||
+                game_cursor_shown() || !should_apply_view())
             {
                 return false;
             }
@@ -79,21 +80,18 @@ namespace TPVCamera
                         // Negated so mouse-left orbits the camera left and mouse-right orbits right; a negative X
                         // sensitivity inverts that.
                         const float sensitivity_x = Presets::preset_readout().orbit_sensitivity_x;
-                        cam.orbit_yaw.store(cam.orbit_yaw.load(std::memory_order_relaxed) - value * sensitivity_x,
-                                            std::memory_order_relaxed);
+                        rig.orbit_yaw = rig.orbit_yaw - value * sensitivity_x;
                     }
                     else
                     {
                         // Mouse-up raises the camera, mouse-down lowers it; a negative Y sensitivity inverts that.
                         const float sensitivity_y = Presets::preset_readout().orbit_sensitivity_y;
-                        // Within the range the main thread published (see CameraState::orbit_pitch_lo); a value
+                        // Within the range the rig set on its last frame (see RigState::orbit_pitch_lo); a value
                         // already outside it is kept but cannot grow.
-                        const float old_pitch = cam.orbit_pitch.load(std::memory_order_relaxed);
-                        cam.orbit_pitch.store(
-                            std::clamp(old_pitch + value * sensitivity_y,
-                                       std::min(cam.orbit_pitch_lo.load(std::memory_order_relaxed), old_pitch),
-                                       std::max(cam.orbit_pitch_hi.load(std::memory_order_relaxed), old_pitch)),
-                            std::memory_order_relaxed);
+                        const float old_pitch = rig.orbit_pitch;
+                        rig.orbit_pitch =
+                            std::clamp(old_pitch + value * sensitivity_y, std::min(rig.orbit_pitch_lo, old_pitch),
+                                       std::max(rig.orbit_pitch_hi, old_pitch));
                     }
                     return true; // block ONLY the look so the player look stays put while free-looking
                 }
@@ -112,13 +110,13 @@ namespace TPVCamera
                 // ids and passes untouched.
                 if (id == Constants::INPUT_PAD_LOOK_YAW_EVENT_ID)
                 {
-                    cam.orbit_pad_yaw.store(value, std::memory_order_relaxed);
+                    rig.orbit_pad_yaw = value;
                     *reinterpret_cast<float *>(input_event + Constants::INPUT_EVENT_VALUE_OFFSET) = 0.0f;
                     return false;
                 }
                 if (id == Constants::INPUT_PAD_LOOK_PITCH_EVENT_ID)
                 {
-                    cam.orbit_pad_pitch.store(value, std::memory_order_relaxed);
+                    rig.orbit_pad_pitch = value;
                     *reinterpret_cast<float *>(input_event + Constants::INPUT_EVENT_VALUE_OFFSET) = 0.0f;
                     return false;
                 }

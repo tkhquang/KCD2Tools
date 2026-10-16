@@ -23,6 +23,7 @@
 
 namespace TPVCamera
 {
+    struct RigState;
 
     // Input binding names shared across the registration site (tpv_camera.cpp) and the INI
     // hot-reload re-bind (config.cpp), so every site agrees on the exact spelling. The zoom holds are
@@ -80,6 +81,14 @@ namespace TPVCamera
      * @note Any thread: one relaxed atomic load. The head, input and camera-observer hooks mirror it.
      */
     [[nodiscard]] bool camera_offset_active() noexcept;
+
+    /**
+     * @brief The rig's carry-over (core/rig/rig_stage.hpp).
+     * @note Main thread only: the camera frame, and between frames the input dispatcher and the action dispatcher,
+     * which
+     *       run on the same thread.
+     */
+    [[nodiscard]] RigState &rig_state() noexcept;
 
     /**
      * @brief Whether the game showed the OS cursor (a UI is up) on the frustum detour's last game-view frame.
