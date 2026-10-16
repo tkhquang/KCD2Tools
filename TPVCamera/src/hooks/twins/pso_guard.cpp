@@ -112,7 +112,7 @@ namespace TPVCamera::Twins
                 {
                     return node;
                 }
-                const SwapSet *set = s_set_published.load(std::memory_order_acquire);
+                const SwapSet *set = s_swap_sets.latest();
                 return set != nullptr
                            ? merged_node_of_object(*set, reinterpret_cast<const std::uint8_t *>(render_object))
                            : 0;
@@ -816,7 +816,7 @@ namespace TPVCamera::Twins
          */
         [[nodiscard]] std::uintptr_t published_character_root() noexcept
         {
-            const SwapSet *set = s_set_published.load(std::memory_order_acquire);
+            const SwapSet *set = s_swap_sets.latest();
             return (set != nullptr && set->character_count > 0) ? set->character_nodes[0] : 0;
         }
 
@@ -1295,7 +1295,7 @@ namespace TPVCamera::Twins
                                   : build_resting_psos(original, pipeline, psos, desc, cache, slot, root);
                 }
                 const int slot = warming_slot(shader);
-                const SwapSet *set = slot >= 0 ? s_set_published.load(std::memory_order_acquire) : nullptr;
+                const SwapSet *set = slot >= 0 ? s_swap_sets.latest() : nullptr;
                 if (set != nullptr && set->character_count > 0 && dissolving_psos_guarded(psos, *set) &&
                     warming_item_fits(slot, desc))
                 {

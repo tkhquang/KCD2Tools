@@ -1,6 +1,7 @@
 /**
  * @file core/frame/channels.hpp
- * @brief Publication from the camera frame to other threads: a value one thread writes and any thread reads whole.
+ * @brief Publication from the camera frame to other threads: a value one thread writes and any thread reads whole, and
+ *        a table one thread fills each frame and other threads read in place.
  */
 #ifndef TPVCAMERA_CORE_FRAME_CHANNELS_HPP
 #define TPVCAMERA_CORE_FRAME_CHANNELS_HPP
@@ -91,6 +92,43 @@ namespace TPVCamera
 
         std::atomic<std::uint32_t> m_sequence{0};
         std::array<std::atomic<std::uint64_t>, k_words> m_words{};
+    };
+
+    /**
+     * @brief A table one thread fills each frame and other threads read in place: three slots, the newest published
+     *        through a pointer.
+     * @details The publisher claims a slot, fills it and publishes it, or withdraws (readers then see no table). A slot
+     *          is claimed again only after two more claims, so a reader that loaded the pointer up to two publishes ago
+     *          still reads a table nobody rewrites; the readers are render and octree jobs whose pass ends inside the
+     *          frame it began in, well within that. A table that must go stale on its own carries its publish stamp,
+     *          which its readers check when they use an entry (a clock read per match, not per call). Thread: one
+     *          publisher; any number of readers.
+     * @tparam T The table.
+     */
+    template <typename T> class TripleBuffer
+    {
+    public:
+        /** @brief The slot to fill for the next publish; the following claim hands out the next one. Publisher only. */
+        [[nodiscard]] T &claim() noexcept
+        {
+            T &slot = m_slots[m_next];
+            m_next = (m_next + 1) % m_slots.size();
+            return slot;
+        }
+
+        /** @brief Publishes @p slot, the one claim() handed out last. Publisher only. */
+        void publish(const T &slot) noexcept { m_published.store(&slot, std::memory_order_release); }
+
+        /** @brief Publishes no table. Publisher only. */
+        void withdraw() noexcept { m_published.store(nullptr, std::memory_order_release); }
+
+        /** @brief The newest published table, or nullptr. Any thread. */
+        [[nodiscard]] const T *latest() const noexcept { return m_published.load(std::memory_order_acquire); }
+
+    private:
+        std::array<T, 3> m_slots{};
+        std::size_t m_next = 0;
+        std::atomic<const T *> m_published{nullptr};
     };
 } // namespace TPVCamera
 

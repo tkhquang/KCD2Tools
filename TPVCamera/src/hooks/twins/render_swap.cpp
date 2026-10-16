@@ -106,8 +106,8 @@ namespace TPVCamera::Twins
         /** @brief Turns the feature off from a render thread, once, when a row the engine leaves zero is in use. */
         void report_rows_in_use() noexcept
         {
-            s_rows_published.store(nullptr, std::memory_order_release);
-            s_set_published.store(nullptr, std::memory_order_release);
+            s_hole_rows.withdraw();
+            s_swap_sets.withdraw();
             if (!s_rows_in_use.exchange(true, std::memory_order_acq_rel))
             {
                 (void)DMK::log().try_log(DMK::LogLevel::Error,
@@ -553,7 +553,7 @@ namespace TPVCamera::Twins
     void per_view_upload_detour(DMK::hook::MidContext &ctx) noexcept
     {
         HookProfile::Scope timing(HookProfile::Path::PerViewUpload);
-        const HoleRows *rows = s_rows_published.load(std::memory_order_acquire);
+        const HoleRows *rows = s_hole_rows.latest();
         if (rows == nullptr || GetTickCount64() - rows->stamp_ms > Constants::SHADER_TWIN_STALE_MS ||
             !main_view_upload(DMK::hook::gpr(ctx, DMK::hook::Gpr::R13), DMK::hook::gpr(ctx, DMK::hook::Gpr::Rcx)))
         {
@@ -637,7 +637,7 @@ namespace TPVCamera::Twins
         const DetourScope in_flight;
         HookProfile::Scope timing(HookProfile::Path::AddRenderObject);
         const AddRenderObjectFn original = s_add_render_object_original.load(std::memory_order_acquire);
-        const SwapSet *set = s_set_published.load(std::memory_order_acquire);
+        const SwapSet *set = s_swap_sets.latest();
         if (set != nullptr && element != nullptr && item != nullptr && object != nullptr && pass != nullptr &&
             main_view_pass(pass))
         {

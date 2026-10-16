@@ -1,7 +1,8 @@
 /**
  * @file test_channels.cpp
  * @brief core/frame/channels.hpp: a reader gets the initial value before any publish and the last value after, and
- *        under a publisher on another thread every copy it gets comes from one publish.
+ *        under a publisher on another thread every copy it gets comes from one publish; a triple buffer publishes the
+ *        claimed slot, withdraws to none, and claims a slot again only after two others.
  */
 
 #include "core/frame/channels.hpp"
@@ -15,6 +16,7 @@
 namespace
 {
     using TPVCamera::SeqlockSnapshot;
+    using TPVCamera::TripleBuffer;
 
     /** @brief A value whose fields all derive from one counter, so a mix of two publishes shows. */
     struct Sample
@@ -88,4 +90,37 @@ TEST(SeqlockSnapshot, ReaderNeverSeesAMixedPublish)
     EXPECT_GT(reads, 0u);
     EXPECT_FALSE(mixed);
     EXPECT_FALSE(backwards);
+}
+
+TEST(TripleBuffer, PublishesTheClaimedSlotAndWithdraws)
+{
+    TripleBuffer<int> tables;
+    EXPECT_EQ(tables.latest(), nullptr);
+    int &first = tables.claim();
+    first = 1;
+    tables.publish(first);
+    ASSERT_NE(tables.latest(), nullptr);
+    EXPECT_EQ(*tables.latest(), 1);
+    tables.withdraw();
+    EXPECT_EQ(tables.latest(), nullptr);
+}
+
+TEST(TripleBuffer, ReclaimsASlotOnlyAfterTwoOthers)
+{
+    // A reader holding the table published two publishes ago still reads it unchanged.
+    TripleBuffer<int> tables;
+    int &first = tables.claim();
+    first = 1;
+    tables.publish(first);
+    const int *held = tables.latest();
+    int &second = tables.claim();
+    second = 2;
+    tables.publish(second);
+    int &third = tables.claim();
+    third = 3;
+    tables.publish(third);
+    EXPECT_EQ(*held, 1);
+    EXPECT_NE(&second, held);
+    EXPECT_NE(&third, held);
+    EXPECT_EQ(&tables.claim(), held);
 }

@@ -19,6 +19,7 @@
 #include "aob_resolver.hpp"
 #include "camera_rules_files.hpp"
 #include "constants.hpp"
+#include "core/frame/channels.hpp"
 #include "dev/hook_profile.hpp"
 #include "dev/see_through_trace.hpp"
 #include "hooks/dissolve.hpp"
@@ -501,13 +502,9 @@ namespace TPVCamera::Twins
     inline std::atomic<bool> s_eye_ready{false};
     inline std::atomic<bool> s_character_ready{false};
 
-    // Published tables. The three of each are static, so a reader that already loaded one keeps reading it safely.
-    inline std::array<SwapSet, 3> s_sets{};
-    inline int s_next_set = 0;
-    inline std::atomic<const SwapSet *> s_set_published{nullptr};
-    inline std::array<HoleRows, 3> s_rows{};
-    inline int s_next_rows = 0;
-    inline std::atomic<const HoleRows *> s_rows_published{nullptr};
+    // Published tables, filled by the camera frame and read by the render jobs (see TripleBuffer).
+    inline TripleBuffer<SwapSet> s_swap_sets;
+    inline TripleBuffer<HoleRows> s_hole_rows;
 
     inline std::mutex s_candidate_mutex;
     inline std::array<TwinCandidate, k_max_candidates> s_candidates{};

@@ -12,6 +12,7 @@
 #include "aob_resolver.hpp"
 #include "character_attachments.hpp"
 #include "constants.hpp"
+#include "core/frame/channels.hpp"
 #include "dissolve.hpp"
 
 #include <DetourModKit.hpp>
@@ -74,11 +75,9 @@ namespace TPVCamera
             std::array<std::uint8_t, k_max_npc> bytes{};
         };
 
-        // Three tables, published through the pointer, so a render job still reading the table of two frames ago never
-        // sees it rewritten (the occluder fade's scheme). nullptr while no NPC fades, which is the draw's fast path.
-        std::array<NpcFadeSet, 3> s_npc_sets{};
-        int s_next_npc_set = 0;
-        std::atomic<const NpcFadeSet *> s_npc_published{nullptr};
+        // The published NPC fade, filled by the camera frame and read by the render jobs (see TripleBuffer). No table
+        // while no NPC fades, which is the draw's fast path.
+        TripleBuffer<NpcFadeSet> s_npc_sets;
         // Main-view draws the detour raised for an NPC, for the NPC fade's debug line.
         std::atomic<std::uint32_t> s_npc_applies{0};
 
@@ -212,7 +211,7 @@ namespace TPVCamera
                 }
                 if (byte == 0)
                 {
-                    if (const NpcFadeSet *npc = s_npc_published.load(std::memory_order_acquire); npc != nullptr)
+                    if (const NpcFadeSet *npc = s_npc_sets.latest(); npc != nullptr)
                     {
                         byte = npc_byte(*npc, *reinterpret_cast<const std::uintptr_t *>(
                                                   address + Constants::RENDER_PROXY_ENTITY_OFFSET));
@@ -373,33 +372,41 @@ namespace TPVCamera
 
     void set_npc_fade(std::span<const NpcFadeEntry> entries) noexcept
     {
-        int n = 0;
-        NpcFadeSet &set = s_npc_sets[static_cast<std::size_t>(s_next_npc_set)];
-        if (!entries.empty())
+        if (entries.empty())
         {
-            s_next_npc_set = (s_next_npc_set + 1) % static_cast<int>(s_npc_sets.size());
-            set.filter = {};
-            for (const NpcFadeEntry &entry : entries)
-            {
-                if (n == k_max_npc)
-                {
-                    break;
-                }
-                if (entry.entity == 0 || entry.byte == 0)
-                {
-                    continue;
-                }
-                const unsigned bit = npc_filter_bit(entry.entity);
-                set.filter[bit >> 6] |= 1ull << (bit & 63u);
-                set.entities[static_cast<std::size_t>(n)] = entry.entity;
-                set.bytes[static_cast<std::size_t>(n)] =
-                    std::min(entry.byte, static_cast<std::uint8_t>(Constants::DISSOLVE_MAX_BYTE));
-                ++n;
-            }
-            set.count = n;
-            set.stamp_ms = GetTickCount64();
+            s_npc_sets.withdraw();
+            return;
         }
-        s_npc_published.store(n > 0 ? &set : nullptr, std::memory_order_release);
+        NpcFadeSet &set = s_npc_sets.claim();
+        set.filter = {};
+        int n = 0;
+        for (const NpcFadeEntry &entry : entries)
+        {
+            if (n == k_max_npc)
+            {
+                break;
+            }
+            if (entry.entity == 0 || entry.byte == 0)
+            {
+                continue;
+            }
+            const unsigned bit = npc_filter_bit(entry.entity);
+            set.filter[bit >> 6] |= 1ull << (bit & 63u);
+            set.entities[static_cast<std::size_t>(n)] = entry.entity;
+            set.bytes[static_cast<std::size_t>(n)] =
+                std::min(entry.byte, static_cast<std::uint8_t>(Constants::DISSOLVE_MAX_BYTE));
+            ++n;
+        }
+        set.count = n;
+        set.stamp_ms = GetTickCount64();
+        if (n > 0)
+        {
+            s_npc_sets.publish(set);
+        }
+        else
+        {
+            s_npc_sets.withdraw();
+        }
     }
 
     std::uint32_t take_npc_fade_applies() noexcept

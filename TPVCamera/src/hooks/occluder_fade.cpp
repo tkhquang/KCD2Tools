@@ -3,7 +3,7 @@
  * @brief Implementation of the occluder fade (see occluder_fade.hpp).
  *
  * @details Two threads meet here. The camera frame on the main thread owns the per-node fade levels and publishes a
- *          small {node, dissolve byte} table through a triple buffer and an atomic pointer. The detour runs on the
+ *          small {node, dissolve byte} table through a TripleBuffer (core/frame/channels.hpp). The detour runs on the
  *          octree job threads, once per render node per pass, and only reads the published table: lock-free, no
  *          allocation, no logging. A table is reused two frames after it was replaced, and a pass finishes inside
  *          its frame, so a reader never sees a table being rewritten.
@@ -18,6 +18,7 @@
 #include "occluder_fade.hpp"
 #include "aob_resolver.hpp"
 #include "constants.hpp"
+#include "core/frame/channels.hpp"
 #include "dissolve.hpp"
 
 #include <DetourModKit.hpp>
@@ -69,11 +70,8 @@ namespace TPVCamera
 
         std::atomic<AddOrCreateFn> s_original{nullptr};
         std::atomic<bool> s_available{false};
-        std::atomic<const FadeSet *> s_published{nullptr};
-        // Main-thread state. Three tables so a job thread still reading the table published two frames ago never
-        // sees it rewritten.
-        std::array<FadeSet, 3> s_sets{};
-        int s_next_set = 0;
+        // The published fade, filled by the camera frame and read by the octree jobs (see TripleBuffer).
+        TripleBuffer<FadeSet> s_sets;
         std::array<Track, k_max_nodes> s_tracks{};
         int s_track_count = 0;
         // Main-view calls that raised a byte since the faded-node count last changed, for the debug log line.
@@ -119,7 +117,7 @@ namespace TPVCamera
         {
             const DetourScope in_flight;
             const AddOrCreateFn original = s_original.load(std::memory_order_acquire);
-            const FadeSet *set = s_published.load(std::memory_order_acquire);
+            const FadeSet *set = s_sets.latest();
             if (set != nullptr && temp_data != 0 && lod != nullptr && pass != nullptr && main_view_pass(pass))
             {
                 apply_fade(*set, temp_data, lod);
@@ -130,8 +128,7 @@ namespace TPVCamera
         /** @brief Publishes the current fade levels, or nothing when no node is faded. */
         void publish() noexcept
         {
-            FadeSet &set = s_sets[static_cast<std::size_t>(s_next_set)];
-            s_next_set = (s_next_set + 1) % static_cast<int>(s_sets.size());
+            FadeSet &set = s_sets.claim();
             constexpr auto k_full = static_cast<float>(Constants::DISSOLVE_MAX_BYTE);
             int n = 0;
             for (int i = 0; i < s_track_count; ++i)
@@ -150,7 +147,14 @@ namespace TPVCamera
             }
             set.count = n;
             set.stamp_ms = GetTickCount64();
-            s_published.store(n > 0 ? &set : nullptr, std::memory_order_release);
+            if (n > 0)
+            {
+                s_sets.publish(set);
+            }
+            else
+            {
+                s_sets.withdraw();
+            }
         }
 
     } // namespace
@@ -335,7 +339,7 @@ namespace TPVCamera
     {
         s_track_count = 0;
         // A job thread that already loaded the old table keeps reading it safely: the tables are static.
-        s_published.store(nullptr, std::memory_order_release);
+        s_sets.withdraw();
     }
 
 } // namespace TPVCamera

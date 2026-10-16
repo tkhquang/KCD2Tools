@@ -1939,8 +1939,8 @@ namespace TPVCamera::Twins
                     (void)flush_loading_commands(renderer);
                 }
                 s_disabled.store(true, std::memory_order_release);
-                s_set_published.store(nullptr, std::memory_order_release);
-                s_rows_published.store(nullptr, std::memory_order_release);
+                s_swap_sets.withdraw();
+                s_hole_rows.withdraw();
                 (void)DMK::log().try_log(DMK::LogLevel::Error,
                                          "ShaderTwins: loading preparation failed; remaining items keep stock shaders");
             }
@@ -2271,7 +2271,7 @@ namespace TPVCamera::Twins
          */
         [[nodiscard]] bool playtime_capture_wanted(std::uintptr_t shader, int kind) noexcept
         {
-            const SwapSet *set = s_set_published.load(std::memory_order_acquire);
+            const SwapSet *set = s_swap_sets.latest();
             if (set == nullptr)
             {
                 return true;
@@ -2583,8 +2583,8 @@ namespace TPVCamera::Twins
     {
         if constexpr (trace::enabled)
             trace::cancel_candidates(s_frame_seq.load(std::memory_order_relaxed));
-        s_set_published.store(nullptr, std::memory_order_release);
-        s_rows_published.store(nullptr, std::memory_order_release);
+        s_swap_sets.withdraw();
+        s_hole_rows.withdraw();
         for (int i = 0; i < s_released_count; ++i)
         {
             Track &released = s_released[static_cast<std::size_t>(i)];

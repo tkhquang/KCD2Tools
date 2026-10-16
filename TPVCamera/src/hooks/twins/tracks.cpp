@@ -807,11 +807,10 @@ namespace TPVCamera::Twins
         if (s_track_count == 0 && character_nodes.empty() && npc_nodes.empty())
         {
             trace_event(trace::Event::SetPublished, 0, 0, 0, now);
-            s_set_published.store(nullptr, std::memory_order_release);
+            s_swap_sets.withdraw();
             return;
         }
-        SwapSet &set = s_sets[static_cast<std::size_t>(s_next_set)];
-        s_next_set = (s_next_set + 1) % static_cast<int>(s_sets.size());
+        SwapSet &set = s_swap_sets.claim();
         set.node_count = s_track_count;
         for (int i = 0; i < s_track_count; ++i)
         {
@@ -856,7 +855,7 @@ namespace TPVCamera::Twins
             }
         }
         set.stamp_ms = now;
-        s_set_published.store(&set, std::memory_order_release);
+        s_swap_sets.publish(set);
         trace_event(trace::Event::SetPublished, 0, 0, 0, now, set.node_count, set.source_count);
     }
 
@@ -975,12 +974,11 @@ namespace TPVCamera::Twins
         if (s_track_count == 0 || (strength <= 0.0f && near_strength <= 0.0f))
         {
             trace_event(trace::Event::RowsDisabled, 0, 0, 0, now, s_track_count == 0 ? 1 : 2);
-            s_rows_published.store(nullptr, std::memory_order_release);
+            s_hole_rows.withdraw();
             return;
         }
         const float near_full = std::max(finite_or(window.near_full, 0.0f), 0.0f);
-        HoleRows &rows = s_rows[static_cast<std::size_t>(s_next_rows)];
-        s_next_rows = (s_next_rows + 1) % static_cast<int>(s_rows.size());
+        HoleRows &rows = s_hole_rows.claim();
         rows.values = {
             anchored ? window.anchor.x : 0.0f,
             anchored ? window.anchor.y : 0.0f,
@@ -1000,7 +998,7 @@ namespace TPVCamera::Twins
             0.0f,
         };
         rows.stamp_ms = now;
-        s_rows_published.store(&rows, std::memory_order_release);
+        s_hole_rows.publish(rows);
         trace_event(trace::Event::RowsPublished, 0, 0, 0, now, std::bit_cast<std::uint32_t>(strength),
                     std::bit_cast<std::uint32_t>(near_strength));
     }

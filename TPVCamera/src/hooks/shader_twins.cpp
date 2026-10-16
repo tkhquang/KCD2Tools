@@ -428,7 +428,7 @@ namespace TPVCamera
         }
         else
         {
-            s_rows_published.store(nullptr, std::memory_order_release);
+            s_hole_rows.withdraw();
             trace_event(trace::Event::RowsDisabled, 0, 0, 0, now, 3);
         }
         log_second(now);
@@ -527,8 +527,8 @@ namespace TPVCamera
             s_available.store(false, std::memory_order_release);
             s_eye_ready.store(false, std::memory_order_release);
             s_character_ready.store(false, std::memory_order_release);
-            s_set_published.store(nullptr, std::memory_order_release);
-            s_rows_published.store(nullptr, std::memory_order_release);
+            s_swap_sets.withdraw();
+            s_hole_rows.withdraw();
         }
         clear_pause_inventory();
         clear_candidates();
