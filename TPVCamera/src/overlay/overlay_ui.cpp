@@ -953,20 +953,20 @@ namespace TPVCamera::Overlay
          * @details The preset's Follow Distance is only the BASE: the frustum detour adds the accumulated
          *          zoom-key offset and clamps the sum to the Min..Max window each engaged frame, so the slider
          *          value alone does not reveal where the camera actually sits after zooming. This reads the same
-         *          live atomics the detour uses (settings().follow_distance + camera_state().zoom_offset, clamped
-         *          to the live Min/Max) so the number is the true rendered distance, updating in real time as the
-         *          zoom keys are held. The button asks the detour to drop the zoom (zoom_reset_requested), which
-         *          eases the camera back to the configured Follow Distance. It is disabled when there is no zoom to
-         *          clear. A readout that is one frame stale is harmless.
+         *          values the detour uses (the live preset's Follow Distance from Presets::preset_readout() plus
+         *          camera_state().zoom_offset, clamped to its Min/Max) so the number is the true rendered distance,
+         *          updating in real time as the zoom keys are held. The button asks the detour to drop the zoom
+         *          (zoom_reset_requested), which eases the camera back to the configured Follow Distance. It is
+         *          disabled when there is no zoom to clear. A readout that is one frame stale is harmless.
          */
         void draw_applied_follow_distance(int decimals)
         {
-            LiveSettings &live = settings();
+            const Presets::PresetReadout live = Presets::preset_readout();
             CameraState &cam = camera_state();
             const float zoom = cam.zoom_offset.load(std::memory_order_relaxed);
-            const float base = live.follow_distance.load(std::memory_order_relaxed);
-            const float lo = live.follow_distance_min.load(std::memory_order_relaxed);
-            const float hi = live.follow_distance_max.load(std::memory_order_relaxed);
+            const float base = live.follow_distance;
+            const float lo = live.follow_distance_min;
+            const float hi = live.follow_distance_max;
             // Guard the bound order (a user can set Min > Max): std::clamp is UB when hi < lo.
             const float applied = std::clamp(base + zoom, lo, std::max(lo, hi));
 
@@ -1004,7 +1004,7 @@ namespace TPVCamera::Overlay
 
             // Live status of the dynamic sync (the ACTIVE preset's, which is the live camera): highlight when the
             // camera is currently driven by the re-anchored real eye, vs. dim when the steady Eye Height is in effect.
-            if (settings().dynamic_eye_sync.load(std::memory_order_relaxed))
+            if (Presets::preset_readout().dynamic_eye_sync)
             {
                 if (cam.eye_sync_engaged.load(std::memory_order_relaxed))
                 {

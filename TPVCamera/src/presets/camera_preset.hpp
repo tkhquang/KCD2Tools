@@ -1,26 +1,18 @@
 /**
  * @file camera_preset.hpp
- * @brief Plain-data camera preset: a named, persistable mirror of the preset-owned
- *        LiveSettings fields, plus apply/ease helpers.
+ * @brief Plain-data camera preset: a named, persistable set of the preset-owned camera values, plus the blend's
+ *        ease helper.
  *
- * @details A CameraPreset captures only the camera GEOMETRY/feel fields (framing,
- *          orbit, collision). The state-policy globals (forced-view masks,
- *          orbit-exclude mask, EnableStateBehavior, debounce/blend timing) stay in
- *          LiveSettings and are NOT per-preset. The field list here mirrors the
- *          preset-owned atomics in config.hpp (LiveSettings); the single source of
- *          truth that pairs each field with its UI label, range and JSON key lives
- *          in camera_preset_fields.hpp so the slider loop and the (de)serializer
- *          never drift apart.
+ * @details A CameraPreset captures only the camera GEOMETRY/feel fields (framing, orbit, collision); the camera frame
+ *          reads the blend of them as one value (Presets::live_params()). The state-policy globals (forced-view masks,
+ *          orbit-exclude mask, EnableStateBehavior, debounce timing) stay in LiveSettings and are NOT per-preset. The
+ *          single source of truth that pairs each field with its UI label, range and JSON key lives in
+ *          camera_preset_fields.hpp so the slider loop and the (de)serializer never drift apart.
  */
 #ifndef TPVCAMERA_PRESETS_CAMERA_PRESET_HPP
 #define TPVCAMERA_PRESETS_CAMERA_PRESET_HPP
 
 #include <string>
-
-namespace TPVCamera
-{
-    struct LiveSettings;
-}
 
 namespace TPVCamera::Presets
 {
@@ -28,8 +20,8 @@ namespace TPVCamera::Presets
     /**
      * @struct CameraPreset
      * @brief A named set of preset-owned camera values. Its member defaults equal the built-in DEFAULT
-     *        preset, so a default-constructed CameraPreset is the factory DEFAULT look: the live atomics in
-     *        config.hpp are seeded from it (see settings()), preset_from_json falls back to it for any key a
+     *        preset, so a default-constructed CameraPreset is the factory DEFAULT look: the live preset starts
+     *        from it (Presets::live_params()), preset_from_json falls back to it for any key a
      *        saved preset omits, and the editor's per-field reset restores to it. The embedded DEFAULT in
      *        default_presets.hpp lists the same values and stays the runtime authority for the DEFAULT preset,
      *        so keep the two in agreement when retuning the factory default.
@@ -121,13 +113,6 @@ namespace TPVCamera::Presets
     inline constexpr const char *k_builtin_sitting = "SITTING";
     inline constexpr const char *k_builtin_kneel = "KNEEL";
     inline constexpr const char *k_builtin_cart = "CART";
-
-    /**
-     * @brief Stores every preset-owned field of @p preset into the live atomics (relaxed).
-     * @details Called on the main thread by the runtime resolver each active frame. Only
-     *          the preset-owned atomics are written; state-policy globals are left alone.
-     */
-    void apply_to_live(const CameraPreset &preset, LiveSettings &settings) noexcept;
 
     /**
      * @brief Eases the float fields of @p applied toward @p target by @p alpha in [0,1]; bools snap.

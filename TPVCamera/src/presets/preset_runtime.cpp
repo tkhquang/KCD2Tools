@@ -4,8 +4,8 @@
  */
 
 #include "preset_runtime.hpp"
-#include "config.hpp"
 #include "core/blend/blend.hpp"
+#include "core/frame/channels.hpp"
 #include "game_state.hpp"
 #include "switch_log.hpp"
 
@@ -52,7 +52,23 @@ namespace TPVCamera::Presets
         // tens of degrees, as framing_error() counts them), and s_collision_latched holds it on until then: a quick
         // switch away and back never releases the camera from a wall only to pull it in again. Main thread only.
         constexpr float k_collision_latch_settle = 1e-3f;
-        bool s_collision_latched = true;
+        bool s_collision_latched = CameraPreset{}.enable_collision;
+
+        /** @brief The read-outs of @p preset that other threads see (PresetReadout). */
+        [[nodiscard]] PresetReadout readout_of(const CameraPreset &preset) noexcept
+        {
+            return PresetReadout{
+                .follow_distance = preset.follow_distance,
+                .follow_distance_min = preset.follow_distance_min,
+                .follow_distance_max = preset.follow_distance_max,
+                .orbit_sensitivity_x = preset.orbit_sensitivity_x,
+                .orbit_sensitivity_y = preset.orbit_sensitivity_y,
+                .dynamic_eye_sync = preset.dynamic_eye_sync,
+            };
+        }
+
+        // Thread: published by the camera frame (resolve_and_apply), read by the overlay and the input dispatcher.
+        SeqlockSnapshot<PresetReadout> s_readout{readout_of(CameraPreset{})};
         // Follow angles count in units of this many degrees against the meters of the distance and offsets.
         constexpr float k_settle_degrees_per_meter = 10.0f;
 
@@ -608,8 +624,6 @@ namespace TPVCamera::Presets
 
     void resolve_and_apply(uint32_t state, float delta_seconds) noexcept
     {
-        LiveSettings &cfg = settings();
-
         const std::shared_ptr<const StateBindingTable> table = s_table.load(std::memory_order_acquire);
         if (!table)
             return;
@@ -639,11 +653,28 @@ namespace TPVCamera::Presets
         }
         track_settle(target, dt);
 
-        apply_to_live(s_blend.applied, cfg);
         s_collision_latched =
             target.enable_collision ||
             (s_collision_latched && framing_error(s_blend.applied, target) > k_collision_latch_settle);
-        cfg.enable_collision.store(s_collision_latched, std::memory_order_relaxed);
+        s_readout.publish(readout_of(s_blend.applied));
+    }
+
+    const CameraPreset &live_params() noexcept
+    {
+        return s_blend.applied;
+    }
+
+    bool live_collision_enabled() noexcept
+    {
+        return s_collision_latched;
+    }
+
+    PresetReadout preset_readout() noexcept
+    {
+        // A read that loses every race to the publisher keeps the factory DEFAULT's values for that one read.
+        PresetReadout readout = readout_of(CameraPreset{});
+        (void)s_readout.try_load(readout);
+        return readout;
     }
 
     void ease_out_zoom_offset(float offset) noexcept

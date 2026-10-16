@@ -11,6 +11,7 @@
 #include "core/collision/probe_record.hpp"
 #include "core/collision/probe_types.hpp"
 #include "core/collision/world_probe.hpp"
+#include "core/frame/channels.hpp"
 #include "core/input/move_input.hpp"
 #include "core/input/stick.hpp"
 #include "core/lens/lens_plan.hpp"
