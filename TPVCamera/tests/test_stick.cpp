@@ -1,10 +1,10 @@
 /**
  * @file test_stick.cpp
- * @brief The right stick's response curve of camera/stick.hpp: identity at 1, the push's direction kept, its length
+ * @brief The right stick's response curve of core/input/stick.hpp: identity at 1, the push's direction kept, its length
  *        raised to the exponent up to a full push and left alone past it.
  */
 
-#include "camera/stick.hpp"
+#include "core/input/stick.hpp"
 
 #include <gtest/gtest.h>
 

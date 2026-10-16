@@ -1,11 +1,11 @@
 /**
- * @file camera/ease.hpp
+ * @file core/blend/ease.hpp
  * @brief The camera collision ease: how the arm distance follows the distance the collision allows.
  *
  * @details Engine-free (no Windows or DetourModKit header), so the local tests compile it as is.
  */
-#ifndef TPVCAMERA_CAMERA_EASE_HPP
-#define TPVCAMERA_CAMERA_EASE_HPP
+#ifndef TPVCAMERA_CORE_BLEND_EASE_HPP
+#define TPVCAMERA_CORE_BLEND_EASE_HPP
 
 #include <algorithm>
 #include <cmath>
@@ -116,4 +116,4 @@ namespace TPVCamera
     }
 } // namespace TPVCamera
 
-#endif // TPVCAMERA_CAMERA_EASE_HPP
+#endif // TPVCAMERA_CORE_BLEND_EASE_HPP

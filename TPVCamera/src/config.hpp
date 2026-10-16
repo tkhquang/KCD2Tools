@@ -12,7 +12,7 @@
 #ifndef TPVCAMERA_CONFIG_HPP
 #define TPVCAMERA_CONFIG_HPP
 
-#include "state_policy.hpp"
+#include "core/policy/state_policy.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -100,8 +100,8 @@ namespace TPVCamera
         // instead of pulling the camera in front of them, so the camera keeps its distance. The camera passes through
         // bushes and tree trunks, but a bush or a tree never fades whole for hiding the character (the tree see-through
         // opens a window in it), and a bush fades only when the camera is buried in it. Terrain, buildings, walls and
-        // rocks (as the camera rules class them, see camera_rules.hpp) and objects that match no scanned render node
-        // still stop the camera. Off = plain collision on the nearest solid surface.
+        // rocks (as the camera rules class them, see core/rules/camera_rules.hpp) and objects that match no scanned
+        // render node still stop the camera. Off = plain collision on the nearest solid surface.
         std::atomic<bool> use_occluder_fade{true};
         // How much of a faded object always stays: 0 (it can almost vanish) .. 1 (stays solid). A prop or a bush the
         // camera is buried in, or a prop whose physics the camera is inside, starts fading at once but keeps this
@@ -279,7 +279,7 @@ namespace TPVCamera
     [[nodiscard]] LiveSettings &settings() noexcept;
 
     /**
-     * @brief The [StateBehavior] lists as they stand now, one row per situation (see state_policy.hpp).
+     * @brief The [StateBehavior] lists as they stand now, one row per situation (see core/policy/state_policy.hpp).
      * @details Reads the five lists and EnableStateBehavior once each (relaxed: each is a value of its own, and a list
      *          an INI reload changes mid-read takes effect a frame later). Any thread.
      */

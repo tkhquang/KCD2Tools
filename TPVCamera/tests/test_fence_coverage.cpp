@@ -1,10 +1,11 @@
 /**
  * @file test_fence_coverage.cpp
- * @brief The camera-wall policy (fence_coverage.hpp): panel seams, low panels, tall posts, open rails and incomplete
+ * @brief The camera-wall policy (core/occlusion/fence_coverage.hpp): panel seams, low panels, tall posts, open rails
+ * and incomplete
  *        reads.
  */
 
-#include "fence_coverage.hpp"
+#include "core/occlusion/fence_coverage.hpp"
 
 #include <gtest/gtest.h>
 

@@ -3,8 +3,8 @@
  * @brief The camera rules in force: the rules files beside the ASI, or the copy built into the mod.
  *
  * load_at_start() reads KCD2_TPVCamera_rules.txt, the patches KCD2_TPVCamera_rules_<Name>.txt in name order and the
- * player's KCD2_TPVCamera_rules_User.txt last (Rules::rule_files()), compiles them (camera_rules.hpp), logs one line
- * per source and publishes the set through an atomic shared pointer. The built-in copy is
+ * player's KCD2_TPVCamera_rules_User.txt last (Rules::rule_files()), compiles them (core/rules/camera_rules.hpp), logs
+ * one line per source and publishes the set through an atomic shared pointer. The built-in copy is
  * build/template/KCD2_TPVCamera_rules.txt, embedded at build time, and takes the main file's place when that file is
  * missing (the release ships none) or cannot be read; it is never merged with a present file. export_built_in() writes
  * it beside the ASI as KCD2_TPVCamera_rules.default.txt, a reference the mod never reads. The watcher (start_watcher())
@@ -14,7 +14,7 @@
 #ifndef TPVCAMERA_CAMERA_RULES_FILES_HPP
 #define TPVCAMERA_CAMERA_RULES_FILES_HPP
 
-#include "camera_rules.hpp"
+#include "core/rules/camera_rules.hpp"
 
 #include <cstdint>
 #include <memory>

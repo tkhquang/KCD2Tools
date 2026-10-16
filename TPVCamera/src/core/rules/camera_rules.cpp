@@ -1,9 +1,9 @@
 /**
- * @file camera_rules.cpp
- * @brief Parser, compiler and classifier of the camera rules (see camera_rules.hpp).
+ * @file core/rules/camera_rules.cpp
+ * @brief Parser, compiler and classifier of the camera rules (see core/rules/camera_rules.hpp).
  */
 
-#include "camera_rules.hpp"
+#include "core/rules/camera_rules.hpp"
 
 #include <algorithm>
 #include <bit>

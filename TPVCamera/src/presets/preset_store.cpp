@@ -4,9 +4,9 @@
  */
 
 #include "preset_store.hpp"
-#include "camera/blend.hpp"
-#include "config.hpp"
 #include "camera_preset_fields.hpp"
+#include "config.hpp"
+#include "core/blend/blend.hpp"
 #include "default_presets.hpp"
 #include "preset_runtime.hpp"
 

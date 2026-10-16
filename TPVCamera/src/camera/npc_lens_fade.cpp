@@ -4,9 +4,9 @@
  */
 
 #include "camera/npc_lens_fade.hpp"
-#include "camera/blend.hpp"
 #include "config.hpp"
 #include "constants.hpp"
+#include "core/blend/blend.hpp"
 #include "hooks/character_fade.hpp"
 #include "hooks/shader_twins.hpp"
 #include "render_occlusion.hpp"

@@ -1,10 +1,11 @@
 /**
  * @file test_view_box.cpp
- * @brief camera/view_box.hpp: the least view depth of the part of a box inside the view frustum, in front of the lens,
+ * @brief core/view/view_box.hpp: the least view depth of the part of a box inside the view frustum, in front of the
+ * lens,
  *        beside it, behind it, past the reach, entered obliquely, and with the lens inside the box.
  */
 
-#include "camera/view_box.hpp"
+#include "core/view/view_box.hpp"
 
 #include <gtest/gtest.h>
 

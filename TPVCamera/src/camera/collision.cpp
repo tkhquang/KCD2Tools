@@ -4,8 +4,8 @@
  */
 
 #include "camera/collision.hpp"
-#include "camera/ease.hpp"
 #include "config.hpp"
+#include "core/blend/ease.hpp"
 #include "hooks/occluder_fade.hpp"
 
 #include <DetourModKit.hpp>

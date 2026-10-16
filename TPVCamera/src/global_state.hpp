@@ -11,7 +11,7 @@
 #ifndef TPVCAMERA_GLOBAL_STATE_HPP
 #define TPVCAMERA_GLOBAL_STATE_HPP
 
-#include "camera/blend.hpp"
+#include "core/blend/blend.hpp"
 
 #include <atomic>
 #include <cstddef>

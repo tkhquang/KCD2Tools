@@ -4,9 +4,9 @@
  */
 
 #include "camera/close_fade.hpp"
-#include "camera/blend.hpp"
 #include "config.hpp"
 #include "constants.hpp"
+#include "core/blend/blend.hpp"
 #include "hooks/character_fade.hpp"
 #include "hooks/head_visibility.hpp"
 #include "hooks/shader_twins.hpp"

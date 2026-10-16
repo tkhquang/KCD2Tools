@@ -1,12 +1,12 @@
 /**
- * @file camera/view_box.hpp
+ * @file core/view/view_box.hpp
  * @brief How near the lens a world box shows in the view: the least view depth of the part of an axis-aligned box that
  *        lies inside the view frustum.
  *
  * @details Engine-free (no Windows or DetourModKit header), so the local tests compile it as is.
  */
-#ifndef TPVCAMERA_CAMERA_VIEW_BOX_HPP
-#define TPVCAMERA_CAMERA_VIEW_BOX_HPP
+#ifndef TPVCAMERA_CORE_VIEW_VIEW_BOX_HPP
+#define TPVCAMERA_CORE_VIEW_VIEW_BOX_HPP
 
 #include <algorithm>
 #include <array>
@@ -167,4 +167,4 @@ namespace TPVCamera
     }
 } // namespace TPVCamera
 
-#endif // TPVCAMERA_CAMERA_VIEW_BOX_HPP
+#endif // TPVCAMERA_CORE_VIEW_VIEW_BOX_HPP
