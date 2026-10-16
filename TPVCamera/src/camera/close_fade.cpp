@@ -114,16 +114,26 @@ namespace TPVCamera
             const float close_most =
                 1.0f - std::clamp(cfg.close_up_fade_min_opacity.load(std::memory_order_relaxed), 0.0f, 1.0f);
             // HeadClearance only places the fade: it reaches its full amount at that much arm (0 = against the head).
-            // CloseUpFade alone turns it on and off.
-            const float close_amount =
-                in.close_fade ? std::clamp((std::max(clearance, 0.0f) + k_close_fade_band - in.arm) / k_close_fade_band,
-                                           0.0f, close_most)
-                              : 0.0f;
+            // CloseUpFade alone turns it on and off. During the view switch it is held under a ramp of the lens's
+            // distance from the eye, nothing at the eye up to all of it where the fade band ends.
+            const float fade_reach = std::max(clearance, 0.0f) + k_close_fade_band;
+            float close_amount =
+                in.close_fade ? std::clamp((fade_reach - in.arm) / k_close_fade_band, 0.0f, close_most) : 0.0f;
+            if (in.switching)
+            {
+                const float ramp = std::clamp((in.camera - in.eye).magnitude() / fade_reach, 0.0f, 1.0f);
+                close_amount = std::min(close_amount, close_most * ramp);
+            }
             fade_character(character, in.entity, close_amount, in.close_fade, in.delta_time);
         }
         if (clearance <= 0.0f || in.close_fade)
         {
             cam.head_fallback = false;
+        }
+        else if (in.switching)
+        {
+            // The switch's arm is short because the switch is under way, not for want of room: the fallback keeps its
+            // state, or it would latch the view at the eye with third person on.
         }
         else if (!cam.head_fallback && in.arm < clearance)
         {

@@ -384,12 +384,14 @@ namespace TPVCamera
                 cam.fov_ease.step(desired_fov, spring_alpha(blend_seconds, delta_time));
             }
             // Override while a preset wants a FOV or while still easing back toward the game FOV; otherwise pass
-            // through (preset off + settled) so the game keeps its own FOV (including any dynamic FOV).
-            if ((fov_target_degrees > 0.0f || std::fabs(cam.fov_ease.applied - game_fov) > 0.005f) &&
-                cam.fov_ease.applied > 0.05f && cam.fov_ease.applied < 3.0f)
+            // through (preset off + settled) so the game keeps its own FOV (including any dynamic FOV). The view
+            // switch blends the override from the game FOV at the eye to the preset's at the rig.
+            const float fov = in.view_blend < 1.0f ? game_fov + (cam.fov_ease.applied - game_fov) * in.view_blend
+                                                   : cam.fov_ease.applied;
+            if ((fov_target_degrees > 0.0f || std::fabs(fov - game_fov) > 0.005f) && fov > 0.05f && fov < 3.0f)
             {
-                const float ratio = std::tan(cam.fov_ease.applied * 0.5f) / std::tan(game_fov * 0.5f);
-                port.override_fov(cam.fov_ease.applied, ratio);
+                const float ratio = std::tan(fov * 0.5f) / std::tan(game_fov * 0.5f);
+                port.override_fov(fov, ratio);
             }
         }
         // Over-the-shoulder lateral offset along the eye-right axis, applied to the non-orbit follow

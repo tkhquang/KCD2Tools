@@ -46,6 +46,18 @@ namespace TPVCamera
         // eye film ignore it too: the head is hidden like in first person. Read with s_head_fallback by the head
         // re-assert and the head-visibility detour; unlike it, it leaves the camera where it is.
         std::atomic<bool> s_head_close_fade{false};
+        // Set while the first-person <-> third-person switch has the lens within reach of the head (the view would
+        // show its inside): the head is hidden like in first person. Read with s_head_fallback by the head re-assert
+        // and the head-visibility detour.
+        std::atomic<bool> s_head_transition{false};
+
+        /** @brief Whether the offset's own reasons hide the head: the fallback, the close-up fade or the switch. */
+        [[nodiscard]] bool offset_hides_head() noexcept
+        {
+            return s_head_fallback.load(std::memory_order_relaxed) ||
+                   s_head_close_fade.load(std::memory_order_relaxed) ||
+                   s_head_transition.load(std::memory_order_relaxed);
+        }
 
         /**
          * @brief Calls the head-visibility setter on the player entity.
@@ -114,11 +126,10 @@ namespace TPVCamera
                 // to match the view the player actually sees. The first-person fallback (camera at the
                 // eye, no room behind) hides it like first person does, and so does a close-up fade far
                 // enough along that the eyes would float in the dithered face (when the eye fade is not
-                // ready), or the eyelashes and eye film once the face is gone (when it is).
+                // ready), or the eyelashes and eye film once the face is gone (when it is), and a view
+                // switch with the lens at the head.
                 const bool active = camera_offset_active();
-                const bool final_hide_head = active ? (s_head_fallback.load(std::memory_order_relaxed) ||
-                                                       s_head_close_fade.load(std::memory_order_relaxed))
-                                                    : hide_head;
+                const bool final_hide_head = active ? offset_hides_head() : hide_head;
                 original(entity, final_hide_head, flags);
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
@@ -189,8 +200,7 @@ namespace TPVCamera
             const uint8_t flags = s_head_flags.load(std::memory_order_relaxed);
             if (active)
             {
-                const bool want_hidden = s_head_fallback.load(std::memory_order_relaxed) ||
-                                         s_head_close_fade.load(std::memory_order_relaxed);
+                const bool want_hidden = offset_hides_head();
                 const auto hide_flag =
                     DMK::memory::read<uint8_t>(DMK::Address{entity + Constants::OFFSET_ENTITY_HIDE_HEAD_FLAG});
                 if (hide_flag && (*hide_flag != 0) != want_hidden)
@@ -229,5 +239,15 @@ namespace TPVCamera
     bool head_close_fade() noexcept
     {
         return s_head_close_fade.load(std::memory_order_relaxed);
+    }
+
+    void set_head_transition(bool hidden) noexcept
+    {
+        s_head_transition.store(hidden, std::memory_order_relaxed);
+    }
+
+    bool head_transition() noexcept
+    {
+        return s_head_transition.load(std::memory_order_relaxed);
     }
 } // namespace TPVCamera
