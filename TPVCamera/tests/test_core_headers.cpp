@@ -11,6 +11,7 @@
 #include "core/collision/probe_types.hpp"
 #include "core/collision/world_probe.hpp"
 #include "core/input/stick.hpp"
+#include "core/lens/lens_plan.hpp"
 #include "core/math/vec.hpp"
 #include "core/occlusion/fence_coverage.hpp"
 #include "core/policy/state_policy.hpp"
