@@ -132,6 +132,7 @@ set(COMMON_SOURCES
   src/camera/collision.cpp
   src/camera/collision_trace.cpp
   src/camera/lens.cpp
+  src/camera/live_probe.cpp
   src/camera/npc_lens_fade.cpp
   src/camera/see_through_driver.cpp
   src/camera_rules_files.cpp
@@ -195,7 +196,7 @@ file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/default_rules.inc" 
 # fence wall policy and the camera rules parser and classifier. No <windows.h>, no DetourModKit and no engine read, so
 # the local tests link it as it ships. Its own sources see no DetourModKit include path: a core source that reaches for
 # one fails to compile. The mod targets and the tests link it; it builds once for both.
-add_library(tpv_core STATIC src/core/rules/camera_rules.cpp)
+add_library(tpv_core STATIC src/core/collision/arm.cpp src/core/collision/fan.cpp src/core/rules/camera_rules.cpp)
 target_include_directories(tpv_core PUBLIC src)
 target_compile_options(tpv_core PRIVATE /W4 $<$<CONFIG:Release>:/O2 /Gy /Gw>)
 

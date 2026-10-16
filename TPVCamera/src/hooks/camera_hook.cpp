@@ -2082,7 +2082,7 @@ namespace TPVCamera
             .wall_class_changed = wall_class_changed,
             .repeat_build = step.repeat_build,
         };
-        camera_position = resolve_camera_collision(cam, s_collision, collision_input);
+        camera_position = resolve_camera_collision(s_collision, collision_input);
 
         // Hand the fade set to the dissolve hook once per frame (the frame's second build changes nothing).
         if (!step.repeat_build)
@@ -2698,7 +2698,7 @@ namespace TPVCamera
                 }
                 s_orbit_was_engaged = false;
             }
-            reset_collision_carry(cam);
+            reset_collision_carry(s_collision);
             reset_shoulder_carry(s_collision);
             cam.head_fallback = false;
             cam.head_fallback_blend = 0.0f;

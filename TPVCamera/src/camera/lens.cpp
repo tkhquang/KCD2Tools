@@ -5,6 +5,7 @@
 
 #include "camera/lens.hpp"
 #include "camera/collision.hpp"
+#include "camera/live_probe.hpp"
 #include "config.hpp"
 #include "constants.hpp"
 #include "physics_raycast.hpp"
@@ -182,8 +183,9 @@ namespace TPVCamera
                     const float along = walked + h->m_distance;
                     void *node = nullptr;
                     Rules::Behaviour cls = Rules::Behaviour::Collide;
-                    if (classify_probe_hit(QueryLedger::Tag::Lens, *h, along, std::span<const Vector3>(&ray.from, 1),
-                                           unit, &node, &cls) == ProbeVerdict::Stop)
+                    if (classify_probe_hit(live_probe(), QueryLedger::Tag::Lens, *h, along,
+                                           std::span<const Vector3>(&ray.from, 1), unit, &node,
+                                           &cls) == ProbeVerdict::Stop)
                     {
                         nearest = std::min(nearest, along / dir_length);
                         break;
