@@ -170,6 +170,15 @@ namespace TPVCamera
     void service_shader_twins_paused(const TwinPauseSignals &signals) noexcept;
 
     /**
+     * @brief Names the render nodes of the people and animals the NPC lens fade dissolves, for the next twin update.
+     * @details Their eyes, eyelashes, hair and eye film then draw with a twin while they dissolve, when one is ready
+     *          and warm for the fade (the player's close-up fade decides which twins exist and warms them); without
+     *          one they keep the stock shader, which ignores the dissolve. Main thread only, once per camera frame;
+     *          the first NPC_FADE_MAX_ENTITIES are kept.
+     */
+    void set_npc_twin_nodes(std::span<const std::uintptr_t> nodes) noexcept;
+
+    /**
      * @brief True while the eyes fade with the character: the twins run, an Eye twin on him is warm for the fade, and
      *        so is every Eye item's twin seen on him in the last moment, and every Hair and transparent Illum item's
      *        twin that has not been given up.

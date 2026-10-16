@@ -182,6 +182,8 @@ namespace TPVCamera
         collision.bind<float>("HeadClearance", "Head Clearance", s.head_clearance, 0.35f);
         collision.bind<bool>("CloseUpFade", "Close Up Fade", s.close_up_fade, true);
         collision.bind<float>("CloseUpFadeMinOpacity", "Close Up Fade Min Opacity", s.close_up_fade_min_opacity, 0.25f);
+        collision.bind<bool>("NpcLensFade", "NPC Lens Fade", s.npc_lens_fade, false);
+        collision.bind<float>("NpcLensFadeMinOpacity", "NPC Lens Fade Min Opacity", s.npc_lens_fade_min_opacity, 0.25f);
 
         // State-driven camera policy. The *State values are comma-separated GameState token lists
         // (Menu, Overlay, Combat, Mount, Dialogue, Minigame and each minigame's own token, see the INI), parsed into

@@ -137,6 +137,11 @@ namespace TPVCamera
         std::atomic<bool> close_up_fade{true};
         // How much of the character always stays in the close-up fade: 0 (he can vanish) .. 1 (he stays solid).
         std::atomic<float> close_up_fade_min_opacity{0.25f};
+        // People and animals whose drawn parts come within 1.2 m of the lens in the view dither out with what they
+        // carry, fully from 0.45 m in, where the lens near plane would otherwise cut them open
+        // (camera/npc_lens_fade.hpp); NpcLensFadeMinOpacity of them always stays.
+        std::atomic<bool> npc_lens_fade{false};
+        std::atomic<float> npc_lens_fade_min_opacity{0.25f};
 
         // State-driven camera policy (see game_state.hpp). Each mask is a GameState bit set parsed
         // from a comma-separated INI token list, read on the per-frame detour and the input thread.

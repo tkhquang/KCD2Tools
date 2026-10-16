@@ -132,6 +132,7 @@ set(COMMON_SOURCES
   src/camera/collision.cpp
   src/camera/collision_trace.cpp
   src/camera/lens.cpp
+  src/camera/npc_lens_fade.cpp
   src/camera/see_through_driver.cpp
   src/camera_rules.cpp
   src/camera_rules_files.cpp

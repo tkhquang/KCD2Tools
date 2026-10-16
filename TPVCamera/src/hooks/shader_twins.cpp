@@ -300,6 +300,12 @@ namespace TPVCamera
                cfg.use_lens_cut.load(std::memory_order_relaxed) || cfg.close_up_fade.load(std::memory_order_relaxed);
     }
 
+    void set_npc_twin_nodes(std::span<const std::uintptr_t> nodes) noexcept
+    {
+        s_npc_node_count = static_cast<int>(std::min(nodes.size(), s_npc_nodes.size()));
+        std::copy_n(nodes.begin(), s_npc_node_count, s_npc_nodes.begin());
+    }
+
     bool eye_fade_ready() noexcept
     {
         return shader_twins_available() && s_eye_ready.load(std::memory_order_acquire);
@@ -408,7 +414,9 @@ namespace TPVCamera
                                                                 character_twins ? character_count : 0);
         update_tracks(plants ? trees : std::span<void *const>{}, bare_frames ? frames : std::span<void *const>{},
                       std::max(delta_time, 0.0f), now);
-        publish_set(listed_characters, now);
+        const std::span<const std::uintptr_t> listed_npcs(
+            s_npc_nodes.data(), character_twins ? static_cast<std::size_t>(s_npc_node_count) : 0u);
+        publish_set(listed_characters, listed_npcs, now);
         refresh_character_ready(character_twins, !listed_characters.empty(), now);
         // The records first, so a refill this frame drops the ones its rebuild replaces.
         drain_pso_records(now);

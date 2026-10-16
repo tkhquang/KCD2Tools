@@ -14,6 +14,7 @@
 #include <DetourModKit/error.hpp>
 
 #include <cstdint>
+#include <span>
 
 namespace TPVCamera
 {
@@ -51,6 +52,25 @@ namespace TPVCamera
      *        CHARACTER_FADE_MAX_CARRIED items are kept.
      */
     void set_character_fade(std::uintptr_t entity, float amount, const CharacterNodes *nodes = nullptr) noexcept;
+
+    /** @brief One entity the NPC lens fade dissolves this frame: a person's or animal's body, or an item it carries. */
+    struct NpcFadeEntry
+    {
+        std::uintptr_t entity = 0; // the CEntity its render proxy names
+        std::uint8_t byte = 0;     // the dissolve byte, 1..DISSOLVE_MAX_BYTE
+    };
+
+    /**
+     * @brief Publishes the entities the NPC lens fade dissolves this frame; an empty span publishes none.
+     * @details The detour raises the dissolve byte of a main-view draw whose render proxy names one of them, as it does
+     *          for the player's character, so shadows stay. The first NPC_FADE_MAX_ENTITIES are kept. A table older
+     *          than FADE_STALE_MS is ignored, so the people come back when the camera stops calling this. With none
+     *          published, a draw pays one pointer load for it. Main thread only (the camera frame), once per frame.
+     */
+    void set_npc_fade(std::span<const NpcFadeEntry> entries) noexcept;
+
+    /** @brief The main-view draws the detour raised for the NPC lens fade since the last call. Any thread. */
+    [[nodiscard]] std::uint32_t take_npc_fade_applies() noexcept;
 
     /**
      * @brief The render node of the player's character (its CRenderProxy, which its temporary render objects name at

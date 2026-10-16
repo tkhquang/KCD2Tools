@@ -162,6 +162,12 @@ namespace TPVCamera::Twins
         // while they do not run.
         int character_count = 0;
         std::array<std::uintptr_t, k_max_character_nodes> character_nodes{};
+        // The render nodes of the people and animals the NPC lens fade dissolves (set_npc_twin_nodes()): a dissolving
+        // item of one swaps to a Dissolving twin that is ready and warm for the fade, and otherwise keeps its source.
+        // Their items neither count toward the character's readiness nor ask for twins, so a person's material the
+        // twins do not know never turns the player's close-up fade back to hiding his head.
+        int npc_count = 0;
+        std::array<std::uintptr_t, Constants::NPC_FADE_MAX_ENTITIES> npc_nodes{};
         // The source table is full: a shader without an entry gets none, so it is not requested again.
         bool sources_full = false;
         int source_count = 0;
@@ -619,6 +625,12 @@ namespace TPVCamera::Twins
     inline std::atomic<std::uint32_t> s_rest_swaps{0};
     inline std::array<std::atomic<std::uint32_t>, k_kinds> s_kind_swaps{};
     inline std::atomic<std::uint32_t> s_node_rejects{0};
+    // The NPC lens fade's dissolving items that took a twin, and those that kept the stock shader (no warm twin).
+    inline std::atomic<std::uint32_t> s_npc_swaps{0};
+    inline std::atomic<std::uint32_t> s_npc_misses{0};
+    // The NPC lens fade's render nodes for the next published set (main thread only).
+    inline std::array<std::uintptr_t, Constants::NPC_FADE_MAX_ENTITIES> s_npc_nodes{};
+    inline int s_npc_node_count = 0;
     inline std::atomic<std::uint32_t> s_opacity_skips{0};
     inline std::atomic<std::uint32_t> s_ext_aliases{0};
     inline std::atomic<std::uint32_t> s_rows_written{0};
@@ -975,6 +987,9 @@ namespace TPVCamera::Twins
 
     /** @brief True when @p object names one of the character's render nodes in @p set. */
     [[nodiscard]] bool character_object(const SwapSet &set, const std::uint8_t *object) noexcept;
+
+    /** @brief True when @p object names one of the render nodes the NPC lens fade dissolves in @p set. */
+    [[nodiscard]] bool npc_object(const SwapSet &set, const std::uint8_t *object) noexcept;
 
     /**
      * @brief CRenderView::AddRenderObject detour: a main-view item of a swapped tree, or an Eye, Hair or
@@ -1406,8 +1421,10 @@ namespace TPVCamera::Twins
      * @brief Publishes the swapped nodes, the character's render nodes, and the twins, or nothing when no node is
      *        swapped and the character's twins do not run.
      * @param character_nodes The character's render nodes (none zero, at most k_max_character_nodes), or empty.
+     * @param npc_nodes The render nodes the NPC lens fade dissolves (at most NPC_FADE_MAX_ENTITIES), or empty.
      */
-    void publish_set(std::span<const std::uintptr_t> character_nodes, std::uint64_t now) noexcept;
+    void publish_set(std::span<const std::uintptr_t> character_nodes, std::span<const std::uintptr_t> npc_nodes,
+                     std::uint64_t now) noexcept;
 
     /**
      * @brief Whether the eyes, and everything of the character, fade with him now (eye_fade_ready(),

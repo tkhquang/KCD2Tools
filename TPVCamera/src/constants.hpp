@@ -634,6 +634,10 @@ namespace Constants
     constexpr int CHARACTER_ATTACHMENT_SCAN_CAP = 128;
     constexpr int CHARACTER_ATTACHMENT_MAX_DEPTH = 3;
     constexpr int CHARACTER_ATTACHMENT_MAX_CHARACTERS = 8;
+    // The NPC lens fade's published table (hooks/character_fade.cpp): the entities it dissolves at once, the bodies of
+    // the people and animals at the lens and the items they carry. The detour compares a drawn proxy's entity against
+    // them only after a 256-bit filter lets it through.
+    constexpr int NPC_FADE_MAX_ENTITIES = 48;
 
     // Shader twins (hooks/shader_twins.cpp): the character's items that draw again in a forward pass that ignores the
     // dissolve (the eyes with the stock Eye shader; the eyelashes, beard, hair and a hood's hair cards with Hair; the

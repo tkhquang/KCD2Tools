@@ -46,7 +46,8 @@
 #   grass      like tree (the log says grass).
 #   frame      the camera passes through it. It never fades. Only the part right at the lens thins away.
 #   pass       the camera passes through it, and nothing else (invisible collision boxes).
-#   character  the camera passes through it. It never fades (people, animals and what they carry).
+#   character  the camera passes through it (people, animals and what they carry). It fades only right in front of
+#              the camera, with NpcLensFade on.
 #   exclude    TPVCamera leaves it out. It never fades, never opens in the window and never thins at the lens, and its
 #              collision stops the camera like any collision TPVCamera knows nothing about. For a model that must
 #              always stop the camera, write collide: an excluded model also gives up its claim on the level collision
@@ -174,6 +175,7 @@
 #
 # THE INI STILL APPLIES: UseOccluderFade = false makes the camera stop at everything that has collision.
 #   UseTreeSeeThrough = false shuts the window, UseLensCut = false the lens cut. Menus and conversations shut both.
+#   NpcLensFade = false keeps every character solid at the lens.
 #
 # EXAMPLES (lines for KCD2_TPVCamera_rules_User.txt)
 #   objects/manmade/vehicles/wagons/wagon_c_hay.cgf = fade                    the covered hay wagon fades

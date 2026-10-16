@@ -29,6 +29,7 @@
 #include "camera/close_fade.hpp"
 #include "camera/collision.hpp"
 #include "camera/lens.hpp"
+#include "camera/npc_lens_fade.hpp"
 #include "camera/see_through_driver.hpp"
 #include "camera/stick.hpp"
 #include "aob_resolver.hpp"
@@ -2287,6 +2288,28 @@ namespace TPVCamera
         // The lens near plane (see camera/lens.hpp), measured from the final pose written above.
         apply_lens_near_plane(camera, *matrix, arm_after_collision, view_blend, delta_time, step.repeat_build);
 
+        // People and animals at the lens fade instead of being cut open by the near plane (see
+        // camera/npc_lens_fade.hpp), once per frame from the final pose. The near corner's ratios are the frustum's
+        // half-angle tangents, whatever scale the near plane gave it.
+        if (!step.repeat_build)
+        {
+            const auto *near_corner = reinterpret_cast<const float *>(camera + Constants::CCAMERA_NEAR_CORNER_OFFSET);
+            NpcLensFadeInput npc{};
+            npc.view.position = {matrix->m[0][3], matrix->m[1][3], matrix->m[2][3]};
+            npc.view.right = {matrix->m[0][0], matrix->m[1][0], matrix->m[2][0]};
+            npc.view.forward = {matrix->m[0][1], matrix->m[1][1], matrix->m[2][1]};
+            npc.view.up = {matrix->m[0][2], matrix->m[1][2], matrix->m[2][2]};
+            npc.view.tan_half_width = near_corner[1] > 1e-6f ? std::fabs(near_corner[0] / near_corner[1]) : 0.0f;
+            npc.view.tan_half_height = near_corner[1] > 1e-6f ? std::fabs(near_corner[2] / near_corner[1]) : 0.0f;
+            npc.player_entity = entity_addr;
+            npc.player_origin = body_valid ? body_origin : eye_position;
+            npc.real_seconds = step.real_seconds;
+            npc.mounted = (game_state_mask().load(std::memory_order_relaxed) & state_bit(GameState::Mount)) != 0u;
+            npc.enabled = cfg.npc_lens_fade.load(std::memory_order_relaxed) && character_fade_available() &&
+                          view_blend > 0.0f && npc.view.tan_half_width > 0.0f;
+            update_npc_lens_fade(npc);
+        }
+
         // Publish the rendered camera pose + crosshair direction for the camera-space interaction hook
         // (interaction_hook.cpp). The player use-cone is eye-anchored and never reads the render camera, so
         // in third person the screen-centre crosshair and the use-target diverge by the shoulder offset
@@ -2806,6 +2829,7 @@ namespace TPVCamera
             // starts from an empty fade set instead of node addresses from before the gap.
             reset_occluder_fade();
             set_character_fade(0, 0.0f);
+            reset_npc_lens_fade();
             reset_close_up();
             // The carried list goes too, and the next third-person walk logs its set afresh.
             if (s_character_nodes.entity != 0)
