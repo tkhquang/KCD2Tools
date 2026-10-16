@@ -6,7 +6,6 @@
 #define TPVCAMERA_CAMERA_CLOSE_FADE_HPP
 
 #include "character_attachments.hpp"
-#include "global_state.hpp"
 #include "math_utils.hpp"
 
 #include <cstdint>
@@ -49,11 +48,12 @@ namespace TPVCamera
      * @param character The character's render nodes, dissolved with him.
      * @return The camera position after the fallback's ease toward the eye.
      */
-    [[nodiscard]] Vector3 apply_close_up(CameraState &cam, const CharacterNodes &character, const CloseUpInput &in);
+    [[nodiscard]] Vector3 apply_close_up(const CharacterNodes &character, const CloseUpInput &in);
 
     /**
-     * @brief Drops the close-up fade's slewed amount when the view leaves third person, so the next close-up starts
-     *        from a solid character. Main thread only.
+     * @brief Drops the close-up fade's slewed amount and the first-person fallback when the view leaves third person,
+     * so
+     *        the next close-up starts from a solid character and the camera off the eye. Main thread only.
      */
     void reset_close_up() noexcept;
 } // namespace TPVCamera

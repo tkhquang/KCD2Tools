@@ -36,7 +36,7 @@
 namespace TPVCamera::ProbeRecord
 {
     inline constexpr std::uint32_t k_magic = 0x52565054u; // "TPVR"
-    inline constexpr std::uint32_t k_version = 3;
+    inline constexpr std::uint32_t k_version = 4;
 
     /** @brief The bytes of the rig's carry-over in a recording (core/rig/rig_record.cpp). */
     [[nodiscard]] std::uint32_t rig_carry_bytes() noexcept;

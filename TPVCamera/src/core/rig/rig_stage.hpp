@@ -4,17 +4,17 @@
  *        anchor, the free-look orbit, the follow angle, the aim hand-off, camera-relative movement and the up-only arm,
  *        up to where the camera sits before collision.
  *
- * @details The rig reaches the engine only through a RigPort (camera/rig_port.hpp is the live one): the CView pose,
- *          the look controller, the body, the FOV the builder sees, the input, the look and body writes and the trace
- *          lines. Its carry-over is the CameraState it is handed, whose input-thread fields (the orbit accumulators,
- *          the zoom and swap requests) it reads as they stand, and its settings are a RigParams read once per build.
- *          Engine-free, so a recorded frame replays exactly (core/rig/rig_record.hpp). Main thread only.
+ * @details The rig reaches the engine only through a RigPort (LiveRigPort in hooks/camera_hook.cpp is the live one):
+ *          the CView pose, the look controller, the body, the FOV the builder sees, the input, the look and body writes
+ *          and the trace lines. Its carry-over is the RigState it is handed, the other threads' controls come in
+ *          RigInput, and its settings are a RigParams read once per build. Engine-free, so a recorded frame replays
+ *          exactly (core/rig/rig_record.hpp). Main thread only.
  */
 #ifndef TPVCAMERA_CORE_RIG_RIG_STAGE_HPP
 #define TPVCAMERA_CORE_RIG_RIG_STAGE_HPP
 
+#include "core/blend/blend.hpp"
 #include "core/math/vec.hpp"
-#include "global_state.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -54,7 +54,188 @@ namespace TPVCamera
         bool orbit_continuous_align = false;
     };
 
-    /** @brief One build's input to the rig. */
+    /**
+     * @brief The rig's carry-over between builds: the zoom, the free-look orbit and its smoothers, camera-relative
+     *        movement, the aim hand-off and the rig's own low-passes.
+     * @details Main thread only: the camera frame, and between frames the input dispatcher (the free-look angles and
+     * the
+     *          stick latch) and the action dispatcher (orbit_move_pressed()), which run on the same thread. The *_valid
+     *          flags are cleared when the view leaves third person, so the next engaged frame snaps its smoother instead
+     *          of easing across the first-person gap.
+     */
+    struct RigState
+    {
+        // Zoom offset from the preset's base Follow Distance, driven by the zoom hold keys. Keeping zoom as a delta
+        // from the base (rather than an absolute value) is what lets a preset edit apply live: the base is re-read
+        // every frame and the rendered distance follows immediately, while the player's accumulated zoom is preserved
+        // on top.
+        float zoom_offset = 0.0f;
+
+        // SwapShoulderKey's slide (CameraControls::shoulder_swapped): the linear 0..1 progress toward the swapped side,
+        // ramped over k_shoulder_swap_seconds and smoothstepped at use. shoulder_swap_valid is cleared off third
+        // person, so the next engaged frame takes the chosen side at once instead of sliding across the gap.
+        float shoulder_swap = 0.0f;
+        bool shoulder_swap_valid = false;
+
+        // Free-look base. While orbit_base_held the orbit turns a held base, the follow rig for the look pitch
+        // orbit_base_pitch (radians), instead of the live follow pose. orbit_base_offset is the held pitch less the
+        // look's; it decays to 0 as free-look eases back after it turns off, and the hold ends once it has. Cleared off
+        // third person unless a situation holds free-look off.
+        bool orbit_base_held = false;
+        float orbit_base_pitch = 0.0f;
+        float orbit_base_offset = 0.0f;
+
+        // Camera-relative movement. orbit_moving latches whether the character was moving last frame so the heading is
+        // aligned to the camera ONCE on the idle -> moving edge, not re-aligned every frame. The move signal is the
+        // device-agnostic action-input magnitude (the action dispatcher, via player_onaction_hook), captured the
+        // instant a key is pressed - not body-position speed, which lags and reads zero against a wall.
+        bool orbit_moving = false;
+        // Camera-relative heading HOLD. A single write to the look-yaw is reverted by the engine, so on the idle ->
+        // moving edge the camera-forward heading is captured into orbit_target_yaw and then HELD - written to the look
+        // every frame while moving (like the pitch leveling, whose per-frame write sticks). This turns the body to face
+        // the camera and keeps it there while you orbit freely; released when movement stops so the player resumes
+        // control.
+        float orbit_target_yaw = 0.0f;
+        bool orbit_target_valid = false;
+        // Orbit-input value snapshotted at move-capture. While moving, the camera holds its WORLD yaw and the body
+        // turns UNDER it: the rig's orbit angle is derived as (orbit_target_yaw + (orbit_yaw - this) -
+        // char_forward_yaw), so on the capture frame it equals the pre-move orbit (no snap) and eases to the user's
+        // residual orbit as the body rotates to the heading - the camera never pops.
+        float orbit_yaw_at_capture_deg = 0.0f;
+
+        // Free-look orbit (degrees). While free-look is on (CameraControls::orbit_active), the input dispatcher hook
+        // adds the mouse-look deltas to orbit_yaw / orbit_pitch and blocks the look events so the player aim stays put;
+        // the rig circles the camera around the player by those angles and eases them back to centre on release.
+        float orbit_yaw = 0.0f;
+        float orbit_pitch = 0.0f;
+        // The allowed range of orbit_pitch (degrees), set by the rig while free-look is on so OrbitPitchMin /
+        // OrbitPitchMax stay measured from level whatever pitch the held base has, and the camera never goes past what
+        // the rig can show; the input dispatcher hook clamps the mouse to it.
+        float orbit_pitch_lo = -90.0f;
+        float orbit_pitch_hi = 90.0f;
+
+        // Gamepad right-stick look DEFLECTION (-1..1), latched by the input dispatcher hook while orbiting. The mouse
+        // posts relative deltas straight into orbit_yaw / orbit_pitch per event; the analog stick instead reports a
+        // HELD position, so it is latched here and integrated by rate (with the frame time) in the rig - holding the
+        // stick keeps orbiting, frame-rate independent. Cleared to 0 when not orbiting so re-engaging with the stick
+        // centred does not jump.
+        float orbit_pad_yaw = 0.0f;
+        float orbit_pad_pitch = 0.0f;
+        // The latched deflection read through the preset's response curve and eased by its gamepad smoothing: the
+        // deflection the orbit is turned by. Snapped to 0 whenever the latch is cleared.
+        Spring<float> orbit_pad_yaw_eased{};
+        Spring<float> orbit_pad_pitch_eased{};
+
+        // Orbit angle low-pass. The rendered orbit yaw/pitch (degrees) ease toward the raw accumulated orbit_yaw /
+        // orbit_pitch target each frame, so free-look is not as jittery as the raw per-frame mouse deltas: the engine
+        // smooths native look DOWNSTREAM of the input dispatch the orbit hook captures and blocks, so without this
+        // filter the orbit gets unsmoothed input. Strength is the per-preset orbit_smoothing.
+        float orbit_yaw_render = 0.0f;
+        float orbit_pitch_render = 0.0f;
+        bool orbit_render_valid = false;
+
+        // Continuous-align (GTA) steering low-pass. In continuous-align mode the camera follows the body/look heading
+        // (the derived rig angle cancels to ~0), so the user's orbit-since-capture STEERS the run rather than orbiting
+        // the rig. This is that steering angle (degrees) low-passed toward the raw input, fed to BOTH the body/look
+        // heading and the rig derivation so the camera follows the smoothed steering and stays behind.
+        // orbit_steer_valid is cleared when not move-orbiting so engaging snaps instead of easing across a stale value.
+        // Only eased when OrbitContinuousAlign and OrbitSmoothing are both on.
+        float orbit_steer_smooth = 0.0f;
+        bool orbit_steer_valid = false;
+
+        // Mount follow (follow_mount_heading()): the seconds since free-look input last moved the orbit, and the yaw
+        // accumulator as the follow left it, whose change since tells input apart from the follow's own turn.
+        // mount_follow_seen_valid is false while the follow is off, so it starts with no input seen and ramps in.
+        float mount_follow_idle = 0.0f;
+        float mount_follow_seen_yaw = 0.0f;
+        bool mount_follow_seen_valid = false;
+
+        // Orbit move-detection re-arm latch. A genuine sub-stop movement-input reading must be observed since orbit
+        // engaged, or the game's own move input must show the movement too, before a move-start is honored, so a
+        // stranded input latch (a held-move release swallowed on a combat action-map swap) cannot re-trip the
+        // body-turn with the keys released. Cleared when orbit disengages, so re-engaging needs an observed release or
+        // a held key the game's own move input shows. orbit_move_armed_by_game is set when that game input armed it:
+        // such a move also ends once that input has stayed idle for orbit_move_game_idle seconds, since another latch
+        // slot can still be stranded. Pairs with player_onaction_reset() (which drops the stale latch outright on the
+        // suspend/disengage edges).
+        bool orbit_move_armed = false;
+        bool orbit_move_armed_by_game = false;
+        float orbit_move_game_idle = 0.0f;
+
+        // The rig's trace latches, so a suppressed stale move re-trip and the body-turn edges are traced once each.
+        bool rig_stale_move_logged = false;
+        bool rig_body_turn_logged = false;
+
+        // Dynamic eye-height sync. When DynamicEyeSync is on, eye_sync_applied is the eased effective eye height: it
+        // re-anchors to the REAL first-person eye when a low pose (kneel / pray, and other poses EyeHeight does not
+        // model) drops it OUT of range of the configured height, where a fixed height floats the camera too high.
+        // real_eye_height is the live FP-eye height above the body root, the sync source; eye_sync_engaged says the
+        // sync is re-anchoring (a low pose is out of range) and eye_sync_effective is the eye height applied. The three
+        // reach the overlay through RigReadout.
+        float eye_sync_applied = 0.0f;
+        bool eye_sync_valid = false;
+        float real_eye_height = 0.0f;
+        bool eye_sync_engaged = false;
+        float eye_sync_effective = 0.0f;
+
+        // Per-preset FOV override ease: the preset blend's two-stage filter, whose applied stage is the eased rendered
+        // FOV (radians) written into the render CCamera.
+        Spring<float> fov_ease{};
+        bool fov_ease_valid = false;
+
+        // Aim-basis low-pass. The third-person rig basis quaternion (XYZW), low-passed toward the per-frame target (the
+        // look-controller aim quat under StableAimBasis, else the eye quat) when AimBasisSmoothing is on, so
+        // engine-driven view rotation - which the follow distance amplifies into a camera-position swing - is damped.
+        float basis_quat_x = 0.0f;
+        float basis_quat_y = 0.0f;
+        float basis_quat_z = 0.0f;
+        float basis_quat_w = 1.0f;
+        bool basis_quat_valid = false;
+
+        // Turn-in-place pivot hold. A native turn-in-place animation steps the body a little (its root motion moves the
+        // entity 5-20 cm), and the pivot follows the entity origin, so without this the camera shifts with every turn
+        // whose steps were not kept in place. turn_hold_x/y is the horizontal displacement the body made while turning
+        // in place. It is subtracted from the body origin so the pivot stays where it was, and eased back to zero once
+        // the player moves or the native turn stops. Normally the steps are kept in place and this stays near zero.
+        // turn_hold_timer keeps absorbing briefly after the rotation stops, for the step's settle. turn_track_* is the
+        // previous frame's body origin and yaw, and turn_track_step the body's horizontal move since then (meters, 0 on
+        // the frame the tracker seeds); turn_track_valid cleared means the first engaged frame only seeds the tracker.
+        float turn_hold_x = 0.0f;
+        float turn_hold_y = 0.0f;
+        float turn_hold_timer = 0.0f;
+        float turn_track_x = 0.0f;
+        float turn_track_y = 0.0f;
+        float turn_track_yaw = 0.0f;
+        float turn_track_step = 0.0f;
+        bool turn_track_valid = false;
+
+        // Aim hand-off. rig_last_* describe the previous frame while the orbit rig shaped it: the rig's look heading
+        // and arm elevation (the negative of its look pitch), radians, its turn and rise off that frame's plain rig,
+        // and the look yaw and pitch that put the plain rig there. While aim_handoff_active the rig holds the heading
+        // and elevation aim_handoff_azimuth / aim_handoff_elevation, and the look and the body are written to
+        // aim_handoff_yaw / aim_handoff_pitch until the look shows that heading. aim_handoff_seconds is the unpaused
+        // time since, and aim_handoff_written is set once they are written: the hand-off is not taken as done before
+        // that. It ends without a write when a situation that sets the facing shows up (aim_handoff_cancel, raised by
+        // the frustum detour), when aim_handoff_player changes or the body jumps, and when a look write fails.
+        bool rig_last_orbited = false;
+        float rig_last_azimuth = 0.0f;
+        float rig_last_elevation = 0.0f;
+        float rig_last_turn = 0.0f;
+        float rig_last_rise = 0.0f;
+        float rig_last_yaw = 0.0f;
+        float rig_last_pitch = 0.0f;
+        bool aim_handoff_active = false;
+        bool aim_handoff_written = false;
+        bool aim_handoff_cancel = false;
+        std::uintptr_t aim_handoff_player = 0;
+        float aim_handoff_azimuth = 0.0f;
+        float aim_handoff_elevation = 0.0f;
+        float aim_handoff_yaw = 0.0f;
+        float aim_handoff_pitch = 0.0f;
+        float aim_handoff_seconds = 0.0f;
+    };
+
+    /** @brief One build's input to the rig: the frame, and the controls the frustum detour read once for it. */
     struct RigInput
     {
         std::uintptr_t c_player = 0; // the live C_Player, or 0: the rig then anchors to the eye
@@ -62,6 +243,12 @@ namespace TPVCamera
         float seconds = 0.0f;        // the build's step (FrameStep::seconds)
         bool repeat_build = false;
         bool paused = false;
+        bool orbit_active = false;     // free-look is on (CameraControls::orbit_active)
+        bool shoulder_swapped = false; // the camera sits over the other shoulder (CameraControls::shoulder_swapped)
+        bool zoom_reset = false;       // a zoom reset was asked for since the last build (taken from CameraControls)
+        bool orbit_suspended = false;  // the orbit-exclude policy holds free-look off and will restore it
+        bool aim_handoff_requested =
+            false; // the policy turned free-look off this frame where the player owns the facing
     };
 
     /** @brief The zoom keys held this build. */
@@ -200,7 +387,7 @@ namespace TPVCamera
      * @return False when the CView pose did not read: the caller leaves the view untouched this build. The zoom has
      *         advanced by then.
      */
-    [[nodiscard]] bool run_rig(CameraState &cam, const RigParams &params, const RigInput &in, RigPort &port,
+    [[nodiscard]] bool run_rig(RigState &state, const RigParams &params, const RigInput &in, RigPort &port,
                                RigFrame &out);
 } // namespace TPVCamera
 

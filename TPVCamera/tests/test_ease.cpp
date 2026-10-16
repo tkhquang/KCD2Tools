@@ -16,7 +16,7 @@ namespace
     using TPVCamera::ease_collision_toward;
     using TPVCamera::EaseMotion;
 
-    /** @brief The four fields the ease runs on, as CameraState holds them. */
+    /** @brief The four fields the ease runs on, as CollisionEase holds them. */
     struct EaseState
     {
         bool collision_valid = false;

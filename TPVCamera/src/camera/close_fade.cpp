@@ -54,6 +54,12 @@ namespace TPVCamera
         // from solid to faded and back. Main thread only.
         float s_dithered_amount = 0.0f;
 
+        // The first-person fallback: set while the camera arm is shorter than HeadClearance, so the camera would sit
+        // inside the player's head; s_head_fallback_blend eases the camera from the collided position onto the eye (1 =
+        // at the eye) and back. The head is hidden while it is set (see the head-visibility detour). Main thread only.
+        bool s_head_fallback = false;
+        float s_head_fallback_blend = 0.0f;
+
         /**
          * @brief Dissolves the character by @p close_amount and decides whether his head is hidden on top.
          * @details With the eye fade ready (the shader twins) the face and the eyes dither out with the body and the
@@ -103,9 +109,11 @@ namespace TPVCamera
     void reset_close_up() noexcept
     {
         s_dithered_amount = 0.0f;
+        s_head_fallback = false;
+        s_head_fallback_blend = 0.0f;
     }
 
-    Vector3 apply_close_up(CameraState &cam, const CharacterNodes &character, const CloseUpInput &in)
+    Vector3 apply_close_up(const CharacterNodes &character, const CloseUpInput &in)
     {
         LiveSettings &cfg = settings();
         const float clearance = cfg.head_clearance.load(std::memory_order_relaxed);
@@ -128,33 +136,33 @@ namespace TPVCamera
         }
         if (clearance <= 0.0f || in.close_fade)
         {
-            cam.head_fallback = false;
+            s_head_fallback = false;
         }
         else if (in.switching)
         {
             // The switch's arm is short because the switch is under way, not for want of room: the fallback keeps its
             // state, or it would latch the view at the eye with third person on.
         }
-        else if (!cam.head_fallback && in.arm < clearance)
+        else if (!s_head_fallback && in.arm < clearance)
         {
-            cam.head_fallback = true;
+            s_head_fallback = true;
             (void)DMK::log().try_log(DMK::LogLevel::Debug,
                                      "Camera: first-person fallback ON (arm {:.2f} m < HeadClearance {:.2f} m)", in.arm,
                                      clearance);
         }
-        else if (cam.head_fallback && in.arm > clearance + k_head_fallback_margin)
+        else if (s_head_fallback && in.arm > clearance + k_head_fallback_margin)
         {
-            cam.head_fallback = false;
+            s_head_fallback = false;
             (void)DMK::log().try_log(DMK::LogLevel::Debug, "Camera: first-person fallback OFF (arm {:.2f} m)", in.arm);
         }
-        cam.head_fallback_blend = ease_weight(cam.head_fallback_blend, cam.head_fallback ? 1.0f : 0.0f,
-                                              k_head_fallback_rate, in.delta_time, 1e-3f);
+        s_head_fallback_blend = ease_weight(s_head_fallback_blend, s_head_fallback ? 1.0f : 0.0f, k_head_fallback_rate,
+                                            in.delta_time, 1e-3f);
         // The head hides as soon as the fallback starts (the camera is already close to it) and shows again only once
         // the camera is back out past halfway.
-        set_head_fallback(cam.head_fallback || cam.head_fallback_blend > 0.5f);
-        if (cam.head_fallback_blend > 0.0f)
+        set_head_fallback(s_head_fallback || s_head_fallback_blend > 0.5f);
+        if (s_head_fallback_blend > 0.0f)
         {
-            return in.camera + (in.eye - in.camera) * cam.head_fallback_blend;
+            return in.camera + (in.eye - in.camera) * s_head_fallback_blend;
         }
         return in.camera;
     }

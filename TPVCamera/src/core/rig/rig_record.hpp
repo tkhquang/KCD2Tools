@@ -6,9 +6,8 @@
  * @details Part of the frame recording (core/collision/probe_record.hpp), which holds the stream format and the replay
  *          loop. A rig frame is FrameKind::Rig, RigParams, RigInput, the carry-over before, the port calls (each a
  *          RigCall byte, its arguments and its answer), RigCall::End, a built byte, RigFrame and the carry-over after.
- *          The carry-over is every CameraState field the rig reads or writes, written one by one in a fixed order
- *          (rig_record.cpp, for_each_carry_field()), the input thread's included, as they stand right before the rig
- *          runs. Engine-free, so the replay test compiles it as is.
+ *          The carry-over is the RigState, written field by field in a fixed order (rig_record.cpp,
+ *          for_each_carry_field()). Engine-free, so the replay test compiles it as is.
  */
 #ifndef TPVCAMERA_CORE_RIG_RIG_RECORD_HPP
 #define TPVCAMERA_CORE_RIG_RIG_RECORD_HPP
@@ -133,7 +132,7 @@ namespace TPVCamera::ProbeRecord
      * @brief Runs run_rig() on @p port and appends the whole build to @p out: the params, the input, the carry-over
      *        before, every port call with its answer, the frame and the carry-over after.
      */
-    [[nodiscard]] bool record_rig(std::vector<std::byte> &out, CameraState &cam, const RigParams &params,
+    [[nodiscard]] bool record_rig(std::vector<std::byte> &out, RigState &state, const RigParams &params,
                                   const RigInput &in, RigPort &port, RigFrame &frame);
 
     /**

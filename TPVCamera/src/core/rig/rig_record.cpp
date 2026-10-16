@@ -14,169 +14,115 @@ namespace TPVCamera::ProbeRecord
 {
     namespace
     {
-        template <typename T> struct FieldValue
-        {
-            using type = T;
-        };
-        template <typename T> struct FieldValue<std::atomic<T>>
-        {
-            using type = T;
-        };
-
-        /** @brief The value a CameraState field holds: an atomic one loaded, a plain one as it is. */
-        template <typename F> [[nodiscard]] typename FieldValue<F>::type field_value(const F &field) noexcept
-        {
-            if constexpr (std::is_same_v<F, typename FieldValue<F>::type>)
-            {
-                return field;
-            }
-            else
-            {
-                return field.load(std::memory_order_relaxed);
-            }
-        }
-
-        /** @brief Sets a CameraState field: an atomic one stored, a plain one assigned. */
-        template <typename F> void set_field(F &field, const typename FieldValue<F>::type &value) noexcept
-        {
-            if constexpr (std::is_same_v<F, typename FieldValue<F>::type>)
-            {
-                field = value;
-            }
-            else
-            {
-                field.store(value, std::memory_order_relaxed);
-            }
-        }
-
         /**
-         * @brief Calls @p fn(name, field) for every CameraState field the rig reads or writes, in the recording's
-         *        order.
+         * @brief Calls @p fn(name, field) for every RigState field, in the recording's order.
          * @details The one list of the rig's carry-over: the recording writes the fields in this order, the replay
-         *          restores and compares them in it, and rig_carry_bytes() sizes it for the header. A field the rig
-         *          starts to read must be added here, or its replay diverges.
+         *          restores and compares them in it, and rig_carry_bytes() sizes it for the header. A field added to
+         *          RigState must be added here, or its replay diverges. The fields go one by one rather than as the
+         *          struct's raw bytes, whose padding is not part of the state.
          */
-        template <typename Fn> void for_each_carry_field(CameraState &cam, Fn &&fn)
+        template <typename State, typename Fn> void for_each_carry_field(State &state, Fn &&fn)
         {
-            // Written by the input thread, the hotkeys, the overlay and the detour between builds.
-            fn("zoom_offset", cam.zoom_offset);
-            fn("zoom_reset_requested", cam.zoom_reset_requested);
-            fn("shoulder_swapped", cam.shoulder_swapped);
-            fn("orbit_active", cam.orbit_active);
-            fn("orbit_yaw", cam.orbit_yaw);
-            fn("orbit_pitch", cam.orbit_pitch);
-            fn("orbit_pitch_lo", cam.orbit_pitch_lo);
-            fn("orbit_pitch_hi", cam.orbit_pitch_hi);
-            fn("orbit_pad_yaw", cam.orbit_pad_yaw);
-            fn("orbit_pad_pitch", cam.orbit_pad_pitch);
-            fn("orbit_suspended", cam.orbit_suspended);
-            fn("aim_handoff_requested", cam.aim_handoff_requested);
-            fn("aim_handoff_cancel", cam.aim_handoff_cancel);
-            // Published by the rig for the overlay.
-            fn("real_eye_height", cam.real_eye_height);
-            fn("eye_sync_engaged", cam.eye_sync_engaged);
-            fn("eye_sync_effective", cam.eye_sync_effective);
-            // The rig's own carry-over.
-            fn("shoulder_swap", cam.shoulder_swap);
-            fn("shoulder_swap_valid", cam.shoulder_swap_valid);
-            fn("orbit_base_held", cam.orbit_base_held);
-            fn("orbit_base_pitch", cam.orbit_base_pitch);
-            fn("orbit_base_offset", cam.orbit_base_offset);
-            fn("orbit_moving", cam.orbit_moving);
-            fn("orbit_target_yaw", cam.orbit_target_yaw);
-            fn("orbit_target_valid", cam.orbit_target_valid);
-            fn("orbit_yaw_at_capture_deg", cam.orbit_yaw_at_capture_deg);
-            fn("orbit_pad_yaw_eased", cam.orbit_pad_yaw_eased);
-            fn("orbit_pad_pitch_eased", cam.orbit_pad_pitch_eased);
-            fn("orbit_yaw_render", cam.orbit_yaw_render);
-            fn("orbit_pitch_render", cam.orbit_pitch_render);
-            fn("orbit_render_valid", cam.orbit_render_valid);
-            fn("orbit_steer_smooth", cam.orbit_steer_smooth);
-            fn("orbit_steer_valid", cam.orbit_steer_valid);
-            fn("mount_follow_idle", cam.mount_follow_idle);
-            fn("mount_follow_seen_yaw", cam.mount_follow_seen_yaw);
-            fn("mount_follow_seen_valid", cam.mount_follow_seen_valid);
-            fn("orbit_move_armed", cam.orbit_move_armed);
-            fn("orbit_move_armed_by_game", cam.orbit_move_armed_by_game);
-            fn("orbit_move_game_idle", cam.orbit_move_game_idle);
-            fn("rig_stale_move_logged", cam.rig_stale_move_logged);
-            fn("rig_body_turn_logged", cam.rig_body_turn_logged);
-            fn("eye_sync_applied", cam.eye_sync_applied);
-            fn("eye_sync_valid", cam.eye_sync_valid);
-            fn("fov_ease", cam.fov_ease);
-            fn("fov_ease_valid", cam.fov_ease_valid);
-            fn("basis_quat_x", cam.basis_quat_x);
-            fn("basis_quat_y", cam.basis_quat_y);
-            fn("basis_quat_z", cam.basis_quat_z);
-            fn("basis_quat_w", cam.basis_quat_w);
-            fn("basis_quat_valid", cam.basis_quat_valid);
-            fn("turn_hold_x", cam.turn_hold_x);
-            fn("turn_hold_y", cam.turn_hold_y);
-            fn("turn_hold_timer", cam.turn_hold_timer);
-            fn("turn_track_x", cam.turn_track_x);
-            fn("turn_track_y", cam.turn_track_y);
-            fn("turn_track_yaw", cam.turn_track_yaw);
-            fn("turn_track_step", cam.turn_track_step);
-            fn("turn_track_valid", cam.turn_track_valid);
-            fn("rig_last_orbited", cam.rig_last_orbited);
-            fn("rig_last_azimuth", cam.rig_last_azimuth);
-            fn("rig_last_elevation", cam.rig_last_elevation);
-            fn("rig_last_turn", cam.rig_last_turn);
-            fn("rig_last_rise", cam.rig_last_rise);
-            fn("rig_last_yaw", cam.rig_last_yaw);
-            fn("rig_last_pitch", cam.rig_last_pitch);
-            fn("aim_handoff_active", cam.aim_handoff_active);
-            fn("aim_handoff_written", cam.aim_handoff_written);
-            fn("aim_handoff_player", cam.aim_handoff_player);
-            fn("aim_handoff_azimuth", cam.aim_handoff_azimuth);
-            fn("aim_handoff_elevation", cam.aim_handoff_elevation);
-            fn("aim_handoff_yaw", cam.aim_handoff_yaw);
-            fn("aim_handoff_pitch", cam.aim_handoff_pitch);
-            fn("aim_handoff_seconds", cam.aim_handoff_seconds);
+            fn("zoom_offset", state.zoom_offset);
+            fn("shoulder_swap", state.shoulder_swap);
+            fn("shoulder_swap_valid", state.shoulder_swap_valid);
+            fn("orbit_base_held", state.orbit_base_held);
+            fn("orbit_base_pitch", state.orbit_base_pitch);
+            fn("orbit_base_offset", state.orbit_base_offset);
+            fn("orbit_moving", state.orbit_moving);
+            fn("orbit_target_yaw", state.orbit_target_yaw);
+            fn("orbit_target_valid", state.orbit_target_valid);
+            fn("orbit_yaw_at_capture_deg", state.orbit_yaw_at_capture_deg);
+            fn("orbit_yaw", state.orbit_yaw);
+            fn("orbit_pitch", state.orbit_pitch);
+            fn("orbit_pitch_lo", state.orbit_pitch_lo);
+            fn("orbit_pitch_hi", state.orbit_pitch_hi);
+            fn("orbit_pad_yaw", state.orbit_pad_yaw);
+            fn("orbit_pad_pitch", state.orbit_pad_pitch);
+            fn("orbit_pad_yaw_eased", state.orbit_pad_yaw_eased);
+            fn("orbit_pad_pitch_eased", state.orbit_pad_pitch_eased);
+            fn("orbit_yaw_render", state.orbit_yaw_render);
+            fn("orbit_pitch_render", state.orbit_pitch_render);
+            fn("orbit_render_valid", state.orbit_render_valid);
+            fn("orbit_steer_smooth", state.orbit_steer_smooth);
+            fn("orbit_steer_valid", state.orbit_steer_valid);
+            fn("mount_follow_idle", state.mount_follow_idle);
+            fn("mount_follow_seen_yaw", state.mount_follow_seen_yaw);
+            fn("mount_follow_seen_valid", state.mount_follow_seen_valid);
+            fn("orbit_move_armed", state.orbit_move_armed);
+            fn("orbit_move_armed_by_game", state.orbit_move_armed_by_game);
+            fn("orbit_move_game_idle", state.orbit_move_game_idle);
+            fn("rig_stale_move_logged", state.rig_stale_move_logged);
+            fn("rig_body_turn_logged", state.rig_body_turn_logged);
+            fn("eye_sync_applied", state.eye_sync_applied);
+            fn("eye_sync_valid", state.eye_sync_valid);
+            fn("real_eye_height", state.real_eye_height);
+            fn("eye_sync_engaged", state.eye_sync_engaged);
+            fn("eye_sync_effective", state.eye_sync_effective);
+            fn("fov_ease", state.fov_ease);
+            fn("fov_ease_valid", state.fov_ease_valid);
+            fn("basis_quat_x", state.basis_quat_x);
+            fn("basis_quat_y", state.basis_quat_y);
+            fn("basis_quat_z", state.basis_quat_z);
+            fn("basis_quat_w", state.basis_quat_w);
+            fn("basis_quat_valid", state.basis_quat_valid);
+            fn("turn_hold_x", state.turn_hold_x);
+            fn("turn_hold_y", state.turn_hold_y);
+            fn("turn_hold_timer", state.turn_hold_timer);
+            fn("turn_track_x", state.turn_track_x);
+            fn("turn_track_y", state.turn_track_y);
+            fn("turn_track_yaw", state.turn_track_yaw);
+            fn("turn_track_step", state.turn_track_step);
+            fn("turn_track_valid", state.turn_track_valid);
+            fn("rig_last_orbited", state.rig_last_orbited);
+            fn("rig_last_azimuth", state.rig_last_azimuth);
+            fn("rig_last_elevation", state.rig_last_elevation);
+            fn("rig_last_turn", state.rig_last_turn);
+            fn("rig_last_rise", state.rig_last_rise);
+            fn("rig_last_yaw", state.rig_last_yaw);
+            fn("rig_last_pitch", state.rig_last_pitch);
+            fn("aim_handoff_active", state.aim_handoff_active);
+            fn("aim_handoff_written", state.aim_handoff_written);
+            fn("aim_handoff_cancel", state.aim_handoff_cancel);
+            fn("aim_handoff_player", state.aim_handoff_player);
+            fn("aim_handoff_azimuth", state.aim_handoff_azimuth);
+            fn("aim_handoff_elevation", state.aim_handoff_elevation);
+            fn("aim_handoff_yaw", state.aim_handoff_yaw);
+            fn("aim_handoff_pitch", state.aim_handoff_pitch);
+            fn("aim_handoff_seconds", state.aim_handoff_seconds);
         }
 
-        /** @brief Appends the rig's carry-over in @p cam to a recording. */
-        void put_carry(Writer &out, CameraState &cam)
+        /** @brief Appends the rig's carry-over in @p state to a recording. */
+        void put_carry(Writer &out, const RigState &state)
         {
-            for_each_carry_field(cam, [&out](const char *, const auto &field) { out.put(field_value(field)); });
+            for_each_carry_field(state, [&out](const char *, const auto &field) { out.put(field); });
         }
 
-        /** @brief Sets the rig's carry-over in @p cam from a recording. @return False when the recording ended. */
-        [[nodiscard]] bool restore_carry(Reader &in, CameraState &cam)
+        /** @brief Sets the rig's carry-over in @p state from a recording. @return False when the recording ended. */
+        [[nodiscard]] bool restore_carry(Reader &in, RigState &state)
         {
             bool ok = true;
-            for_each_carry_field(cam,
-                                 [&in, &ok](const char *, auto &field)
-                                 {
-                                     typename FieldValue<std::remove_cvref_t<decltype(field)>>::type value{};
-                                     ok = ok && in.get(value);
-                                     if (ok)
-                                     {
-                                         set_field(field, value);
-                                     }
-                                 });
+            for_each_carry_field(state, [&in, &ok](const char *, auto &field) { ok = ok && in.get(field); });
             return ok;
         }
 
         /**
-         * @brief Compares the rig's carry-over in @p cam with the one recorded next, bit for bit.
+         * @brief Compares the rig's carry-over in @p state with the one recorded next, bit for bit.
          * @return The first field that differs, "the recording ended", or nullptr when all match.
          */
-        [[nodiscard]] const char *carry_difference(Reader &in, CameraState &cam)
+        [[nodiscard]] const char *carry_difference(Reader &in, const RigState &state)
         {
             const char *difference = nullptr;
-            for_each_carry_field(cam,
+            for_each_carry_field(state,
                                  [&in, &difference](const char *name, const auto &field)
                                  {
-                                     using Value = typename FieldValue<std::remove_cvref_t<decltype(field)>>::type;
-                                     Value recorded{};
+                                     std::remove_cvref_t<decltype(field)> recorded{};
                                      if (!in.get(recorded))
                                      {
                                          difference = difference != nullptr ? difference : "the recording ended";
                                          return;
                                      }
-                                     const Value value = field_value(field);
-                                     if (difference == nullptr && std::memcmp(&value, &recorded, sizeof(Value)) != 0)
+                                     if (difference == nullptr && std::memcmp(&field, &recorded, sizeof(field)) != 0)
                                      {
                                          difference = name;
                                      }
@@ -236,10 +182,10 @@ namespace TPVCamera::ProbeRecord
     {
         static const std::uint32_t s_bytes = []
         {
-            CameraState cam{};
+            const RigState state{};
             std::uint32_t bytes = 0;
-            for_each_carry_field(cam, [&bytes](const char *, const auto &field)
-                                 { bytes += static_cast<std::uint32_t>(sizeof(field_value(field))); });
+            for_each_carry_field(state, [&bytes](const char *, const auto &field)
+                                 { bytes += static_cast<std::uint32_t>(sizeof(field)); });
             return bytes;
         }();
         return s_bytes;
@@ -646,20 +592,20 @@ namespace TPVCamera::ProbeRecord
 
     // --- Frames ---
 
-    bool record_rig(std::vector<std::byte> &out, CameraState &cam, const RigParams &params, const RigInput &in,
+    bool record_rig(std::vector<std::byte> &out, RigState &state, const RigParams &params, const RigInput &in,
                     RigPort &port, RigFrame &frame)
     {
         Writer writer{out};
         writer.put(FrameKind::Rig);
         writer.put(params);
         writer.put(in);
-        put_carry(writer, cam);
+        put_carry(writer, state);
         RecordingRigPort recording{port, out};
-        const bool built = run_rig(cam, params, in, recording, frame);
+        const bool built = run_rig(state, params, in, recording, frame);
         writer.put(RigCall::End);
         writer.put(static_cast<std::uint8_t>(built));
         writer.put(frame);
-        put_carry(writer, cam);
+        put_carry(writer, state);
         return built;
     }
 
@@ -667,14 +613,14 @@ namespace TPVCamera::ProbeRecord
     {
         RigParams params{};
         RigInput in{};
-        CameraState cam{};
-        if (!reader.get(params) || !reader.get(in) || !restore_carry(reader, cam))
+        RigState state{};
+        if (!reader.get(params) || !reader.get(in) || !restore_carry(reader, state))
         {
             return "truncated";
         }
         ReplayRigPort port{reader};
         RigFrame frame{};
-        const bool built = run_rig(cam, params, in, port, frame);
+        const bool built = run_rig(state, params, in, port, frame);
         calls += port.calls();
         std::uint8_t recorded_built = 0;
         RigFrame recorded{};
@@ -691,7 +637,7 @@ namespace TPVCamera::ProbeRecord
         {
             return std::format("the frame differs ({})", what);
         }
-        if (const char *what = carry_difference(reader, cam); what != nullptr)
+        if (const char *what = carry_difference(reader, state); what != nullptr)
         {
             return std::format("the state after differs ({})", what);
         }

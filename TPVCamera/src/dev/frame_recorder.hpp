@@ -19,7 +19,7 @@ namespace TPVCamera::FrameRecorder
     [[nodiscard]] bool recording() noexcept;
 
     /** @brief run_rig() on @p port, recorded into the ring. Main thread only. */
-    [[nodiscard]] bool rig(CameraState &cam, const RigParams &params, const RigInput &in, RigPort &port,
+    [[nodiscard]] bool rig(RigState &state, const RigParams &params, const RigInput &in, RigPort &port,
                            RigFrame &frame);
 
     /** @brief resolve_camera_collision() on @p probe, recorded into the ring. Main thread only. */

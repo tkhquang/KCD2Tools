@@ -27,7 +27,7 @@ namespace TPVCamera
         Release,
     };
 
-    /** @brief A state the collision ease runs on: CameraState, or a test's own struct with the same four fields. */
+    /** @brief A state the collision ease runs on: CollisionEase, or a test's own struct with the same four fields. */
     template <typename T>
     concept CollisionEaseState = requires(T &state) {
         state.collision_valid = true;

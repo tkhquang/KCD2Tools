@@ -54,11 +54,11 @@ namespace TPVCamera::FrameRecorder
         return settings().record_frames.load(std::memory_order_relaxed);
     }
 
-    bool rig(CameraState &cam, const RigParams &params, const RigInput &in, RigPort &port, RigFrame &frame)
+    bool rig(RigState &state, const RigParams &params, const RigInput &in, RigPort &port, RigFrame &frame)
     {
         std::vector<std::byte> frame_bytes;
         frame_bytes.reserve(2048);
-        const bool built = ProbeRecord::record_rig(frame_bytes, cam, params, in, port, frame);
+        const bool built = ProbeRecord::record_rig(frame_bytes, state, params, in, port, frame);
         keep(std::move(frame_bytes));
         return built;
     }

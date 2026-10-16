@@ -82,7 +82,7 @@ namespace TPVCamera
          *          eases the hold back onto the body. Standing still keeps the hold. Without the look the rotation
          *          alone is used. Normally the steps are kept in place (detour_phys_ent_movement) and the hold stays
          *          near zero; it is the fallback for when that hook is unavailable.
-         * @param cam Camera state holding the tracker and the hold.
+         * @param state The rig state holding the tracker and the hold.
          * @param move_signal The action dispatcher's movement-input magnitude (RigPort::move_input()).
          * @param body_origin The entity world origin this frame.
          * @param body_yaw The entity world yaw this frame (radians).
@@ -91,35 +91,35 @@ namespace TPVCamera
          * @param delta_time Frame time in seconds.
          * @return The horizontal offset (z = 0) to subtract from the anchor.
          */
-        Vector3 hold_turn_in_place_pivot(CameraState &cam, RigPort &port, const std::optional<float> &move_signal,
+        Vector3 hold_turn_in_place_pivot(RigState &state, RigPort &port, const std::optional<float> &move_signal,
                                          const Vector3 &body_origin, float body_yaw, float look_yaw, bool look_valid,
                                          float delta_time)
         {
-            if (!cam.turn_track_valid)
+            if (!state.turn_track_valid)
             {
-                cam.turn_track_x = body_origin.x;
-                cam.turn_track_y = body_origin.y;
-                cam.turn_track_yaw = body_yaw;
-                cam.turn_track_valid = true;
-                cam.turn_track_step = 0.0f;
-                cam.turn_hold_x = 0.0f;
-                cam.turn_hold_y = 0.0f;
-                cam.turn_hold_timer = 0.0f;
+                state.turn_track_x = body_origin.x;
+                state.turn_track_y = body_origin.y;
+                state.turn_track_yaw = body_yaw;
+                state.turn_track_valid = true;
+                state.turn_track_step = 0.0f;
+                state.turn_hold_x = 0.0f;
+                state.turn_hold_y = 0.0f;
+                state.turn_hold_timer = 0.0f;
                 return Vector3{0.0f, 0.0f, 0.0f};
             }
-            const float step_x = body_origin.x - cam.turn_track_x;
-            const float step_y = body_origin.y - cam.turn_track_y;
+            const float step_x = body_origin.x - state.turn_track_x;
+            const float step_y = body_origin.y - state.turn_track_y;
             const float step = std::sqrt(step_x * step_x + step_y * step_y);
-            cam.turn_track_step = step;
-            const float turn = std::remainder(body_yaw - cam.turn_track_yaw, 2.0f * DirectX::XM_PI);
-            cam.turn_track_x = body_origin.x;
-            cam.turn_track_y = body_origin.y;
-            cam.turn_track_yaw = body_yaw;
+            state.turn_track_step = step;
+            const float turn = std::remainder(body_yaw - state.turn_track_yaw, 2.0f * DirectX::XM_PI);
+            state.turn_track_x = body_origin.x;
+            state.turn_track_y = body_origin.y;
+            state.turn_track_yaw = body_yaw;
             if (step > k_turn_hold_teleport)
             {
-                cam.turn_hold_x = 0.0f;
-                cam.turn_hold_y = 0.0f;
-                cam.turn_hold_timer = 0.0f;
+                state.turn_hold_x = 0.0f;
+                state.turn_hold_y = 0.0f;
+                state.turn_hold_timer = 0.0f;
                 return Vector3{0.0f, 0.0f, 0.0f};
             }
 
@@ -135,34 +135,34 @@ namespace TPVCamera
             }
             if (in_place && toward_look && std::fabs(turn) > k_turn_hold_yaw_rate * delta_time)
             {
-                cam.turn_hold_timer = k_turn_hold_settle;
+                state.turn_hold_timer = k_turn_hold_settle;
             }
             else
             {
-                cam.turn_hold_timer = std::max(0.0f, cam.turn_hold_timer - delta_time);
+                state.turn_hold_timer = std::max(0.0f, state.turn_hold_timer - delta_time);
             }
 
-            if (in_place && cam.turn_hold_timer > 0.0f)
+            if (in_place && state.turn_hold_timer > 0.0f)
             {
-                cam.turn_hold_x += step_x;
-                cam.turn_hold_y += step_y;
+                state.turn_hold_x += step_x;
+                state.turn_hold_y += step_y;
             }
             else if (!native_turn || speed > k_turn_hold_follow_speed)
             {
                 // Real movement (or the feature off). Keyed on the body's speed rather than the movement-input latch,
                 // which a combat action-map swap can strand above zero with the keys up.
                 const float keep = std::exp(-k_turn_hold_release_rate * delta_time);
-                cam.turn_hold_x *= keep;
-                cam.turn_hold_y *= keep;
+                state.turn_hold_x *= keep;
+                state.turn_hold_y *= keep;
             }
-            const float held = std::sqrt(cam.turn_hold_x * cam.turn_hold_x + cam.turn_hold_y * cam.turn_hold_y);
+            const float held = std::sqrt(state.turn_hold_x * state.turn_hold_x + state.turn_hold_y * state.turn_hold_y);
             if (held > k_turn_hold_max)
             {
                 const float scale = k_turn_hold_max / held;
-                cam.turn_hold_x *= scale;
-                cam.turn_hold_y *= scale;
+                state.turn_hold_x *= scale;
+                state.turn_hold_y *= scale;
             }
-            return Vector3{cam.turn_hold_x, cam.turn_hold_y, 0.0f};
+            return Vector3{state.turn_hold_x, state.turn_hold_y, 0.0f};
         }
 
         // Mount follow (OrbitFollowSpeed): how long the follow takes to come back once free-look input ends, and the
@@ -187,28 +187,28 @@ namespace TPVCamera
          * @param move_orbit Moving with a captured heading.
          * @param orbit_yaw_deg The frame's orbit yaw (degrees), turned in place.
          */
-        void follow_mount_heading(CameraState &cam, const RigParams &params, float forward_yaw, float body_yaw,
+        void follow_mount_heading(RigState &state, const RigParams &params, float forward_yaw, float body_yaw,
                                   bool active, bool move_orbit, float delta_time, float &orbit_yaw_deg)
         {
             const float follow_speed = params.orbit_follow_speed;
             if (!active || !(follow_speed > 0.0f))
             {
-                cam.mount_follow_seen_valid = false;
-                cam.mount_follow_idle = 0.0f;
+                state.mount_follow_seen_valid = false;
+                state.mount_follow_idle = 0.0f;
                 return;
             }
-            const float accumulator = cam.orbit_yaw.load(std::memory_order_relaxed);
-            const bool input = (cam.mount_follow_seen_valid &&
-                                std::fabs(accumulator - cam.mount_follow_seen_yaw) > k_mount_follow_input_deg) ||
-                               cam.orbit_pad_yaw.load(std::memory_order_relaxed) != 0.0f ||
-                               cam.orbit_pad_pitch.load(std::memory_order_relaxed) != 0.0f;
-            cam.mount_follow_idle = input ? 0.0f : cam.mount_follow_idle + delta_time;
-            cam.mount_follow_seen_yaw = accumulator;
-            cam.mount_follow_seen_valid = true;
+            const float accumulator = state.orbit_yaw;
+            const bool input = (state.mount_follow_seen_valid &&
+                                std::fabs(accumulator - state.mount_follow_seen_yaw) > k_mount_follow_input_deg) ||
+                               state.orbit_pad_yaw != 0.0f || state.orbit_pad_pitch != 0.0f;
+            state.mount_follow_idle = input ? 0.0f : state.mount_follow_idle + delta_time;
+            state.mount_follow_seen_yaw = accumulator;
+            state.mount_follow_seen_valid = true;
 
-            const float ramp = smoothstep(std::clamp(cam.mount_follow_idle / k_mount_follow_ramp_seconds, 0.0f, 1.0f));
+            const float ramp =
+                smoothstep(std::clamp(state.mount_follow_idle / k_mount_follow_ramp_seconds, 0.0f, 1.0f));
             const float rate =
-                params.orbit_return_speed * std::min(cam.turn_track_step / follow_speed, delta_time) * ramp;
+                params.orbit_return_speed * std::min(state.turn_track_step / follow_speed, delta_time) * ramp;
             if (!(rate > 0.0f))
             {
                 return;
@@ -218,19 +218,20 @@ namespace TPVCamera
             const float turn_deg = radians_to_degrees(turn);
             if (move_orbit)
             {
-                cam.orbit_target_yaw += turn;
+                state.orbit_target_yaw += turn;
             }
             else
             {
-                // The input thread adds the mouse's deltas to the same accumulator, so the turn is added atomically
-                // too, and what the follow saw is its own result: a delta landing in between shows as input next frame.
-                cam.mount_follow_seen_yaw = cam.orbit_yaw.fetch_add(turn_deg, std::memory_order_relaxed) + turn_deg;
+                // The input dispatcher adds the mouse's deltas to the same accumulator between frames, so what the
+                // follow saw is its own result: a delta that lands before the next frame shows as input then.
+                state.orbit_yaw += turn_deg;
+                state.mount_follow_seen_yaw = state.orbit_yaw;
             }
             orbit_yaw_deg = std::remainder(orbit_yaw_deg + turn_deg, 360.0f);
         }
     } // namespace
 
-    bool run_rig(CameraState &cam, const RigParams &params, const RigInput &in, RigPort &port, RigFrame &out)
+    bool run_rig(RigState &state, const RigParams &params, const RigInput &in, RigPort &port, RigFrame &out)
     {
         const float delta_time = in.seconds;
         const std::uintptr_t c_player = in.c_player;
@@ -239,7 +240,7 @@ namespace TPVCamera
         // frame so an edit applies live) plus the accumulated zoom offset from the hold
         // keys, clamped to the configured window.
         const ZoomHeld zoom_held = port.zoom_held();
-        float zoom_offset = cam.zoom_offset.load(std::memory_order_relaxed);
+        float zoom_offset = state.zoom_offset;
         const float zoom_step = params.zoom_step;
         if (zoom_held.in)
         {
@@ -256,14 +257,14 @@ namespace TPVCamera
         const float distance = std::clamp(base_distance + zoom_offset, distance_min, distance_max);
         // A requested reset keeps this frame's distance and hands the clamped offset to the preset ease, which
         // carries it from the next frame on and eases it out.
-        if (cam.zoom_reset_requested.exchange(false, std::memory_order_relaxed))
+        if (in.zoom_reset)
         {
             port.ease_out_zoom(distance - base_distance);
-            cam.zoom_offset.store(0.0f, std::memory_order_relaxed);
+            state.zoom_offset = 0.0f;
         }
         else
         {
-            cam.zoom_offset.store(distance - base_distance, std::memory_order_relaxed);
+            state.zoom_offset = distance - base_distance;
         }
 
         // The eye anchor and the orientation quat of the untouched CView pose. The basis is derived from the quat
@@ -323,15 +324,15 @@ namespace TPVCamera
             basis_overridden = true;
             const DirectX::XMVECTOR target = (look_valid ? look_rotation : eye_rotation).to_xm_vector();
             DirectX::XMVECTOR result;
-            if (!cam.basis_quat_valid)
+            if (!state.basis_quat_valid)
             {
                 result = target; // snap on the first engaged frame so the camera does not swing in from stale
-                cam.basis_quat_valid = true;
+                state.basis_quat_valid = true;
             }
             else if (basis_smoothing > 1e-4f)
             {
-                const DirectX::XMVECTOR current =
-                    DirectX::XMVectorSet(cam.basis_quat_x, cam.basis_quat_y, cam.basis_quat_z, cam.basis_quat_w);
+                const DirectX::XMVECTOR current = DirectX::XMVectorSet(state.basis_quat_x, state.basis_quat_y,
+                                                                       state.basis_quat_z, state.basis_quat_w);
                 const float speed =
                     k_basis_smooth_max_speed - basis_smoothing * (k_basis_smooth_max_speed - k_basis_smooth_min_speed);
                 const float t = 1.0f - std::exp(-speed * delta_time);
@@ -343,15 +344,15 @@ namespace TPVCamera
             {
                 result = target; // StableAimBasis on, smoothing off: use the look target directly
             }
-            cam.basis_quat_x = DirectX::XMVectorGetX(result);
-            cam.basis_quat_y = DirectX::XMVectorGetY(result);
-            cam.basis_quat_z = DirectX::XMVectorGetZ(result);
-            cam.basis_quat_w = DirectX::XMVectorGetW(result);
-            basis_rotation = Quaternion{cam.basis_quat_x, cam.basis_quat_y, cam.basis_quat_z, cam.basis_quat_w};
+            state.basis_quat_x = DirectX::XMVectorGetX(result);
+            state.basis_quat_y = DirectX::XMVectorGetY(result);
+            state.basis_quat_z = DirectX::XMVectorGetZ(result);
+            state.basis_quat_w = DirectX::XMVectorGetW(result);
+            basis_rotation = Quaternion{state.basis_quat_x, state.basis_quat_y, state.basis_quat_z, state.basis_quat_w};
         }
         else
         {
-            cam.basis_quat_valid = false; // basis not shaped: the next engage snaps the low-pass
+            state.basis_quat_valid = false; // basis not shaped: the next engage snaps the low-pass
         }
 
         const Vector3 right = basis_rotation.rotate(Vector3{1.0f, 0.0f, 0.0f});
@@ -373,21 +374,21 @@ namespace TPVCamera
             const float fov_target_degrees = params.fov;
             const float desired_fov = (fov_target_degrees > 0.0f) ? degrees_to_radians(fov_target_degrees) : game_fov;
             const float blend_seconds = params.preset_blend_in_seconds;
-            if (!cam.fov_ease_valid) // first engaged frame after a first-person gap: snap, no ease across the gap
+            if (!state.fov_ease_valid) // first engaged frame after a first-person gap: snap, no ease across the gap
             {
-                cam.fov_ease.snap(desired_fov);
-                cam.fov_ease_valid = true;
+                state.fov_ease.snap(desired_fov);
+                state.fov_ease_valid = true;
             }
             else
             {
                 // The preset blend's filter in the active preset's blend time; 0 snaps.
-                cam.fov_ease.step(desired_fov, spring_alpha(blend_seconds, delta_time));
+                state.fov_ease.step(desired_fov, spring_alpha(blend_seconds, delta_time));
             }
             // Override while a preset wants a FOV or while still easing back toward the game FOV; otherwise pass
             // through (preset off + settled) so the game keeps its own FOV (including any dynamic FOV). The view
             // switch blends the override from the game FOV at the eye to the preset's at the rig.
-            const float fov = in.view_blend < 1.0f ? game_fov + (cam.fov_ease.applied - game_fov) * in.view_blend
-                                                   : cam.fov_ease.applied;
+            const float fov = in.view_blend < 1.0f ? game_fov + (state.fov_ease.applied - game_fov) * in.view_blend
+                                                   : state.fov_ease.applied;
             if ((fov_target_degrees > 0.0f || std::fabs(fov - game_fov) > 0.005f) && fov > 0.05f && fov < 3.0f)
             {
                 const float ratio = std::tan(fov * 0.5f) / std::tan(game_fov * 0.5f);
@@ -399,12 +400,12 @@ namespace TPVCamera
         // the ring, which keeps engaging free-look continuous. SwapShoulderKey mirrors it to the other side: the
         // offset is scaled from +1 to -1 through the smoothstepped swap progress, so it passes through the look line
         // instead of jumping across it. The first engaged frame takes the chosen side at once.
-        const float swap_target = cam.shoulder_swapped.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
-        cam.shoulder_swap = cam.shoulder_swap_valid
-                                ? ramp_weight(cam.shoulder_swap, swap_target, k_shoulder_swap_seconds, delta_time)
-                                : swap_target;
-        cam.shoulder_swap_valid = true;
-        const float offset_right = params.offset_right * shoulder_side(cam.shoulder_swap);
+        const float swap_target = in.shoulder_swapped ? 1.0f : 0.0f;
+        state.shoulder_swap = state.shoulder_swap_valid
+                                  ? ramp_weight(state.shoulder_swap, swap_target, k_shoulder_swap_seconds, delta_time)
+                                  : swap_target;
+        state.shoulder_swap_valid = true;
+        const float offset_right = params.offset_right * shoulder_side(state.shoulder_swap);
         const Vector3 lateral_offset = right * offset_right;
 
         // Anchor the rig to a STABLE point. The first-person eye (eye_position, read from CView+0x14)
@@ -438,7 +439,7 @@ namespace TPVCamera
             const Vector3 look_fwd = (look_valid ? look_rotation : eye_rotation).rotate(Vector3{0.0f, 1.0f, 0.0f});
             const bool look_yaw_valid = look_fwd.x * look_fwd.x + look_fwd.y * look_fwd.y > 1e-6f;
             const float look_yaw = look_yaw_valid ? std::atan2(-look_fwd.x, look_fwd.y) : 0.0f;
-            turn_hold = hold_turn_in_place_pivot(cam, port, move_signal, body_origin, body_yaw, look_yaw,
+            turn_hold = hold_turn_in_place_pivot(state, port, move_signal, body_origin, body_yaw, look_yaw,
                                                  look_yaw_valid, delta_time);
         }
         const Vector3 anchor_origin = body_origin - turn_hold;
@@ -446,7 +447,7 @@ namespace TPVCamera
         // dynamic-eye-sync source. eye_position carries head bob; body_origin is the bob-free feet origin.
         if (body_valid)
         {
-            cam.real_eye_height.store(eye_position.z - body_origin.z, std::memory_order_relaxed);
+            state.real_eye_height = eye_position.z - body_origin.z;
         }
         // The eye anchor (EyeHeight 0, or no body) takes the turn hold too, so switching anchor mode with a hold in
         // place does not jump; the hold then eases out as usual.
@@ -467,36 +468,36 @@ namespace TPVCamera
                 const float real_eye_height = eye_position.z - body_origin.z;
                 sync_engaged = std::fabs(real_eye_height - eye_height) > k_oor_threshold;
                 const float target_eye_height = sync_engaged ? real_eye_height : eye_height;
-                if (!cam.eye_sync_valid)
+                if (!state.eye_sync_valid)
                 {
-                    cam.eye_sync_applied = target_eye_height;
-                    cam.eye_sync_valid = true;
+                    state.eye_sync_applied = target_eye_height;
+                    state.eye_sync_valid = true;
                 }
                 else
                 {
                     const float k = 1.0f - std::exp(-k_sync_rate * delta_time);
-                    cam.eye_sync_applied += (target_eye_height - cam.eye_sync_applied) * k;
+                    state.eye_sync_applied += (target_eye_height - state.eye_sync_applied) * k;
                 }
-                effective_eye_height = cam.eye_sync_applied;
+                effective_eye_height = state.eye_sync_applied;
             }
             else
             {
-                cam.eye_sync_valid = false; // feature off -> the next engage snaps to the current pose
+                state.eye_sync_valid = false; // feature off -> the next engage snaps to the current pose
             }
             // Publish for the overlay status line (actively re-anchoring vs. using the configured height).
-            cam.eye_sync_engaged.store(sync_engaged, std::memory_order_relaxed);
-            cam.eye_sync_effective.store(effective_eye_height, std::memory_order_relaxed);
+            state.eye_sync_engaged = sync_engaged;
+            state.eye_sync_effective = effective_eye_height;
             anchor_base = anchor_origin + world_up * effective_eye_height;
         }
         else
         {
-            cam.eye_sync_engaged.store(false, std::memory_order_relaxed);
+            state.eye_sync_engaged = false;
         }
         const Vector3 pivot = anchor_base + world_up * params.offset_up;
 
         // Free-look orbit angles (degrees), accumulated by the input hook while the key is
         // held. On release they ease back to center. Read here so the render reflects them.
-        const bool orbit_held = cam.orbit_active.load(std::memory_order_relaxed);
+        const bool orbit_held = in.orbit_active;
         // Gamepad right-stick orbit: integrate the latched stick DEFLECTION by RATE into the SAME orbit
         // accumulator the mouse writes, so the stick orbits the camera (yaw) and raises/lowers it (pitch) like
         // the mouse. Done here (not in the input hook) because the stick reports a HELD position, so it needs
@@ -515,8 +516,7 @@ namespace TPVCamera
             // is. A deflection easing back to a centred stick lands on 0 below k_pad_rest instead of turning the
             // orbit ever more slowly (at 720 deg/s it is under 0.1 deg/s).
             constexpr float k_pad_rest = 1e-4f;
-            const StickDeflection shaped = shape_stick({cam.orbit_pad_yaw.load(std::memory_order_relaxed),
-                                                        cam.orbit_pad_pitch.load(std::memory_order_relaxed)},
+            const StickDeflection shaped = shape_stick({state.orbit_pad_yaw, state.orbit_pad_pitch},
                                                        std::clamp(params.gamepad_orbit_curve, 1.0f, 3.0f));
             const float pad_alpha = spring_alpha(params.gamepad_orbit_smoothing, delta_time);
             const auto ease_axis = [pad_alpha](Spring<float> &eased, float target) noexcept
@@ -528,40 +528,35 @@ namespace TPVCamera
                 }
                 return eased.applied;
             };
-            const float pad_yaw = ease_axis(cam.orbit_pad_yaw_eased, shaped.x);
-            const float pad_pitch = ease_axis(cam.orbit_pad_pitch_eased, shaped.y);
+            const float pad_yaw = ease_axis(state.orbit_pad_yaw_eased, shaped.x);
+            const float pad_pitch = ease_axis(state.orbit_pad_pitch_eased, shaped.y);
             if (pad_yaw != 0.0f || pad_pitch != 0.0f)
             {
                 const float step_x = params.gamepad_orbit_speed_x * delta_time;
                 const float step_y = params.gamepad_orbit_speed_y * delta_time;
-                cam.orbit_yaw.store(cam.orbit_yaw.load(std::memory_order_relaxed) - pad_yaw * step_x,
-                                    std::memory_order_relaxed);
-                const float old_pitch = cam.orbit_pitch.load(std::memory_order_relaxed);
-                cam.orbit_pitch.store(
-                    std::clamp(old_pitch - pad_pitch * step_y,
-                               std::min(cam.orbit_pitch_lo.load(std::memory_order_relaxed), old_pitch),
-                               std::max(cam.orbit_pitch_hi.load(std::memory_order_relaxed), old_pitch)),
-                    std::memory_order_relaxed);
+                state.orbit_yaw = state.orbit_yaw - pad_yaw * step_x;
+                const float old_pitch = state.orbit_pitch;
+                state.orbit_pitch =
+                    std::clamp(old_pitch - pad_pitch * step_y, std::min(state.orbit_pitch_lo, old_pitch),
+                               std::max(state.orbit_pitch_hi, old_pitch));
             }
         }
         else
         {
-            cam.orbit_pad_yaw.store(0.0f, std::memory_order_relaxed);
-            cam.orbit_pad_pitch.store(0.0f, std::memory_order_relaxed);
-            cam.orbit_pad_yaw_eased.snap(0.0f);
-            cam.orbit_pad_pitch_eased.snap(0.0f);
+            state.orbit_pad_yaw = 0.0f;
+            state.orbit_pad_pitch = 0.0f;
+            state.orbit_pad_yaw_eased.snap(0.0f);
+            state.orbit_pad_pitch_eased.snap(0.0f);
         }
 
         // Wrap the accumulated yaw into [-180, 180] for the orbit math. The orbit is periodic in yaw,
         // so this is invisible while orbiting, but on release it lets the camera ease back to centre
         // along the SHORTEST path (<= 180 deg) in one smooth pass instead of un-spinning every full
         // revolution the player made. The re-based value is only stored back on release (below), so the wrap
-        // here stays main-thread-local while held. The raw accumulator itself is written by the mouse path
-        // on the input thread and by the gamepad integration above on the main thread; only one input device
-        // drives orbit at a time in practice, so the relaxed load here does not race a meaningful write (and a
-        // dropped sub-degree delta in the unlikely simultaneous case is harmless, never torn).
-        float orbit_yaw_deg = std::remainder(cam.orbit_yaw.load(std::memory_order_relaxed), 360.0f);
-        float orbit_pitch_deg = cam.orbit_pitch.load(std::memory_order_relaxed);
+        // here stays local while held. The accumulator also takes the input dispatcher's mouse deltas, which arrive
+        // between frames on this same thread, and the gamepad integration above.
+        float orbit_yaw_deg = std::remainder(state.orbit_yaw, 360.0f);
+        float orbit_pitch_deg = state.orbit_pitch;
 
         // While moving with a captured heading, the camera holds its WORLD yaw and the body turns UNDER it.
         // Derive the rig's orbit angle as (camera_world_yaw - current_body_forward_yaw), where camera_world_yaw =
@@ -570,16 +565,15 @@ namespace TPVCamera
         // the angle eases to the residual orbit, so the camera POSITION is identical across the turn (no pop).
         // forward is this frame's rig basis forward (the stable-aim or smoothed basis when active, else the raw
         // eye look); char_forward_yaw below derives from the SAME forward that positions the camera, so the two
-        // cancel and the held world yaw is independent of which source forward tracks. cam.orbit_yaw stays the
+        // cancel and the held world yaw is independent of which source forward tracks. state.orbit_yaw stays the
         // raw input accumulator throughout; the rendered angle is baked back only on release/stop so free-look resumes
         // from exactly where the moving camera was. orbit_moving implies the key was held, so this also runs on
         // the release frame (orbit_moving is cleared at end of frame), giving the bake-on-release below.
-        const bool move_orbit = cam.orbit_moving && cam.orbit_target_valid;
+        const bool move_orbit = state.orbit_moving && state.orbit_target_valid;
         if (move_orbit)
         {
             const float char_forward_yaw = forward_yaw;
-            const float raw_user_since_deg =
-                cam.orbit_yaw.load(std::memory_order_relaxed) - cam.orbit_yaw_at_capture_deg;
+            const float raw_user_since_deg = state.orbit_yaw - state.orbit_yaw_at_capture_deg;
             // In continuous-align (GTA) mode the user's orbit-since-capture STEERS the run: it drives
             // body_target_yaw (the look + body heading) below, and the camera follows that heading (the
             // derived rig angle cancels to ~0, keeping the camera behind). Smooth that steering input when
@@ -589,31 +583,32 @@ namespace TPVCamera
             // only continuous-align steering is smoothed.
             const float orbit_smoothing = std::clamp(params.orbit_smoothing, 0.0f, 1.0f);
             const bool steer_smooth = params.orbit_continuous_align && orbit_smoothing > 1e-4f;
-            if (!steer_smooth || !cam.orbit_steer_valid)
+            if (!steer_smooth || !state.orbit_steer_valid)
             {
-                cam.orbit_steer_smooth = raw_user_since_deg; // snap: smoothing off / hold mode, or first move frame
-                cam.orbit_steer_valid = true;
+                state.orbit_steer_smooth = raw_user_since_deg; // snap: smoothing off / hold mode, or first move frame
+                state.orbit_steer_valid = true;
             }
             else
             {
                 const float speed =
                     k_orbit_smooth_max_speed - orbit_smoothing * (k_orbit_smooth_max_speed - k_orbit_smooth_min_speed);
                 const float ease = 1.0f - std::exp(-speed * delta_time);
-                cam.orbit_steer_smooth += std::remainder(raw_user_since_deg - cam.orbit_steer_smooth, 360.0f) * ease;
+                state.orbit_steer_smooth +=
+                    std::remainder(raw_user_since_deg - state.orbit_steer_smooth, 360.0f) * ease;
             }
-            const float user_orbit_since_deg = steer_smooth ? cam.orbit_steer_smooth : raw_user_since_deg;
+            const float user_orbit_since_deg = steer_smooth ? state.orbit_steer_smooth : raw_user_since_deg;
             orbit_yaw_deg = std::remainder(
-                radians_to_degrees(cam.orbit_target_yaw - char_forward_yaw) + user_orbit_since_deg, 360.0f);
+                radians_to_degrees(state.orbit_target_yaw - char_forward_yaw) + user_orbit_since_deg, 360.0f);
         }
         else
         {
-            cam.orbit_steer_valid = false; // not move-orbiting: the next engage snaps the steer low-pass
+            state.orbit_steer_valid = false; // not move-orbiting: the next engage snaps the steer low-pass
         }
 
         // Riding with free-look on, the camera turns back behind the mount as it moves (OrbitFollowSpeed).
         const std::uint32_t game_state = port.game_state();
         const bool riding = (game_state & (state_bit(GameState::Mount) | state_bit(GameState::Cart))) != 0u;
-        follow_mount_heading(cam, params, forward_yaw, body_yaw, orbit_held && riding && body_valid, move_orbit,
+        follow_mount_heading(state, params, forward_yaw, body_yaw, orbit_held && riding && body_valid, move_orbit,
                              delta_time, orbit_yaw_deg);
 
         if (!orbit_held)
@@ -635,8 +630,8 @@ namespace TPVCamera
             // Store the re-based (and, with a return speed, eased) angles so the next frame resumes from the
             // short-path value; also runs with return_speed == 0 so the held-spin accumulator is bounded the
             // moment the key is released.
-            cam.orbit_yaw.store(orbit_yaw_deg, std::memory_order_relaxed);
-            cam.orbit_pitch.store(orbit_pitch_deg, std::memory_order_relaxed);
+            state.orbit_yaw = orbit_yaw_deg;
+            state.orbit_pitch = orbit_pitch_deg;
         }
 
         // Temporal low-pass on the orbit angle. orbit_yaw_deg / orbit_pitch_deg above are the raw target
@@ -651,11 +646,11 @@ namespace TPVCamera
         // above always use the unsmoothed value, so the accumulator and the return/move logic are unaffected;
         // only the idle (standing free-look) rendered angle is low-passed.
         const float orbit_smoothing = std::clamp(params.orbit_smoothing, 0.0f, 1.0f);
-        if (orbit_smoothing <= 1e-4f || !cam.orbit_render_valid || move_orbit)
+        if (orbit_smoothing <= 1e-4f || !state.orbit_render_valid || move_orbit)
         {
-            cam.orbit_yaw_render = orbit_yaw_deg;
-            cam.orbit_pitch_render = orbit_pitch_deg;
-            cam.orbit_render_valid = true;
+            state.orbit_yaw_render = orbit_yaw_deg;
+            state.orbit_pitch_render = orbit_pitch_deg;
+            state.orbit_render_valid = true;
         }
         else
         {
@@ -663,11 +658,11 @@ namespace TPVCamera
                 k_orbit_smooth_max_speed - orbit_smoothing * (k_orbit_smooth_max_speed - k_orbit_smooth_min_speed);
             const float smooth_ease = 1.0f - std::exp(-smooth_speed * delta_time);
             // Shortest-path ease on yaw so a wrap (e.g. -179 -> +179) eases the short way, not all the way round.
-            cam.orbit_yaw_render += std::remainder(orbit_yaw_deg - cam.orbit_yaw_render, 360.0f) * smooth_ease;
-            cam.orbit_pitch_render += (orbit_pitch_deg - cam.orbit_pitch_render) * smooth_ease;
+            state.orbit_yaw_render += std::remainder(orbit_yaw_deg - state.orbit_yaw_render, 360.0f) * smooth_ease;
+            state.orbit_pitch_render += (orbit_pitch_deg - state.orbit_pitch_render) * smooth_ease;
         }
-        const float render_yaw_deg = cam.orbit_yaw_render;
-        const float render_pitch_deg = cam.orbit_pitch_render;
+        const float render_yaw_deg = state.orbit_yaw_render;
+        const float render_pitch_deg = state.orbit_pitch_render;
 
         // "Orbiting" while EITHER the raw target or the still-easing rendered angle is off-centre, so the
         // orbit block keeps running until the smoothed angle has fully settled back (otherwise a release
@@ -690,21 +685,21 @@ namespace TPVCamera
             constexpr float k_orbit_base_speed = 8.0f;
             // The ease back ends once the held pitch is this close to the look's.
             constexpr float k_orbit_base_settled = 1e-3f; // rad
-            if (!cam.orbit_base_held)
+            if (!state.orbit_base_held)
             {
-                cam.orbit_base_pitch = forward_pitch;
-                cam.orbit_base_offset = 0.0f;
-                cam.orbit_base_held = orbit_held;
+                state.orbit_base_pitch = forward_pitch;
+                state.orbit_base_offset = 0.0f;
+                state.orbit_base_held = orbit_held;
             }
             else if (orbit_held)
             {
-                cam.orbit_base_offset = cam.orbit_base_pitch - forward_pitch;
+                state.orbit_base_offset = state.orbit_base_pitch - forward_pitch;
             }
             else
             {
-                cam.orbit_base_offset *= std::exp(-k_orbit_base_speed * delta_time);
-                cam.orbit_base_pitch = forward_pitch + cam.orbit_base_offset;
-                cam.orbit_base_held = std::fabs(cam.orbit_base_offset) >= k_orbit_base_settled;
+                state.orbit_base_offset *= std::exp(-k_orbit_base_speed * delta_time);
+                state.orbit_base_pitch = forward_pitch + state.orbit_base_offset;
+                state.orbit_base_held = std::fabs(state.orbit_base_offset) >= k_orbit_base_settled;
             }
         }
 
@@ -752,23 +747,23 @@ namespace TPVCamera
         // camera points. So the look and the body are turned to the camera's direction (the follow-up below the orbit
         // rig), and the orbit rig holds the camera where it was until the look shows it. The direction comes from the
         // previous frame, the one on screen, measured against that frame's own plain rig.
-        if (cam.aim_handoff_requested && !orbit_held && !cam.aim_handoff_active && cam.rig_last_orbited &&
-            cam.orbit_suspended.load(std::memory_order_relaxed) &&
-            (std::fabs(cam.rig_last_turn) > k_aim_handoff_min_angle ||
-             std::fabs(cam.rig_last_rise) > k_aim_handoff_min_angle))
+        if (in.aim_handoff_requested && !orbit_held && !state.aim_handoff_active && state.rig_last_orbited &&
+            in.orbit_suspended &&
+            (std::fabs(state.rig_last_turn) > k_aim_handoff_min_angle ||
+             std::fabs(state.rig_last_rise) > k_aim_handoff_min_angle))
         {
-            cam.aim_handoff_active = true;
-            cam.aim_handoff_azimuth = cam.rig_last_azimuth;
-            cam.aim_handoff_elevation = cam.rig_last_elevation;
-            cam.aim_handoff_yaw = cam.rig_last_yaw;
-            cam.aim_handoff_pitch = cam.rig_last_pitch;
-            cam.aim_handoff_seconds = 0.0f;
-            cam.aim_handoff_written = false;
-            cam.aim_handoff_player = c_player;
+            state.aim_handoff_active = true;
+            state.aim_handoff_azimuth = state.rig_last_azimuth;
+            state.aim_handoff_elevation = state.rig_last_elevation;
+            state.aim_handoff_yaw = state.rig_last_yaw;
+            state.aim_handoff_pitch = state.rig_last_pitch;
+            state.aim_handoff_seconds = 0.0f;
+            state.aim_handoff_written = false;
+            state.aim_handoff_player = c_player;
             // The plain rig takes over at once; the hold keeps the camera in place across the switch.
-            cam.orbit_base_held = false;
-            port.event(RigEvent::HandoffStart, radians_to_degrees(cam.rig_last_turn), radians_to_degrees(forward_pitch),
-                       radians_to_degrees(cam.rig_last_pitch), 0);
+            state.orbit_base_held = false;
+            port.event(RigEvent::HandoffStart, radians_to_degrees(state.rig_last_turn),
+                       radians_to_degrees(forward_pitch), radians_to_degrees(state.rig_last_pitch), 0);
         }
         const Vector3 plain_look = look_forward;
 
@@ -780,7 +775,7 @@ namespace TPVCamera
         // unbounded so full spins work. The pitch is tracked as the arm's elevation (how far the rig is raised: the
         // negative of its look pitch), clamped away from the pole. At zero angle the rotation is identity, so the orbit
         // engages without a jump. Mouse up/down raises/lowers the camera.
-        const bool orbit_rig = orbiting || cam.orbit_base_held || cam.aim_handoff_active;
+        const bool orbit_rig = orbiting || state.orbit_base_held || state.aim_handoff_active;
         if (orbit_rig)
         {
             // The base the orbit turns: the live follow pose (the player's look pitch included), or the held base. The
@@ -790,7 +785,7 @@ namespace TPVCamera
             Vector3 offset0 = camera_position - pivot;
             Vector3 base_look = look_forward;
             Vector3 base_up = look_up;
-            if (cam.orbit_base_held)
+            if (state.orbit_base_held)
             {
                 Vector3 heading{forward.x, forward.y, 0.0f};
                 if (heading.magnitude_squared() > 1e-6f)
@@ -802,7 +797,7 @@ namespace TPVCamera
                     heading = world_up.cross(right).normalized(); // straight down/up: recover heading from right
                 }
                 const Vector3 held_fwd =
-                    heading * std::cos(cam.orbit_base_pitch) + world_up * std::sin(cam.orbit_base_pitch);
+                    heading * std::cos(state.orbit_base_pitch) + world_up * std::sin(state.orbit_base_pitch);
                 const Vector3 held_right = heading.cross(world_up).normalized();
                 offset0 = held_fwd * (-distance) + held_right * offset_right;
                 base_look = held_fwd;
@@ -823,32 +818,32 @@ namespace TPVCamera
             // The pitch range for the next input, from level: OrbitPitchMin / OrbitPitchMax less the held base's
             // elevation, widened to include the base itself (reachable even when it starts outside the range) and
             // kept within the elevation the rig can show.
-            if (orbit_held && !cam.aim_handoff_active)
+            if (orbit_held && !state.aim_handoff_active)
             {
                 const float base_deg = radians_to_degrees(base_elevation);
                 const float lo = std::max(std::min(params.orbit_pitch_min - base_deg, 0.0f),
                                           radians_to_degrees(elevation_min) - base_deg);
                 const float hi = std::min(std::max(params.orbit_pitch_max - base_deg, 0.0f),
                                           radians_to_degrees(elevation_max) - base_deg);
-                cam.orbit_pitch_lo.store(lo, std::memory_order_relaxed);
-                cam.orbit_pitch_hi.store(hi, std::memory_order_relaxed);
+                state.orbit_pitch_lo = lo;
+                state.orbit_pitch_hi = hi;
             }
             float yaw_delta = degrees_to_radians(render_yaw_deg);
-            if (cam.aim_handoff_active)
+            if (state.aim_handoff_active)
             {
                 // Aim hand-off: keep the camera in the direction it had when the situation took over, whatever the look
                 // and the basis do meanwhile, and leave the matching orbit angles behind so the ease back, or free-look
                 // turned back on before the look has turned (a paused menu closed), resumes here.
                 yaw_delta =
-                    std::remainder(cam.aim_handoff_azimuth - std::atan2(-base_look.x, base_look.y), DirectX::XM_2PI);
-                elevation = std::clamp(cam.aim_handoff_elevation, elevation_min, elevation_max);
+                    std::remainder(state.aim_handoff_azimuth - std::atan2(-base_look.x, base_look.y), DirectX::XM_2PI);
+                elevation = std::clamp(state.aim_handoff_elevation, elevation_min, elevation_max);
                 const float held_yaw_deg = radians_to_degrees(yaw_delta);
                 const float held_pitch_deg = radians_to_degrees(elevation - base_elevation);
-                cam.orbit_yaw.store(held_yaw_deg, std::memory_order_relaxed);
-                cam.orbit_pitch.store(held_pitch_deg, std::memory_order_relaxed);
-                cam.orbit_yaw_render = held_yaw_deg;
-                cam.orbit_pitch_render = held_pitch_deg;
-                cam.orbit_render_valid = true;
+                state.orbit_yaw = held_yaw_deg;
+                state.orbit_pitch = held_pitch_deg;
+                state.orbit_yaw_render = held_yaw_deg;
+                state.orbit_pitch_render = held_pitch_deg;
+                state.orbit_render_valid = true;
             }
 
             turn_rig(offset0, base_look, base_up, yaw_delta, elevation - base_elevation);
@@ -863,20 +858,20 @@ namespace TPVCamera
         // All are measured within one frame, so a preset blend or a basis turn between frames does not count as orbit.
         // The orbit and the follow angle both turn the rig as a spring arm, which adds to the look's yaw and pitch, so
         // that player look is this frame's look turned by the yaw and pitch of the orbited look off the plain look.
-        cam.rig_last_orbited = false;
+        state.rig_last_orbited = false;
         if (orbit_rig)
         {
             const float rig_pitch = std::asin(std::clamp(look_forward.z, -1.0f, 1.0f));
             const float plain_pitch = std::asin(std::clamp(plain_look.z, -1.0f, 1.0f));
-            cam.rig_last_azimuth = std::atan2(-look_forward.x, look_forward.y);
-            cam.rig_last_elevation = -rig_pitch;
-            cam.rig_last_turn =
-                std::remainder(cam.rig_last_azimuth - std::atan2(-plain_look.x, plain_look.y), DirectX::XM_2PI);
-            cam.rig_last_rise = plain_pitch - rig_pitch;
-            cam.rig_last_pitch =
+            state.rig_last_azimuth = std::atan2(-look_forward.x, look_forward.y);
+            state.rig_last_elevation = -rig_pitch;
+            state.rig_last_turn =
+                std::remainder(state.rig_last_azimuth - std::atan2(-plain_look.x, plain_look.y), DirectX::XM_2PI);
+            state.rig_last_rise = plain_pitch - rig_pitch;
+            state.rig_last_pitch =
                 std::clamp(forward_pitch + rig_pitch - plain_pitch, -k_aim_handoff_max_pitch, k_aim_handoff_max_pitch);
-            cam.rig_last_yaw = std::remainder(forward_yaw + cam.rig_last_turn, DirectX::XM_2PI);
-            cam.rig_last_orbited = true;
+            state.rig_last_yaw = std::remainder(forward_yaw + state.rig_last_turn, DirectX::XM_2PI);
+            state.rig_last_orbited = true;
         }
 
         // Aim hand-off follow-up. While aiming the game re-derives the look heading from the body every frame (the body
@@ -886,49 +881,49 @@ namespace TPVCamera
         // can end only on a later frame than its first write: on the same frame's second build the eye pose does not
         // show the write yet. Until then the next frame's basis snaps to the look, so the rig lands on the new
         // direction at once instead of easing across the turn under AimBasisSmoothing.
-        if (cam.aim_handoff_active)
+        if (state.aim_handoff_active)
         {
-            const bool lost = cam.aim_handoff_cancel || c_player == 0 || c_player != cam.aim_handoff_player;
-            const bool jumped = body_valid && cam.turn_track_step > k_aim_handoff_jump;
+            const bool lost = state.aim_handoff_cancel || c_player == 0 || c_player != state.aim_handoff_player;
+            const bool jumped = body_valid && state.turn_track_step > k_aim_handoff_jump;
             const Vector3 look_now = (look_valid ? look_rotation : eye_rotation).rotate(Vector3{0.0f, 1.0f, 0.0f});
             const float yaw_gap =
-                std::remainder(std::atan2(-look_now.x, look_now.y) - cam.aim_handoff_yaw, DirectX::XM_2PI);
+                std::remainder(std::atan2(-look_now.x, look_now.y) - state.aim_handoff_yaw, DirectX::XM_2PI);
             if (lost)
             {
-                cam.aim_handoff_active = false;
-                cam.aim_handoff_cancel = false;
+                state.aim_handoff_active = false;
+                state.aim_handoff_cancel = false;
                 port.event(RigEvent::HandoffLost, 0.0f, 0.0f, 0.0f, 0);
             }
-            else if (cam.aim_handoff_written && !in.repeat_build && std::fabs(yaw_gap) < k_aim_handoff_min_angle)
+            else if (state.aim_handoff_written && !in.repeat_build && std::fabs(yaw_gap) < k_aim_handoff_min_angle)
             {
-                cam.aim_handoff_active = false;
-                port.event(RigEvent::HandoffTurned, cam.aim_handoff_seconds, 0.0f, 0.0f, 0);
+                state.aim_handoff_active = false;
+                port.event(RigEvent::HandoffTurned, state.aim_handoff_seconds, 0.0f, 0.0f, 0);
             }
             else if (jumped)
             {
-                cam.aim_handoff_active = false;
+                state.aim_handoff_active = false;
                 port.event(RigEvent::HandoffMoved, 0.0f, 0.0f, 0.0f, 0);
             }
-            else if (cam.aim_handoff_seconds >= k_aim_handoff_timeout)
+            else if (state.aim_handoff_seconds >= k_aim_handoff_timeout)
             {
-                cam.aim_handoff_active = false;
-                port.event(RigEvent::HandoffTimeout, radians_to_degrees(yaw_gap), cam.aim_handoff_seconds, 0.0f, 0);
+                state.aim_handoff_active = false;
+                port.event(RigEvent::HandoffTimeout, radians_to_degrees(yaw_gap), state.aim_handoff_seconds, 0.0f, 0);
             }
-            else if (!port.aim_control(1.0f, cam.aim_handoff_pitch, true, cam.aim_handoff_yaw))
+            else if (!port.aim_control(1.0f, state.aim_handoff_pitch, true, state.aim_handoff_yaw))
             {
-                cam.aim_handoff_active = false;
+                state.aim_handoff_active = false;
                 port.event(RigEvent::HandoffWriteFailed, 0.0f, 0.0f, 0.0f, 0);
             }
             else
             {
-                port.body_turn(cam.aim_handoff_yaw);
-                cam.aim_handoff_written = true;
-                cam.basis_quat_valid = false;
+                port.body_turn(state.aim_handoff_yaw);
+                state.aim_handoff_written = true;
+                state.basis_quat_valid = false;
                 // The pause menu stops the player update, so the look shows the new heading only once play resumes;
                 // the wait does not count paused time.
                 if (!in.paused)
                 {
-                    cam.aim_handoff_seconds += delta_time;
+                    state.aim_handoff_seconds += delta_time;
                 }
             }
         }
@@ -951,7 +946,7 @@ namespace TPVCamera
         // (free-look still works).
         if (orbit_held && body_valid && move_signal.has_value())
         {
-            bool moving = cam.orbit_moving;
+            bool moving = state.orbit_moving;
             const float move_magnitude = *move_signal;
             // Re-arm guard: a genuine release (magnitude below the stop threshold) must be observed since orbit
             // engaged before a move-start is honored. A stranded latch (a held-move release swallowed on a
@@ -965,22 +960,22 @@ namespace TPVCamera
             const std::optional<float> game_move = port.game_move(c_player);
             if (move_magnitude < k_move_input_stop)
             {
-                cam.orbit_move_armed = true;
-                cam.orbit_move_armed_by_game = false;
-                cam.rig_stale_move_logged = false;
+                state.orbit_move_armed = true;
+                state.orbit_move_armed_by_game = false;
+                state.rig_stale_move_logged = false;
             }
-            else if (!cam.orbit_move_armed && game_move && *game_move > k_move_input_start)
+            else if (!state.orbit_move_armed && game_move && *game_move > k_move_input_start)
             {
-                cam.orbit_move_armed = true;
-                cam.orbit_move_armed_by_game = true;
-                cam.orbit_move_game_idle = 0.0f;
-                cam.rig_stale_move_logged = false;
+                state.orbit_move_armed = true;
+                state.orbit_move_armed_by_game = true;
+                state.orbit_move_game_idle = 0.0f;
+                state.rig_stale_move_logged = false;
                 port.event(RigEvent::MoveArmedByGame, move_magnitude, 0.0f, 0.0f, 0);
             }
             // A hand-off still turning the look and the body (free-look back on before it ends) is not interrupted.
-            if (!moving && !cam.aim_handoff_active && move_magnitude > k_move_input_start)
+            if (!moving && !state.aim_handoff_active && move_magnitude > k_move_input_start)
             {
-                if (cam.orbit_move_armed)
+                if (state.orbit_move_armed)
                 {
                     moving = true;
                     do_align = true; // idle -> moving edge: capture the camera heading
@@ -992,12 +987,12 @@ namespace TPVCamera
                     port.event(RigEvent::MoveStart, move_magnitude, params.orbit_continuous_align ? 1.0f : 0.0f, 0.0f,
                                game_state);
                 }
-                else if (!cam.rig_stale_move_logged)
+                else if (!state.rig_stale_move_logged)
                 {
                     // Unarmed (no release seen since orbit engaged) yet reading as movement: a stranded latch.
                     // Suppress the body-turn re-trip and log it once - the diagnostic for the post-combat case.
                     port.event(RigEvent::MoveStaleSuppressed, move_magnitude, 0.0f, 0.0f, 0);
-                    cam.rig_stale_move_logged = true;
+                    state.rig_stale_move_logged = true;
                 }
             }
             else if (moving && move_magnitude < k_move_input_stop)
@@ -1011,32 +1006,32 @@ namespace TPVCamera
                 moving = false;
                 // Bake the world-stable orbit angle back into the accumulator so free-look resumes from
                 // exactly where the moving camera was, with no jump the instant movement stops.
-                cam.orbit_yaw.store(orbit_yaw_deg, std::memory_order_relaxed);
+                state.orbit_yaw = orbit_yaw_deg;
                 port.event(RigEvent::MoveStop, move_magnitude, 0.0f, 0.0f, 0);
             }
-            else if (moving && cam.orbit_move_armed_by_game)
+            else if (moving && state.orbit_move_armed_by_game)
             {
                 // Armed by the game's own input: it ends once that input has stayed idle, even while another latch
                 // slot is stranded. Disarmed rather than reset, so a stranded slot stays held off by the guard and a
                 // key still held re-arms through the game's input on the next frame.
-                cam.orbit_move_game_idle =
-                    (game_move && *game_move < k_move_input_stop) ? cam.orbit_move_game_idle + delta_time : 0.0f;
-                if (cam.orbit_move_game_idle >= k_orbit_move_game_stop_delay)
+                state.orbit_move_game_idle =
+                    (game_move && *game_move < k_move_input_stop) ? state.orbit_move_game_idle + delta_time : 0.0f;
+                if (state.orbit_move_game_idle >= k_orbit_move_game_stop_delay)
                 {
                     moving = false;
-                    cam.orbit_move_armed = false;
-                    cam.orbit_move_armed_by_game = false;
-                    cam.orbit_yaw.store(orbit_yaw_deg, std::memory_order_relaxed);
+                    state.orbit_move_armed = false;
+                    state.orbit_move_armed_by_game = false;
+                    state.orbit_yaw = orbit_yaw_deg;
                     port.event(RigEvent::MoveStopGameIdle, move_magnitude, 0.0f, 0.0f, 0);
                 }
             }
-            cam.orbit_moving = moving;
+            state.orbit_moving = moving;
         }
         else
         {
-            cam.orbit_moving = false;
-            cam.orbit_move_armed = false; // re-armed by a release, or by a held move the game's input shows
-            cam.orbit_move_armed_by_game = false;
+            state.orbit_moving = false;
+            state.orbit_move_armed = false; // re-armed by a release, or by a held move the game's input shows
+            state.orbit_move_armed_by_game = false;
         }
 
         // Capture the heading on move-start: the eye-look yaw plus the orbit applied this frame, the yaw the
@@ -1044,27 +1039,27 @@ namespace TPVCamera
         // the angles rather than atan2(look_forward), which also carries the static follow yaw.
         if (do_align)
         {
-            cam.orbit_target_yaw = forward_yaw + degrees_to_radians(cam.orbit_yaw_render);
-            cam.orbit_target_valid = true;
+            state.orbit_target_yaw = forward_yaw + degrees_to_radians(state.orbit_yaw_render);
+            state.orbit_target_valid = true;
             // Snapshot the orbit input so further orbiting while moving is measured from here. We do NOT
             // reset the orbit to 0: the world-stable derivation above holds the camera in place while the
             // body turns to this heading, so there is no snap-behind pop.
-            cam.orbit_yaw_at_capture_deg = cam.orbit_yaw.load(std::memory_order_relaxed);
+            state.orbit_yaw_at_capture_deg = state.orbit_yaw;
             // The look is turned to this heading below, so the next frame's basis snaps to it instead of easing
             // across the turn (see orbit_move_pressed).
-            cam.basis_quat_valid = false;
+            state.basis_quat_valid = false;
         }
-        if (!cam.orbit_moving)
+        if (!state.orbit_moving)
         {
-            cam.orbit_target_valid = false;
+            state.orbit_target_valid = false;
         }
         // The heading a move press captures, for orbit_move_pressed: the camera's yaw on screen (with the
         // orbit as rendered, so a smoothed angle still catching up does not snap), published only while a press
         // starts a camera-relative move with the body turn, and stamped so a stale one is never used.
-        if (orbit_held && body_valid && move_signal.has_value() && !cam.orbit_moving && cam.orbit_move_armed &&
-            !cam.aim_handoff_active && params.orbit_body_turn)
+        if (orbit_held && body_valid && move_signal.has_value() && !state.orbit_moving && state.orbit_move_armed &&
+            !state.aim_handoff_active && params.orbit_body_turn)
         {
-            port.publish_move_press(forward_yaw + degrees_to_radians(cam.orbit_yaw_render), body_yaw);
+            port.publish_move_press(forward_yaw + degrees_to_radians(state.orbit_yaw_render), body_yaw);
         }
         else
         {
@@ -1073,33 +1068,32 @@ namespace TPVCamera
 
         const float pitch_ease =
             (orbit_held && params.orbit_level_aim) ? (1.0f - std::exp(-k_orbit_aim_level_speed * delta_time)) : 0.0f;
-        const bool hold_yaw = orbit_held && cam.orbit_moving && cam.orbit_target_valid;
+        const bool hold_yaw = orbit_held && state.orbit_moving && state.orbit_target_valid;
         // Heading fed to the body + movement while moving. CONTINUOUS-ALIGN (GTA style): follow the CURRENT
         // camera world yaw every frame (captured heading + the orbit added since), so orbiting STEERS the run
         // and the rig stays behind the character. Otherwise HOLD the heading captured on move-start (orbit
         // looks around freely while the character keeps its line). The world-stable camera derivation above is
         // the same either way - only this target differs - so in continuous mode the derived orbit angle
         // cancels to ~0 (camera behind the character) while in hold mode it carries the orbit-around offset.
-        float body_target_yaw = cam.orbit_target_yaw;
+        float body_target_yaw = state.orbit_target_yaw;
         if (hold_yaw && params.orbit_continuous_align)
         {
             // Reuse the smoothed steer angle computed in the move-orbit derivation above (when OrbitSmoothing
             // is on) so the body/look heading and the rig agree - the camera follows the smoothed steering
             // and stays behind. With smoothing off this is the raw orbit-since-capture. The smoothed value is
-            // only current once the move-orbit block above has run for it (cam.orbit_steer_valid); on the
+            // only current once the move-orbit block above has run for it (state.orbit_steer_valid); on the
             // idle->moving capture frame that block did NOT run (move_orbit read the pre-update orbit_moving,
             // which was still false), so fall back to the raw orbit-since-capture - ~0 on the capture frame
             // because orbit_yaw_at_capture_deg was just snapshotted - instead of a stale smoothed value from a
             // prior move. orbit_smoothing was read for the orbit-angle low-pass above and is constant across
             // the frame, so it is reused here.
-            const float user_orbit_since_deg =
-                (orbit_smoothing > 1e-4f && cam.orbit_steer_valid)
-                    ? cam.orbit_steer_smooth
-                    : (cam.orbit_yaw.load(std::memory_order_relaxed) - cam.orbit_yaw_at_capture_deg);
-            body_target_yaw = cam.orbit_target_yaw + degrees_to_radians(user_orbit_since_deg);
+            const float user_orbit_since_deg = (orbit_smoothing > 1e-4f && state.orbit_steer_valid)
+                                                   ? state.orbit_steer_smooth
+                                                   : (state.orbit_yaw - state.orbit_yaw_at_capture_deg);
+            body_target_yaw = state.orbit_target_yaw + degrees_to_radians(user_orbit_since_deg);
         }
         // The hand-off writes the look itself while it runs.
-        if (orbit_held && !cam.aim_handoff_active && (pitch_ease > 0.0f || hold_yaw))
+        if (orbit_held && !state.aim_handoff_active && (pitch_ease > 0.0f || hold_yaw))
         {
             (void)port.aim_control(pitch_ease, 0.0f, hold_yaw, body_target_yaw);
         }
@@ -1112,9 +1106,9 @@ namespace TPVCamera
         // key the wrong way (A/D -> backward, S -> forward). Held every frame while moving (the override is
         // consume-once); released when movement stops.
         const bool body_turn_active = hold_yaw && params.orbit_body_turn;
-        if (body_turn_active != cam.rig_body_turn_logged)
+        if (body_turn_active != state.rig_body_turn_logged)
         {
-            cam.rig_body_turn_logged = body_turn_active;
+            state.rig_body_turn_logged = body_turn_active;
             port.event(body_turn_active ? RigEvent::BodyTurnEngaged : RigEvent::BodyTurnReleased, 0.0f, 0.0f, 0.0f, 0);
         }
         if (body_turn_active)
