@@ -131,6 +131,7 @@ set(COMMON_SOURCES
   src/camera/close_fade.cpp
   src/camera/collision.cpp
   src/camera/collision_trace.cpp
+  src/camera/commit.cpp
   src/camera/lens.cpp
   src/camera/live_probe.cpp
   src/camera/npc_lens_fade.cpp
