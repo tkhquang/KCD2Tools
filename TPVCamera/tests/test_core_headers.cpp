@@ -6,7 +6,10 @@
 
 #include "core/blend/blend.hpp"
 #include "core/blend/ease.hpp"
+#include "core/collision/arm.hpp"
+#include "core/collision/fan.hpp"
 #include "core/collision/probe_types.hpp"
+#include "core/collision/world_probe.hpp"
 #include "core/input/stick.hpp"
 #include "core/math/vec.hpp"
 #include "core/occlusion/fence_coverage.hpp"

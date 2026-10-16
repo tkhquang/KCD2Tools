@@ -83,23 +83,6 @@ namespace TPVCamera
         float shoulder_swap{0.0f};
         bool shoulder_swap_valid{false};
 
-        // Camera-collision carry-over, touched only by the frustum-builder detour (the game's
-        // main thread), so it needs no synchronization. The allowed follow distance after the
-        // collision raycast, eased so the view pulls in instantly but returns out smoothly.
-        // collision_desired is the uncollided distance that frame, so the shortfall left by an
-        // obstruction can ease out while the desired distance itself moves (a zoom).
-        // collision_valid is cleared whenever the offset is suppressed (menu, overlay, view
-        // switch) so the next applied frame snaps instead of easing across a suppression gap.
-        float collision_distance{0.0f};
-        float collision_desired{0.0f};
-        bool collision_valid{false};
-        // How fast the collision distance is easing back out (m/s, outward positive); any pull-in zeroes it, so
-        // every release starts from rest.
-        float collision_speed{0.0f};
-        // Seconds the pulled-in distance is still held after the last recompute that met a surface (drained on
-        // every frame): a probe that grazes an edge and misses it the next frame, or an arm swung fast through
-        // clutter, keeps the camera in instead of letting it ease out and snap back in.
-        float collision_hold_timer{0.0f};
         // First-person fallback (main thread only): set while the camera arm is shorter than HeadClearance, so the
         // camera would sit inside the player's head; head_fallback_blend eases the camera from the collided position
         // onto the eye (1 = at the eye) and back. The head is hidden while it is set (see the head-visibility detour).
