@@ -12,6 +12,8 @@
 #ifndef TPVCAMERA_CONFIG_HPP
 #define TPVCAMERA_CONFIG_HPP
 
+#include "state_policy.hpp"
+
 #include <atomic>
 #include <cstdint>
 
@@ -275,6 +277,13 @@ namespace TPVCamera
 
     /** @brief Returns the process-wide live (atomic) settings. */
     [[nodiscard]] LiveSettings &settings() noexcept;
+
+    /**
+     * @brief The [StateBehavior] lists as they stand now, one row per situation (see state_policy.hpp).
+     * @details Reads the five lists and EnableStateBehavior once each (relaxed: each is a value of its own, and a list
+     *          an INI reload changes mid-read takes effect a frame later). Any thread.
+     */
+    [[nodiscard]] StatePolicyTable state_policy() noexcept;
 
     /**
      * @brief Registers the log level, the LiveSettings atomics, and the state-policy masks with DMK::config.

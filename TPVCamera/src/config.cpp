@@ -91,6 +91,20 @@ namespace TPVCamera
         return s;
     }
 
+    StatePolicyTable state_policy() noexcept
+    {
+        const LiveSettings &s = settings();
+        constexpr auto rel = std::memory_order_relaxed;
+        return StatePolicyTable{StatePolicyLists{
+            .forced_fpv = s.forced_fpv_mask.load(rel),
+            .forced_tpv = s.forced_tpv_mask.load(rel),
+            .orbit_exclude = s.orbit_exclude_mask.load(rel),
+            .native_turn_exclude = s.native_turn_exclude_mask.load(rel),
+            .suppress = s.suppress_tpv_mask.load(rel),
+            .edge_rules = s.enable_state_behavior.load(rel),
+        }};
+    }
+
     void register_config_items()
     {
         LiveSettings &s = settings();
