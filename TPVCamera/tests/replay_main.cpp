@@ -31,8 +31,8 @@ int main(int argc, char **argv)
     const auto *bytes = reinterpret_cast<const std::byte *>(raw.data());
     const TPVCamera::ProbeRecord::ReplayReport report =
         TPVCamera::ProbeRecord::replay(std::span<const std::byte>(bytes, raw.size()));
-    std::printf("%s: %d frame(s) (%d arm, %d shoulder), %lld probe call(s)\n", argv[1], report.frames,
-                report.arm_frames, report.shoulder_frames, report.calls);
+    std::printf("%s: %d frame(s) (%d arm, %d shoulder, %d lens), %lld probe call(s)\n", argv[1], report.frames,
+                report.arm_frames, report.shoulder_frames, report.lens_frames, report.calls);
     if (!report.ok)
     {
         std::printf("DIVERGED: %s\n", report.failure.c_str());

@@ -73,6 +73,15 @@ namespace TPVCamera::FrameRecorder
         return allowed;
     }
 
+    std::optional<float> lens(LensState &state, const LensInput &in, WorldProbe &probe)
+    {
+        std::vector<std::byte> frame;
+        frame.reserve(2048);
+        const std::optional<float> near = ProbeRecord::record_lens(frame, state, in, probe);
+        keep(std::move(frame));
+        return near;
+    }
+
     bool export_after_rundown(const char *path) noexcept
     {
         if (s_frames.empty())

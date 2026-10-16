@@ -10,15 +10,18 @@
  *          raw structs, and its header carries their sizes, which the reader checks. Engine-free (no Windows or
  *          DetourModKit header), so the replay test compiles it as is.
  *
- *          Stream: Header, then frames until the end. A frame is FrameKind, its input (CollisionInput, or
+ *          Stream: Header, then frames until the end. A collision frame is FrameKind, its input (CollisionInput, or
  *          ShoulderInput), CollisionParams, CollisionState before, the probe calls (each a Call byte, its arguments
- *          and its answer), Call::End, the output (Vector3, or float), and CollisionState after.
+ *          and its answer), Call::End, the output (Vector3, or float), and CollisionState after. A lens frame is
+ *          FrameKind::Lens, LensInput, LensState before, the probe calls, Call::End, the output (a has-value byte and
+ *          a float) and LensState after.
  */
 #ifndef TPVCAMERA_CORE_COLLISION_PROBE_RECORD_HPP
 #define TPVCAMERA_CORE_COLLISION_PROBE_RECORD_HPP
 
 #include "core/collision/arm.hpp"
 #include "core/collision/world_probe.hpp"
+#include "core/lens/lens_plan.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -31,7 +34,7 @@
 namespace TPVCamera::ProbeRecord
 {
     inline constexpr std::uint32_t k_magic = 0x52565054u; // "TPVR"
-    inline constexpr std::uint32_t k_version = 1;
+    inline constexpr std::uint32_t k_version = 2;
 
     /** @brief The file header: the format and the sizes of the raw structs the frames hold. */
     struct Header
@@ -43,6 +46,8 @@ namespace TPVCamera::ProbeRecord
         std::uint32_t params_size = sizeof(CollisionParams);
         std::uint32_t state_size = sizeof(CollisionState);
         std::uint32_t hit_size = sizeof(RayHit);
+        std::uint32_t lens_input_size = sizeof(LensInput);
+        std::uint32_t lens_state_size = sizeof(LensState);
         std::uint32_t reserved = 0;
 
         [[nodiscard]] bool matches_build() const noexcept
@@ -54,7 +59,8 @@ namespace TPVCamera::ProbeRecord
 
     static_assert(std::is_trivially_copyable_v<CollisionInput> && std::is_trivially_copyable_v<ShoulderInput> &&
                       std::is_trivially_copyable_v<CollisionParams> && std::is_trivially_copyable_v<CollisionState> &&
-                      std::is_trivially_copyable_v<RayHit>,
+                      std::is_trivially_copyable_v<RayHit> && std::is_trivially_copyable_v<LensInput> &&
+                      std::is_trivially_copyable_v<LensState>,
                   "A recording holds these structs as raw bytes.");
 
     /** @brief Which collision a frame record ran. */
@@ -62,6 +68,7 @@ namespace TPVCamera::ProbeRecord
     {
         Arm = 1,
         Shoulder = 2,
+        Lens = 3,
     };
 
     /** @brief One recorded probe call. */
@@ -244,6 +251,10 @@ namespace TPVCamera::ProbeRecord
     [[nodiscard]] float record_shoulder(std::vector<std::byte> &out, CollisionState &state, const ShoulderInput &in,
                                         const CollisionParams &params, WorldProbe &probe, CollisionTrace &trace);
 
+    /** @brief record_arm() for plan_lens_near(). */
+    [[nodiscard]] std::optional<float> record_lens(std::vector<std::byte> &out, LensState &state, const LensInput &in,
+                                                   WorldProbe &probe);
+
     /** @brief The outcome of replaying a recording. */
     struct ReplayReport
     {
@@ -251,6 +262,7 @@ namespace TPVCamera::ProbeRecord
         int frames = 0;
         int arm_frames = 0;
         int shoulder_frames = 0;
+        int lens_frames = 0;
         long long calls = 0;
         std::string failure; // the first divergence: frame, call and what differed
     };

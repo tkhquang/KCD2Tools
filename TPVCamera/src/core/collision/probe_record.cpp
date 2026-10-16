@@ -91,6 +91,18 @@ namespace TPVCamera::ProbeRecord
             return nullptr;
         }
 
+        /** @brief Whether two lens states hold the same values, field by field. */
+        [[nodiscard]] bool same_lens(const LensState &a, const LensState &b) noexcept
+        {
+            const LensSample &sa = a.sample;
+            const LensSample &sb = b.sample;
+            return same_bits(a.near, b.near) && sa.valid == sb.valid && same_bits(sa.position, sb.position) &&
+                   same_bits(sa.forward, sb.forward) && same_bits(sa.up, sb.up) &&
+                   same_bits(sa.tan_half_width, sb.tan_half_width) &&
+                   same_bits(sa.tan_half_height, sb.tan_half_height) && sa.rules_generation == sb.rules_generation &&
+                   sa.stamp_ms == sb.stamp_ms && same_bits(sa.solid, sb.solid);
+        }
+
         void put_lines(Writer &out, const Sightline *lines, int n_lines)
         {
             out.put(n_lines);
@@ -510,6 +522,22 @@ namespace TPVCamera::ProbeRecord
         return allowed;
     }
 
+    std::optional<float> record_lens(std::vector<std::byte> &out, LensState &state, const LensInput &in,
+                                     WorldProbe &probe)
+    {
+        Writer writer{out};
+        writer.put(FrameKind::Lens);
+        writer.put(in);
+        writer.put(state);
+        RecordingProbe recording{probe, out};
+        const std::optional<float> near = plan_lens_near(state, in, recording);
+        writer.put(Call::End);
+        writer.put(static_cast<std::uint8_t>(near.has_value()));
+        writer.put(near.value_or(0.0f));
+        writer.put(state);
+        return near;
+    }
+
     ReplayReport replay(std::span<const std::byte> data)
     {
         ReplayReport report;
@@ -592,6 +620,38 @@ namespace TPVCamera::ProbeRecord
                     return report;
                 }
                 ++report.shoulder_frames;
+            }
+            else if (kind == FrameKind::Lens)
+            {
+                LensInput in{};
+                LensState lens{};
+                if (!reader.get(in) || !reader.get(lens))
+                {
+                    report.failure = std::format("frame {}: truncated", report.frames);
+                    return report;
+                }
+                const std::optional<float> near = plan_lens_near(lens, in, probe);
+                std::uint8_t has = 0;
+                float recorded = 0.0f;
+                LensState after{};
+                const bool finished = probe.finish();
+                if (!finished || !reader.get(has) || !reader.get(recorded) || !reader.get(after))
+                {
+                    report.failure = std::format("frame {} (lens): {}", report.frames,
+                                                 probe.diverged() ? probe.divergence() : std::string{"truncated"});
+                    return report;
+                }
+                if (near.has_value() != (has != 0) || !same_bits(near.value_or(0.0f), recorded))
+                {
+                    report.failure = std::format("frame {} (lens): the near plane differs", report.frames);
+                    return report;
+                }
+                if (!same_lens(lens, after))
+                {
+                    report.failure = std::format("frame {} (lens): the state after differs", report.frames);
+                    return report;
+                }
+                ++report.lens_frames;
             }
             else
             {
