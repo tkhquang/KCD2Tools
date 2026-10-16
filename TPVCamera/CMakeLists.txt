@@ -197,7 +197,7 @@ file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/default_rules.inc" 
 # the local tests link it as it ships. Its own sources see no DetourModKit include path: a core source that reaches for
 # one fails to compile. The mod targets and the tests link it; it builds once for both.
 add_library(tpv_core STATIC src/core/collision/arm.cpp src/core/collision/fan.cpp src/core/collision/probe_record.cpp
-  src/core/lens/lens_plan.cpp src/core/rules/camera_rules.cpp)
+  src/core/lens/lens_plan.cpp src/core/rig/rig_record.cpp src/core/rig/rig_stage.cpp src/core/rules/camera_rules.cpp)
 target_include_directories(tpv_core PUBLIC src)
 target_compile_options(tpv_core PRIVATE /W4 $<$<CONFIG:Release>:/O2 /Gy /Gw>)
 

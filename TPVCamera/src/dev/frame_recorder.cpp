@@ -1,12 +1,13 @@
 /**
  * @file dev/frame_recorder.cpp
- * @brief DEV recording of the camera collision (see frame_recorder.hpp).
+ * @brief DEV recording of the camera frames (see frame_recorder.hpp).
  */
 
 #include "dev/frame_recorder.hpp"
 
 #include "config.hpp"
 #include "core/collision/probe_record.hpp"
+#include "core/rig/rig_record.hpp"
 
 #include <DetourModKit.hpp>
 
@@ -20,7 +21,7 @@ namespace TPVCamera::FrameRecorder
     namespace
     {
         // The ring keeps the newest frames up to this many bytes: about a minute of play at 60 frames a second with
-        // the arm and the shoulder recorded each frame.
+        // the rig, the arm and the shoulder recorded each frame.
         constexpr std::size_t k_ring_bytes = std::size_t{48} << 20;
 
         // Main thread only (the camera frame); the export runs after every hook retired.
@@ -35,8 +36,8 @@ namespace TPVCamera::FrameRecorder
             {
                 s_announced = true;
                 (void)DMK::log().try_log(DMK::LogLevel::Info,
-                                         "[DEV] Recording the camera collision frames (RecordFrames); they are written "
-                                         "at the next reload");
+                                         "[DEV] Recording the camera frames (RecordFrames); they are written at the "
+                                         "next reload");
             }
             s_bytes += frame.size();
             s_frames.push_back(std::move(frame));
@@ -51,6 +52,15 @@ namespace TPVCamera::FrameRecorder
     bool recording() noexcept
     {
         return settings().record_frames.load(std::memory_order_relaxed);
+    }
+
+    bool rig(CameraState &cam, const RigParams &params, const RigInput &in, RigPort &port, RigFrame &frame)
+    {
+        std::vector<std::byte> frame_bytes;
+        frame_bytes.reserve(2048);
+        const bool built = ProbeRecord::record_rig(frame_bytes, cam, params, in, port, frame);
+        keep(std::move(frame_bytes));
+        return built;
     }
 
     Vector3 arm(CollisionState &state, const CollisionInput &in, const CollisionParams &params, WorldProbe &probe,
@@ -101,8 +111,7 @@ namespace TPVCamera::FrameRecorder
         }
         ok = std::fclose(file) == 0 && ok;
         (void)DMK::log().try_log(ok ? DMK::LogLevel::Info : DMK::LogLevel::Warning,
-                                 "[DEV] {} recorded camera collision frame(s), {} bytes, to {}", s_frames.size(),
-                                 s_bytes, path);
+                                 "[DEV] {} recorded camera frame(s), {} bytes, to {}", s_frames.size(), s_bytes, path);
         s_frames.clear();
         s_bytes = 0;
         return ok;

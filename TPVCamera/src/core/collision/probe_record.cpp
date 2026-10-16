@@ -4,6 +4,7 @@
  */
 
 #include "core/collision/probe_record.hpp"
+#include "core/rig/rig_record.hpp"
 
 #include <format>
 
@@ -652,6 +653,17 @@ namespace TPVCamera::ProbeRecord
                     return report;
                 }
                 ++report.lens_frames;
+            }
+            else if (kind == FrameKind::Rig)
+            {
+                if (const std::string failure = replay_rig_frame(reader, report.calls); !failure.empty())
+                {
+                    report.failure = std::format("frame {} (rig): {}", report.frames, failure);
+                    return report;
+                }
+                ++report.rig_frames;
+                ++report.frames;
+                continue;
             }
             else
             {

@@ -15,15 +15,13 @@
 #ifndef TPVCAMERA_PLAYER_ONACTION_HOOK_HPP
 #define TPVCAMERA_PLAYER_ONACTION_HOOK_HPP
 
+#include "core/input/move_input.hpp"
 #include "hook_set.hpp"
 
 #include <DetourModKit/error.hpp>
 
 namespace TPVCamera
 {
-
-    /// Movement magnitude above which the player counts as starting to move (the orbit move start and the press).
-    constexpr float MOVE_INPUT_START = 0.15f;
 
     /**
      * @brief Installs the player OnAction / action-dispatcher hook from the pre-resolved anchor.

@@ -186,6 +186,11 @@ namespace TPVCamera
         bool orbit_move_armed_by_game{false};
         float orbit_move_game_idle{0.0f};
 
+        // The rig's trace latches (main thread only), so a suppressed stale move re-trip and the body-turn edges are
+        // traced once each, not every frame.
+        bool rig_stale_move_logged{false};
+        bool rig_body_turn_logged{false};
+
         // Dynamic eye-height sync (main thread only). When DynamicEyeSync is on, eye_sync_applied is the
         // eased effective eye height: it re-anchors to the REAL first-person eye when a low pose (kneel /
         // pray, and other poses EyeHeight does not model) drops it OUT of range of the configured height,

@@ -154,7 +154,7 @@ namespace TPVCamera
                 s_move_values[i].store(magnitude, std::memory_order_relaxed);
                 // The press that starts a move: free-look turns the look and the body to the camera heading at the
                 // press, before the frame's movement update reads them.
-                if (before <= MOVE_INPUT_START && magnitude > MOVE_INPUT_START)
+                if (before <= k_move_input_start && magnitude > k_move_input_start)
                 {
                     (void)DMK::log().try_log(DMK::LogLevel::Trace, "PlayerOnAction: move '{}' pressed ({:.2f})", name,
                                              value);
