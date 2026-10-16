@@ -106,12 +106,12 @@ namespace TPVCamera::ProbeRecord
     class Writer
     {
     public:
-        explicit Writer(std::vector<std::byte> &out) noexcept : out_(out) {}
+        explicit Writer(std::vector<std::byte> &out) noexcept : m_out(out) {}
 
         void put_bytes(const void *data, std::size_t size)
         {
             const auto *bytes = static_cast<const std::byte *>(data);
-            out_.insert(out_.end(), bytes, bytes + size);
+            m_out.insert(m_out.end(), bytes, bytes + size);
         }
 
         template <typename T> void put(const T &value)
@@ -121,24 +121,24 @@ namespace TPVCamera::ProbeRecord
         }
 
     private:
-        std::vector<std::byte> &out_;
+        std::vector<std::byte> &m_out;
     };
 
     /** @brief Reads raw bytes back from a recording; a read past the end fails the reader for good. */
     class Reader
     {
     public:
-        explicit Reader(std::span<const std::byte> in) noexcept : in_(in) {}
+        explicit Reader(std::span<const std::byte> in) noexcept : m_in(in) {}
 
         [[nodiscard]] bool get_bytes(void *data, std::size_t size) noexcept
         {
-            if (!ok_ || in_.size() - at_ < size)
+            if (!m_ok || m_in.size() - m_at < size)
             {
-                ok_ = false;
+                m_ok = false;
                 return false;
             }
-            std::memcpy(data, in_.data() + at_, size);
-            at_ += size;
+            std::memcpy(data, m_in.data() + m_at, size);
+            m_at += size;
             return true;
         }
 
@@ -148,21 +148,21 @@ namespace TPVCamera::ProbeRecord
             return get_bytes(&value, sizeof(T));
         }
 
-        [[nodiscard]] bool ok() const noexcept { return ok_; }
-        [[nodiscard]] bool at_end() const noexcept { return at_ == in_.size(); }
-        [[nodiscard]] std::size_t offset() const noexcept { return at_; }
+        [[nodiscard]] bool ok() const noexcept { return m_ok; }
+        [[nodiscard]] bool at_end() const noexcept { return m_at == m_in.size(); }
+        [[nodiscard]] std::size_t offset() const noexcept { return m_at; }
 
     private:
-        std::span<const std::byte> in_;
-        std::size_t at_ = 0;
-        bool ok_ = true;
+        std::span<const std::byte> m_in;
+        std::size_t m_at = 0;
+        bool m_ok = true;
     };
 
     /** @brief A WorldProbe that forwards each call to @p inner and appends the call and its answer to a recording. */
     class RecordingProbe final : public WorldProbe
     {
     public:
-        RecordingProbe(WorldProbe &inner, std::vector<std::byte> &out) noexcept : inner_(inner), out_(out) {}
+        RecordingProbe(WorldProbe &inner, std::vector<std::byte> &out) noexcept : m_inner(inner), m_out(out) {}
 
         [[nodiscard]] std::optional<RayHit> ray(QueryLedger::Tag tag, const Vector3 &origin, const Vector3 &sweep,
                                                 int objtypes, unsigned int flags, const std::uintptr_t *skip,
@@ -179,12 +179,12 @@ namespace TPVCamera::ProbeRecord
         void prefetch_meshes(const Sightline *lines, int n_lines) override;
         [[nodiscard]] bool stopping_node_near(const float *box, float pad) override;
         [[nodiscard]] std::uint64_t now_ms() override;
-        void scope_begin(const char *name) noexcept override { inner_.scope_begin(name); }
-        void scope_end() noexcept override { inner_.scope_end(); }
+        void scope_begin(const char *name) noexcept override { m_inner.scope_begin(name); }
+        void scope_end() noexcept override { m_inner.scope_end(); }
 
     private:
-        WorldProbe &inner_;
-        Writer out_;
+        WorldProbe &m_inner;
+        Writer m_out;
     };
 
     /**
@@ -197,7 +197,7 @@ namespace TPVCamera::ProbeRecord
     class ReplayProbe final : public WorldProbe
     {
     public:
-        explicit ReplayProbe(Reader &in) noexcept : in_(in) {}
+        explicit ReplayProbe(Reader &in) noexcept : m_in(in) {}
 
         [[nodiscard]] std::optional<RayHit> ray(QueryLedger::Tag tag, const Vector3 &origin, const Vector3 &sweep,
                                                 int objtypes, unsigned int flags, const std::uintptr_t *skip,
@@ -220,9 +220,9 @@ namespace TPVCamera::ProbeRecord
         /** @brief Reads the frame's Call::End: false (diverged) when the recording holds more calls. */
         [[nodiscard]] bool finish();
 
-        [[nodiscard]] bool diverged() const noexcept { return !divergence_.empty(); }
-        [[nodiscard]] const std::string &divergence() const noexcept { return divergence_; }
-        [[nodiscard]] int calls() const noexcept { return calls_; }
+        [[nodiscard]] bool diverged() const noexcept { return !m_divergence.empty(); }
+        [[nodiscard]] const std::string &divergence() const noexcept { return m_divergence; }
+        [[nodiscard]] int calls() const noexcept { return m_calls; }
 
     private:
         /** @brief Reads the next call's type and checks it is @p expected. */
@@ -235,9 +235,9 @@ namespace TPVCamera::ProbeRecord
         }
         void diverge(const std::string &why);
 
-        Reader &in_;
-        std::string divergence_;
-        int calls_ = 0;
+        Reader &m_in;
+        std::string m_divergence;
+        int m_calls = 0;
     };
 
     /** @brief The trace sink that drops everything: a replay checks the decisions, not the log. */

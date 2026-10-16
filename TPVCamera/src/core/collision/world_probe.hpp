@@ -80,15 +80,15 @@ namespace TPVCamera
     class ProbeScope
     {
     public:
-        ProbeScope(WorldProbe &probe, const char *name) noexcept : probe_(probe) { probe_.scope_begin(name); }
+        ProbeScope(WorldProbe &probe, const char *name) noexcept : m_probe(probe) { m_probe.scope_begin(name); }
         ProbeScope(const ProbeScope &) = delete;
         ProbeScope &operator=(const ProbeScope &) = delete;
         ProbeScope(ProbeScope &&) = delete;
         ProbeScope &operator=(ProbeScope &&) = delete;
-        ~ProbeScope() { probe_.scope_end(); }
+        ~ProbeScope() { m_probe.scope_end(); }
 
     private:
-        WorldProbe &probe_;
+        WorldProbe &m_probe;
     };
 } // namespace TPVCamera
 

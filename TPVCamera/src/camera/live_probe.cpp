@@ -69,29 +69,29 @@ namespace TPVCamera
     void LiveProbe::scope_begin([[maybe_unused]] const char *name) noexcept
     {
 #ifdef DMK_ENABLE_PROFILING
-        if (depth_ < k_max_scopes)
+        if (m_depth < k_max_scopes)
         {
             LARGE_INTEGER now{};
             QueryPerformanceCounter(&now);
-            scopes_[static_cast<std::size_t>(depth_)] = OpenScope{name, now.QuadPart};
+            m_scopes[static_cast<std::size_t>(m_depth)] = OpenScope{name, now.QuadPart};
         }
-        ++depth_;
+        ++m_depth;
 #endif
     }
 
     void LiveProbe::scope_end() noexcept
     {
 #ifdef DMK_ENABLE_PROFILING
-        if (depth_ <= 0)
+        if (m_depth <= 0)
         {
             return;
         }
-        --depth_;
-        if (depth_ < k_max_scopes)
+        --m_depth;
+        if (m_depth < k_max_scopes)
         {
             LARGE_INTEGER now{};
             QueryPerformanceCounter(&now);
-            const OpenScope &scope = scopes_[static_cast<std::size_t>(depth_)];
+            const OpenScope &scope = m_scopes[static_cast<std::size_t>(m_depth)];
             DMK::Profiler::get_instance().record(scope.name, scope.started, now.QuadPart, GetCurrentThreadId());
         }
 #endif

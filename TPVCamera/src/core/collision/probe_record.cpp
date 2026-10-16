@@ -149,127 +149,127 @@ namespace TPVCamera::ProbeRecord
     std::optional<RayHit> RecordingProbe::ray(QueryLedger::Tag tag, const Vector3 &origin, const Vector3 &sweep,
                                               int objtypes, unsigned int flags, const std::uintptr_t *skip, int n_skip)
     {
-        const std::optional<RayHit> hit = inner_.ray(tag, origin, sweep, objtypes, flags, skip, n_skip);
-        out_.put(Call::Ray);
-        out_.put(tag);
-        out_.put(origin);
-        out_.put(sweep);
-        out_.put(objtypes);
-        out_.put(flags);
-        out_.put(n_skip);
+        const std::optional<RayHit> hit = m_inner.ray(tag, origin, sweep, objtypes, flags, skip, n_skip);
+        m_out.put(Call::Ray);
+        m_out.put(tag);
+        m_out.put(origin);
+        m_out.put(sweep);
+        m_out.put(objtypes);
+        m_out.put(flags);
+        m_out.put(n_skip);
         if (n_skip > 0)
         {
-            out_.put_bytes(skip, sizeof(std::uintptr_t) * static_cast<std::size_t>(n_skip));
+            m_out.put_bytes(skip, sizeof(std::uintptr_t) * static_cast<std::size_t>(n_skip));
         }
-        out_.put(static_cast<std::uint8_t>(hit.has_value()));
+        m_out.put(static_cast<std::uint8_t>(hit.has_value()));
         if (hit.has_value())
         {
-            out_.put(*hit);
+            m_out.put(*hit);
         }
         return hit;
     }
 
     void RecordingProbe::refresh_scan(const Vector3 *points, int n_points)
     {
-        inner_.refresh_scan(points, n_points);
-        out_.put(Call::RefreshScan);
-        out_.put(n_points);
+        m_inner.refresh_scan(points, n_points);
+        m_out.put(Call::RefreshScan);
+        m_out.put(n_points);
         if (n_points > 0)
         {
-            out_.put_bytes(points, sizeof(Vector3) * static_cast<std::size_t>(n_points));
+            m_out.put_bytes(points, sizeof(Vector3) * static_cast<std::size_t>(n_points));
         }
     }
 
     void *RecordingProbe::node_for_collider(std::uintptr_t collider, Rules::Behaviour *cls)
     {
-        void *node = inner_.node_for_collider(collider, cls);
-        out_.put(Call::NodeForCollider);
-        out_.put(collider);
-        out_.put(reinterpret_cast<std::uintptr_t>(node));
-        out_.put(*cls);
+        void *node = m_inner.node_for_collider(collider, cls);
+        m_out.put(Call::NodeForCollider);
+        m_out.put(collider);
+        m_out.put(reinterpret_cast<std::uintptr_t>(node));
+        m_out.put(*cls);
         return node;
     }
 
     bool RecordingProbe::structure_drawn_on(QueryLedger::Tag tag, void *node, const Sightline *lines, int n_lines)
     {
-        const bool drawn = inner_.structure_drawn_on(tag, node, lines, n_lines);
-        out_.put(Call::StructureDrawnOn);
-        out_.put(tag);
-        out_.put(reinterpret_cast<std::uintptr_t>(node));
-        put_lines(out_, lines, n_lines);
-        out_.put(static_cast<std::uint8_t>(drawn));
+        const bool drawn = m_inner.structure_drawn_on(tag, node, lines, n_lines);
+        m_out.put(Call::StructureDrawnOn);
+        m_out.put(tag);
+        m_out.put(reinterpret_cast<std::uintptr_t>(node));
+        put_lines(m_out, lines, n_lines);
+        m_out.put(static_cast<std::uint8_t>(drawn));
         return drawn;
     }
 
     float RecordingProbe::structure_on_arm(QueryLedger::Tag tag, const Sightline *lines, int n_lines, int min_lines,
                                            float max_fraction, void **node_out, bool trace)
     {
-        const float crossing = inner_.structure_on_arm(tag, lines, n_lines, min_lines, max_fraction, node_out, trace);
-        out_.put(Call::StructureOnArm);
-        out_.put(tag);
-        put_lines(out_, lines, n_lines);
-        out_.put(min_lines);
-        out_.put(max_fraction);
-        out_.put(static_cast<std::uint8_t>(node_out != nullptr));
-        out_.put(static_cast<std::uint8_t>(trace));
-        out_.put(crossing);
-        out_.put(node_out != nullptr ? reinterpret_cast<std::uintptr_t>(*node_out) : std::uintptr_t{0});
+        const float crossing = m_inner.structure_on_arm(tag, lines, n_lines, min_lines, max_fraction, node_out, trace);
+        m_out.put(Call::StructureOnArm);
+        m_out.put(tag);
+        put_lines(m_out, lines, n_lines);
+        m_out.put(min_lines);
+        m_out.put(max_fraction);
+        m_out.put(static_cast<std::uint8_t>(node_out != nullptr));
+        m_out.put(static_cast<std::uint8_t>(trace));
+        m_out.put(crossing);
+        m_out.put(node_out != nullptr ? reinterpret_cast<std::uintptr_t>(*node_out) : std::uintptr_t{0});
         return crossing;
     }
 
     bool RecordingProbe::spans_tube(void *node, const Sightline *tube)
     {
-        const bool spans = inner_.spans_tube(node, tube);
-        out_.put(Call::SpansTube);
-        out_.put(reinterpret_cast<std::uintptr_t>(node));
-        out_.put_bytes(tube, sizeof(Sightline) * 5);
-        out_.put(static_cast<std::uint8_t>(spans));
+        const bool spans = m_inner.spans_tube(node, tube);
+        m_out.put(Call::SpansTube);
+        m_out.put(reinterpret_cast<std::uintptr_t>(node));
+        m_out.put_bytes(tube, sizeof(Sightline) * 5);
+        m_out.put(static_cast<std::uint8_t>(spans));
         return spans;
     }
 
     int RecordingProbe::occluders_on_sightlines(const Sightline *lines, int n_lines, std::span<void *const> skip,
                                                 SightlineOccluder *out, int cap)
     {
-        const int count = inner_.occluders_on_sightlines(lines, n_lines, skip, out, cap);
-        out_.put(Call::OccludersOnSightlines);
-        put_lines(out_, lines, n_lines);
-        out_.put(static_cast<int>(skip.size()));
+        const int count = m_inner.occluders_on_sightlines(lines, n_lines, skip, out, cap);
+        m_out.put(Call::OccludersOnSightlines);
+        put_lines(m_out, lines, n_lines);
+        m_out.put(static_cast<int>(skip.size()));
         for (void *const node : skip)
         {
-            out_.put(reinterpret_cast<std::uintptr_t>(node));
+            m_out.put(reinterpret_cast<std::uintptr_t>(node));
         }
-        out_.put(cap);
-        out_.put(count);
+        m_out.put(cap);
+        m_out.put(count);
         for (int i = 0; i < count; ++i)
         {
-            out_.put(reinterpret_cast<std::uintptr_t>(out[i].node));
-            out_.put(static_cast<std::uint8_t>(out[i].buried));
+            m_out.put(reinterpret_cast<std::uintptr_t>(out[i].node));
+            m_out.put(static_cast<std::uint8_t>(out[i].buried));
         }
         return count;
     }
 
     void RecordingProbe::prefetch_meshes(const Sightline *lines, int n_lines)
     {
-        inner_.prefetch_meshes(lines, n_lines);
-        out_.put(Call::PrefetchMeshes);
-        put_lines(out_, lines, n_lines);
+        m_inner.prefetch_meshes(lines, n_lines);
+        m_out.put(Call::PrefetchMeshes);
+        put_lines(m_out, lines, n_lines);
     }
 
     bool RecordingProbe::stopping_node_near(const float *box, float pad)
     {
-        const bool near = inner_.stopping_node_near(box, pad);
-        out_.put(Call::StoppingNodeNear);
-        out_.put_bytes(box, sizeof(float) * 6);
-        out_.put(pad);
-        out_.put(static_cast<std::uint8_t>(near));
+        const bool near = m_inner.stopping_node_near(box, pad);
+        m_out.put(Call::StoppingNodeNear);
+        m_out.put_bytes(box, sizeof(float) * 6);
+        m_out.put(pad);
+        m_out.put(static_cast<std::uint8_t>(near));
         return near;
     }
 
     std::uint64_t RecordingProbe::now_ms()
     {
-        const std::uint64_t now = inner_.now_ms();
-        out_.put(Call::NowMs);
-        out_.put(now);
+        const std::uint64_t now = m_inner.now_ms();
+        m_out.put(Call::NowMs);
+        m_out.put(now);
         return now;
     }
 
@@ -277,9 +277,9 @@ namespace TPVCamera::ProbeRecord
 
     void ReplayProbe::diverge(const std::string &why)
     {
-        if (divergence_.empty())
+        if (m_divergence.empty())
         {
-            divergence_ = std::format("call {}: {}", calls_, why);
+            m_divergence = std::format("call {}: {}", m_calls, why);
         }
     }
 
@@ -289,9 +289,9 @@ namespace TPVCamera::ProbeRecord
         {
             return false;
         }
-        ++calls_;
+        ++m_calls;
         Call recorded = Call::End;
-        if (!in_.get(recorded))
+        if (!m_in.get(recorded))
         {
             diverge(std::format("{} asked, the recording ended", call_name(expected)));
             return false;
@@ -307,7 +307,7 @@ namespace TPVCamera::ProbeRecord
     bool ReplayProbe::expect_bytes(const void *actual, std::size_t size, const char *what)
     {
         std::vector<std::byte> recorded(size);
-        if (!in_.get_bytes(recorded.data(), size))
+        if (!m_in.get_bytes(recorded.data(), size))
         {
             diverge(std::format("{}: the recording ended", what));
             return false;
@@ -332,7 +332,7 @@ namespace TPVCamera::ProbeRecord
         }
         std::uint8_t has = 0;
         RayHit hit{};
-        if (!in_.get(has) || (has != 0 && !in_.get(hit)))
+        if (!m_in.get(has) || (has != 0 && !m_in.get(hit)))
         {
             diverge("ray answer: the recording ended");
             return std::nullopt;
@@ -352,7 +352,7 @@ namespace TPVCamera::ProbeRecord
     {
         *cls = Rules::Behaviour::Collide;
         std::uintptr_t node = 0;
-        if (!expect(Call::NodeForCollider) || !expect_value(collider, "collider") || !in_.get(node) || !in_.get(*cls))
+        if (!expect(Call::NodeForCollider) || !expect_value(collider, "collider") || !m_in.get(node) || !m_in.get(*cls))
         {
             *cls = Rules::Behaviour::Collide;
             return nullptr;
@@ -368,7 +368,7 @@ namespace TPVCamera::ProbeRecord
             !expect_value(n_lines, "drawn-on line count") ||
             (n_lines > 0 &&
              !expect_bytes(lines, sizeof(Sightline) * static_cast<std::size_t>(n_lines), "drawn-on lines")) ||
-            !in_.get(drawn))
+            !m_in.get(drawn))
         {
             return false;
         }
@@ -386,7 +386,7 @@ namespace TPVCamera::ProbeRecord
              !expect_bytes(lines, sizeof(Sightline) * static_cast<std::size_t>(n_lines), "arm-mesh lines")) ||
             !expect_value(min_lines, "arm-mesh min lines") || !expect_value(max_fraction, "arm-mesh max fraction") ||
             !expect_value(static_cast<std::uint8_t>(node_out != nullptr), "arm-mesh node out") ||
-            !expect_value(static_cast<std::uint8_t>(trace), "arm-mesh trace") || !in_.get(crossing) || !in_.get(node))
+            !expect_value(static_cast<std::uint8_t>(trace), "arm-mesh trace") || !m_in.get(crossing) || !m_in.get(node))
         {
             return 2.0f;
         }
@@ -401,7 +401,7 @@ namespace TPVCamera::ProbeRecord
     {
         std::uint8_t spans = 0;
         if (!expect(Call::SpansTube) || !expect_value(reinterpret_cast<std::uintptr_t>(node), "tube node") ||
-            !expect_bytes(tube, sizeof(Sightline) * 5, "tube lines") || !in_.get(spans))
+            !expect_bytes(tube, sizeof(Sightline) * 5, "tube lines") || !m_in.get(spans))
         {
             return false;
         }
@@ -426,7 +426,7 @@ namespace TPVCamera::ProbeRecord
             }
         }
         int count = 0;
-        if (!expect_value(cap, "sightline cap") || !in_.get(count) || count < 0 || count > cap)
+        if (!expect_value(cap, "sightline cap") || !m_in.get(count) || count < 0 || count > cap)
         {
             diverge("sightline answer");
             return 0;
@@ -435,7 +435,7 @@ namespace TPVCamera::ProbeRecord
         {
             std::uintptr_t node = 0;
             std::uint8_t buried = 0;
-            if (!in_.get(node) || !in_.get(buried))
+            if (!m_in.get(node) || !m_in.get(buried))
             {
                 diverge("sightline answer: the recording ended");
                 return 0;
@@ -457,7 +457,7 @@ namespace TPVCamera::ProbeRecord
     {
         std::uint8_t near = 0;
         if (!expect(Call::StoppingNodeNear) || !expect_bytes(box, sizeof(float) * 6, "near box") ||
-            !expect_value(pad, "near pad") || !in_.get(near))
+            !expect_value(pad, "near pad") || !m_in.get(near))
         {
             return false;
         }
@@ -467,7 +467,7 @@ namespace TPVCamera::ProbeRecord
     std::uint64_t ReplayProbe::now_ms()
     {
         std::uint64_t now = 0;
-        if (!expect(Call::NowMs) || !in_.get(now))
+        if (!expect(Call::NowMs) || !m_in.get(now))
         {
             return 0;
         }
@@ -481,7 +481,7 @@ namespace TPVCamera::ProbeRecord
             return false;
         }
         Call recorded = Call::Ray;
-        if (!in_.get(recorded) || recorded != Call::End)
+        if (!m_in.get(recorded) || recorded != Call::End)
         {
             diverge(std::format("the frame ended, the recording holds {} more", call_name(recorded)));
             return false;

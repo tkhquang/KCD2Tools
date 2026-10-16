@@ -53,7 +53,7 @@ namespace TPVCamera::ProbeRecord
     class RecordingRigPort final : public RigPort
     {
     public:
-        RecordingRigPort(RigPort &inner, std::vector<std::byte> &out) noexcept : inner_(inner), out_(out) {}
+        RecordingRigPort(RigPort &inner, std::vector<std::byte> &out) noexcept : m_inner(inner), m_out(out) {}
 
         [[nodiscard]] ZoomHeld zoom_held() override;
         void ease_out_zoom(float offset) override;
@@ -74,8 +74,8 @@ namespace TPVCamera::ProbeRecord
         void event(RigEvent event, float a, float b, float c, std::uint32_t mask) override;
 
     private:
-        RigPort &inner_;
-        Writer out_;
+        RigPort &m_inner;
+        Writer m_out;
     };
 
     /**
@@ -88,7 +88,7 @@ namespace TPVCamera::ProbeRecord
     class ReplayRigPort final : public RigPort
     {
     public:
-        explicit ReplayRigPort(Reader &in) noexcept : in_(in) {}
+        explicit ReplayRigPort(Reader &in) noexcept : m_in(in) {}
 
         [[nodiscard]] ZoomHeld zoom_held() override;
         void ease_out_zoom(float offset) override;
@@ -111,9 +111,9 @@ namespace TPVCamera::ProbeRecord
         /** @brief Reads the frame's RigCall::End: false (diverged) when the recording holds more calls. */
         [[nodiscard]] bool finish();
 
-        [[nodiscard]] bool diverged() const noexcept { return !divergence_.empty(); }
-        [[nodiscard]] const std::string &divergence() const noexcept { return divergence_; }
-        [[nodiscard]] int calls() const noexcept { return calls_; }
+        [[nodiscard]] bool diverged() const noexcept { return !m_divergence.empty(); }
+        [[nodiscard]] const std::string &divergence() const noexcept { return m_divergence; }
+        [[nodiscard]] int calls() const noexcept { return m_calls; }
 
     private:
         /** @brief Reads the next call's type and checks it is @p expected. */
@@ -124,9 +124,9 @@ namespace TPVCamera::ProbeRecord
         template <typename T> [[nodiscard]] bool answer(T &value);
         void diverge(const std::string &why);
 
-        Reader &in_;
-        std::string divergence_;
-        int calls_ = 0;
+        Reader &m_in;
+        std::string m_divergence;
+        int m_calls = 0;
     };
 
     /**
