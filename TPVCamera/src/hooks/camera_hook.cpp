@@ -28,6 +28,7 @@
 #include "core/blend/blend.hpp"
 #include "camera/close_fade.hpp"
 #include "camera/collision.hpp"
+#include "camera/commit.hpp"
 #include "camera/lens.hpp"
 #include "camera/npc_lens_fade.hpp"
 #include "camera/see_through_driver.hpp"
@@ -797,13 +798,17 @@ namespace TPVCamera
     {
         /**
          * @brief The rig's port onto the live game view (see core/rig/rig_stage.hpp).
-         * @details Made per build for the game view's camera and its CView. Main thread only: the frustum detour, whose
-         *          SEH frame contains a fault in the engine reads and writes below.
+         * @details Made per build for the game view's CView, the frustum the build found and the camera writes it
+         *          collects (camera/commit.hpp). Main thread only: the frustum detour, whose SEH frame contains a fault
+         *          in the engine reads and writes below.
          */
         class LiveRigPort final : public RigPort
         {
         public:
-            LiveRigPort(uintptr_t camera, uintptr_t cview) noexcept : camera_(camera), cview_(cview) {}
+            LiveRigPort(uintptr_t cview, const CameraFrustum &frustum, ViewWrite &write) noexcept
+                : cview_(cview), frustum_(frustum), write_(write)
+            {
+            }
 
             [[nodiscard]] ZoomHeld zoom_held() override
             {
@@ -861,23 +866,13 @@ namespace TPVCamera
                 return LookReading{*quat, *pitch};
             }
 
-            [[nodiscard]] float game_fov() override
-            {
-                // SetFrustum (sub_1805392FC) writes the render CCamera's FOV scalar right before this builder.
-                return *reinterpret_cast<const float *>(camera_ + Constants::CCAMERA_PROJECTION_FOV_OFFSET);
-            }
+            [[nodiscard]] float game_fov() override { return frustum_.fov; }
 
             void override_fov(float fov, float ratio) override
             {
-                // SetFrustum writes the cull-frustum terms beside the FOV: camera+0x50 / +0x58 / +0x68 / +0x70 (the
-                // near and far corner x and z, proportional to tan(fov/2)) and +0x60 (the projection plane distance,
-                // proportional to 1/tan(fov/2)). They are rescaled with the FOV so culling matches the rendered view.
-                *reinterpret_cast<float *>(camera_ + Constants::CCAMERA_PROJECTION_FOV_OFFSET) = fov;
-                *reinterpret_cast<float *>(camera_ + Constants::CCAMERA_CULL_EDGE_0_OFFSET) *= ratio;
-                *reinterpret_cast<float *>(camera_ + Constants::CCAMERA_CULL_EDGE_1_OFFSET) *= ratio;
-                *reinterpret_cast<float *>(camera_ + Constants::CCAMERA_CULL_TAN_OFFSET) /= ratio;
-                *reinterpret_cast<float *>(camera_ + Constants::CCAMERA_CULL_EDGE_3_OFFSET) *= ratio;
-                *reinterpret_cast<float *>(camera_ + Constants::CCAMERA_CULL_EDGE_4_OFFSET) *= ratio;
+                write_.fov = fov;
+                write_.fov_ratio = ratio;
+                write_.fov_override = true;
             }
 
             [[nodiscard]] BodyReading body(std::uintptr_t c_player) override
@@ -1023,8 +1018,9 @@ namespace TPVCamera
             }
 
         private:
-            uintptr_t camera_;
             uintptr_t cview_;
+            const CameraFrustum &frustum_;
+            ViewWrite &write_;
         };
 
         /** @brief The settings the rig reads, taken once per build. */
@@ -1100,7 +1096,14 @@ namespace TPVCamera
         LiveSettings &cfg = settings();
         CameraState &cam = camera_state();
 
-        LiveRigPort port{camera, cview};
+        // What this build found in the camera and what it will write there (camera/commit.hpp). The basis starts as
+        // the engine's eye basis, which stays unless the rig or the switch rebuilds it.
+        const CameraFrustum frustum = read_camera_frustum(camera);
+        ViewWrite write{};
+        write.right = frustum.right;
+        write.forward = frustum.forward;
+        write.up = frustum.up;
+        LiveRigPort port{cview, frustum, write};
         const RigParams params = rig_params(cfg);
         const RigInput rig_input{
             .c_player = c_player,
@@ -1120,7 +1123,6 @@ namespace TPVCamera
         {
             return; // the CView pose did not read; leave the view untouched this frame
         }
-        GameStructures::Matrix34f *matrix = reinterpret_cast<GameStructures::Matrix34f *>(camera);
         const Vector3 world_up{0.0f, 0.0f, 1.0f};
 
         // The first-person <-> third-person switch blends the eye and the rig around the pivot before collision, so
@@ -1256,12 +1258,10 @@ namespace TPVCamera
             }
         }
 
-        // Write the camera into the matrix translation column. The caller computes the cull planes from this matrix
+        // The camera goes into the matrix translation column. The caller computes the cull planes from this matrix
         // next, so culling follows the rendered view.
         const Vector3 final_position = camera_position;
-        matrix->m[0][3] = final_position.x;
-        matrix->m[1][3] = final_position.y;
-        matrix->m[2][3] = final_position.z;
+        write.position = final_position;
 
         // Orientation: rebuilt when the rig shaped the look (the stable or smoothed basis, the follow angle or the
         // orbit), as the column basis right = forward x up, up = right x forward (col0 = right, col1 = forward,
@@ -1279,33 +1279,34 @@ namespace TPVCamera
             if (right_axis.magnitude_squared() > 1e-6f)
             {
                 const Vector3 new_right = right_axis.normalized();
-                const Vector3 new_up = new_right.cross(forward);
-                matrix->m[0][0] = new_right.x;
-                matrix->m[1][0] = new_right.y;
-                matrix->m[2][0] = new_right.z;
-                matrix->m[0][1] = forward.x;
-                matrix->m[1][1] = forward.y;
-                matrix->m[2][1] = forward.z;
-                matrix->m[0][2] = new_up.x;
-                matrix->m[1][2] = new_up.y;
-                matrix->m[2][2] = new_up.z;
+                write.right = new_right;
+                write.forward = forward;
+                write.up = new_right.cross(forward);
+                write.rebuild_basis = true;
             }
         }
 
-        // The lens near plane (see camera/lens.hpp), measured from the final pose written above.
-        apply_lens_near_plane(camera, *matrix, arm_after_collision, view_blend, delta_time, step.repeat_build);
+        // The lens near plane (see camera/lens.hpp), measured from the final pose decided above; the near corner then
+        // scales by it as a whole.
+        if (const std::optional<float> near_plane =
+                plan_live_lens_near(write, committed_near_corner(frustum, write), arm_after_collision, view_blend,
+                                    delta_time, step.repeat_build))
+        {
+            write.near_scale = *near_plane / frustum.near_corner[1];
+            write.near_override = true;
+        }
 
         // People and animals at the lens fade instead of being cut open by the near plane (see
         // camera/npc_lens_fade.hpp), once per frame from the final pose. The near corner's ratios are the frustum's
         // half-angle tangents, whatever scale the near plane gave it.
         if (!step.repeat_build)
         {
-            const auto *near_corner = reinterpret_cast<const float *>(camera + Constants::CCAMERA_NEAR_CORNER_OFFSET);
+            const std::array<float, 3> near_corner = committed_near_corner(frustum, write);
             NpcLensFadeInput npc{};
-            npc.view.position = {matrix->m[0][3], matrix->m[1][3], matrix->m[2][3]};
-            npc.view.right = {matrix->m[0][0], matrix->m[1][0], matrix->m[2][0]};
-            npc.view.forward = {matrix->m[0][1], matrix->m[1][1], matrix->m[2][1]};
-            npc.view.up = {matrix->m[0][2], matrix->m[1][2], matrix->m[2][2]};
+            npc.view.position = {write.position.x, write.position.y, write.position.z};
+            npc.view.right = {write.right.x, write.right.y, write.right.z};
+            npc.view.forward = {write.forward.x, write.forward.y, write.forward.z};
+            npc.view.up = {write.up.x, write.up.y, write.up.z};
             npc.view.tan_half_width = near_corner[1] > 1e-6f ? std::fabs(near_corner[0] / near_corner[1]) : 0.0f;
             npc.view.tan_half_height = near_corner[1] > 1e-6f ? std::fabs(near_corner[2] / near_corner[1]) : 0.0f;
             npc.player_entity = rig.entity;
@@ -1316,6 +1317,9 @@ namespace TPVCamera
                           view_blend > 0.0f && npc.view.tan_half_width > 0.0f;
             update_npc_lens_fade(npc);
         }
+
+        // The build's one write into the camera: the matrix, the FOV and the cull edges, the near corner.
+        commit_view(camera, write);
 
         // Publish the rendered camera pose + crosshair direction for the camera-space interaction hook
         // (interaction_hook.cpp). The player use-cone is eye-anchored and never reads the render camera, so
