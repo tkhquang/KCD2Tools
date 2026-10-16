@@ -5,8 +5,8 @@
  *
  * @details The arm runs from the pivot (a safe point inside the player) to where the rig puts the camera. Each object
  *          the arm meets is classed by its camera rule (see Rules::Behaviour). Terrain, buildings and their wall, door
- *          and window pieces, walls, rocks, and anything that matches no scanned render node stop the camera: it pulls in
- *          at once to just short of the surface and eases back out once the obstruction clears, so the camera stays
+ *          and window pieces, walls, rocks, and anything that matches no scanned render node stop the camera: it pulls
+ *          in at once to just short of the surface and eases back out once the obstruction clears, so the camera stays
  *          inside the room the player stands in. A prop (a fence, a cart, a lamp), a bush or a tree is stepped past
  *          instead when UseOccluderFade is on, and a prop dithers out, so the camera keeps its distance rather than
  *          jumping in front of each prop and back. RWI_OBJTYPES_CAMERA excludes living entities, so the player and

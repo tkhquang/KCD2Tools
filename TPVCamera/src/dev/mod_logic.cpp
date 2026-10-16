@@ -11,6 +11,7 @@
  */
 
 #include "constants.hpp"
+#include "frame_recorder.hpp"
 #include "hook_profile.hpp"
 #include "see_through_trace.hpp"
 #include "protocol.h"
@@ -181,6 +182,26 @@ namespace
         }
     }
 #endif
+
+    /**
+     * @brief Writes the camera collision frames recorded under [Debug] RecordFrames beside the log as
+     *        KCD2_TPVCamera_frames_genNNNN.tpvrec, for the offline replay. A failure is logged and stays here.
+     */
+    void export_recorded_frames() noexcept
+    {
+        char directory[MAX_PATH]{};
+        if (!module_directory(directory))
+        {
+            return;
+        }
+        char path[MAX_PATH]{};
+        (void)std::snprintf(path, sizeof(path), "%sKCD2_TPVCamera_frames_gen%04llu.tpvrec", directory,
+                            static_cast<unsigned long long>(s_generation_id));
+        if (!TPVCamera::FrameRecorder::export_after_rundown(path))
+        {
+            (void)DMK::log().try_log(DMK::LogLevel::Warning, "[DEV] Recorded frame export failed: {}", path);
+        }
+    }
 
     /**
      * @brief Tears the mod down and latches a permanent failure.
@@ -392,6 +413,8 @@ extern "C"
             // Every hook has retired and drained, so no thread writes the aggregates any more.
             export_hook_profile();
 #endif
+            // And no camera frame appends to the recorded collision frames.
+            export_recorded_frames();
 
             // Ordered Session teardown can retain the XInput chain, so the verdict reads the pins after it.
             s_session.reset();

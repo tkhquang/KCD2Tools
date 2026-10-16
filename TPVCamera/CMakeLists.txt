@@ -196,7 +196,8 @@ file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/default_rules.inc" 
 # fence wall policy and the camera rules parser and classifier. No <windows.h>, no DetourModKit and no engine read, so
 # the local tests link it as it ships. Its own sources see no DetourModKit include path: a core source that reaches for
 # one fails to compile. The mod targets and the tests link it; it builds once for both.
-add_library(tpv_core STATIC src/core/collision/arm.cpp src/core/collision/fan.cpp src/core/rules/camera_rules.cpp)
+add_library(tpv_core STATIC src/core/collision/arm.cpp src/core/collision/fan.cpp src/core/collision/probe_record.cpp
+  src/core/rules/camera_rules.cpp)
 target_include_directories(tpv_core PUBLIC src)
 target_compile_options(tpv_core PRIVATE /W4 $<$<CONFIG:Release>:/O2 /Gy /Gw>)
 
@@ -290,7 +291,8 @@ else()
 
   # Logic DLL: all mod logic plus the exported Init/Shutdown entry points.
   # The twin clone R&D (src/dev/twin_clone/) is a read-only dry run that only the DEV logic DLL builds.
-  add_library(${PROJECT_NAME}-logic SHARED ${COMMON_SOURCES} src/dev/mod_logic.cpp src/dev/twin_clone/twin_clone.cpp)
+  add_library(${PROJECT_NAME}-logic SHARED ${COMMON_SOURCES} src/dev/mod_logic.cpp src/dev/twin_clone/twin_clone.cpp
+  src/dev/frame_recorder.cpp)
   configure_logic_target(${PROJECT_NAME}-logic)
   target_compile_definitions(${PROJECT_NAME}-logic PRIVATE TPVCAMERA_DEV_BUILD)
   set_target_properties(${PROJECT_NAME}-logic PROPERTIES

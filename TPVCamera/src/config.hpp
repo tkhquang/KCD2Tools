@@ -273,6 +273,9 @@ namespace TPVCamera
         // the mod never reads) at startup, and again each time an INI reload turns it on (see export_built_in in
         // camera_rules_files.hpp).
         std::atomic<bool> export_rules{false};
+        // DEV builds only ([Debug] RecordFrames, not in the shipped INI): record the camera collision of every frame
+        // for the offline replay (dev/frame_recorder.hpp).
+        std::atomic<bool> record_frames{false};
     };
 
     /** @brief Returns the process-wide live (atomic) settings. */
