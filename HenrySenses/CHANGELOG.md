@@ -2,6 +2,12 @@
 
 All notable changes to the HenrySenses mod will be documented in this file.
 
+## [1.1.0] - HDR and Third-Person Camera Fixes
+
+- Fixed highlights not showing with HDR turned on in the game's settings.
+- Fixed outlines turning into markers on items inside the radius while a third-person camera sits behind Henry.
+- Fixed the game preparing the outline shader again at every start.
+
 ## [1.0.1] - Highlights Reach the Full Radius
 
 - Fixed small items such as food, tankards and dice only being highlighted up close.
@@ -19,5 +25,6 @@ All notable changes to the HenrySenses mod will be documented in this file.
 - Filter stolen, empty, locked and hostile targets using the game's own checks.
 - Add optional sparkles, glow or a tinted focus effect.
 
+[1.1.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/HenrySenses-v1.1.0
 [1.0.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/HenrySenses-v1.0.1
 [1.0.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/HenrySenses-v1.0.0
