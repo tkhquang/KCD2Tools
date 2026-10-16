@@ -54,6 +54,7 @@
 #include "aob_resolver.hpp"
 #include "config.hpp"
 #include "constants.hpp"
+#include "core/frame/channels.hpp"
 #include "game_state.hpp"
 #include "game_structures.hpp"
 #include "global_state.hpp"
@@ -248,8 +249,6 @@ namespace TPVCamera
         // The foreign ids (EPhysicsForeignIds) the impact log names besides Constants::PHYS_FOREIGN_ID_STATIC.
         constexpr int PHYS_FOREIGN_ID_TERRAIN = 0;
         constexpr int PHYS_FOREIGN_ID_FOLIAGE = 3;
-        // A seqlock read retries this often while a write is under way, then fails closed.
-        constexpr int k_seqlock_attempts = 4;
         // The landing trace: chord length (meters), how long and over how many chords it follows the arc, how close to
         // the camera's vertical plane (meters) the landing has to come, how many sideways turns it can take, and the
         // slowest launch (m/s) it traces.
@@ -450,116 +449,6 @@ namespace TPVCamera
             std::uint64_t stamp_ms{0};
         };
 
-        /**
-         * @brief Single-producer seqlock for the AimTarget.
-         * @details The main-thread frame step writes it and the Launch detour reads it on the shot's thread, so a read
-         *          must see one frame's target, never a camera from one frame and a point from the next. Same protocol
-         *          as SeqlockSnapshot (core/frame/channels.hpp): an odd sequence marks a write in progress, and a read
-         *          retries or fails closed.
-         */
-        class AimTargetChannel
-        {
-        public:
-            /** @brief Publishes @p target as valid. Main thread only. */
-            void store(const AimTarget &target) noexcept
-            {
-                const std::uint32_t seq = m_seq.load(std::memory_order_relaxed);
-                m_seq.store(seq + 1, std::memory_order_relaxed);
-                std::atomic_thread_fence(std::memory_order_release);
-                const std::array<float, k_floats> values = {
-                    target.camera.x,
-                    target.camera.y,
-                    target.camera.z,
-                    target.forward.x,
-                    target.forward.y,
-                    target.forward.z,
-                    target.point.x,
-                    target.point.y,
-                    target.point.z,
-                    target.eye.x,
-                    target.eye.y,
-                    target.eye.z,
-                    // The distance comes last, at index 12: load() decodes the floats by their index.
-                    target.distance,
-                };
-                for (std::size_t i = 0; i < k_floats; ++i)
-                {
-                    m_values[i].store(values[i], std::memory_order_relaxed);
-                }
-                m_hit.store(target.hit, std::memory_order_relaxed);
-                m_eye_valid.store(target.eye_valid, std::memory_order_relaxed);
-                m_stamp.store(target.stamp_ms, std::memory_order_relaxed);
-                m_valid.store(true, std::memory_order_relaxed);
-                std::atomic_thread_fence(std::memory_order_release);
-                m_seq.store(seq + 2, std::memory_order_relaxed);
-            }
-
-            /**
-             * @brief Copies the published target into @p out.
-             * @return False when no target is published, or when no tear-free copy was read within the retry bound.
-             *         @p out is then untouched.
-             */
-            [[nodiscard]] bool load(AimTarget &out) const noexcept
-            {
-                for (int attempt = 0; attempt < k_seqlock_attempts; ++attempt)
-                {
-                    const std::uint32_t before = m_seq.load(std::memory_order_acquire);
-                    if (before & 1u)
-                    {
-                        continue;
-                    }
-                    std::array<float, k_floats> values{};
-                    for (std::size_t i = 0; i < k_floats; ++i)
-                    {
-                        values[i] = m_values[i].load(std::memory_order_relaxed);
-                    }
-                    const bool hit = m_hit.load(std::memory_order_relaxed);
-                    const bool eye_valid = m_eye_valid.load(std::memory_order_relaxed);
-                    const std::uint64_t stamp = m_stamp.load(std::memory_order_relaxed);
-                    const bool valid = m_valid.load(std::memory_order_relaxed);
-                    std::atomic_thread_fence(std::memory_order_acquire);
-                    if (m_seq.load(std::memory_order_relaxed) != before)
-                    {
-                        continue;
-                    }
-                    if (!valid)
-                    {
-                        return false;
-                    }
-                    out.camera = Vec3f{values[0], values[1], values[2]};
-                    out.forward = Vec3f{values[3], values[4], values[5]};
-                    out.point = Vec3f{values[6], values[7], values[8]};
-                    out.eye = Vec3f{values[9], values[10], values[11]};
-                    out.distance = values[12];
-                    out.hit = hit;
-                    out.eye_valid = eye_valid;
-                    out.stamp_ms = stamp;
-                    return true;
-                }
-                return false;
-            }
-
-            /** @brief Withdraws the published target. Main thread only. */
-            void invalidate() noexcept
-            {
-                const std::uint32_t seq = m_seq.load(std::memory_order_relaxed);
-                m_seq.store(seq + 1, std::memory_order_relaxed);
-                std::atomic_thread_fence(std::memory_order_release);
-                m_valid.store(false, std::memory_order_relaxed);
-                std::atomic_thread_fence(std::memory_order_release);
-                m_seq.store(seq + 2, std::memory_order_relaxed);
-            }
-
-        private:
-            static constexpr std::size_t k_floats = 13;
-            std::atomic<std::uint32_t> m_seq{0};
-            std::array<std::atomic<float>, k_floats> m_values{};
-            std::atomic<bool> m_hit{false};
-            std::atomic<bool> m_eye_valid{false};
-            std::atomic<std::uint64_t> m_stamp{0};
-            std::atomic<bool> m_valid{false};
-        };
-
         /** @brief A distraction stone held ready on one previewed frame and the throw the preview predicted from it. */
         struct DecoyPose
         {
@@ -572,91 +461,6 @@ namespace TPVCamera
             Vec3f predicted_dir{};
             Vec3f predicted_landing{};
             bool landed{false};
-        };
-
-        /**
-         * @brief Single-producer seqlock for the DecoyPose, with the AimTargetChannel protocol.
-         * @details The frame step writes it and the stone's Launch reads it on the throw's thread, so a read sees one
-         *          frame's held spot and prediction, never the held spot of one frame with the prediction of the next.
-         */
-        class DecoyChannel
-        {
-        public:
-            /** @brief Publishes @p pose. Main thread only. */
-            void store(const DecoyPose &pose) noexcept
-            {
-                const std::uint32_t seq = m_seq.load(std::memory_order_relaxed);
-                m_seq.store(seq + 1, std::memory_order_relaxed);
-                std::atomic_thread_fence(std::memory_order_release);
-                const std::array<float, k_floats> values = {
-                    pose.held.x,
-                    pose.held.y,
-                    pose.held.z,
-                    pose.yaw,
-                    pose.predicted_from.x,
-                    pose.predicted_from.y,
-                    pose.predicted_from.z,
-                    pose.predicted_dir.x,
-                    pose.predicted_dir.y,
-                    pose.predicted_dir.z,
-                    pose.predicted_landing.x,
-                    pose.predicted_landing.y,
-                    pose.predicted_landing.z,
-                };
-                for (std::size_t i = 0; i < k_floats; ++i)
-                {
-                    m_values[i].store(values[i], std::memory_order_relaxed);
-                }
-                m_decoy.store(pose.decoy, std::memory_order_relaxed);
-                m_landed.store(pose.landed, std::memory_order_relaxed);
-                std::atomic_thread_fence(std::memory_order_release);
-                m_seq.store(seq + 2, std::memory_order_relaxed);
-            }
-
-            /**
-             * @brief Copies the published pose into @p out.
-             * @return False when no tear-free copy was read within the retry bound. @p out is then untouched. Before
-             *         the first store, the copy is a pose of no stone (decoy 0).
-             */
-            [[nodiscard]] bool load(DecoyPose &out) const noexcept
-            {
-                for (int attempt = 0; attempt < k_seqlock_attempts; ++attempt)
-                {
-                    const std::uint32_t before = m_seq.load(std::memory_order_acquire);
-                    if (before & 1u)
-                    {
-                        continue;
-                    }
-                    std::array<float, k_floats> values{};
-                    for (std::size_t i = 0; i < k_floats; ++i)
-                    {
-                        values[i] = m_values[i].load(std::memory_order_relaxed);
-                    }
-                    const std::uintptr_t decoy = m_decoy.load(std::memory_order_relaxed);
-                    const bool landed = m_landed.load(std::memory_order_relaxed);
-                    std::atomic_thread_fence(std::memory_order_acquire);
-                    if (m_seq.load(std::memory_order_relaxed) != before)
-                    {
-                        continue;
-                    }
-                    out.decoy = decoy;
-                    out.held = Vec3f{values[0], values[1], values[2]};
-                    out.yaw = values[3];
-                    out.predicted_from = Vec3f{values[4], values[5], values[6]};
-                    out.predicted_dir = Vec3f{values[7], values[8], values[9]};
-                    out.predicted_landing = Vec3f{values[10], values[11], values[12]};
-                    out.landed = landed;
-                    return true;
-                }
-                return false;
-            }
-
-        private:
-            static constexpr std::size_t k_floats = 13;
-            std::atomic<std::uint32_t> m_seq{0};
-            std::array<std::atomic<float>, k_floats> m_values{};
-            std::atomic<std::uintptr_t> m_decoy{0};
-            std::atomic<bool> m_landed{false};
         };
 
         /** @brief One player shot as Launch saw it. */
@@ -891,9 +695,31 @@ namespace TPVCamera
         std::atomic<float> s_decoy_release_right{k_default_decoy_release.x};
         std::atomic<float> s_decoy_release_forward{k_default_decoy_release.y};
         std::atomic<float> s_decoy_release_up{k_default_decoy_release.z};
-        DecoyChannel s_decoy_pose;
+        // The stone held ready on the last previewed frame and the throw the preview predicted from it. Thread: the
+        // frame step publishes it; the stone's Launch reads it on the throw's thread, so a read sees one frame's held
+        // spot and prediction, never the held spot of one frame with the prediction of the next. Before the first
+        // publish it is a pose of no stone (decoy 0).
+        SeqlockSnapshot<DecoyPose> s_decoy_pose;
 
-        AimTargetChannel s_target;
+        // The crosshair target of the last frame, or none. Thread: the frame step publishes it; the Launch detour reads
+        // it on the shot's thread, so a read sees one frame's target, never a camera from one frame and a point from
+        // the next.
+        SeqlockSnapshot<std::optional<AimTarget>> s_target;
+
+        /**
+         * @brief Copies the published crosshair target into @p out.
+         * @return False when none is published or the read could not complete; @p out is untouched then.
+         */
+        [[nodiscard]] bool load_target(AimTarget &out) noexcept
+        {
+            std::optional<AimTarget> target;
+            if (!s_target.try_load(target) || !target.has_value())
+            {
+                return false;
+            }
+            out = *target;
+            return true;
+        }
         RecordRing<ShotRecord> s_shots;
         RecordRing<ImpactRecord> s_impacts;
         // The projectiles whose impact is wanted, so the collision detour ignores every other arrow. publish_shot
@@ -1738,7 +1564,7 @@ namespace TPVCamera
             s_pierceability.store(shot.pierceability, std::memory_order_relaxed);
 
             AimTarget target{};
-            shot.target_valid = s_target.load(target) && target_fresh(target, shot.launch_ms);
+            shot.target_valid = load_target(target) && target_fresh(target, shot.launch_ms);
             if (shot.target_valid)
             {
                 shot.target = target;
@@ -1927,7 +1753,7 @@ namespace TPVCamera
                 DMK::memory::read<std::array<float, 3>>(DMK::Address{reinterpret_cast<std::uintptr_t>(pos)});
             const auto heading =
                 DMK::memory::read<std::array<float, 3>>(DMK::Address{reinterpret_cast<std::uintptr_t>(dir)});
-            if (!launch || !heading || !s_decoy_pose.load(pose) || pose.decoy != projectile)
+            if (!launch || !heading || !s_decoy_pose.try_load(pose) || pose.decoy != projectile)
             {
                 return;
             }
@@ -1989,7 +1815,7 @@ namespace TPVCamera
             }
             AimTarget target{};
             const std::optional<LaunchInputs> in = read_launch_inputs_guarded(projectile, pos, velocity);
-            if (!in || !s_target.load(target) || !target_fresh(target, GetTickCount64()))
+            if (!in || !load_target(target) || !target_fresh(target, GetTickCount64()))
             {
                 return false;
             }
@@ -2303,7 +2129,7 @@ namespace TPVCamera
             {
                 if (s_was_valid)
                 {
-                    s_target.invalidate();
+                    s_target.publish(std::nullopt);
                     s_was_valid = false;
                 }
                 return;
@@ -2362,7 +2188,7 @@ namespace TPVCamera
             target.eye_valid = eye_valid;
             target.distance = (point - camera).magnitude();
             target.stamp_ms = now_ms;
-            s_target.store(target);
+            s_target.publish(target);
             s_was_valid = true;
 
             const std::uintptr_t collider = hit ? hit->m_collider : 0;
@@ -3725,7 +3551,7 @@ namespace TPVCamera
             pose.predicted_dir = to_vec3f(dir);
             pose.predicted_landing = landing ? to_vec3f(*landing) : Vec3f{};
             pose.landed = landing.has_value();
-            s_decoy_pose.store(pose);
+            s_decoy_pose.publish(pose);
             s_decoy_held.store(stone.decoy, std::memory_order_relaxed);
 
             if (session != nullptr)
@@ -3827,7 +3653,7 @@ namespace TPVCamera
         // This frame's crosshair target, when there is one (third person, a missile weapon or a distraction stone in
         // hand). update_aim_target either stores this frame's target or withdraws it, so a loaded target is fresh.
         AimTarget target{};
-        const bool fresh = s_target.load(target);
+        const bool fresh = load_target(target);
         // The trail's impact ring and the stone preview face the rendered camera: the published pose, or in first
         // person the eye itself.
         Vector3 view = eye;
