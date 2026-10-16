@@ -1,7 +1,7 @@
 /**
  * @file dev/frame_recorder.hpp
- * @brief DEV recording of the camera collision for the offline replay (core/collision/probe_record.hpp): while
- *        [Debug] RecordFrames is on, each camera frame's collision is recorded into a ring of the last
+ * @brief DEV recording of the camera frames for the offline replay (core/collision/probe_record.hpp): while
+ *        [Debug] RecordFrames is on, each camera frame's rig, collision and lens are recorded into a ring of the last
  *        k_ring_bytes, written beside the log when the generation shuts down.
  */
 #ifndef TPVCAMERA_DEV_FRAME_RECORDER_HPP
@@ -9,6 +9,7 @@
 
 #include "core/collision/arm.hpp"
 #include "core/lens/lens_plan.hpp"
+#include "core/rig/rig_stage.hpp"
 
 #include <optional>
 
@@ -16,6 +17,10 @@ namespace TPVCamera::FrameRecorder
 {
     /** @brief Whether [Debug] RecordFrames is on. */
     [[nodiscard]] bool recording() noexcept;
+
+    /** @brief run_rig() on @p port, recorded into the ring. Main thread only. */
+    [[nodiscard]] bool rig(CameraState &cam, const RigParams &params, const RigInput &in, RigPort &port,
+                           RigFrame &frame);
 
     /** @brief resolve_camera_collision() on @p probe, recorded into the ring. Main thread only. */
     [[nodiscard]] Vector3 arm(CollisionState &state, const CollisionInput &in, const CollisionParams &params,

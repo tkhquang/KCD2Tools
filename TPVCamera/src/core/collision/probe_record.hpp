@@ -14,7 +14,8 @@
  *          ShoulderInput), CollisionParams, CollisionState before, the probe calls (each a Call byte, its arguments
  *          and its answer), Call::End, the output (Vector3, or float), and CollisionState after. A lens frame is
  *          FrameKind::Lens, LensInput, LensState before, the probe calls, Call::End, the output (a has-value byte and
- *          a float) and LensState after.
+ *          a float) and LensState after. A rig frame is FrameKind::Rig and the rest core/rig/rig_record.hpp
+ *          describes.
  */
 #ifndef TPVCAMERA_CORE_COLLISION_PROBE_RECORD_HPP
 #define TPVCAMERA_CORE_COLLISION_PROBE_RECORD_HPP
@@ -22,6 +23,7 @@
 #include "core/collision/arm.hpp"
 #include "core/collision/world_probe.hpp"
 #include "core/lens/lens_plan.hpp"
+#include "core/rig/rig_stage.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -34,7 +36,10 @@
 namespace TPVCamera::ProbeRecord
 {
     inline constexpr std::uint32_t k_magic = 0x52565054u; // "TPVR"
-    inline constexpr std::uint32_t k_version = 2;
+    inline constexpr std::uint32_t k_version = 3;
+
+    /** @brief The bytes of the rig's carry-over in a recording (core/rig/rig_record.cpp). */
+    [[nodiscard]] std::uint32_t rig_carry_bytes() noexcept;
 
     /** @brief The file header: the format and the sizes of the raw structs the frames hold. */
     struct Header
@@ -48,7 +53,10 @@ namespace TPVCamera::ProbeRecord
         std::uint32_t hit_size = sizeof(RayHit);
         std::uint32_t lens_input_size = sizeof(LensInput);
         std::uint32_t lens_state_size = sizeof(LensState);
-        std::uint32_t reserved = 0;
+        std::uint32_t rig_params_size = sizeof(RigParams);
+        std::uint32_t rig_input_size = sizeof(RigInput);
+        std::uint32_t rig_frame_size = sizeof(RigFrame);
+        std::uint32_t rig_carry_size = rig_carry_bytes();
 
         [[nodiscard]] bool matches_build() const noexcept
         {
@@ -60,7 +68,10 @@ namespace TPVCamera::ProbeRecord
     static_assert(std::is_trivially_copyable_v<CollisionInput> && std::is_trivially_copyable_v<ShoulderInput> &&
                       std::is_trivially_copyable_v<CollisionParams> && std::is_trivially_copyable_v<CollisionState> &&
                       std::is_trivially_copyable_v<RayHit> && std::is_trivially_copyable_v<LensInput> &&
-                      std::is_trivially_copyable_v<LensState>,
+                      std::is_trivially_copyable_v<LensState> && std::is_trivially_copyable_v<RigParams> &&
+                      std::is_trivially_copyable_v<RigInput> && std::is_trivially_copyable_v<RigFrame> &&
+                      std::is_trivially_copyable_v<ZoomHeld> && std::is_trivially_copyable_v<EyePose> &&
+                      std::is_trivially_copyable_v<LookReading> && std::is_trivially_copyable_v<BodyReading>,
                   "A recording holds these structs as raw bytes.");
 
     /** @brief Which collision a frame record ran. */
@@ -69,6 +80,7 @@ namespace TPVCamera::ProbeRecord
         Arm = 1,
         Shoulder = 2,
         Lens = 3,
+        Rig = 4,
     };
 
     /** @brief One recorded probe call. */
@@ -263,6 +275,7 @@ namespace TPVCamera::ProbeRecord
         int arm_frames = 0;
         int shoulder_frames = 0;
         int lens_frames = 0;
+        int rig_frames = 0;
         long long calls = 0;
         std::string failure; // the first divergence: frame, call and what differed
     };
