@@ -147,7 +147,7 @@ namespace TPVCamera
         // Ranged (non-preset, always-live): third-person shots and distraction stones aimed at the crosshair point,
         // the flight trail, the aim preview and the per-weapon drop.
         ranged.bind<bool>("AimAtCrosshair", "Aim At Crosshair", s.ranged_aim_at_crosshair, true);
-        ranged.bind<float>("MaxAimCorrection", "Max Aim Correction", s.ranged_max_correction, 45.0f);
+        ranged.bind<float>("MaxAimCorrection", "Max Aim Correction", s.ranged_max_correction, 90.0f);
         ranged.bind<bool>("ShowProjectileTrail", "Show Projectile Trail", s.ranged_show_trail, false);
         ranged.bind<float>("ProjectileTrailSeconds", "Projectile Trail Seconds", s.ranged_trail_seconds, 8.0f);
         ranged.bind<bool>("ShowAimPreview", "Show Aim Preview", s.ranged_show_aim_preview, false);

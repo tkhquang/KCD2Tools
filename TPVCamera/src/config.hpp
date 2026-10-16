@@ -184,7 +184,7 @@ namespace TPVCamera
         // landing in line with the crosshair. ranged_show_trail draws each player shot's flight path, the crosshair
         // point and the impact for ranged_trail_seconds.
         std::atomic<bool> ranged_aim_at_crosshair{true};
-        std::atomic<float> ranged_max_correction{45.0f};
+        std::atomic<float> ranged_max_correction{90.0f};
         std::atomic<bool> ranged_show_trail{false};
         std::atomic<float> ranged_trail_seconds{8.0f};
         // Drop of the player's own shots per weapon, in either view, as a multiple of the game's gravity (the same for
