@@ -40,14 +40,6 @@ namespace TPVCamera
     // k_lens_near_max) is held this far short of the ground or a building.
     constexpr float k_lens_near_margin = 0.05f;
 
-    /** @brief What a camera probe does with a physics hit on its way along a line. */
-    enum class ProbeVerdict : std::uint8_t
-    {
-        Stop,        // terrain, a structure where it draws something, or anything that matches no scanned node
-        Undrawn,     // a structure's collision with nothing drawn there (a tent's canvas): walked past
-        PassThrough, // a prop, a frame or a plant: the arm steps past it, the lens near plane cuts it
-    };
-
     /**
      * @brief Classes a physics hit for a camera probe: the arm walk and the lens clearance share this rule.
      * @details The hit's collider is matched to its scanned render node (through its foreign link or, for baked level

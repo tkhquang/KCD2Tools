@@ -18,28 +18,6 @@
 
 namespace TPVCamera
 {
-    /** @brief A render node the camera fades this frame, how it was found, and whether the camera is in it. */
-    struct FadeEntry
-    {
-        void *node = nullptr;
-        char source = '?';   // 'a' a prop the arm stepped past, 's' on a sightline
-        bool buried = false; // the sightline test found the camera buried in it (a prop or a bush)
-        bool inside = false; // the arm walk found the camera inside its physics
-    };
-
-    /** @brief One hit the camera walk met along the arm, for the walk trace. */
-    struct WalkStep
-    {
-        uintptr_t collider = 0;
-        void *node = nullptr; // the scanned render node it matched, or nullptr
-        float distance = 0.0f;
-        Rules::Behaviour cls = Rules::Behaviour::Collide;
-        // 'p' stepped past, 'c' the collision, 't' terrain, 'r' re-hit and walked past, 'x' re-hit too often, 'u' a
-        // structure's collision with nothing drawn there, walked past, 'g' a collider that matches nothing drawn
-        // while part of the fan is clear, walked past (UseBeamGate)
-        char what = '?';
-    };
-
     /** @brief Notes @p motion, the result of one collision ease step, for the walk trace's pull-in and release ages. */
     void note_collision_motion(EaseMotion motion) noexcept;
 

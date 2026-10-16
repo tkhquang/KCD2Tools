@@ -11,6 +11,7 @@
 #ifndef TPVCAMERA_PHYSICS_RAYCAST_HPP
 #define TPVCAMERA_PHYSICS_RAYCAST_HPP
 
+#include "core/collision/probe_types.hpp"
 #include "math_utils.hpp"
 #include "query_ledger.hpp"
 
@@ -20,32 +21,6 @@
 
 namespace TPVCamera
 {
-
-    /**
-     * @struct RayHit
-     * @brief Decoded subset of the engine ray_hit for a single nearest hit.
-     */
-    struct RayHit
-    {
-        /// World distance from the ray origin to the hit.
-        float m_distance{0.0f};
-        /// World-space hit position.
-        Vector3 m_point{};
-        /// Surface normal at the hit.
-        Vector3 m_normal{};
-        /// IPhysicalEntity* of the entity hit.
-        uintptr_t m_collider{0};
-        /**
-         * @brief Non-zero when the hit is the global TERRAIN heightmap (ray_hit.bTerrain).
-         * @details Zero for a brush. This is the engine's own ground flag, used
-         *          to always block the terrain so the camera cannot clip under the world.
-         */
-        int m_terrain{0};
-        /// The geometry part of the collider hit (ray_hit.ipart).
-        int m_part{0};
-        /// The mapped surface type of the hit (ray_hit.surface_idx).
-        int m_surface{0};
-    };
 
     /**
      * @brief Resolves RayWorldIntersection and the p_physical_world slot.
@@ -73,22 +48,6 @@ namespace TPVCamera
                                                                const Vector3 &direction, int objtypes,
                                                                unsigned int flags, const uintptr_t *skip_ents = nullptr,
                                                                int n_skip_ents = 0);
-
-    /// The rays of ray_fan_sweep(): its centre and four offsets by the radius.
-    inline constexpr int k_fan_rays = 5;
-
-    /**
-     * @brief What each ray of a fan met, kept across the casts of one walk along one sweep (see ray_fan_sweep()).
-     * @details A walk casts the fan again after it steps past a hit, from the same start with one more collider skipped
-     *          or from a little past the hit. A ray that met nothing meets nothing on any later part of its line, and a
-     *          ray whose first hit lies past the new start on a collider still not skipped meets that same hit, so only
-     *          the other rays are cast again. Distances are measured from the walk's start.
-     */
-    struct FanMemory
-    {
-        bool cast[k_fan_rays]{};               // the ray has been cast in this walk
-        std::optional<RayHit> hit[k_fan_rays]; // its first hit then, or none along the rest of the sweep
-    };
 
     /**
      * @brief Multi-ray "fan" probe of a tube along the sweep, built on RayWorldIntersection.
