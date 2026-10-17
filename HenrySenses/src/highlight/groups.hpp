@@ -197,7 +197,10 @@ namespace HenrySenses
 
     /**
      * @struct GroupActivation
-     * @brief A group's switch state, flipped by its hotkey on the input poll thread.
+     * @brief A group's switch state, flipped by its hotkey on the input poll thread, or by the main-thread tick for a
+     *        Pulse or Toggle press that waits for Key.HoldTime (fire_held_hotkeys()).
+     * @details Each mode's binding writes only its own due time, so a waiting press acts as the mode it was pressed
+     *          in even when an INI reload changes the group's mode before it acts.
      */
     struct GroupActivation
     {
@@ -211,8 +214,12 @@ namespace HenrySenses
         std::atomic<std::int64_t> off_started_ms{0};
         /// Toggle mode: switched on.
         std::atomic<bool> toggled{false};
-        /// Hold mode: the key is down.
-        std::atomic<bool> held{false};
+        /// Hold mode: steady-clock milliseconds from which the held key shows the group, 0 while the key is up.
+        std::atomic<std::int64_t> hold_due_ms{0};
+        /// Pulse mode with a Key.HoldTime: steady-clock milliseconds at which the held key starts a pulse, 0 for none.
+        std::atomic<std::int64_t> pulse_due_ms{0};
+        /// Toggle mode with a Key.HoldTime: steady-clock milliseconds at which the held key switches, 0 for none.
+        std::atomic<std::int64_t> toggle_due_ms{0};
     };
 
     /**
@@ -248,6 +255,8 @@ namespace HenrySenses
          * analog triggers always reach the game.
          */
         bool consume{false};
+        /// Key.HoldTime (own or [Settings] Key.HoldTime): seconds the key must stay down before it acts (0 = at once).
+        float hold_time{0.0f};
         GroupMode mode{GroupMode::Pulse};
         /// Seconds a pulse stays at full strength.
         float duration{5.0f};
@@ -335,6 +344,16 @@ namespace HenrySenses
      * @return A snapshot that stays valid while held; never null after initialize_groups().
      */
     [[nodiscard]] std::shared_ptr<const GroupSet> current_groups() noexcept;
+
+    /**
+     * @brief Acts on every Pulse or Toggle press whose key was held for its group's Key.HoldTime.
+     * @details The input engine reports only key edges, so such a key is a Hold binding whose down edge stores the
+     *          press's due time (GroupActivation::pulse_due_ms, toggle_due_ms). This acts on each due press once.
+     *          Hold mode needs no call: the group's intensity reads GroupActivation::hold_due_ms directly.
+     * @param now Steady milliseconds.
+     * @note Main thread, once per tick, before the groups' intensities are read.
+     */
+    void fire_held_hotkeys(std::int64_t now) noexcept;
 
     /** @brief Logs every group with its state (the state report). */
     void log_groups();

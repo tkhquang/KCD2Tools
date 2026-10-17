@@ -190,6 +190,7 @@ namespace HenrySenses
             "H,Gamepad_RB+Gamepad_Start"
         );
         general.bind<bool>("Key.Consume", "Key Consume", s.key_consume, true);
+        general.bind<float>("Key.HoldTime", "Key Hold Time", s.key_hold_time, 0.0f);
         general.bind_parsed("Mode", "Mode", s.mode, parse_mode, "Pulse");
         general.bind<float>("Duration", "Duration", s.duration, 5.0f);
         general.bind<float>("FadeOut", "Fade Out", s.fade_out, 1.0f);
