@@ -490,6 +490,7 @@ namespace HenrySenses
             group.name = section.name;
             group.key_text = default_key();
             group.consume = s.key_consume.load(std::memory_order_relaxed);
+            group.hold_time = s.key_hold_time.load(std::memory_order_relaxed);
             group.mode = static_cast<GroupMode>(s.mode.load(std::memory_order_relaxed));
             group.duration = s.duration.load(std::memory_order_relaxed);
             group.fade_out = s.fade_out.load(std::memory_order_relaxed);
@@ -614,6 +615,19 @@ namespace HenrySenses
                     }
                     group.consume = consume.value_or(group.consume);
                 }
+                else if (iequals(key, "Key.HoldTime"))
+                {
+                    if (const std::optional<float> hold_time = parse_float(value); hold_time.has_value())
+                    {
+                        group.hold_time = *hold_time;
+                    }
+                    else if (!value.empty())
+                    {
+                        problems.push_back(
+                            std::format("[Highlight.{}] Key.HoldTime: '{}' is not a number", group.name, value)
+                        );
+                    }
+                }
                 else if (iequals(key, "Mode"))
                 {
                     const std::optional<GroupMode> mode = parse_group_mode(value);
@@ -704,11 +718,24 @@ namespace HenrySenses
                     problems.push_back(std::format("[Highlight.{}] unknown key '{}'", group.name, key));
                 }
             }
+            group.hold_time = std::clamp(group.hold_time, 0.0f, 10.0f);
             group.duration = std::clamp(group.duration, 0.5f, 600.0f);
             group.fade_out = std::clamp(group.fade_out, 0.0f, 10.0f);
             group.radius = std::clamp(group.radius, 2.0f, 100.0f);
             group.effect_scale = std::clamp(group.effect_scale, 0.1f, 10.0f);
             group.keys = parse_keys(group.key_text, group.name, problems);
+            // A wheel notch is down for one poll only, so a binding that waits for Key.HoldTime never sees it held.
+            const auto has_wheel = [](const DMK::input::KeyCombo &combo) -> bool
+            { return std::ranges::contains(combo.keys, DMK::InputSource::MouseWheel, &DMK::InputCode::source); };
+            if (group.hold_time > 0.0f && group.mode != GroupMode::Always && std::ranges::any_of(group.keys, has_wheel))
+            {
+                problems.push_back(
+                    std::format(
+                        "[Highlight.{}] Key.HoldTime: a mouse wheel key cannot be held and never acts",
+                        group.name
+                    )
+                );
+            }
             if (group.targets.empty())
             {
                 problems.push_back(std::format("[Highlight.{}] has no Targets; the group is off", group.name));
@@ -724,7 +751,7 @@ namespace HenrySenses
             for (const HighlightGroup &group : set.groups)
             {
                 text += std::format(
-                    "{}|{}|{}|{:#x}|{:#x}|{:#x}|{}|{}|{}|{}|{}|{}|{}|{:#x}|{}|{}|",
+                    "{}|{}|{}|{:#x}|{:#x}|{:#x}|{}|{}|{}|{}|{}|{}|{}|{}|{:#x}|{}|{}|",
                     lowercase(group.name),
                     group.enabled,
                     group.focus,
@@ -733,6 +760,7 @@ namespace HenrySenses
                     group.except,
                     lowercase(group.key_text),
                     group.consume,
+                    group.hold_time,
                     static_cast<int>(group.mode),
                     group.duration,
                     group.fade_out,
@@ -775,6 +803,54 @@ namespace HenrySenses
             s_hotkeys->names.clear();
         }
 
+        /** @brief The due time in which a Pulse or Toggle press with a Key.HoldTime waits for the tick. */
+        [[nodiscard]] std::atomic<std::int64_t> &press_due_ms(GroupActivation &activation, GroupMode mode) noexcept
+        {
+            return mode == GroupMode::Toggle ? activation.toggle_due_ms : activation.pulse_due_ms;
+        }
+
+        /**
+         * @brief Acts on a Pulse or Toggle press: restarts the pulse, or flips the toggle (its fade-out starts when it
+         *        goes off).
+         * @note Runs on the input poll thread, or on the main-thread tick when the key has a Key.HoldTime.
+         */
+        void fire_press(GroupActivation &activation, GroupMode mode, std::string_view name) noexcept
+        {
+            if (mode == GroupMode::Toggle)
+            {
+                const bool on = !activation.toggled.load(std::memory_order_relaxed);
+                activation.off_started_ms.store(on ? 0 : steady_ms(), std::memory_order_relaxed);
+                activation.toggled.store(on, std::memory_order_relaxed);
+                (void)DMK::log().try_log(DMK::LogLevel::Info, "Highlight.{} {}", name, on ? "ON" : "OFF");
+                return;
+            }
+            activation.pulse_started_ms.store(steady_ms(), std::memory_order_relaxed);
+            (void)DMK::log().try_log(DMK::LogLevel::Debug, "Highlight.{} pulse", name);
+        }
+
+        /**
+         * @brief Acts once on the waiting @p mode press of @p activation when @p now reaches its due time, unless the
+         *        mod is disabled.
+         * @details The exchange to 0 claims the press. An early release clears the due time first, so the exchange
+         *          fails and the press never acts.
+         */
+        void
+        fire_due_press(GroupActivation &activation, GroupMode mode, std::string_view name, std::int64_t now) noexcept
+        {
+            std::atomic<std::int64_t> &due_ms = press_due_ms(activation, mode);
+            std::int64_t due = due_ms.load(std::memory_order_relaxed);
+            if (due == 0 || now < due || !due_ms.compare_exchange_strong(due, 0, std::memory_order_relaxed))
+            {
+                return;
+            }
+            if (!settings().enabled.load(std::memory_order_relaxed))
+            {
+                (void)DMK::log().try_log(DMK::LogLevel::Debug, "Highlight.{} key ignored (mod disabled)", name);
+                return;
+            }
+            fire_press(activation, mode, name);
+        }
+
         /** @brief Registers the hotkey of every enabled group that has one. */
         void register_hotkeys(const GroupSet &set)
         {
@@ -793,27 +869,67 @@ namespace HenrySenses
                 binding.consume = group.consume;
                 const std::shared_ptr<GroupActivation> activation = group.activation;
                 const std::string name = group.name;
+                const GroupMode mode = group.mode;
+                const auto hold_ms = static_cast<std::int64_t>(group.hold_time * 1000.0f);
                 if (group.mode == GroupMode::Hold)
                 {
                     binding.trigger = DMK::input::Trigger::Hold;
                     // The release edge is always honoured, so a hold can never strand the group on.
-                    binding.on_state_change = [activation, name](bool pressed)
+                    binding.on_state_change = [activation, name, hold_ms](bool pressed)
                     {
-                        if (pressed && !settings().enabled.load(std::memory_order_relaxed))
+                        if (pressed)
                         {
-                            (void)DMK::log()
-                                .try_log(DMK::LogLevel::Debug, "Highlight.{} key ignored (mod disabled)", name);
+                            if (!settings().enabled.load(std::memory_order_relaxed))
+                            {
+                                (void)DMK::log()
+                                    .try_log(DMK::LogLevel::Debug, "Highlight.{} key ignored (mod disabled)", name);
+                                return;
+                            }
+                            activation->hold_due_ms.store(steady_ms() + hold_ms, std::memory_order_relaxed);
+                            (void)DMK::log().try_log(DMK::LogLevel::Debug, "Highlight.{} held", name);
                             return;
                         }
-                        activation->off_started_ms.store(pressed ? 0 : steady_ms(), std::memory_order_relaxed);
-                        activation->held.store(pressed, std::memory_order_relaxed);
-                        (void)DMK::log()
-                            .try_log(DMK::LogLevel::Debug, "Highlight.{} {}", name, pressed ? "held" : "released");
+                        // Only a hold that reached its due time showed the group, so only that one starts a fade-out.
+                        // A shorter one keeps the fade of an earlier hold intact.
+                        const std::int64_t now = steady_ms();
+                        const std::int64_t due = activation->hold_due_ms.load(std::memory_order_relaxed);
+                        if (due != 0 && now >= due)
+                        {
+                            activation->off_started_ms.store(now, std::memory_order_relaxed);
+                        }
+                        // Release pairs with the acquire load in the intensity read: a tick that sees the key up also
+                        // sees this fade-out start, never the one before it.
+                        activation->hold_due_ms.store(0, std::memory_order_release);
+                        (void)DMK::log().try_log(DMK::LogLevel::Debug, "Highlight.{} released", name);
+                    };
+                }
+                else if (group.hold_time > 0.0f)
+                {
+                    // The input engine reports only edges, so the down edge stores the press's due time and the
+                    // main-thread tick acts on it once that time is reached (fire_held_hotkeys).
+                    binding.trigger = DMK::input::Trigger::Hold;
+                    binding.on_state_change = [activation, mode, hold_ms](bool pressed)
+                    {
+                        std::atomic<std::int64_t> &due_ms = press_due_ms(*activation, mode);
+                        if (pressed)
+                        {
+                            // A press released at or after its due time still waits for the tick. A new press goes
+                            // only into an empty slot, so it never drops that one.
+                            std::int64_t none = 0;
+                            due_ms.compare_exchange_strong(none, steady_ms() + hold_ms, std::memory_order_relaxed);
+                            return;
+                        }
+                        // A release before the due time cancels the press. A later one leaves it for the tick, so a
+                        // key held for Key.HoldTime acts even when no tick ran between the due time and the release.
+                        std::int64_t due = due_ms.load(std::memory_order_relaxed);
+                        if (due != 0 && steady_ms() < due)
+                        {
+                            due_ms.compare_exchange_strong(due, 0, std::memory_order_relaxed);
+                        }
                     };
                 }
                 else
                 {
-                    const GroupMode mode = group.mode;
                     binding.trigger = DMK::input::Trigger::Press;
                     binding.on_press = [activation, mode, name]()
                     {
@@ -823,16 +939,7 @@ namespace HenrySenses
                                 .try_log(DMK::LogLevel::Debug, "Highlight.{} key ignored (mod disabled)", name);
                             return;
                         }
-                        if (mode == GroupMode::Toggle)
-                        {
-                            const bool on = !activation->toggled.load(std::memory_order_relaxed);
-                            activation->off_started_ms.store(on ? 0 : steady_ms(), std::memory_order_relaxed);
-                            activation->toggled.store(on, std::memory_order_relaxed);
-                            (void)DMK::log().try_log(DMK::LogLevel::Info, "Highlight.{} {}", name, on ? "ON" : "OFF");
-                            return;
-                        }
-                        activation->pulse_started_ms.store(steady_ms(), std::memory_order_relaxed);
-                        (void)DMK::log().try_log(DMK::LogLevel::Debug, "Highlight.{} pulse", name);
+                        fire_press(*activation, mode, name);
                     };
                 }
                 std::string binding_name = binding.name;
@@ -1014,7 +1121,7 @@ namespace HenrySenses
                 }
                 DMK::log().info(
                     "Groups:   {} {} [{}] color={:08X} only={:#x}+{} except={:#x}+{} style={} hideIn=[{}] "
-                    "key='{}'{} mode={} duration={:.1f} fadeOut={:.1f} radius={:.0f}{}{}",
+                    "key='{}'{}{} mode={} duration={:.1f} fadeOut={:.1f} radius={:.0f}{}{}",
                     group.name,
                     group.enabled ? "on" : "off",
                     targets,
@@ -1027,6 +1134,7 @@ namespace HenrySenses
                     state_list_text(group.gate_mask),
                     group.key_text,
                     group.consume ? " consume" : "",
+                    group.hold_time > 0.0f ? std::format(" holdTime={:.2f}", group.hold_time) : std::string{},
                     group_mode_name(group.mode),
                     group.duration,
                     group.fade_out,
@@ -1274,6 +1382,22 @@ namespace HenrySenses
         return s_groups.load(std::memory_order_acquire);
     }
 
+    void fire_held_hotkeys(std::int64_t now) noexcept
+    {
+        // The published set, not the controller's cached copy: a group that an INI reload adds has a new activation,
+        // and the cached copy can trail the reload while the controller idles.
+        const std::shared_ptr<const GroupSet> set = current_groups();
+        if (set == nullptr)
+        {
+            return;
+        }
+        for (const HighlightGroup &group : set->groups)
+        {
+            fire_due_press(*group.activation, GroupMode::Pulse, group.name, now);
+            fire_due_press(*group.activation, GroupMode::Toggle, group.name, now);
+        }
+    }
+
     void log_groups()
     {
         const std::shared_ptr<const GroupSet> set = current_groups();
@@ -1289,7 +1413,7 @@ namespace HenrySenses
                 group_mode_name(group.mode),
                 group.key_text,
                 activation.toggled.load(),
-                activation.held.load(),
+                activation.hold_due_ms.load() != 0,
                 started != 0 ? now - started : -1,
                 group.radius
             );

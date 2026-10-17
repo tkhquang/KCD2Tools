@@ -1,5 +1,3 @@
-## [Title for next release]
+## Hold-to-Activate Hotkeys
 
-- New feature
-- Bug fix
-- Improvement
+- Added `Key.HoldTime` to make a hotkey act only after you hold it for a set time, so a quick tap does nothing.

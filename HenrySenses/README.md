@@ -196,6 +196,8 @@ Set a group's `Mode` to choose how its key works:
 | `Hold` | Highlights stay visible while you hold the key. |
 | `Always` | Highlights stay on without a keypress. |
 
+`Key.HoldTime` sets how many seconds you must hold a key before it acts, so a quick tap does nothing. Pulse and Toggle act once that time passes, and Hold shows from then until you let go. The default `0` acts on the press. Mouse wheel keys cannot be held.
+
 `FadeOut` controls how many seconds they take to disappear; the default is **1 second**. `HideIn` accepts `Dialogue, Combat, Minigame` and defaults to `Dialogue`. Add `Combat` or `Minigame` to hide highlights in those situations too. Group hotkeys also work while menus are open.
 
 `Style` chooses `Outline` (edges), `Fill` (tint), `OutlineFill` (both) or `Box` (corner brackets). The shared `[Render] Style` is `OutlineFill`; Herbs overrides it with `Outline`.

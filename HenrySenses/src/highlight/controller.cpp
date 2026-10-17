@@ -349,7 +349,12 @@ namespace HenrySenses
             case GroupMode::Toggle:
                 return activation.toggled.load(std::memory_order_relaxed) ? 1.0f : after_off();
             case GroupMode::Hold:
-                return activation.held.load(std::memory_order_relaxed) ? 1.0f : after_off();
+            {
+                // Acquire pairs with the release that clears the due time on key-up, so after_off() reads the
+                // fade-out start that release stored.
+                const std::int64_t due = activation.hold_due_ms.load(std::memory_order_acquire);
+                return due != 0 && now >= due ? 1.0f : after_off();
+            }
             case GroupMode::Pulse:
             default:
                 break;
@@ -1830,6 +1835,8 @@ namespace HenrySenses
             maintain_loot_effects();
 
             const bool see_through_changed = refresh_on_see_through_change();
+            // Before the idle check, so a press that reaches its Key.HoldTime now shows on this tick.
+            fire_held_hotkeys(now);
             if (c_player != 0 && tick_can_idle(now))
             {
                 idle_tick(now);
