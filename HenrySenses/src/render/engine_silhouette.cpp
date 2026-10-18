@@ -168,16 +168,6 @@ namespace HenrySenses
         constexpr std::int64_t STAGE_LIVE_WINDOW_MS = 2000;
         // Period of the render-path statistics line (LogLevel = DEBUG).
         constexpr std::int64_t STATS_INTERVAL_MS = 5000;
-        // Upper bound of the shutdown wait for in-flight detours; a cold-cache PSO compile inside P2 or a loading
-        // stall inside P4 can hold a detour for a long time.
-        constexpr std::int64_t RUNDOWN_TIMEOUT_MS = 10000;
-        // Settle time after the counters read zero: a thread that took a patch jump just before the patch went away
-        // has not counted itself yet.
-        constexpr DWORD ENTRY_WINDOW_MS = 50;
-        // P3 in-flight stripes; P3 runs for every visible proxy on every job thread, so one shared counter would
-        // bounce a cache line between them.
-        constexpr std::size_t P3_STRIPES = 32;
-        constexpr std::size_t CACHE_LINE = 64;
         // Standard pipelines tracked per generation (the default one, plus any the game creates for extra views).
         constexpr std::size_t TRACKED_PIPELINES = 4;
         // Stash layout in the loader's persistent slots: slot 0 holds the tag, then one entry per pipeline.
@@ -349,22 +339,9 @@ namespace HenrySenses
         std::atomic<bool> s_render_faulted{false};
         std::atomic<bool> s_late_attach_failed{false};
 
-        // Threads currently inside P1, P2 or P4, for the shutdown rundown.
-        std::atomic<int> s_in_flight{0};
         // P4 bodies in progress. The unpublish request and this counter are sequentially consistent on both sides, so
         // a body the teardown thread does not wait for is one that sees the request.
         std::atomic<int> s_p4_bodies{0};
-
-        /**
-         * @brief One P3 in-flight counter, padded to its own cache line.
-         */
-        struct InFlightStripe
-        {
-            std::atomic<int> count{0};
-            char padding[CACHE_LINE - sizeof(std::atomic<int>)]{};
-        };
-        static_assert(sizeof(InFlightStripe) == CACHE_LINE, "One stripe per cache line.");
-        std::array<InFlightStripe, P3_STRIPES> s_p3_in_flight{};
 
         std::atomic<std::uintptr_t> s_last_pipeline{0};
         std::atomic<std::uintptr_t> s_last_stage{0};
@@ -561,18 +538,6 @@ namespace HenrySenses
         };
 
         /**
-         * @brief Counts a thread inside a long-running detour for the shutdown rundown.
-         */
-        class InFlightScope
-        {
-        public:
-            InFlightScope() noexcept { s_in_flight.fetch_add(1, std::memory_order_acq_rel); }
-            ~InFlightScope() noexcept { s_in_flight.fetch_sub(1, std::memory_order_acq_rel); }
-            InFlightScope(const InFlightScope &) = delete;
-            InFlightScope &operator=(const InFlightScope &) = delete;
-        };
-
-        /**
          * @brief Counts one P4 body for the unpublish handshake.
          */
         class P4BodyScope
@@ -583,43 +548,6 @@ namespace HenrySenses
             P4BodyScope(const P4BodyScope &) = delete;
             P4BodyScope &operator=(const P4BodyScope &) = delete;
         };
-
-        /**
-         * @brief Counts a thread inside P3 on its own stripe.
-         */
-        class StripedInFlightScope
-        {
-        public:
-            StripedInFlightScope() noexcept : m_count(s_p3_in_flight[(GetCurrentThreadId() >> 2) % P3_STRIPES].count)
-            {
-                m_count.fetch_add(1, std::memory_order_acq_rel);
-            }
-            ~StripedInFlightScope() noexcept { m_count.fetch_sub(1, std::memory_order_acq_rel); }
-            StripedInFlightScope(const StripedInFlightScope &) = delete;
-            StripedInFlightScope &operator=(const StripedInFlightScope &) = delete;
-
-        private:
-            std::atomic<int> &m_count;
-        };
-
-        /**
-         * @brief Reports whether no thread is inside any detour of this file.
-         */
-        [[nodiscard]] bool detours_idle() noexcept
-        {
-            if (s_in_flight.load(std::memory_order_acquire) != 0)
-            {
-                return false;
-            }
-            for (const InFlightStripe &stripe : s_p3_in_flight)
-            {
-                if (stripe.count.load(std::memory_order_acquire) != 0)
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
 
         /**
          * @brief Returns the steady-clock time in milliseconds.
@@ -2920,7 +2848,6 @@ namespace HenrySenses
          */
         void __fastcall detour_std_pipeline_init(std::uintptr_t pipeline) noexcept
         {
-            const InFlightScope scope;
             s_p1_calls.fetch_add(1, std::memory_order_relaxed);
             const bool wanted = s_armed.load(std::memory_order_acquire) &&
                                 !s_unpublish_requested.load(std::memory_order_acquire) && stage_registration_wanted() &&
@@ -2954,8 +2881,6 @@ namespace HenrySenses
             void **out_pso
         ) noexcept
         {
-            // Counted: the original can block for a long time on a cold-cache pipeline compile.
-            const InFlightScope scope;
             if (pass_id < constants::CUSTOM_PASS_SILHOUETTE)
             {
                 // The debug-view passes are never drawn in game; success with a null PSO keeps the object complete.
@@ -3064,8 +2989,6 @@ namespace HenrySenses
          */
         void __fastcall detour_proxy_render(void *self, void *params, const void *pass_info) noexcept
         {
-            // Counted: the original can stall (character skinning, streaming) and then returns into this module.
-            const StripedInFlightScope scope;
             const auto node = reinterpret_cast<std::uintptr_t>(self);
             const std::uint32_t word =
                 *reinterpret_cast<const volatile std::uint32_t *>(node + constants::RENDERNODE_HUD_SILHOUETTE_OFFSET);
@@ -3129,7 +3052,6 @@ namespace HenrySenses
             const void *pass_info
         ) noexcept
         {
-            const StripedInFlightScope scope;
             const bool armed = s_armed.load(std::memory_order_relaxed);
             if (render_object != nullptr && armed)
             {
@@ -3253,7 +3175,6 @@ namespace HenrySenses
             std::int32_t end
         ) noexcept
         {
-            const StripedInFlightScope scope;
             if (list == constants::RENDER_LIST_ZPREPASS && render_view != 0 &&
                 s_armed.load(std::memory_order_relaxed) && !s_p7_faulted.load(std::memory_order_relaxed) &&
                 herb_outline_count() != 0)
@@ -4540,7 +4461,6 @@ namespace HenrySenses
          */
         void __fastcall detour_after_post_hdr(void *forward_stage) noexcept
         {
-            const InFlightScope scope;
             s_after_post_hdr_original(forward_stage);
             if (s_armed.load(std::memory_order_acquire))
             {
@@ -4659,7 +4579,6 @@ namespace HenrySenses
          */
         void __fastcall detour_super_resolution(void *stage) noexcept
         {
-            const InFlightScope scope;
             // Nothing to draw: straight to the original (P4 and P5 then find no hand-off).
             if (s_armed.load(std::memory_order_acquire) && render_work_pending())
             {
@@ -4673,7 +4592,6 @@ namespace HenrySenses
          */
         void __fastcall detour_after_post_ldr(void *forward_stage) noexcept
         {
-            const InFlightScope scope;
             s_after_post_ldr_original(forward_stage);
             if (s_armed.load(std::memory_order_acquire))
             {
@@ -4682,29 +4600,26 @@ namespace HenrySenses
         }
 
         /**
-         * @brief Installs one inline hook, stores it, and arms it.
-         * @tparam Detour Detour function type.
+         * @brief Installs one counted inline hook, stores it, and arms it.
+         * @tparam Detour The detour. DMK counts its calls, so HookStack::retire can prove that no render thread is
+         *         inside it, the original included.
          * @tparam Original Trampoline pointer type.
-         * @param hooks The set; it owns the hook before the arm, so a half-armed hook is still torn down.
+         * @param hooks The stack. It owns the hook before the arm, so a half-armed hook is still torn down.
          * @param name Hook name.
          * @param target Target address.
-         * @param detour The detour.
          * @param original Receives the trampoline before the hook is armed.
          * @return An empty value, or the install Error.
          */
-        template <typename Detour, typename Original>
+        template <auto Detour, typename Original>
         [[nodiscard]] DMK::Result<void>
-        install_hook(HookSet &hooks, const char *name, std::uintptr_t target, Detour *detour, Original &original)
+        install_hook(DMK::hook::HookStack &hooks, const char *name, std::uintptr_t target, Original &original)
         {
             DMK_TRY(
                 created,
-                DMK::hook::inline_at(
-                    DMK::hook::InlineRequest{
-                        .name = name,
-                        .target = DMK::Address{target},
-                    },
-                    detour
-                )
+                DMK::hook::inline_at<Detour>(DMK::hook::InlineRequest{
+                    .name = name,
+                    .target = DMK::Address{target},
+                })
             );
             original = created.template original<Original>();
             DMK::hook::Hook &stored = hooks.push(std::move(created));
@@ -4777,27 +4692,8 @@ namespace HenrySenses
         }
     }
 
-    DMK::Result<void> install_engine_silhouette_early(HookSet &hooks)
+    DMK::Result<void> install_engine_silhouette_early(DMK::hook::HookStack &hooks)
     {
-        // A refused unload re-runs init on the same image, whose statics still hold the previous teardown. The P1
-        // list stays: it records pipeline Inits this image really saw. The installed flags are cleared because that
-        // teardown destroyed the hooks they describe, and P4 must never take a stale P2 flag as a guard.
-        s_p1_installed.store(false, std::memory_order_release);
-        s_p2_installed.store(false, std::memory_order_release);
-        s_p3_installed.store(false, std::memory_order_release);
-        s_p3b_installed.store(false, std::memory_order_release);
-        s_p4_installed.store(false, std::memory_order_release);
-        s_p5_installed.store(false, std::memory_order_release);
-        s_p6_installed.store(false, std::memory_order_release);
-        s_p7_installed.store(false, std::memory_order_release);
-        s_p7_faulted.store(false, std::memory_order_release);
-        s_armed.store(true, std::memory_order_release);
-        s_unpublish_requested.store(false, std::memory_order_release);
-        for (TrackedPipeline &entry : s_tracked)
-        {
-            reset_tracked(entry);
-        }
-
         if (!feature_ready(Feature::StageRegistration))
         {
             DMK::log().warning("EngineSilhouette: the stage registration gate failed; the stage cannot be registered");
@@ -4806,11 +4702,10 @@ namespace HenrySenses
         const std::uintptr_t init = anchor_address(AnchorId::StdPipelineInit);
         const std::uintptr_t create_pso = anchor_address(AnchorId::CustomCreatePso);
         // P2 first: a stage must never exist without the debug-pass guard in front of it.
-        if (auto p2 = install_hook(
+        if (auto p2 = install_hook<&detour_custom_create_pso>(
                 hooks,
                 "CustomCreatePipelineState",
                 create_pso,
-                detour_custom_create_pso,
                 s_create_pso_original
             );
             !p2.has_value())
@@ -4818,7 +4713,7 @@ namespace HenrySenses
             return p2;
         }
         s_p2_installed.store(true, std::memory_order_release);
-        if (auto p1 = install_hook(hooks, "StdPipelineInit", init, detour_std_pipeline_init, s_std_init_original);
+        if (auto p1 = install_hook<&detour_std_pipeline_init>(hooks, "StdPipelineInit", init, s_std_init_original);
             !p1.has_value())
         {
             return p1;
@@ -4833,7 +4728,7 @@ namespace HenrySenses
         return {};
     }
 
-    DMK::Result<void> initialize_engine_silhouette(HookSet &hooks)
+    DMK::Result<void> initialize_engine_silhouette(DMK::hook::HookStack &hooks)
     {
         DMK::Logger &logger = DMK::log();
 
@@ -4911,7 +4806,7 @@ namespace HenrySenses
             logger.warning("EngineSilhouette: the proxy injection gate failed; words cannot be injected");
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "engine_silhouette/proxy_gate"});
         }
-        if (auto p3 = install_hook(hooks, "ProxyRender", proxy_render, detour_proxy_render, s_proxy_render_original);
+        if (auto p3 = install_hook<&detour_proxy_render>(hooks, "ProxyRender", proxy_render, s_proxy_render_original);
             !p3.has_value())
         {
             return p3;
@@ -4925,11 +4820,10 @@ namespace HenrySenses
         {
             logger.warning("EngineSilhouette: the brush marking gate failed; world objects fall back to markers");
         }
-        else if (auto p3b = install_hook(
+        else if (auto p3b = install_hook<&detour_render_internal>(
                      hooks,
                      "StatObjRenderInternal",
                      render_internal,
-                     detour_render_internal,
                      s_render_internal_original
                  );
                  !p3b.has_value())
@@ -4950,11 +4844,10 @@ namespace HenrySenses
                 "EngineSilhouette: the depth pre-pass filter is off (mask draw or herb outline gate failed)"
             );
         }
-        else if (auto p7 = install_hook(
+        else if (auto p7 = install_hook<&detour_draw_render_items>(
                      hooks,
                      "DrawRenderItems",
                      s_calls.draw_render_items,
-                     detour_draw_render_items,
                      s_draw_render_items_original
                  );
                  !p7.has_value())
@@ -4975,11 +4868,10 @@ namespace HenrySenses
             logger.warning("EngineSilhouette: the after-HDR gate failed; no mask draw");
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "engine_silhouette/after_hdr_gate"});
         }
-        if (auto p4 = install_hook(
+        if (auto p4 = install_hook<&detour_after_post_hdr>(
                 hooks,
                 "AfterPostProcessHDR",
                 after_post_hdr,
-                detour_after_post_hdr,
                 s_after_post_hdr_original
             );
             !p4.has_value())
@@ -4994,11 +4886,10 @@ namespace HenrySenses
                 gated_anchor_address(Feature::BeforeUpscale, AnchorId::SuperResolutionExecute);
             super_resolution != 0)
         {
-            if (auto p6 = install_hook(
+            if (auto p6 = install_hook<&detour_super_resolution>(
                     hooks,
                     "SuperResolutionExecute",
                     super_resolution,
-                    detour_super_resolution,
                     s_super_resolution_original
                 );
                 p6.has_value())
@@ -5023,11 +4914,10 @@ namespace HenrySenses
             );
             return {};
         }
-        if (auto p5 = install_hook(
+        if (auto p5 = install_hook<&detour_after_post_ldr>(
                 hooks,
                 "AfterPostProcessLDR",
                 after_post_ldr_address,
-                detour_after_post_ldr,
                 s_after_post_ldr_original
             );
             !p5.has_value())
@@ -5140,33 +5030,10 @@ namespace HenrySenses
         s_armed.store(false, std::memory_order_release);
     }
 
-    bool shutdown_engine_silhouette() noexcept
+    void release_engine_silhouette() noexcept
     {
-        // Inline hooks have no rundown of their own: a thread can still be inside a detour (inside the original)
-        // when the prologue is restored, and must leave before the trampolines are freed and this module unmaps.
-        const std::int64_t deadline = now_ms() + RUNDOWN_TIMEOUT_MS;
-        for (;;)
-        {
-            while (!detours_idle() && now_ms() < deadline)
-            {
-                Sleep(5);
-            }
-            Sleep(ENTRY_WINDOW_MS);
-            if (detours_idle())
-            {
-                release_blur_pass();
-                release_supersampled_targets();
-                return true;
-            }
-            if (now_ms() >= deadline)
-            {
-                (void)DMK::log().log_noexcept(
-                    DMK::LogLevel::Error,
-                    "EngineSilhouette: a render-path detour was still running at shutdown"
-                );
-                return false;
-            }
-        }
+        release_blur_pass();
+        release_supersampled_targets();
     }
 
     bool engine_silhouette_available() noexcept

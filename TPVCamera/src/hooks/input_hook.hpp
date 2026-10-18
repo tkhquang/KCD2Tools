@@ -5,7 +5,7 @@
 #ifndef TPVCAMERA_HOOKS_INPUT_HOOK_HPP
 #define TPVCAMERA_HOOKS_INPUT_HOOK_HPP
 
-#include "hooks/hook_set.hpp"
+#include <DetourModKit/hook.hpp>
 
 namespace TPVCamera
 {
@@ -13,7 +13,7 @@ namespace TPVCamera
      * @brief Hooks the generic input-event dispatcher. Best-effort: a miss only disables free-look orbit, so it is a
      *        warning. The detour is inert until free-look is on, so it is harmless when free-look is unused.
      */
-    void install_input_dispatch_hook(HookSet &hooks);
+    void install_input_dispatch_hook(DMK::hook::HookStack &hooks);
 } // namespace TPVCamera
 
 #endif // TPVCAMERA_HOOKS_INPUT_HOOK_HPP

@@ -25,9 +25,9 @@
 #define HENRYSENSES_ENGINE_SILHOUETTE_HPP
 
 #include "game_structures.hpp"
-#include "hooks/hook_set.hpp"
 
 #include <DetourModKit/error.hpp>
+#include <DetourModKit/hook.hpp>
 
 #include <chrono>
 #include <cstddef>
@@ -62,18 +62,18 @@ namespace HenrySenses
 
     /**
      * @brief Installs P1 (pipeline Init) and P2 (CreatePipelineState) from the early anchor phase.
-     * @param hooks The mod's hook set; the handles are pushed first so they are removed last.
+     * @param hooks The mod's hook stack. The handles are pushed first, so they are removed last.
      * @return An empty value when both hooks are armed, or the Error that refused an install.
      * @note Runs before the rest of init so the stage can be registered before the renderer builds its pipeline.
      */
-    [[nodiscard]] DMK::Result<void> install_engine_silhouette_early(HookSet &hooks);
+    [[nodiscard]] DMK::Result<void> install_engine_silhouette_early(DMK::hook::HookStack &hooks);
 
     /**
      * @brief Binds the render-thread calls and installs P3 (word injection) and P4 (mask draw and composite).
-     * @param hooks The mod's hook set.
+     * @param hooks The mod's hook stack.
      * @return An empty value when the backend is installed, or the Error that refused an install.
      */
-    [[nodiscard]] DMK::Result<void> initialize_engine_silhouette(HookSet &hooks);
+    [[nodiscard]] DMK::Result<void> initialize_engine_silhouette(DMK::hook::HookStack &hooks);
 
     /**
      * @brief Takes every live stage off its pipeline on the render thread and records it for the next generation.
@@ -97,11 +97,10 @@ namespace HenrySenses
     void disarm_engine_silhouette() noexcept;
 
     /**
-     * @brief Waits (bounded) until no thread is inside a render-path detour; call after the hooks were disabled and
-     *        before they are destroyed.
-     * @return True when every detour drained; false means a thread may still return through a trampoline.
+     * @brief Releases the blur pass and the supersampled targets the render-path detours draw with.
+     * @note Teardown thread, only after every hook retired with none pinned, so no detour can still use them.
      */
-    [[nodiscard]] bool shutdown_engine_silhouette() noexcept;
+    void release_engine_silhouette() noexcept;
 
     /**
      * @brief Reports whether a registered custom stage was seen on the executing pipeline recently and every mask

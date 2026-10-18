@@ -29,7 +29,7 @@ namespace
     /**
      * @brief Bootstrap callback: runs the mod init on the DMK worker thread.
      * @param session The live Session handed over by bootstrap_attach().
-     * @return The init result; a failure leaves the mod inert.
+     * @return The init result. A failure leaves the mod inert.
      */
     DMK::Result<void> on_ready(DMK::Session &session)
     {
@@ -42,11 +42,11 @@ namespace
         {
             result = std::unexpected(DMK::Error{DMK::ErrorCode::Unknown, "HenrySenses::init/exception"});
         }
-        if (!result && !HenrySenses::shutdown())
+        if (!result)
         {
-            // The bootstrap worker retains its Session and module reference until process exit, even after
-            // on_ready reports failure. An incomplete rollback therefore leaves this image mapped.
-            (void)DMK::log().log_noexcept(DMK::LogLevel::Error, "Bootstrap: cleanup refused; the mod stays mapped");
+            // The bootstrap worker retains its Session and module reference until process exit, even after on_ready
+            // reports failure, so hooks that did not retire stay valid. shutdown() logs that outcome itself.
+            (void)HenrySenses::shutdown();
         }
         return result;
     }

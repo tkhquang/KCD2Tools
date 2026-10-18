@@ -6,7 +6,7 @@
 #ifndef TPVCAMERA_HOOKS_NATIVE_TURN_HOOKS_HPP
 #define TPVCAMERA_HOOKS_NATIVE_TURN_HOOKS_HPP
 
-#include "hooks/hook_set.hpp"
+#include <DetourModKit/hook.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -54,7 +54,7 @@ namespace TPVCamera
      * @details Installed on its own: the turn-step part acts only on frames the decision hook flags, so without that
      *          hook it never drops a step, while the press drop needs only this hook.
      */
-    void install_turn_in_place_hook(HookSet &hooks);
+    void install_turn_in_place_hook(DMK::hook::HookStack &hooks);
 
     /**
      * @brief Hooks IsThirdPerson for the native turn-in-place animation, found through the C_Player vtable.
@@ -71,7 +71,7 @@ namespace TPVCamera
      *          failed teardown left pinned in a reused image, still routes calls through it. s_native_turn_armed is
      *          what switches the feature on, and only once enable() succeeded.
      */
-    void install_native_turn_hook(uintptr_t module_base, size_t module_size, HookSet &hooks);
+    void install_native_turn_hook(uintptr_t module_base, size_t module_size, DMK::hook::HookStack &hooks);
 
     /**
      * @brief Stops the native turn animation, so the body follows the look again, before the hooks are removed.

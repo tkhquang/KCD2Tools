@@ -7,7 +7,7 @@
 #ifndef TPVCAMERA_HOOKS_HEAD_VISIBILITY_HPP
 #define TPVCAMERA_HOOKS_HEAD_VISIBILITY_HPP
 
-#include "hooks/hook_set.hpp"
+#include <DetourModKit/hook.hpp>
 
 #include <cstdint>
 
@@ -17,7 +17,7 @@ namespace TPVCamera
      * @brief Hooks the head-visibility setter. Best-effort: without it the camera still works and the player may
      *        appear headless from behind, so a miss is a warning.
      */
-    void install_head_visibility_hook(HookSet &hooks);
+    void install_head_visibility_hook(DMK::hook::HookStack &hooks);
 
     /**
      * @brief Keeps the player head in sync with the offset state once per frame.

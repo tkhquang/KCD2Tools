@@ -11,10 +11,10 @@
 #ifndef TPVCAMERA_HOOKS_RANGED_HOOK_HPP
 #define TPVCAMERA_HOOKS_RANGED_HOOK_HPP
 
-#include "hook_set.hpp"
 #include "math_utils.hpp"
 
 #include <DetourModKit/error.hpp>
+#include <DetourModKit/hook.hpp>
 
 #include <cstdint>
 
@@ -24,13 +24,13 @@ namespace TPVCamera
     /**
      * @brief Installs the FireProjectile, Launch and CArrow collision hooks from the pre-resolved anchors.
      * @param g_env The resolved SSystemGlobalEnvironment base, or 0 (the trail then stays off).
-     * @param hooks The mod's hook set. Each handle is stored before its arm.
+     * @param hooks The mod's hook stack. Each handle is stored before its arm.
      * @return An empty value when the shot hooks are installed, or the Error that refused them (ErrorCode::NoMatch
      *         when the RangedAim gate failed). The trail is best-effort within this unit and only warns.
-     * @throws std::bad_alloc If a hook name or the hook set cannot allocate.
+     * @throws std::bad_alloc If a hook name or the hook stack cannot allocate.
      * @note Call after initialize_camera(), so the world raycast is ready.
      */
-    [[nodiscard]] DMK::Result<void> initialize_ranged_hook(std::uintptr_t g_env, HookSet &hooks);
+    [[nodiscard]] DMK::Result<void> initialize_ranged_hook(std::uintptr_t g_env, DMK::hook::HookStack &hooks);
 
     /**
      * @brief The ranged step of one game frame: publishes the crosshair target, follows the player's projectiles,

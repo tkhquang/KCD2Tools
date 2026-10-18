@@ -36,7 +36,6 @@ namespace TPVCamera
      */
     static void __fastcall hide_overlays_detour(void *this_ptr, uint8_t param_byte, char param_char) noexcept
     {
-        const DetourScope in_flight;
         if (const HideOverlaysFunc original = s_hide_overlays_original.load(std::memory_order_acquire))
         {
             original(this_ptr, param_byte, param_char);
@@ -52,7 +51,6 @@ namespace TPVCamera
      */
     static void __fastcall show_overlays_detour(void *this_ptr, uint8_t param_byte, char param_char) noexcept
     {
-        const DetourScope in_flight;
         if (const ShowOverlaysFunc original = s_show_overlays_original.load(std::memory_order_acquire))
         {
             original(this_ptr, param_byte, param_char);
@@ -60,7 +58,7 @@ namespace TPVCamera
         overlay_state().active.store(false, std::memory_order_relaxed);
     }
 
-    DMK::Result<void> initialize_ui_overlay_hooks(HookSet &hooks)
+    DMK::Result<void> initialize_ui_overlay_hooks(DMK::hook::HookStack &hooks)
     {
         // The default hook::Options prologue policy is Fail: refuse the install when the resolved entry
         // leads with a call or breakpoint byte, the shape a cascade mis-resolution or a foreign int3 stub
@@ -72,13 +70,15 @@ namespace TPVCamera
         {
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "ui_overlay_hooks/hide_anchor"});
         }
-        auto hide_result = DMK::hook::inline_at(
-            DMK::hook::InlineRequest{.name = "HideOverlays", .target = DMK::Address{hide_addr}}, hide_overlays_detour);
+        auto hide_result = DMK::hook::inline_at<&hide_overlays_detour>(DMK::hook::InlineRequest{
+            .name = "HideOverlays",
+            .target = DMK::Address{hide_addr},
+        });
         if (!hide_result.has_value())
         {
             return std::unexpected(hide_result.error());
         }
-        // Publish each trampoline and store each handle BEFORE enable() arms its patch, so the set owns a hook whose
+        // Publish each trampoline and store each handle BEFORE enable() arms its patch, so the stack owns a hook whose
         // arm fails with the patch live.
         s_hide_overlays_original.store(hide_result->original<HideOverlaysFunc>(), std::memory_order_release);
         if (auto armed = hooks.push(std::move(*hide_result)).enable(); !armed.has_value())
@@ -91,8 +91,10 @@ namespace TPVCamera
         {
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "ui_overlay_hooks/show_anchor"});
         }
-        auto show_result = DMK::hook::inline_at(
-            DMK::hook::InlineRequest{.name = "ShowOverlays", .target = DMK::Address{show_addr}}, show_overlays_detour);
+        auto show_result = DMK::hook::inline_at<&show_overlays_detour>(DMK::hook::InlineRequest{
+            .name = "ShowOverlays",
+            .target = DMK::Address{show_addr},
+        });
         if (!show_result.has_value())
         {
             return std::unexpected(show_result.error());

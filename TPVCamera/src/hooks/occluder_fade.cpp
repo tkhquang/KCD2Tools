@@ -115,7 +115,6 @@ namespace TPVCamera
                                              std::uint8_t *lod, const void *world, const std::uint8_t *pass,
                                              const void *params) noexcept
         {
-            const DetourScope in_flight;
             const AddOrCreateFn original = s_original.load(std::memory_order_acquire);
             const FadeSet *set = s_sets.latest();
             if (set != nullptr && temp_data != 0 && lod != nullptr && pass != nullptr && main_view_pass(pass))
@@ -159,19 +158,17 @@ namespace TPVCamera
 
     } // namespace
 
-    DMK::Result<void> initialize_occluder_fade(HookSet &hooks)
+    DMK::Result<void> initialize_occluder_fade(DMK::hook::HookStack &hooks)
     {
         const std::uintptr_t target = gated_anchor_address(Feature::OccluderFade, AnchorId::AddOrCreateRO);
         if (target == 0)
         {
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "occluder_fade/add_or_create_anchor"});
         }
-        auto result = DMK::hook::inline_at(
-            DMK::hook::InlineRequest{
-                .name = "AddOrCreatePersistentRenderObject",
-                .target = DMK::Address{target},
-            },
-            add_or_create_detour);
+        auto result = DMK::hook::inline_at<&add_or_create_detour>(DMK::hook::InlineRequest{
+            .name = "AddOrCreatePersistentRenderObject",
+            .target = DMK::Address{target},
+        });
         if (!result.has_value())
         {
             return std::unexpected(result.error());

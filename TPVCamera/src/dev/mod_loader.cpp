@@ -10,9 +10,11 @@
  *            a reused name can never return a retained predecessor with its statics intact.
  *          - The resident wheel host owns the wheel capture and its permanent keepalive, so a generation can keep
  *            its WheelUp bindings and still unmap.
- *          - A generation retires only on a typed Shutdown() verdict, a closed probe lease, and either an observed
- *            unmap or a charge against the retained-generation budget. A refused or failed retirement keeps the
- *            image mapped. The loader never initializes a retired or refused image again.
+ *          - A generation retires only on a Shutdown() verdict that permits it (DetourModKit/abi/staged_reload.h), a
+ *            closed probe lease, and either an observed unmap or a charge against the retained-generation budget.
+ *            BUSY is retried within a bound and leaves the generation live. A refused or failed retirement keeps the
+ *            image mapped, and RESTART_REQUIRED stops every later reload. The loader never initializes a retired or
+ *            refused image again.
  */
 
 #include "protocol.h"
@@ -58,6 +60,9 @@ namespace
     constexpr DWORD UNMAP_POLL_MS = 10;
     /// A release can complete slightly after FreeLibrary returns, so the unmap probe polls until this deadline.
     constexpr DWORD UNMAP_TIMEOUT_MS = 2000;
+    /// Bounds the Shutdown() calls of one retirement while each returns BUSY, which changes nothing.
+    constexpr int SHUTDOWN_BUSY_ATTEMPTS = 20;
+    constexpr DWORD SHUTDOWN_BUSY_RETRY_MS = 50;
     constexpr std::size_t MODULE_PATH_INITIAL_CHARS = 512;
     constexpr std::size_t MODULE_PATH_MAX_CHARS = 32'768;
 
@@ -312,7 +317,7 @@ namespace
         {
             return false;
         }
-        if (verdict == TPVCAMERA_RELOAD_RETAINED)
+        if (verdict == DMK_STAGED_RELOAD_RETAINED)
         {
             // Keep the loader's reference: a leaked resource can still need this image even without a module pin.
             record_retained_generation(generation, generation.module);
@@ -334,6 +339,34 @@ namespace
         return true;
     }
 
+    /**
+     * @brief Calls Shutdown() and retries a BUSY verdict within the bound.
+     * @return The last verdict. RESTART_REQUIRED also latches the restart request.
+     */
+    [[nodiscard]] std::uint32_t shut_down(const Generation &generation) noexcept
+    {
+        std::uint32_t verdict = generation.shutdown();
+        for (int attempt = 1; verdict == DMK_STAGED_RELOAD_BUSY && attempt < SHUTDOWN_BUSY_ATTEMPTS; ++attempt)
+        {
+            Sleep(SHUTDOWN_BUSY_RETRY_MS);
+            verdict = generation.shutdown();
+        }
+        if (verdict == DMK_STAGED_RELOAD_BUSY)
+        {
+            append_log("Shutdown stayed busy: a game thread stayed inside a detour; the generation stays live");
+        }
+        else if (verdict == DMK_STAGED_RELOAD_RESTART_REQUIRED)
+        {
+            s_restart_required = true;
+            append_log("A detour of the generation stays reachable; restart the game before another reload");
+        }
+        else if (verdict != DMK_STAGED_RELOAD_OK && verdict != DMK_STAGED_RELOAD_RETAINED)
+        {
+            append_log("Shutdown refused retirement; the generation stays mapped");
+        }
+        return verdict;
+    }
+
     /// Runs a generation's Shutdown() and releases it on an accepted verdict.
     [[nodiscard]] bool retire_generation(Generation &generation) noexcept
     {
@@ -341,10 +374,9 @@ namespace
         {
             return false;
         }
-        const std::uint32_t verdict = generation.shutdown();
-        if (verdict != TPVCAMERA_RELOAD_OK && verdict != TPVCAMERA_RELOAD_RETAINED)
+        const std::uint32_t verdict = shut_down(generation);
+        if (verdict != DMK_STAGED_RELOAD_OK && verdict != DMK_STAGED_RELOAD_RETAINED)
         {
-            append_log("Shutdown refused retirement; the generation stays mapped");
             return false;
         }
         return release_generation(generation, verdict);
@@ -445,7 +477,7 @@ namespace
             .expected_host_identity = s_host_identity,
             .wheel_host = &s_wheel_host,
         };
-        if (generation.init(&request) != TPVCAMERA_RELOAD_OK)
+        if (generation.init(&request) != DMK_STAGED_RELOAD_OK)
         {
             append_log("Init failed");
             retire_failed_stage(generation);
@@ -468,10 +500,9 @@ namespace
         {
             return true;
         }
-        const std::uint32_t verdict = s_current->shutdown();
-        if (verdict != TPVCAMERA_RELOAD_OK && verdict != TPVCAMERA_RELOAD_RETAINED)
+        const std::uint32_t verdict = shut_down(*s_current);
+        if (verdict != DMK_STAGED_RELOAD_OK && verdict != DMK_STAGED_RELOAD_RETAINED)
         {
-            append_log("Shutdown refused retirement; the generation stays mapped. Retry after quiescence");
             return false;
         }
         if (!release_generation(*s_current, verdict))

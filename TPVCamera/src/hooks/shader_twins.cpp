@@ -64,6 +64,7 @@
  */
 
 #include "hooks/shader_twins.hpp"
+#include "hooks/hook_install.hpp"
 #include "config.hpp"
 #include "hooks/twins/twin_state.hpp"
 
@@ -71,7 +72,7 @@ namespace TPVCamera
 {
     using namespace Twins;
 
-    DMK::Result<void> initialize_shader_twins(HookSet &hooks)
+    DMK::Result<void> initialize_shader_twins(DMK::hook::HookStack &hooks)
     {
         HookProfile::initialize();
         trace::initialize();
@@ -203,22 +204,22 @@ namespace TPVCamera
         // no compiled object ever takes a twin PSO set that cannot draw yet. The other detours stay inert until the
         // first frame publishes a swap set and a window.
         DMK_TRY_VOID(
-            install_inline_hook(hooks, "ShaderGenLoad", shader_gen, s_shader_gen_original, shader_gen_load_detour));
+            install_inline_hook<&shader_gen_load_detour>(hooks, "ShaderGenLoad", shader_gen, s_shader_gen_original));
 #if defined(TPVCAMERA_DEV_BUILD)
         TwinClone::initialize_twin_clone();
 #endif
-        DMK_TRY_VOID(install_inline_hook(hooks, "CreatePipelineStates", create_psos, s_create_psos_original,
-                                         create_psos_detour));
-        DMK_TRY_VOID(install_inline_hook(hooks, "CRenderViewAddRenderObject", add_render_object,
-                                         s_add_render_object_original, add_render_object_detour));
-        DMK_TRY_VOID(install_inline_hook(hooks, "TwinLoadCGFMaterial", load_cgf, s_load_cgf_material_original,
-                                         load_cgf_material_detour));
-        DMK_TRY_VOID(install_inline_hook(hooks, "TwinLoadMaterialShader", load_shader, s_load_material_shader_original,
-                                         load_material_shader_detour));
-        DMK_TRY_VOID(install_inline_hook(hooks, "TwinSetSystemGlobalState", set_state, s_set_system_state_original,
-                                         set_system_state_detour));
-        DMK_TRY_VOID(install_inline_hook(hooks, "TwinSaveGameLoad", save_load, s_save_game_load_original,
-                                         save_game_load_detour));
+        DMK_TRY_VOID(install_inline_hook<&create_psos_detour>(hooks, "CreatePipelineStates", create_psos,
+                                                              s_create_psos_original));
+        DMK_TRY_VOID(install_inline_hook<&add_render_object_detour>(hooks, "CRenderViewAddRenderObject",
+                                                                    add_render_object, s_add_render_object_original));
+        DMK_TRY_VOID(install_inline_hook<&load_cgf_material_detour>(hooks, "TwinLoadCGFMaterial", load_cgf,
+                                                                    s_load_cgf_material_original));
+        DMK_TRY_VOID(install_inline_hook<&load_material_shader_detour>(hooks, "TwinLoadMaterialShader", load_shader,
+                                                                       s_load_material_shader_original));
+        DMK_TRY_VOID(install_inline_hook<&set_system_state_detour>(hooks, "TwinSetSystemGlobalState", set_state,
+                                                                   s_set_system_state_original));
+        DMK_TRY_VOID(install_inline_hook<&save_game_load_detour>(hooks, "TwinSaveGameLoad", save_load,
+                                                                 s_save_game_load_original));
         std::string window_error;
         if (window_miss == nullptr)
         {

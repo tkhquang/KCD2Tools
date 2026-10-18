@@ -57,10 +57,16 @@ namespace TPVCamera
     // the guards and their captures instead of destroying callables under the loader lock.
     static DMK::input::Scope *s_binding_scope = nullptr;
 
-    // Every hook the mod installs. HookSet disables and destroys newest first, the only safe order for layered
-    // patches on one target: the newer layer trampoline chains through the older jump, so the base must
-    // be restored last. shutdown() retires it while the code pages are still mapped.
-    static HookSet s_hooks;
+    // Every hook the mod installs, retired newest first, the only order in which every layer of a shared target
+    // restores its own patch. shutdown() retires it while the code pages are still mapped.
+    static DMK::hook::HookStack s_hooks;
+
+    // Teardown progress, read and written only by the thread that runs init() and shutdown(). The feature release
+    // drives game threads through the detours, so it runs once: a Busy retirement leaves the hooks armed, and the next
+    // shutdown() retries only the retirement.
+    static bool s_features_released = false;
+    // The steps after the worker join ran.
+    static bool s_teardown_done = false;
 
     // The [Advanced] ExportRules value the last check saw, so an INI reload writes the file again only when it turns
     // the key on. Read and written by init(), then by the INI watcher thread.
@@ -614,71 +620,99 @@ namespace TPVCamera
         return {};
     }
 
-    RetireStatus shutdown()
+    ShutdownResult shutdown() noexcept
     {
-        DMK::Logger &logger = DMK::log();
-        logger.info("Shutdown: starting teardown");
+        try
+        {
+            DMK::Logger &logger = DMK::log();
+            if (!s_features_released)
+            {
+                logger.info("Shutdown: starting teardown");
 
-        // One-line health snapshot taken while the hooks are still installed, because the teardown below
-        // removes them. Both caller-owned reports are handed to collect() so the library rolls up the hook
-        // population, the self-heal drift, and the anchor quality in one place rather than the mod counting
-        // them itself. total_intentional_leaks counts caller-requested leaks alongside the library's own
-        // defensive pins, so read it as a delta across one operation rather than as an absolute.
-        std::array<DMK::rtti::DriftEntry, 12> drift_report{};
-        const std::size_t drift_count = offset_heal_drift_report(drift_report);
-        const DMK::diagnostics::Snapshot diag = DMK::diagnostics::collect(
-            std::span<const DMK::rtti::DriftEntry>(drift_report.data(), drift_count), anchor_report());
-        logger.info("Diagnostics: {} hooks ({} active, {} disabled), {} intentional leaks", diag.hooks_total,
-                    diag.hooks_active, diag.hooks_disabled, diag.total_intentional_leaks);
-        logger.info("Diagnostics: self-heal {}/{} landmarks healed; anchors {}/{} resolved ({} failed, {} at risk)",
+                // One-line health snapshot taken while the hooks are still installed, because the teardown below
+                // removes them. Both caller-owned reports are handed to collect() so the library rolls up the hook
+                // population, the self-heal drift, and the anchor quality in one place rather than the mod counting
+                // them itself. total_intentional_leaks counts caller-requested leaks alongside the library's own
+                // defensive pins, so read it as a delta across one operation rather than as an absolute.
+                std::array<DMK::rtti::DriftEntry, 12> drift_report{};
+                const std::size_t drift_count = offset_heal_drift_report(drift_report);
+                const DMK::diagnostics::Snapshot diag = DMK::diagnostics::collect(
+                    std::span<const DMK::rtti::DriftEntry>(drift_report.data(), drift_count), anchor_report());
+                logger.info("Diagnostics: {} hooks ({} active, {} disabled), {} intentional leaks", diag.hooks_total,
+                            diag.hooks_active, diag.hooks_disabled, diag.total_intentional_leaks);
+                logger.info(
+                    "Diagnostics: self-heal {}/{} landmarks healed; anchors {}/{} resolved ({} failed, {} at risk)",
                     diag.drift_healed, diag.drift_total, diag.anchor_quality.resolved, diag.anchor_quality.total,
                     diag.anchor_quality.failed, diag.anchor_quality.manual_at_risk);
 
-        // Switch the native turn animation off BEFORE the hooks go, while the frustum detour that does it on the game
-        // thread is still installed. Otherwise the locomotion action keeps the LockBodyTurn reference it took while the
-        // mod reported third person, and the body stays free of the look until the player's next step. Idempotent, and
-        // a no-op if the native turn animation was never engaged.
-        release_native_turn_animation();
-        // Stop re-aiming and tracking shots; the shot detours pass straight through until the hooks retire.
-        release_ranged();
-        // Unpublish the shader twins' swap set while the hooks are still installed, so the character's items go back
-        // to the stock shaders, and swap the see-through trees back, so no render object keeps a plant twin. Later
-        // camera frames leave the trees alone. The twin shaders stay loaded on purpose.
-        shutdown_shader_twins();
+                // Switch the native turn animation off BEFORE the hooks go, while the frustum detour that does it on
+                // the game thread is still installed. Otherwise the locomotion action keeps the LockBodyTurn reference
+                // it took while the mod reported third person, and the body stays free of the look until the player's
+                // next step. Idempotent, and a no-op if the native turn animation was never engaged.
+                release_native_turn_animation();
+                // Stop re-aiming and tracking shots; the shot detours pass straight through until the hooks retire.
+                release_ranged();
+                // Unpublish the shader twins' swap set while the hooks are still installed, so the character's items
+                // go back to the stock shaders, and swap the see-through trees back, so no render object keeps a plant
+                // twin. Later camera frames leave the trees alone. The twin shaders stay loaded on purpose.
+                shutdown_shader_twins();
+                s_features_released = true;
+            }
 
-        // Join the mod's workers before any hook goes: the INI watcher, so no reload setter runs during teardown, the
-        // rules watcher, and the overlay's own render thread, so no UI mutation races the preset flush.
-        DMK::config::disable_auto_reload();
-        Rules::stop_watcher();
-        Overlay::stop();
+            // Hooks are caller-owned and the library removes none of them, so this is the only path that restores the
+            // patched prologues. The retirement switches every detour off and proves it idle before anything it reads
+            // goes away.
+            const DMK::hook::HookRetirement retirement = s_hooks.retire(Constants::HOOK_RETIREMENT_DEADLINE);
+            if (retirement.outcome != DMK::hook::RetirementOutcome::Retired || retirement.pinned != 0)
+            {
+                // A pinned hook keeps its detour reachable, so everything that detour reads stays.
+                logger.warning(
+                    "Shutdown: the hooks did not retire ({}, {} pinned, {} call(s) in a detour); the mod keeps its state",
+                    DMK::to_string(retirement.refusal), retirement.pinned, retirement.in_flight);
+                return ShutdownResult{
+                    .hooks = retirement,
+                };
+            }
 
-        // A worker whose join failed still runs code in this image and holds its module reference. Its dependencies,
-        // the hooks included, must then stay live for the process, so the teardown stops here.
-        if (DMK::diagnostics::module_pin_count(DMK::diagnostics::ModulePinReason::Worker) != 0)
-        {
-            logger.error("Shutdown: a mod worker did not join; the hooks stay installed and the module must stay "
-                         "mapped");
-            return RetireStatus::Failed;
+            // Join the mod's workers: the INI watcher, so no reload setter runs during the rest of the teardown, the
+            // rules watcher, and the overlay's own render thread, so no UI mutation races the preset flush.
+            DMK::config::disable_auto_reload();
+            Rules::stop_watcher();
+            Overlay::stop();
+
+            // A worker whose join failed still runs code in this image and holds its module reference, so the state
+            // it reads stays for the process.
+            if (DMK::diagnostics::module_pin_count(DMK::diagnostics::ModulePinReason::Worker) != 0)
+            {
+                logger.error("Shutdown: a mod worker did not join; its state stays and the module must stay mapped");
+                return ShutdownResult{
+                    .hooks = retirement,
+                };
+            }
+
+            if (!s_teardown_done)
+            {
+                // Persist any unsaved preset edits.
+                Presets::PresetStore::instance().flush();
+                Rules::log_name_form_totals();
+                // No detour runs any more, so the zoom tokens the frustum detour read can go, and so can the sets for
+                // the fade and the PSO waits a render thread handed the shader twins while they shut down.
+                release_zoom_binding_tokens();
+                release_shader_twin_records();
+                release_render_occlusion();
+                s_teardown_done = true;
+                logger.info("Shutdown: teardown complete");
+            }
+            return ShutdownResult{
+                .hooks = retirement,
+                .complete = true,
+            };
         }
-
-        // Persist any unsaved preset edits.
-        Presets::PresetStore::instance().flush();
-        Rules::log_name_form_totals();
-
-        // Hooks are caller-owned and the library removes none of them, so this is the only path that restores the
-        // patched prologues. The set disables every hook, waits until no game thread is inside a detour, and only then
-        // destroys the handles.
-        const RetireStatus hooks = s_hooks.retire();
-        if (hooks == RetireStatus::Retired)
+        catch (...)
         {
-            // No detour runs any more, so the zoom tokens the frustum detour read can go, and so can the sets for the
-            // fade and the PSO waits a render thread handed the shader twins while they shut down.
-            release_zoom_binding_tokens();
-            release_shader_twin_records();
-            release_render_occlusion();
-            logger.info("Shutdown: teardown complete");
+            (void)DMK::log().log_noexcept(DMK::LogLevel::Error, "Shutdown: cleanup failed; the module stays mapped");
+            return ShutdownResult{};
         }
-        return hooks;
     }
 
 } // namespace TPVCamera

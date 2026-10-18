@@ -5,10 +5,9 @@
 #ifndef TPVCAMERA_TPV_CAMERA_HPP
 #define TPVCAMERA_TPV_CAMERA_HPP
 
-#include "hooks/hook_set.hpp"
-
 #include <DetourModKit.hpp>
 #include <DetourModKit/abi/wheel_host.h>
+#include <DetourModKit/hook.hpp>
 
 namespace TPVCamera
 {
@@ -33,17 +32,26 @@ namespace TPVCamera
      */
     [[nodiscard]] DMK::Result<void> init(DMK::Session &session, const WheelHostTable *wheel_host = nullptr);
 
+    /** @brief The outcome of @ref shutdown. */
+    struct ShutdownResult
+    {
+        /// The hook retirement. Busy and Refused leave every hook armed, so a later shutdown() can retry it.
+        DMK::hook::HookRetirement hooks{};
+        /// False when a worker or game state outside the hooks still needs this image, so the image must stay mapped.
+        bool complete = false;
+    };
+
     /**
-     * @brief Tears the mod down: joins the mod's workers and retires every hook.
-     * @return Retired when every worker joined and every hooked prologue was restored. Busy when a game thread stayed
-     *         inside a detour: the hooks stay disabled, and a later call can finish. Failed when a worker did not join
-     *         or a hook failed to disable or restore its target: the module must then stay mapped for the process.
+     * @brief Tears the mod down: releases the hook-driven features, retires every hook, then joins the mod's workers.
      * @details Hooks are caller-owned, so the library unhooks nothing on shutdown and this is the only path that
-     *          restores the patched prologues. Run it off the loader lock: a ~Hook under the loader lock pins the
-     *          backend and leaves the target patched, and a worker join there detaches instead. Every step is
-     *          idempotent, so a call after Busy resumes the teardown.
+     *          restores the patched prologues. The native turn animation, the ranged re-aim and the shader twins are
+     *          released through their detours, so that release runs before the retirement. A retirement that is not
+     *          Retired, or that pinned a hook, stops the teardown there, so everything a detour reads stays. Run it
+     *          off the loader lock, where HookStack::retire changes nothing.
+     * @return The hook retirement and whether every worker joined.
+     * @note Idempotent: a call after Busy retries the retirement.
      */
-    [[nodiscard]] RetireStatus shutdown();
+    [[nodiscard]] ShutdownResult shutdown() noexcept;
 
 } // namespace TPVCamera
 

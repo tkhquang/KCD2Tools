@@ -7,26 +7,19 @@
  * validates both before touching a field, so a stale generation left in the deploy directory fails loudly instead of
  * reading through a shifted layout.
  *
+ * Init returns DMK_STAGED_RELOAD_OK for a live generation and zero for a failed one. Shutdown returns a
+ * DetourModKit/abi/staged_reload.h value.
  */
 #ifndef HENRYSENSES_DEV_ABI_RELOAD_H
 #define HENRYSENSES_DEV_ABI_RELOAD_H
 
+#include <DetourModKit/abi/staged_reload.h>
 #include <DetourModKit/abi/wheel_host.h>
 
 #include <stdint.h>
 
-/// Bump whenever the request layout, the persistent-state layout or the export signatures change.
-#define HENRYSENSES_RELOAD_ABI_VERSION 2u
-
-/// Success value returned by the logic DLL's Init and Shutdown exports. Zero is a refusal on both.
-#define HENRYSENSES_RELOAD_OK 1u
-
-/**
- * @brief Init failed and rollback could not prove the image unreferenced.
- * @details The loader must retain its module reference and stop reloading until the game restarts, even when
- *          the generation could not acquire its own permanent pin.
- */
-#define HENRYSENSES_RELOAD_INIT_UNSAFE 2u
+/// Bump whenever the request layout, the persistent-state layout, the export signatures or their results change.
+#define HENRYSENSES_RELOAD_ABI_VERSION 3u
 
 /// HenrySensesPersistentState::magic: ASCII "HSNPERST".
 #define HENRYSENSES_PERSISTENT_MAGIC UINT64_C(0x48534E5045525354)

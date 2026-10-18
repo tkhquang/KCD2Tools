@@ -26,6 +26,7 @@
 - Changed HeadClearance to only set where the close-up fade happens: HeadClearance 0 no longer turns CloseUpFade off.
 - Changed MaxAimCorrection to default to 90, so shots at the ground at Henry's feet and other close targets land on the crosshair (an existing INI keeps its value).
 - Changed the first-person/third-person switch with ViewTransitionDuration above 0: the camera now swings out around Henry instead of sliding straight from the eye, stops at walls along the way, keeps his head hidden while it passes through it, eases the FOV with it, and no longer flips halfway when free-look has the camera facing him.
+- Changed the mod to build on DetourModKit 4.4.0.
 - Removed UseCoverageCollision, CoverageThreshold, CameraProbeSize and UseRenderOcclusion, which the fade replaces.
 - Removed PresetBlendSpeed, replaced by each preset's Blend In Seconds.
 - Removed UseSphereCollision: the camera's rays alone decide where it stops (the sphere moved the stop by under 6 cm when it changed anything), which saves an engine query on most frames next to a wall.
@@ -36,3 +37,4 @@
 - Fixed closed animated doors letting the camera through and hiding Henry behind them.
 - Fixed the camera jumping out from a wall when a preset with Enable Collision off becomes active; it now eases out, and only once the switch into that preset has settled.
 - Fixed Henry popping between solid and faded in one frame when the camera jumps in or out at a wall; the close-up fade now eases like the obstacle fade.
+- Fixed parts of the mod staying active when it cannot start, for example after a game update; it now switches itself fully off.

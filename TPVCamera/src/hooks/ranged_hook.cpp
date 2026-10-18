@@ -51,6 +51,7 @@
  */
 
 #include "ranged_hook.hpp"
+#include "hook_install.hpp"
 #include "aob_resolver.hpp"
 #include "config.hpp"
 #include "constants.hpp"
@@ -1709,7 +1710,6 @@ namespace TPVCamera
                                                          std::uintptr_t weapon, std::uintptr_t ammo, float speed,
                                                          std::uint8_t single_shot) noexcept
         {
-            const DetourScope in_flight;
             const FireProjectileFunc original = s_fire_original.load(std::memory_order_acquire);
             const Shooter shooter =
                 s_aim_ready.load(std::memory_order_acquire) && actor != 0 ? classify_shooter(actor) : Shooter{};
@@ -1894,7 +1894,6 @@ namespace TPVCamera
         void __fastcall launch_detour(std::uintptr_t projectile, const float *pos, const float *dir,
                                       const float *velocity, float speed_scale) noexcept
         {
-            const DetourScope in_flight;
             const LaunchFunc original = s_launch_original.load(std::memory_order_acquire);
             const bool usable = s_aim_ready.load(std::memory_order_acquire) && projectile != 0 && pos != nullptr &&
                                 dir != nullptr && velocity != nullptr;
@@ -2042,7 +2041,6 @@ namespace TPVCamera
          */
         std::uint8_t __fastcall arrow_collision_detour(std::uintptr_t arrow, std::uintptr_t collision) noexcept
         {
-            const DetourScope in_flight;
             const ArrowCollisionFunc original = s_collision_original.load(std::memory_order_acquire);
             if (!s_trail_ready.load(std::memory_order_acquire) || arrow == 0 || collision == 0 || !is_tracked(arrow))
             {
@@ -3563,7 +3561,7 @@ namespace TPVCamera
 
     } // namespace
 
-    DMK::Result<void> initialize_ranged_hook(std::uintptr_t g_env, HookSet &hooks)
+    DMK::Result<void> initialize_ranged_hook(std::uintptr_t g_env, DMK::hook::HookStack &hooks)
     {
         DMK::Logger &logger = DMK::log();
         s_genv = g_env;
@@ -3579,12 +3577,12 @@ namespace TPVCamera
         s_get_physics_offset = static_cast<std::ptrdiff_t>(*physics_slot);
 
         // Launch first: a shot can only be marked by FireProjectile once its Launch detour is live.
-        if (auto armed = install_inline_hook(hooks, "ProjectileLaunch", launch, s_launch_original, launch_detour);
+        if (auto armed = install_inline_hook<&launch_detour>(hooks, "ProjectileLaunch", launch, s_launch_original);
             !armed)
         {
             return armed;
         }
-        if (auto armed = install_inline_hook(hooks, "FireProjectile", fire, s_fire_original, fire_projectile_detour);
+        if (auto armed = install_inline_hook<&fire_projectile_detour>(hooks, "FireProjectile", fire, s_fire_original);
             !armed)
         {
             return armed;
@@ -3601,8 +3599,8 @@ namespace TPVCamera
             logger.warning(
                 "Ranged: the trail gate failed, so shots are still re-aimed for the crosshair without a trail");
         }
-        else if (auto armed = install_inline_hook(hooks, "ArrowCollision", collision, s_collision_original,
-                                                  arrow_collision_detour);
+        else if (auto armed = install_inline_hook<&arrow_collision_detour>(hooks, "ArrowCollision", collision,
+                                                                           s_collision_original);
                  !armed)
         {
             logger.warning(

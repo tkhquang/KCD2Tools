@@ -32,10 +32,10 @@
 #ifndef TPVCAMERA_HOOKS_SHADER_TWINS_HPP
 #define TPVCAMERA_HOOKS_SHADER_TWINS_HPP
 
-#include "hook_set.hpp"
 #include "math_utils.hpp"
 
 #include <DetourModKit/error.hpp>
+#include <DetourModKit/hook.hpp>
 
 #include <cstdint>
 #include <span>
@@ -61,12 +61,12 @@ namespace TPVCamera
      *          association, independently of the camera's target list, in capacity of their own. Each frame checks
      *          the association, and a level or save load releases them. They own no native object and keep every PSO
      *          readiness check.
-     * @param hooks The mod's hook set. Each handle is stored before its arm.
+     * @param hooks The mod's hook stack. Each handle is stored before its arm.
      * @return An empty value when the hooks were installed (with or without the per-view upload hook), else the
      *         library Error (ErrorCode::NoMatch when the gate failed).
      * @note Call after resolve_all_anchors() and init_game_types().
      */
-    [[nodiscard]] DMK::Result<void> initialize_shader_twins(HookSet &hooks);
+    [[nodiscard]] DMK::Result<void> initialize_shader_twins(DMK::hook::HookStack &hooks);
 
     /** @brief True once the hooks are armed and the feature has not been turned off for the session. */
     [[nodiscard]] bool shader_twins_available() noexcept;
@@ -223,8 +223,8 @@ namespace TPVCamera
      * @details A render thread that checked the module was up just before the shutdown can still hand one over until
      *          the hooks retire, and nothing else would drop the references it holds. The same applies to the
      *          candidates a callback retained or evicted meanwhile. It also drops the extra references a hot-reload
-     *          cache recovery took and frees the asset-scope TLS index. Called from shutdown once the hook set
-     *          retired, when no detour runs.
+     *          cache recovery took and frees the asset-scope TLS index. Called from shutdown once every hook retired
+     *          with none pinned, when no detour runs.
      */
     void release_shader_twin_records() noexcept;
 

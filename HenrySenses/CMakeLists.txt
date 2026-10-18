@@ -86,7 +86,6 @@ set(COMMON_SOURCES
   src/render/herb_outline.cpp
   src/render/silhouette_shader.cpp
   src/hooks/frame_hook.cpp
-  src/hooks/hook_set.cpp
   src/render/aux_markers.cpp
   src/render/engine_silhouette.cpp
   src/render/focus_effect.cpp

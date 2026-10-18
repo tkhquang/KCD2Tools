@@ -9,9 +9,8 @@
 #ifndef TPVCAMERA_HOOKS_CHARACTER_FADE_HPP
 #define TPVCAMERA_HOOKS_CHARACTER_FADE_HPP
 
-#include "hook_set.hpp"
-
 #include <DetourModKit/error.hpp>
+#include <DetourModKit/hook.hpp>
 
 #include <cstdint>
 #include <span>
@@ -24,13 +23,13 @@ namespace TPVCamera
     /**
      * @brief Installs the CRenderProxy::Render detour from the CharacterFade anchor.
      * @details Best-effort: on a miss the camera keeps the first-person switch when it is too close.
-     * @param hooks The mod's hook set. The handle is stored before its arm.
+     * @param hooks The mod's hook stack. The handle is stored before its arm.
      * @return An empty value when the hook was installed, else the library Error (ErrorCode::NoMatch when the anchor
      *         did not resolve).
-     * @throws std::bad_alloc If the hook name or the hook set cannot allocate.
+     * @throws std::bad_alloc If the hook name or the hook stack cannot allocate.
      * @note Call after resolve_all_anchors().
      */
-    [[nodiscard]] DMK::Result<void> initialize_character_fade(HookSet &hooks);
+    [[nodiscard]] DMK::Result<void> initialize_character_fade(DMK::hook::HookStack &hooks);
 
     /** @brief True once the character fade detour is armed. */
     [[nodiscard]] bool character_fade_available() noexcept;

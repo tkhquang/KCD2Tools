@@ -168,8 +168,7 @@ namespace TPVCamera
 
     /**
      * @brief Runs capture_movement_input under SEH, so a fault while reading the event is swallowed.
-     * @details Apart from the detour, because the detour's DetourScope needs C++ object unwinding, which a __try
-     *          frame cannot hold.
+     * @details Apart from the detour, so the guard covers the capture alone and the original runs outside it.
      */
     static void capture_movement_input_guarded(const char **action_name, float value) noexcept
     {
@@ -190,13 +189,12 @@ namespace TPVCamera
     static uintptr_t __fastcall detour_action_dispatch(uintptr_t self, const char **action_name,
                                                        unsigned int activation, float value) noexcept
     {
-        const DetourScope in_flight;
         capture_movement_input_guarded(action_name, value);
         const ActionDispatchFunc original = s_action_dispatch_original.load(std::memory_order_acquire);
         return original ? original(self, action_name, activation, value) : 0;
     }
 
-    DMK::Result<void> initialize_player_onaction_hook(HookSet &hooks)
+    DMK::Result<void> initialize_player_onaction_hook(DMK::hook::HookStack &hooks)
     {
         const uintptr_t dispatch_addr = gated_anchor_address(Feature::MoveIntent, AnchorId::ActionDispatch);
         if (dispatch_addr == 0)
@@ -209,16 +207,17 @@ namespace TPVCamera
         // branch rather than a refusal, so layering still works. The caller decides what a refusal means
         // (this hook is best-effort: a miss falls back to body speed), so the typed Error is returned rather
         // than logged and flattened to false here.
-        auto result = DMK::hook::inline_at(
-            DMK::hook::InlineRequest{.name = "PlayerOnActionDispatch", .target = DMK::Address{dispatch_addr}},
-            detour_action_dispatch);
+        auto result = DMK::hook::inline_at<&detour_action_dispatch>(DMK::hook::InlineRequest{
+            .name = "PlayerOnActionDispatch",
+            .target = DMK::Address{dispatch_addr},
+        });
         if (!result.has_value())
         {
             return std::unexpected(result.error());
         }
 
-        // Publish the trampoline and store the handle BEFORE enable() arms the patch, so the set owns a hook whose arm
-        // fails with the patch live.
+        // Publish the trampoline and store the handle BEFORE enable() arms the patch, so the stack owns a hook whose
+        // arm fails with the patch live.
         s_action_dispatch_original.store(result->original<ActionDispatchFunc>(), std::memory_order_release);
         if (auto armed = hooks.push(std::move(*result)).enable(); !armed.has_value())
         {

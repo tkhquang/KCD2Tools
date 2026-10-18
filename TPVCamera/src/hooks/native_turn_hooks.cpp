@@ -18,7 +18,6 @@
 #include <DetourModKit.hpp>
 
 #include <windows.h>
-#include <intrin.h>
 
 #include <algorithm>
 #include <array>
@@ -256,17 +255,16 @@ namespace TPVCamera
         /**
          * @brief IsThirdPerson detour: answers "third person" to the free-roam locomotion action for the native turn.
          * @details Hot (every actor, several calls a frame each), so it only compares: the published player first, then
-         *          the caller's return address against the two resolved call sites. The inline hook enters this detour
-         *          with a jump, so _ReturnAddress() is the game caller's return address. Every other call, every other
-         *          actor's included, goes to the original unchanged. Reads nothing through a pointer, so it needs no SEH
-         *          frame.
+         *          the caller's return address against the two resolved call sites. DMK's counted thunk calls this
+         *          detour, so _ReturnAddress() points into the thunk, and @p frame carries the game caller's return address.
+         *          Every other call, every other actor's included, goes to the original unchanged. Reads nothing
+         *          through a pointer, so it needs no SEH frame.
          */
-        bool __fastcall detour_is_third_person(uintptr_t actor) noexcept
+        bool __fastcall detour_is_third_person(DMK::hook::CallerFrame frame, uintptr_t actor) noexcept
         {
-            const DetourScope in_flight;
             if (actor != 0 && actor == s_native_turn_actor.load(std::memory_order_relaxed))
             {
-                const uintptr_t ret = reinterpret_cast<uintptr_t>(_ReturnAddress());
+                const uintptr_t ret = reinterpret_cast<uintptr_t>(frame.return_address());
                 if (ret == s_lock_sync_return)
                 {
                     return true;
@@ -386,7 +384,7 @@ namespace TPVCamera
          *          rdi, r12), the instruction it sits on, and the action's spin-latch field offsets, which are written
          *          before the hook arms.
          */
-        void install_turn_decision_hook(uintptr_t trigger_return, HookSet &hooks)
+        void install_turn_decision_hook(uintptr_t trigger_return, DMK::hook::HookStack &hooks)
         {
             DMK::Logger &logger = DMK::log();
             const std::optional<TurnDecisionLayout> layout = resolve_turn_decision_layout(trigger_return);
@@ -461,7 +459,6 @@ namespace TPVCamera
          */
         char __fastcall detour_phys_ent_movement(uintptr_t animchar, float *movement) noexcept
         {
-            const DetourScope in_flight;
             // A compare first, so the many other characters cost no locked instruction; the exchange then takes the
             // press once even when the dispatcher arms a new one meanwhile.
             if (std::uintptr_t pressed = animchar;
@@ -543,7 +540,7 @@ namespace TPVCamera
          *          hashes must be non-zero and distinct, and the idle and the turns swap together or not at all, because
          *          one without the other slides the body between the two stances.
          */
-        void install_crouched_animation_hook(uintptr_t module_base, size_t module_size, HookSet &hooks)
+        void install_crouched_animation_hook(uintptr_t module_base, size_t module_size, DMK::hook::HookStack &hooks)
         {
             DMK::Logger &logger = DMK::log();
             const DMK::Region image{DMK::Address{module_base}, module_size};
@@ -737,7 +734,7 @@ namespace TPVCamera
         }
     }
 
-    void install_turn_in_place_hook(HookSet &hooks)
+    void install_turn_in_place_hook(DMK::hook::HookStack &hooks)
     {
         DMK::Logger &logger = DMK::log();
         s_move_press_animchar.store(0, std::memory_order_relaxed);
@@ -758,9 +755,10 @@ namespace TPVCamera
             return;
         }
         s_movement_type_offset = *type_offset;
-        auto result = DMK::hook::inline_at(
-            DMK::hook::InlineRequest{.name = "UpdatePhysicalEntityMovement", .target = DMK::Address{target}},
-            detour_phys_ent_movement);
+        auto result = DMK::hook::inline_at<&detour_phys_ent_movement>(DMK::hook::InlineRequest{
+            .name = "UpdatePhysicalEntityMovement",
+            .target = DMK::Address{target},
+        });
         if (!result.has_value())
         {
             logger.warning("Camera: UpdatePhysicalEntityMovement hook failed ({}); turn steps move the body a little",
@@ -782,7 +780,7 @@ namespace TPVCamera
                     DMK::format::format_address(target));
     }
 
-    void install_native_turn_hook(uintptr_t module_base, size_t module_size, HookSet &hooks)
+    void install_native_turn_hook(uintptr_t module_base, size_t module_size, DMK::hook::HookStack &hooks)
     {
         DMK::Logger &logger = DMK::log();
         // A reloaded generation can be handed the previous image with its statics intact; start from off.
@@ -867,8 +865,10 @@ namespace TPVCamera
         s_turn_trigger_return = trigger_return;
         s_lock_sync_return = lock_sync_return;
 
-        auto result = DMK::hook::inline_at(
-            DMK::hook::InlineRequest{.name = "IsThirdPerson", .target = DMK::Address{target}}, detour_is_third_person);
+        auto result = DMK::hook::inline_at<&detour_is_third_person>(DMK::hook::InlineRequest{
+            .name = "IsThirdPerson",
+            .target = DMK::Address{target},
+        });
         if (!result.has_value())
         {
             logger.warning("Camera: IsThirdPerson hook failed ({}); native turn animation unavailable",
