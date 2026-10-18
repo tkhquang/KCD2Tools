@@ -37,7 +37,6 @@
 #include "highlight/groups.hpp"
 #include "highlight/registry.hpp"
 #include "hooks/frame_hook.hpp"
-#include "hooks/hook_set.hpp"
 #include "render/aux_markers.hpp"
 #include "render/engine_silhouette.hpp"
 #include "render/herb_outline.hpp"
@@ -47,7 +46,6 @@
 #include <windows.h>
 
 #include <array>
-#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -60,19 +58,23 @@ namespace HenrySenses
 {
     namespace
     {
-        // Every hook the mod installs, disabled and destroyed newest first: the early P1/P2 hooks are pushed first, so
-        // they are removed last (P4 before P2, as the stage requires). A teardown whose detours did not drain keeps
-        // them here, disabled, so their trampolines stay allocated.
-        HookSet s_hooks;
+        // Every hook the mod installs, retired newest first: the early P1/P2 hooks are pushed first, so they are
+        // removed last (P4 before P2, as the stage requires).
+        DMK::hook::HookStack s_hooks;
 
-        // Teardown latch. It lives at namespace scope so init() can re-arm it: a stale-image reload (an image kept
-        // mapped by a pinned hook) hands back these statics intact, and a latch that survived would make the next
-        // shutdown() a silent no-op.
-        std::atomic<bool> s_teardown_done{false};
-        std::atomic<bool> s_unload_safe{true};
+        // Teardown progress, read and written only by the thread that runs init() and shutdown(). The node restore and
+        // the stage unpublish need the hooks and change game state, so they run once: a Busy retirement leaves the
+        // hooks armed, and the next shutdown() retries only the retirement.
+        bool s_features_released = false;
+        // A stage that stays published keeps its guard hooks and the Session for the process.
+        bool s_stages_kept = false;
+        // The main thread restored every highlighted node, or never ticked.
+        bool s_nodes_restored = false;
+        // The steps after the hook retirement ran.
+        bool s_teardown_done = false;
 
         // How long shutdown waits for the main-thread tick to restore the nodes. A loading screen can hold one
-        // PostUpdate for several seconds, so this matches the frame-hook rundown.
+        // PostUpdate for several seconds.
         constexpr std::chrono::milliseconds MAIN_THREAD_SHUTDOWN_TIMEOUT{10000};
         // How long shutdown waits for the render thread to unpublish the stage. A pipeline that renders no frame in
         // this window keeps its stage published.
@@ -132,55 +134,6 @@ namespace HenrySenses
             {
                 DMK::log().warning("{} ({})", degraded, outcome.error().message());
             }
-        }
-
-        /**
-         * @brief Disables every hook, drains the detours, and destroys the hooks only after both drains succeeded.
-         * @details Destroying an inline hook frees its trampoline, and a thread that took the patch jump just before
-         *          the prologue was restored still calls the original through it. So the prologues are restored first
-         *          with the trampolines kept, the detours drain, and only then are the handles destroyed. A hook that
-         *          cannot be disabled leaves its detour reachable, so nothing is drained or destroyed. Hooks that are
-         *          not destroyed stay in s_hooks with their trampolines allocated.
-         * @return True when every hook is gone with its prologue restored and no thread is left inside a detour.
-         */
-        [[nodiscard]] bool retire_hooks()
-        {
-            DMK::Logger &logger = DMK::log();
-            if (s_hooks.empty())
-            {
-                return true;
-            }
-            if (!s_hooks.disable_all())
-            {
-                logger.error(
-                    "Hooks: a hook could not be disabled, so its detour stays reachable; every hook is kept "
-                    "and the module must stay mapped"
-                );
-                return false;
-            }
-            const bool frame_drained = rundown_frame_hook();
-            const bool render_drained = shutdown_engine_silhouette();
-            if (!frame_drained || !render_drained)
-            {
-                logger.error(
-                    "Hooks: a detour did not drain; the hooks stay disabled with their trampolines allocated, "
-                    "and the module must stay mapped"
-                );
-                return false;
-            }
-            // A hook that cannot prove it restored its target pins its backend; the leak-count delta reports it.
-            const std::size_t pins_before =
-                DMK::diagnostics::intentional_leak_count(DMK::diagnostics::LeakSubsystem::HookManager);
-            s_hooks.clear();
-            if (DMK::diagnostics::intentional_leak_count(DMK::diagnostics::LeakSubsystem::HookManager) != pins_before)
-            {
-                logger.error(
-                    "Hooks: a hook could not restore its prologue and pinned its backend; the module must "
-                    "stay mapped"
-                );
-                return false;
-            }
-            return true;
         }
 
         /**
@@ -304,26 +257,6 @@ namespace HenrySenses
         logger.info("========================================");
         version::log_version_info();
 
-        // A refused teardown of this image can have kept its hooks, disabled, because a detour did not drain. They are
-        // retired before anything is installed again: this kit refuses a second hook on a target it still tracks.
-        // Until they are, the teardown latch stays set, so the failure path's shutdown() keeps its refusal.
-        if (!s_hooks.empty())
-        {
-            logger.warning(
-                "Init: {} hook(s) kept by an earlier teardown of this image; retiring them first",
-                s_hooks.size()
-            );
-            if (!retire_hooks())
-            {
-                logger.error("Init: the kept hooks could not be retired; this image stays inert and mapped");
-                return std::unexpected(DMK::Error{DMK::ErrorCode::InvalidHookState, "HenrySenses::init/kept_hooks"});
-            }
-        }
-
-        // Re-arm the teardown latch before anything is installed (see s_teardown_done).
-        s_unload_safe.store(true, std::memory_order_relaxed);
-        s_teardown_done.store(false, std::memory_order_release);
-
         register_config_items();
         DMK::config::load(constants::get_config_filename());
         // The groups read their own [Highlight.<Name>] sections, with the [Settings] fallbacks just loaded, and
@@ -383,129 +316,152 @@ namespace HenrySenses
         return {};
     }
 
-    bool shutdown() noexcept
+    ShutdownResult shutdown() noexcept
     {
-        if (s_teardown_done.exchange(true, std::memory_order_acq_rel))
-        {
-            return s_unload_safe.load(std::memory_order_acquire);
-        }
-
-        // An exception before the final commit must leave every later shutdown call unable to authorize unload.
-        s_unload_safe.store(false, std::memory_order_release);
         try
         {
             DMK::Logger &logger = DMK::log();
-            logger.info("Shutdown: starting teardown");
-
-            // Stop the INI watcher so no reload setter runs during teardown, then release the group hotkeys.
-            DMK::config::disable_auto_reload();
-            shutdown_groups();
-
-            // Restore every highlighted node on the main thread, while the hooks that read the words are still
-            // installed. Node writes and 3D-engine calls race the main thread from here, so a tick that does not answer
-            // leaves them undone: the words go inert once P3 (their only reader) and P4 (the only consumer of list 27)
-            // are removed.
-            const MainThreadShutdown main_shutdown = controller_request_shutdown(MAIN_THREAD_SHUTDOWN_TIMEOUT);
-            switch (main_shutdown)
+            if (!s_features_released)
             {
-            case MainThreadShutdown::Completed:
-                logger.info("Shutdown: main thread restored the highlighted nodes");
-                break;
-            case MainThreadShutdown::NeverTicked:
-                logger.info("Shutdown: the main-thread tick never ran; nothing to restore");
-                break;
-            case MainThreadShutdown::Abandoned:
-                logger.warning(
-                    "Shutdown: the main-thread tick did not answer; native effects and node state may remain, "
-                    "so the module must stay mapped"
-                );
-                break;
-            case MainThreadShutdown::Unfinished:
-            default:
-                logger.warning("Shutdown: the main thread did not finish restoring the highlighted nodes in time");
-                break;
-            }
+                logger.info("Shutdown: starting teardown");
 
-            // Take the stage off its pipeline while P2 still guards it and P4 still runs.
-            // After this, P+0x50 is null again, so the engine's custom-PSO block and debug views are gated off before
-            // P2 goes. The unpublished stage is never freed: objects compiled while it was published keep PSOs built
-            // from its passes.
-            const std::size_t stages_kept = unpublish_engine_stage(RENDER_THREAD_UNPUBLISH_TIMEOUT);
-            if (stages_kept != 0)
-            {
-                logger.warning(
-                    "Shutdown: {} silhouette stage(s) remain published; the guard hooks and module stay active",
-                    stages_kept
-                );
-                // P2 prevents incomplete debug-view PSOs from hiding objects. A stalled pipeline can resume at any
-                // time, so keep its guard and the session that supports it until process exit. P4 can still finish
-                // the pending unpublish request when that pipeline renders again.
+                // Stop the INI watcher so no reload setter runs during teardown, then release the group hotkeys.
+                DMK::config::disable_auto_reload();
+                shutdown_groups();
+
+                // Restore every highlighted node on the main thread, while the hooks that read the words are still
+                // installed. Node writes and 3D-engine calls race the main thread from here, so a tick that does not
+                // answer leaves them undone: the words go inert once P3 (their only reader) and P4 (the only consumer
+                // of list 27) are removed.
+                const MainThreadShutdown main_shutdown = controller_request_shutdown(MAIN_THREAD_SHUTDOWN_TIMEOUT);
+                switch (main_shutdown)
+                {
+                case MainThreadShutdown::Completed:
+                    logger.info("Shutdown: main thread restored the highlighted nodes");
+                    break;
+                case MainThreadShutdown::NeverTicked:
+                    logger.info("Shutdown: the main-thread tick never ran; nothing to restore");
+                    break;
+                case MainThreadShutdown::Abandoned:
+                    logger.warning(
+                        "Shutdown: the main-thread tick did not answer; native effects and node state may remain, "
+                        "so the module must stay mapped"
+                    );
+                    break;
+                case MainThreadShutdown::Unfinished:
+                default:
+                    logger.warning("Shutdown: the main thread did not finish restoring the highlighted nodes in time");
+                    break;
+                }
+                // Removing the hooks makes silhouette words inert, but it does not restore focus settings or remove
+                // native particle emitters. An abandoned request must retain their owner and stop generation swaps.
+                s_nodes_restored =
+                    main_shutdown == MainThreadShutdown::Completed || main_shutdown == MainThreadShutdown::NeverTicked;
+
+                // Take the stage off its pipeline while P2 still guards it and P4 still runs. After this, P+0x50 is
+                // null again, so the engine's custom-PSO block and debug views are gated off before P2 goes. The
+                // unpublished stage is never freed: objects compiled while it was published keep PSOs built from its
+                // passes.
+                const std::size_t stages_kept = unpublish_engine_stage(RENDER_THREAD_UNPUBLISH_TIMEOUT);
                 disarm_frame_hook();
-                return false;
+                if (stages_kept != 0)
+                {
+                    logger.warning(
+                        "Shutdown: {} silhouette stage(s) remain published; the guard hooks and module stay active",
+                        stages_kept
+                    );
+                    // P2 prevents incomplete debug-view PSOs from hiding objects. A stalled pipeline can resume at any
+                    // time, so keep its guard and the session that supports it until process exit. P4 can still
+                    // finish the pending unpublish request when that pipeline renders again.
+                    s_stages_kept = true;
+                }
+                else
+                {
+                    disarm_engine_silhouette();
+                }
+                s_features_released = true;
             }
-
-            // Make every detour pass straight through before the patches are removed.
-            disarm_frame_hook();
-            disarm_engine_silhouette();
-            // Hooks are caller-owned, so this is where the patched prologues are restored.
-            const bool hooks_retired = retire_hooks();
-            if (!hooks_retired)
+            if (s_stages_kept)
             {
-                return false;
+                return ShutdownResult{};
             }
 
-            shutdown_loot_scanner();
-            shutdown_aux_markers();
-            shutdown_herb_scan();
-            shutdown_herb_outline();
-            shutdown_interactables();
+            // Hooks are caller-owned, so this is where the patched prologues are restored. The retirement switches
+            // every detour off and proves it idle before anything it reads goes away.
+            const DMK::hook::HookRetirement retirement = s_hooks.retire(constants::HOOK_RETIREMENT_DEADLINE);
+            if (retirement.outcome != DMK::hook::RetirementOutcome::Retired || retirement.pinned != 0)
+            {
+                // A pinned hook keeps its detour reachable, so everything that detour reads stays.
+                logger.warning(
+                    "Shutdown: the hooks did not retire ({}, {} pinned, {} call(s) in a detour); the mod keeps its "
+                    "state",
+                    DMK::to_string(retirement.refusal),
+                    retirement.pinned,
+                    retirement.in_flight
+                );
+                return ShutdownResult{
+                    .hooks = retirement,
+                };
+            }
 
-            // The frame hook has drained, so the self-heal report cannot change during this copy.
-            std::array<DMK::rtti::DriftEntry, 8> drift_report{};
-            const std::size_t drift_count = offset_heal_drift_report(drift_report);
-            const DMK::diagnostics::Snapshot diag = DMK::diagnostics::collect(
-                std::span<const DMK::rtti::DriftEntry>(drift_report.data(), drift_count),
-                anchor_report()
-            );
-            logger.info(
-                "Diagnostics: {} hooks ({} active, {} disabled), {} intentional leaks",
-                diag.hooks_total,
-                diag.hooks_active,
-                diag.hooks_disabled,
-                diag.total_intentional_leaks
-            );
-            logger.info(
-                "Diagnostics: self-heal {}/{} landmarks healed; anchors {}/{} resolved ({} failed)",
-                diag.drift_healed,
-                diag.drift_total,
-                diag.anchor_quality.resolved,
-                diag.anchor_quality.total,
-                diag.anchor_quality.failed
-            );
+            if (!s_teardown_done)
+            {
+                release_engine_silhouette();
+                shutdown_loot_scanner();
+                shutdown_aux_markers();
+                shutdown_herb_scan();
+                shutdown_herb_outline();
+                shutdown_interactables();
 
-            // Removing the hooks makes silhouette words inert, but it does not restore focus settings or remove
-            // native particle emitters. An abandoned request must retain their owner and stop generation swaps.
-            const bool unload_safe =
-                main_shutdown == MainThreadShutdown::Completed || main_shutdown == MainThreadShutdown::NeverTicked;
+                // No detour runs any more, so the self-heal report cannot change during this copy.
+                std::array<DMK::rtti::DriftEntry, 8> drift_report{};
+                const std::size_t drift_count = offset_heal_drift_report(drift_report);
+                const DMK::diagnostics::Snapshot diag = DMK::diagnostics::collect(
+                    std::span<const DMK::rtti::DriftEntry>(drift_report.data(), drift_count),
+                    anchor_report()
+                );
+                logger.info(
+                    "Diagnostics: {} hooks ({} active, {} disabled), {} intentional leaks",
+                    diag.hooks_total,
+                    diag.hooks_active,
+                    diag.hooks_disabled,
+                    diag.total_intentional_leaks
+                );
+                logger.info(
+                    "Diagnostics: self-heal {}/{} landmarks healed; anchors {}/{} resolved ({} failed)",
+                    diag.drift_healed,
+                    diag.drift_total,
+                    diag.anchor_quality.resolved,
+                    diag.anchor_quality.total,
+                    diag.anchor_quality.failed
+                );
 
-            // Drop the config registry's bound setters. The group hotkeys were released by shutdown_groups() above.
-            DMK::config::clear();
+                // Drop the config registry's bound setters. The group hotkeys were released by shutdown_groups().
+                DMK::config::clear();
 
-            shutdown_game_natives();
-            shutdown_entity_access();
-            cleanup_game_interface();
-            shutdown_engine_env();
+                shutdown_game_natives();
+                shutdown_entity_access();
+                cleanup_game_interface();
+                shutdown_engine_env();
+                s_teardown_done = true;
+            }
 
-            logger.info("Shutdown: teardown complete ({})", unload_safe ? "safe to unload" : "module must stay mapped");
-            s_unload_safe.store(unload_safe, std::memory_order_release);
-            return unload_safe;
+            // A StoppableWorker that did not join keeps its module reference, and its thread still runs this image.
+            const bool workers_joined =
+                DMK::diagnostics::module_pin_count(DMK::diagnostics::ModulePinReason::Worker) == 0;
+            const bool complete = s_nodes_restored && workers_joined;
+            logger.info("Shutdown: teardown complete ({})", complete ? "safe to unload" : "module must stay mapped");
+            return ShutdownResult{
+                .hooks = retirement,
+                .complete = complete,
+            };
         }
         catch (...)
         {
             disarm_frame_hook();
             disarm_engine_silhouette();
             (void)DMK::log().log_noexcept(DMK::LogLevel::Error, "Shutdown: cleanup failed; the module stays mapped");
-            return false;
+            return ShutdownResult{};
         }
     }
 

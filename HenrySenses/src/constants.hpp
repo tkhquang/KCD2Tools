@@ -11,6 +11,7 @@
 
 #include "version.hpp"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -43,6 +44,14 @@ namespace HenrySenses::constants
 
     /// Name of the game module every anchor and offset lives in.
     inline constexpr const char *MODULE_NAME = "WHGame.dll";
+
+    /**
+     * @brief How long one hook retirement waits for a thread inside a detour.
+     * @details A PostUpdate or a render pass normally returns within a frame, but a loading screen or a cold-cache
+     *          pipeline compile can hold one for seconds. A Busy retirement changes nothing, and the dev loader
+     *          retries it.
+     */
+    inline constexpr std::chrono::milliseconds HOOK_RETIREMENT_DEADLINE{250};
 
     // The signature file beside the ASI: optional repairs of the built-in signatures, merged over them by label.
     inline constexpr const char *SIGNATURE_FILE_SUFFIX = ".signatures.ini";

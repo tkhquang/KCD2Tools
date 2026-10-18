@@ -33,18 +33,27 @@ namespace HenrySenses
         std::span<std::uint64_t> persistent_slots = {}
     );
 
+    /** @brief The outcome of @ref shutdown. */
+    struct ShutdownResult
+    {
+        /// The hook retirement. Busy and Refused leave every hook armed, so a later shutdown() can retry it.
+        DMK::hook::HookRetirement hooks{};
+        /// False when a worker or game state outside the hooks still needs this image, so the image must stay mapped.
+        bool complete = false;
+    };
+
     /**
-     * @brief Tears the mod down: restores every highlighted node, unpublishes the silhouette stage, removes every hook,
-     *        and clears the config.
-     * @details Hooks are disabled first, their detours drained, and only then destroyed, because destruction frees
-     *          the trampolines. Hooks whose detours do not drain stay disabled with their trampolines allocated; the
-     *          next init() of this image retires them before it installs anything.
-     * @return True when the module may unmap: every hooked prologue was restored and no thread is still inside a
-     *         detour. False means the module hosting the mod must NOT be unloaded.
-     * @note Run OFF the loader lock (the dev loader's control thread); never from DllMain. Idempotent; a repeat call
-     *       reports the first verdict.
+     * @brief Tears the mod down: restores every highlighted node, unpublishes the silhouette stage, retires every
+     *        hook, and clears the config.
+     * @details The node restore and the stage unpublish need the hooks, so they run once, before the retirement. A
+     *          stage that stays published keeps every hook as its guard, so the result is incomplete with no
+     *          retirement. A retirement that is not Retired, or that pinned a hook, stops the teardown there, so
+     *          everything a detour reads stays.
+     * @return The hook retirement and whether every worker joined and every node was restored.
+     * @note Run OFF the loader lock, on the dev loader's control thread, and never from DllMain. Idempotent: a call
+     *       after Busy retries the retirement.
      */
-    [[nodiscard]] bool shutdown() noexcept;
+    [[nodiscard]] ShutdownResult shutdown() noexcept;
 
 } // namespace HenrySenses
 

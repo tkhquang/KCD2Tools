@@ -332,7 +332,7 @@ Start the game. After changing mod code, rebuild the logic DLL:
 cmake --build --preset msvc-dev --target KCD2_HenrySenses-logic
 ```
 
-Press **Numpad 9** while the game window has focus to load the staged build. Loader changes require a game restart. A reload whose cleanup cannot finish retains the loaded generation and requires a restart before another reload. `KCD2_HenrySenses_Loader.log` records reloads; `KCD2_HenrySenses.log` contains the mod's diagnostics.
+Press **Numpad 9** while the game window has focus to load the staged build. Loader changes require a game restart. If a game thread stays inside a hook, the loaded generation keeps running; press again later. A reload whose cleanup cannot finish retains the loaded generation and requires a restart before another reload. `KCD2_HenrySenses_Loader.log` records reloads; `KCD2_HenrySenses.log` contains the mod's diagnostics.
 
 ### Rebuilding the shader
 

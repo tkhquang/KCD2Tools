@@ -12,9 +12,8 @@
 #ifndef TPVCAMERA_HOOKS_OCCLUDER_FADE_HPP
 #define TPVCAMERA_HOOKS_OCCLUDER_FADE_HPP
 
-#include "hook_set.hpp"
-
 #include <DetourModKit/error.hpp>
+#include <DetourModKit/hook.hpp>
 
 #include <span>
 
@@ -24,12 +23,12 @@ namespace TPVCamera
     /**
      * @brief Installs the AddOrCreatePersistentRenderObject detour from the OccluderFade anchor.
      * @details Best-effort: on a miss the camera collides with every object and never fades one.
-     * @param hooks The mod's hook set. The handle is stored before its arm.
+     * @param hooks The mod's hook stack. The handle is stored before its arm.
      * @return An empty value when the hook was installed, else the library Error (ErrorCode::NoMatch when the anchor
      *         did not resolve).
      * @note Call after resolve_all_anchors().
      */
-    [[nodiscard]] DMK::Result<void> initialize_occluder_fade(HookSet &hooks);
+    [[nodiscard]] DMK::Result<void> initialize_occluder_fade(DMK::hook::HookStack &hooks);
 
     /** @brief True once the dissolve detour is armed. */
     [[nodiscard]] bool occluder_fade_available() noexcept;

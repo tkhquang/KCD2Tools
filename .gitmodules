@@ -13,6 +13,8 @@
 [submodule "TPVCamera/external/DetourModKit"]
 	path = TPVCamera/external/DetourModKit
 	url = https://github.com/tkhquang/DetourModKit.git
+	ignore = dirty
 [submodule "HenrySenses/external/DetourModKit"]
 	path = HenrySenses/external/DetourModKit
 	url = https://github.com/tkhquang/DetourModKit.git
+	ignore = dirty

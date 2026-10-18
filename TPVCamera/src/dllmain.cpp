@@ -6,8 +6,12 @@
  * on_ready(session) on its own worker thread off the loader lock; ~Session (also on that worker)
  * clears the binding scope and tears the DMK subsystems down in order.
  *
- * DetourModKit does not own the mod's own state. Hooks are caller-owned handles, so
- * TPVCamera::shutdown() is the only path that restores the patched prologues, and this file calls it.
+ * DetourModKit does not own the mod's own state. Hooks are caller-owned handles, so TPVCamera::shutdown() is the
+ * only path that restores the patched prologues. It must run off the loader lock, so DllMain never calls it. The
+ * production ASI lives for the whole process: a bare FreeLibrary cannot reach DLL_PROCESS_DETACH while the bootstrap
+ * worker holds its module reference, and process exit takes bootstrap_detach's abandon path. on_ready rolls a failed
+ * init back on the bootstrap worker, and the dev build's Shutdown export runs the teardown on the loader's control
+ * thread.
  */
 
 #include "tpv_camera.hpp"
@@ -23,9 +27,29 @@
 
 namespace
 {
+    /**
+     * @brief Bootstrap callback: runs the mod init on the DMK worker thread.
+     * @param session The live Session handed over by bootstrap_attach().
+     * @return The init result. A failure leaves the mod inert.
+     */
     DMK::Result<void> on_ready(DMK::Session &session)
     {
-        return TPVCamera::init(session);
+        DMK::Result<void> result;
+        try
+        {
+            result = TPVCamera::init(session);
+        }
+        catch (...)
+        {
+            result = std::unexpected(DMK::Error{DMK::ErrorCode::Unknown, "TPVCamera::init/exception"});
+        }
+        if (!result)
+        {
+            // The bootstrap worker retains its Session and module reference until process exit, even after on_ready
+            // reports failure, so hooks that did not retire stay valid. shutdown() logs that outcome itself.
+            (void)TPVCamera::shutdown();
+        }
+        return result;
     }
 } // namespace
 
@@ -65,18 +89,8 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD ul_reason_for_call, LPVOID lp_rese
     }
 
     case DLL_PROCESS_DETACH:
-        // lp_reserved == NULL is an explicit FreeLibrary. Run the mod teardown so the patched
-        // prologues are restored; this is best-effort, because a ~Hook under the loader lock pins the
-        // backend rather than leaving a half-restored target. lp_reserved != NULL is process exit: the
-        // OS has already killed every other thread, so touching patched pages there would be a UAF and
-        // the abandon path inside bootstrap_detach is the correct no-op.
-        if (lp_reserved == nullptr)
-        {
-            // The status is discarded here on purpose. DllMain cannot refuse a FreeLibrary already in
-            // progress, and this ASI is loaded once for the process, so there is no later load that a
-            // pinned backend could hand a stale image to. shutdown() logs the failure itself.
-            (void)TPVCamera::shutdown();
-        }
+        // Loader-lock safe on both paths ([B-100]): it neither waits nor joins, and at process exit it abandons the
+        // Session, whose threads the OS has already ended.
         DMK::bootstrap_detach(lp_reserved);
         break;
 

@@ -1262,7 +1262,6 @@ namespace TPVCamera::Twins
     std::uint8_t __fastcall create_psos_detour(void *pipeline, std::uintptr_t *psos, std::uint8_t *desc, void *cache,
                                                int is_shadow) noexcept
     {
-        const DetourScope in_flight;
         HookProfile::Scope timing(HookProfile::Path::CreatePsos);
         const ProfiledCreatePsos original{s_create_psos_original.load(std::memory_order_acquire), timing};
         if (is_shadow != 0)

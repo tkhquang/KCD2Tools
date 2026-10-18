@@ -41,7 +41,6 @@ namespace TPVCamera
         bool __fastcall detour_camera_observer_update(uintptr_t observer, float *position, bool *position_valid,
                                                       float *direction, bool *direction_valid, float *fov) noexcept
         {
-            const DetourScope in_flight;
             const CameraObserverUpdateFunc original = s_camera_observer_update_original.load(std::memory_order_acquire);
             const bool updated =
                 original != nullptr && original(observer, position, position_valid, direction, direction_valid, fov);
@@ -59,7 +58,7 @@ namespace TPVCamera
         }
     } // namespace
 
-    void install_camera_observer_hook(uintptr_t module_base, size_t module_size, HookSet &hooks)
+    void install_camera_observer_hook(uintptr_t module_base, size_t module_size, DMK::hook::HookStack &hooks)
     {
         DMK::Logger &logger = DMK::log();
         const std::optional<std::uintptr_t> vtable = class_vtable(GameClass::CameraObserver);
@@ -80,9 +79,10 @@ namespace TPVCamera
             return;
         }
 
-        auto result = DMK::hook::inline_at(
-            DMK::hook::InlineRequest{.name = "CameraObserverUpdate", .target = DMK::Address{target}},
-            detour_camera_observer_update);
+        auto result = DMK::hook::inline_at<&detour_camera_observer_update>(DMK::hook::InlineRequest{
+            .name = "CameraObserverUpdate",
+            .target = DMK::Address{target},
+        });
         if (!result.has_value())
         {
             logger.warning("Camera: camera-observer hook failed ({}); in third person the AI keeps judging NPCs from "

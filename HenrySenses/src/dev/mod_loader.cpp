@@ -13,12 +13,14 @@
  *             keepalive on whichever module hosts wheel capture. Hosting it here - in a module that is never unloaded
  *             - is what lets a logic generation keep a user-bound wheel combo AND still unmap. This loader therefore
  *             links only DetourModKit::WheelHost, never the full archive.
- *          3. **Proof, not assumption.** A generation is only considered gone after its typed Shutdown accepts, a
- *             probe lease opens and closes, and one of its code addresses is observed to become unmapped.
- *          4. **Persistent state.** Engine objects a generation creates can outlive its image (the silhouette stage
- *             the renderer keeps using). The loader owns one zero-filled HenrySensesPersistentState for the process and
- *             hands
- *             it to every generation, so the next generation adopts such objects instead of creating them again.
+ *          3. **Proof, not assumption.** A generation is only considered gone after its Shutdown verdict permits the
+ *             release, a probe lease opens and closes, and one of its code addresses is observed to become unmapped.
+ *             A RETAINED verdict keeps the loader's own reference, and every image that stays mapped is charged
+ *             against the retention budget.
+ *          4. **Persistent state.** Engine objects a generation creates can outlive its image (the silhouette
+ *             stage the renderer keeps using). The loader owns one zero-filled HenrySensesPersistentState for the
+ *             process and hands it to every generation, so the next generation adopts such objects instead of
+ *             creating them again.
  *
  *          This loader is dev-only and process-lifetime: it pins itself on attach and never tears the live generation
  *          down. The release build is a single ASI with no reload path at all.
@@ -78,8 +80,6 @@ namespace
     constexpr int RELOAD_VK = VK_NUMPAD9;
     constexpr const char *RELOAD_KEY_NAME = "Numpad 9";
     constexpr DWORD CONTROL_POLL_MS = 100;
-    /// Quiescence so an in-flight per-frame detour body returns before FreeLibrary.
-    constexpr DWORD POST_SHUTDOWN_MS = 100;
     constexpr DWORD UNMAP_POLL_MS = 10;
     /**
      * @brief Deadline for the post-FreeLibrary unmap poll.
@@ -88,9 +88,13 @@ namespace
      */
     constexpr DWORD UNMAP_TIMEOUT_MS = 2000;
 
+    /// Bounds the Shutdown calls of one retirement while each returns BUSY, which changes nothing.
+    constexpr int SHUTDOWN_BUSY_ATTEMPTS = 20;
+    constexpr DWORD SHUTDOWN_BUSY_RETRY_MS = 50;
+
     /**
      * @brief Caps retained images, by count and by total image bytes, before the loader stops reloading and asks for a
-     * restart.
+     *        restart.
      */
     constexpr unsigned MAX_RETAINED_GENERATIONS = 24;
     constexpr std::uint64_t MAX_RETAINED_BYTES = 128ull * 1024 * 1024;
@@ -120,8 +124,8 @@ namespace
     unsigned s_retained_generations = 0;
     std::uint64_t s_retained_bytes = 0;
 
-    using InitFn = unsigned(__cdecl *)(const HenrySensesReloadInitRequest *) noexcept;
-    using ShutdownFn = unsigned(__cdecl *)() noexcept;
+    using InitFn = std::uint32_t(__cdecl *)(const HenrySensesReloadInitRequest *) noexcept;
+    using ShutdownFn = std::uint32_t(__cdecl *)() noexcept;
     using RevisionFn = const char *(__cdecl *)() noexcept;
 
     /// One mapped generation and everything needed to retire it.
@@ -135,7 +139,7 @@ namespace
         const void *unmap_address = nullptr;
         std::uint64_t generation_id = 0;
         std::string path;
-        /// Size of the staged image, charged against the retention byte budget if it cannot be proved gone.
+        /// Size of the staged image, charged against the retention byte budget while it stays mapped.
         std::uint64_t image_bytes = 0;
     };
 
@@ -377,9 +381,8 @@ namespace
         if (open_status != DMK_WHEELHOST_OK)
         {
             // A lease the generation left open, or a host that refuses the probe, leaves host state unknown.
-            s_restart_required = true;
             logf(
-                "Generation %llu left its wheel-host lease open (status %d); restart required",
+                "Generation %llu left its wheel-host lease open (status %d)",
                 static_cast<unsigned long long>(generation_id),
                 open_status
             );
@@ -389,24 +392,23 @@ namespace
             s_wheel_host.close_lease(s_wheel_host.host_context, probe, LEASE_PROBE_OWNER, generation_id);
         if (close_status != DMK_WHEELHOST_OK)
         {
-            s_restart_required = true;
-            logf("The loader could not close its wheel-host probe lease (status %d); restart required", close_status);
+            logf("The loader could not close its wheel-host probe lease (status %d)", close_status);
             return false;
         }
         return true;
     }
 
     /**
-     * @brief Charges an image that could not be proved gone against the reload budget.
-     * @details The image stays mapped for the process and its code can still be reachable, so the budget shrinks and
-     *          the loader eventually stops rather than stacking unknown state.
+     * @brief Charges an image that stays mapped against the reload budget.
+     * @details Its code can still be reachable, so the budget shrinks, and the loader stops before it stacks
+     *          unknown state.
      */
     void record_retained_generation(const Generation &generation) noexcept
     {
         ++s_retained_generations;
         s_retained_bytes += generation.image_bytes;
         logf(
-            "Generation %llu could not be proved gone; %u of %u retained images, %llu of %llu bytes used",
+            "Generation %llu stays mapped; %u of %u retained images, %llu of %llu bytes used",
             static_cast<unsigned long long>(generation.generation_id),
             s_retained_generations,
             MAX_RETAINED_GENERATIONS,
@@ -421,12 +423,15 @@ namespace
     }
 
     /**
-     * @brief Refuses a reload whose worst case (the live image retained) would breach the retention budget.
+     * @brief Refuses a reload whose worst case breaches the retention budget.
+     * @details The count check reserves slots for the live generation and a failed successor. The byte check includes
+     *          the live image, and load_generation() checks the successor's size before its load.
      */
     [[nodiscard]] bool budget_allows_reload() noexcept
     {
         const std::uint64_t current_bytes = s_current.has_value() ? s_current->image_bytes : 0;
-        if (s_retained_generations + 1 > MAX_RETAINED_GENERATIONS ||
+        const unsigned current_slot = s_current.has_value() ? 1 : 0;
+        if (s_retained_generations + current_slot >= MAX_RETAINED_GENERATIONS ||
             s_retained_bytes + current_bytes > MAX_RETAINED_BYTES)
         {
             s_restart_required = true;
@@ -436,8 +441,12 @@ namespace
         return true;
     }
 
-    /// Retires a generation: lease probe, FreeLibrary once, then proof of unmap.
-    [[nodiscard]] bool release_generation(Generation &generation) noexcept
+    /**
+     * @brief Probes the wheel-host lease, then releases a retired image or keeps the loader's reference for a
+     *        RETAINED verdict.
+     * @return False when the lease probe or FreeLibrary fails. The caller then requests a restart.
+     */
+    [[nodiscard]] bool release_generation(Generation &generation, std::uint32_t verdict) noexcept
     {
         if (generation.module == nullptr)
         {
@@ -448,30 +457,86 @@ namespace
         {
             return false;
         }
-
-        // Shutdown removed every hook, so no NEW detour entry can occur. What it cannot drain is a game thread
-        // already inside a per-frame detour body in this image. Those return in microseconds.
-        Sleep(POST_SHUTDOWN_MS);
+        if (verdict == DMK_STAGED_RELOAD_RETAINED)
+        {
+            // A leaked resource can need this image's code while it holds no module pin of its own.
+            record_retained_generation(generation);
+            generation.module = nullptr;
+            return true;
+        }
 
         const HMODULE module = generation.module;
-        const void *const address = generation.unmap_address;
-        generation.module = nullptr;
-        generation.init = nullptr;
-        generation.shutdown = nullptr;
-        generation.revision = nullptr;
-
         if (FreeLibrary(module) == 0)
         {
-            logf("FreeLibrary failed (error %lu); restart required", GetLastError());
-            s_restart_required = true;
+            logf("FreeLibrary failed (error %lu)", GetLastError());
             return false;
         }
-        if (!wait_for_unmap(address))
+        generation.module = nullptr;
+        if (!wait_for_unmap(generation.unmap_address))
         {
-            return false;
+            record_retained_generation(generation);
+            return true;
         }
         DeleteFileA(generation.path.c_str());
         return true;
+    }
+
+    /**
+     * @brief Calls Shutdown and retries a BUSY verdict within the bound.
+     * @return The last verdict. RESTART_REQUIRED also latches the restart request.
+     */
+    [[nodiscard]] std::uint32_t shut_down(const Generation &generation) noexcept
+    {
+        std::uint32_t verdict = generation.shutdown();
+        for (int attempt = 1; verdict == DMK_STAGED_RELOAD_BUSY && attempt < SHUTDOWN_BUSY_ATTEMPTS; ++attempt)
+        {
+            Sleep(SHUTDOWN_BUSY_RETRY_MS);
+            verdict = generation.shutdown();
+        }
+        if (verdict == DMK_STAGED_RELOAD_BUSY)
+        {
+            log_msg("Shutdown stayed busy: a game thread stayed inside a detour; the generation stays live");
+        }
+        else if (verdict == DMK_STAGED_RELOAD_RESTART_REQUIRED)
+        {
+            s_restart_required = true;
+            log_msg("A detour of the generation stays reachable; restart the game before another reload");
+        }
+        else if (verdict != DMK_STAGED_RELOAD_OK && verdict != DMK_STAGED_RELOAD_RETAINED)
+        {
+            log_msg("Shutdown refused the unload; the generation stays mapped");
+        }
+        return verdict;
+    }
+
+    /**
+     * @brief Shuts a generation down and releases or retains its image.
+     * @return False when the generation must stay mapped with the loader's reference.
+     */
+    [[nodiscard]] bool retire_generation(Generation &generation) noexcept
+    {
+        const std::uint32_t verdict = shut_down(generation);
+        if (verdict != DMK_STAGED_RELOAD_OK && verdict != DMK_STAGED_RELOAD_RETAINED)
+        {
+            return false;
+        }
+        if (!release_generation(generation, verdict))
+        {
+            s_restart_required = true;
+            return false;
+        }
+        return true;
+    }
+
+    /// Retires a stage whose exports or Init failed. A stage that does not retire stays mapped until restart.
+    void retire_failed_stage(Generation &generation) noexcept
+    {
+        if (generation.shutdown == nullptr || !retire_generation(generation))
+        {
+            s_restart_required = true;
+            record_retained_generation(generation);
+            log_msg("The failed stage did not retire; restart the game before another reload");
+        }
     }
 
     /// Builds the request for generation @p generation_id, with the resident host when it is live.
@@ -489,7 +554,7 @@ namespace
 
     /**
      * @brief Stages the promoted build under the next unique name, maps it, and runs its Init.
-     * @return False when no generation is live afterwards; a refused Init has already been released.
+     * @return False when no generation is live afterwards. A failed stage is already retired.
      */
     [[nodiscard]] bool load_generation()
     {
@@ -509,6 +574,13 @@ namespace
         {
             generation.image_bytes = (static_cast<std::uint64_t>(staged.nFileSizeHigh) << 32) |
                                      static_cast<std::uint64_t>(staged.nFileSizeLow);
+        }
+        if (s_retained_bytes + generation.image_bytes > MAX_RETAINED_BYTES)
+        {
+            s_restart_required = true;
+            DeleteFileA(generation.path.c_str());
+            log_msg("The next image exceeds the retention budget; restart the game before another reload");
+            return false;
         }
 
         generation.module = LoadLibraryA(generation.path.c_str());
@@ -532,10 +604,7 @@ namespace
         if (generation.init == nullptr || generation.shutdown == nullptr || generation.revision == nullptr)
         {
             log_msg("The logic DLL is missing Init/Shutdown/Revision exports");
-            if (!release_generation(generation))
-            {
-                record_retained_generation(generation);
-            }
+            retire_failed_stage(generation);
             return false;
         }
 
@@ -546,25 +615,10 @@ namespace
             HENRYSENSES_PERSISTENT_SLOT_COUNT
         );
         const HenrySensesReloadInitRequest request = make_request(generation.generation_id);
-        if (const unsigned init_status = generation.init(&request); init_status != HENRYSENSES_RELOAD_OK)
+        if (generation.init(&request) != DMK_STAGED_RELOAD_OK)
         {
-            if (init_status == HENRYSENSES_RELOAD_INIT_UNSAFE)
-            {
-                // The rollback could not prove the image unreferenced and pinned it: code in it may still run.
-                s_restart_required = true;
-                log_msg("Init refused the load and could not prove its image unreferenced; restart required");
-                // Keep the LoadLibrary reference even if the logic DLL could not acquire its own pin.
-                record_retained_generation(generation);
-                return false;
-            }
-            else
-            {
-                log_msg("Init refused the load");
-            }
-            if (!release_generation(generation))
-            {
-                record_retained_generation(generation);
-            }
+            log_msg("Init refused the load");
+            retire_failed_stage(generation);
             return false;
         }
 
@@ -586,7 +640,7 @@ namespace
 
     /**
      * @brief Retires the live generation.
-     * @return false when it must stay mapped. The caller must NOT load another over it.
+     * @return False when it stays live or mapped. The caller must NOT load another over it.
      */
     [[nodiscard]] bool unload_current() noexcept
     {
@@ -594,42 +648,24 @@ namespace
         {
             return true;
         }
-        if (s_current->shutdown() == 0)
+        if (!retire_generation(*s_current))
         {
-            // Shutdown already ran its teardown before refusing, so the mod is inert but the image must stay mapped.
-            // Re-entering Init on this handle restores it in place - the best available outcome, and it is still the
-            // OLD code.
-            log_msg("Shutdown refused the unload; the generation stays mapped");
-            if (s_current->init != nullptr)
-            {
-                const HenrySensesReloadInitRequest request = make_request(s_current->generation_id);
-                if (s_current->init(&request) == HENRYSENSES_RELOAD_OK)
-                {
-                    log_msg("Re-initialized the existing generation in place; still running the OLD code");
-                }
-            }
             return false;
         }
         logf(
-            "Generation %llu shut down (persistent state: %u of %u slots in use)",
+            "Generation %llu retired (persistent state: %u of %u slots in use)",
             static_cast<unsigned long long>(s_current->generation_id),
             persistent_slots_in_use(),
             HENRYSENSES_PERSISTENT_SLOT_COUNT
         );
-
-        Generation retiring = std::move(*s_current);
         s_current.reset();
-        if (!release_generation(retiring))
-        {
-            record_retained_generation(retiring);
-        }
         return true;
     }
 
     /**
      * @brief Retires the live generation, promotes the staged build, and loads it.
-     * @details The order is fixed: the outgoing image must be proved gone before another maps over it. A refused
-     *          unload leaves the current generation live and returns without a load.
+     * @details The order is fixed: the outgoing image must be retired before another maps beside it. A refused
+     *          retirement leaves the current generation in place and returns without a load.
      */
     void reload_once()
     {
@@ -645,7 +681,7 @@ namespace
         }
         if (!unload_current())
         {
-            return; // refused: the current generation stays live
+            return;
         }
         promote_from_staging();
         if (!load_generation())
@@ -694,9 +730,8 @@ namespace
 
         // Truncate the MOD log here too, exactly once, before any generation opens it. Each generation starts its
         // Session with LogOpenMode::Append, because the default Truncate makes a reload erase the outgoing
-        // generation's teardown records - including the retention warnings that explain a retained image. Append
-        // cannot tell "next generation" from "next game run", so owning the reset here gives one file per game run,
-        // holding every generation within that run.
+        // generation's teardown records. Append cannot tell "next generation" from "next game run", so owning the
+        // reset here gives one file per game run, holding every generation within that run.
         {
             const std::string mod_log = s_loader_dir + MOD_NAME + ".log";
             (void)DeleteFileA(mod_log.c_str());
@@ -715,8 +750,7 @@ namespace
 
         // The resident wheel host is started once, before the first generation, and never stopped. It owns the
         // permanent wheel keepalive so no logic generation has to. A host that refuses to start is not fatal: the
-        // generation then uses the local message-hook backend and is charged as a retained image if the user binds a
-        // wheel combo.
+        // generation then uses the local message-hook backend, and its wheel keepalive retains its image.
         const std::int32_t host_status = wheel_host_start(
             0,
             DMK_WHEELHOST_ABI_VERSION,

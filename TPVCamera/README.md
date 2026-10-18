@@ -511,15 +511,15 @@ cmake --build --preset msvc-dev
 The build deploys the logic DLL and its PDB to `staging/` in the game folder. Release Numpad 0
 while the game window has focus to reload:
 
-1. The live generation's `Shutdown()` joins the mod's threads, disables every hook, waits until
-   no game thread is inside a detour, restores the hooked code, and drains DetourModKit's input
-   and config callbacks. It refuses retirement when any step fails, and the old generation then
-   stays mapped.
+1. The live generation's `Shutdown()` retires every hook once no game thread is inside a detour,
+   joins the mod's threads, and drains DetourModKit's input and config callbacks. A game thread
+   that stays inside a detour makes the loader retry for about a second; the old generation then
+   keeps running until the next press. Any other failure keeps the old generation mapped.
 2. The loader promotes the staged build and maps a copy under a unique name
    (`KCD2_TPVCamera.genNNNN.logic.dll`), so a rebuild never collides with a mapped image.
 3. A generation that retires with a retained resource stays mapped, within a budget of 32
-   images and 128 MiB. A full budget or an unproven retirement stops further reloads until the
-   game restarts.
+   images and 128 MiB. A full budget, an unproven retirement or a hook that stays reachable stops
+   further reloads until the game restarts.
 
 `KCD2_TPVCamera_Loader.log` beside the ASI records each generation, its build identity, and the
 retirement verdict. A change to `src/dev/protocol.h` or `src/dev/mod_loader.cpp` needs a game

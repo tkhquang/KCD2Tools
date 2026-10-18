@@ -32,6 +32,7 @@
  */
 
 #include "interaction_hook.hpp"
+#include "hook_install.hpp"
 #include "aob_resolver.hpp"
 #include "config.hpp"
 #include "constants.hpp"
@@ -227,15 +228,16 @@ namespace TPVCamera
 
         /**
          * @brief Detour for the ray-query builder; redirects ONLY the interactor look-ray.
+         * @details The interactor's call site identifies the look-ray. DMK's counted thunk calls this detour, so
+         *          _ReturnAddress() points into the thunk, and @p frame carries the game caller's return address.
          */
-        uintptr_t __fastcall ray_query_build_detour(uintptr_t out, uintptr_t origin, uintptr_t dir, int objtypes,
-                                                    int flags, uintptr_t skip_ents, unsigned __int8 n,
-                                                    char mode) noexcept
+        uintptr_t __fastcall ray_query_build_detour(DMK::hook::CallerFrame frame, uintptr_t out, uintptr_t origin,
+                                                    uintptr_t dir, int objtypes, int flags, uintptr_t skip_ents,
+                                                    unsigned __int8 n, char mode) noexcept
         {
-            const DetourScope in_flight;
             s_calls_total.fetch_add(1, std::memory_order_relaxed);
 
-            const uintptr_t ra = reinterpret_cast<uintptr_t>(_ReturnAddress());
+            const uintptr_t ra = reinterpret_cast<uintptr_t>(frame.return_address());
             if (ra >= s_lookray_lo && ra < s_lookray_hi)
             {
                 s_calls_lookray.fetch_add(1, std::memory_order_relaxed);
@@ -273,8 +275,6 @@ namespace TPVCamera
 
         /**
          * @brief Reads the position of the game-owned @p pose under SEH.
-         * @details Kept apart from the detour, because the detour's DetourScope needs C++ object unwinding, which a
-         *          __try frame cannot hold.
          * @return False when the pose could not be read.
          */
         bool read_pose_position(const float *pose, float (&position)[3]) noexcept
@@ -336,7 +336,6 @@ namespace TPVCamera
         uintptr_t __fastcall candidate_update_detour(uintptr_t interactor, const float *pose,
                                                      unsigned int mask) noexcept
         {
-            const DetourScope in_flight;
             s_candidate_updates.fetch_add(1, std::memory_order_relaxed);
 
             const CandidateUpdateFunc original = s_candidate_update_original.load(std::memory_order_acquire);
@@ -356,9 +355,7 @@ namespace TPVCamera
          * @brief Lays the game-owned look segment @p segment ({Vec3 start; Vec3 end}) along the crosshair ray from
          *        the camera (@p px, @p py, @p pz) in the unit direction (@p dx, @p dy, @p dz) and keeps its length.
          * @details The start moves to its projection onto the ray, as redirect_interaction_ray does. The segment is
-         *          rewritten in place, because the caller reads its end back as the prompt anchor. Kept apart from
-         *          the detour, because the detour's DetourScope needs C++ object unwinding, which a __try frame
-         *          cannot hold.
+         *          rewritten in place, because the caller reads its end back as the prompt anchor.
          * @return False when the segment could not be read or written.
          */
         bool lay_segment_on_crosshair(float *segment, float px, float py, float pz, float dx, float dy,
@@ -392,13 +389,14 @@ namespace TPVCamera
          * @details The HUD places a cross-centered prompt at the end of that segment, 40 m along the eye's look. In
          *          free-look the eye looks away from the camera's view, so that end projects off the screen and the
          *          prompt clamps to the screen edge. Laid along the crosshair ray, the end projects onto the
-         *          crosshair, as the eye's end does in first person.
+         *          crosshair, as the eye's end does in first person. @p frame carries the game caller's return address,
+         *          which identifies the interactor update's call, because DMK's counted thunk calls this detour.
          */
-        __m128 __fastcall segment_box_point_detour(float *segment, uintptr_t box, float *out) noexcept
+        __m128 __fastcall segment_box_point_detour(DMK::hook::CallerFrame frame, float *segment, uintptr_t box,
+                                                   float *out) noexcept
         {
-            const DetourScope in_flight;
             float px, py, pz, dx, dy, dz;
-            if (reinterpret_cast<uintptr_t>(_ReturnAddress()) == s_prompt_segment_return && segment != nullptr &&
+            if (reinterpret_cast<uintptr_t>(frame.return_address()) == s_prompt_segment_return && segment != nullptr &&
                 settings().interact_from_camera.load(std::memory_order_relaxed) &&
                 last_final_pose(px, py, pz, dx, dy, dz) && lay_segment_on_crosshair(segment, px, py, pz, dx, dy, dz))
             {
@@ -410,7 +408,7 @@ namespace TPVCamera
 
     } // namespace
 
-    DMK::Result<void> initialize_interaction_hook(HookSet &hooks)
+    DMK::Result<void> initialize_interaction_hook(DMK::hook::HookStack &hooks)
     {
         DMK::Logger &logger = DMK::log();
 
@@ -437,8 +435,8 @@ namespace TPVCamera
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "interaction_hook/raybuild_anchor"});
         }
 
-        if (auto armed = install_inline_hook(hooks, "InteractionRayBuild", hook_addr, s_ray_query_build_original,
-                                             ray_query_build_detour);
+        if (auto armed = install_inline_hook<&ray_query_build_detour>(hooks, "InteractionRayBuild", hook_addr,
+                                                                      s_ray_query_build_original);
             !armed)
         {
             return armed;
@@ -452,8 +450,8 @@ namespace TPVCamera
             logger.warning("InteractionHook[init]: the candidate update gate failed, so shrines, beds and doors stay "
                            "picked by the first-person look");
         }
-        else if (auto armed = install_inline_hook(hooks, "InteractorCandidateUpdate", candidates,
-                                                  s_candidate_update_original, candidate_update_detour);
+        else if (auto armed = install_inline_hook<&candidate_update_detour>(hooks, "InteractorCandidateUpdate",
+                                                                            candidates, s_candidate_update_original);
                  !armed)
         {
             logger.warning("InteractionHook[init]: the candidate update hook failed ({}), so shrines, beds and doors "
@@ -470,8 +468,8 @@ namespace TPVCamera
             logger.warning("InteractionHook[init]: the prompt segment gate failed, so cross-centered use prompts stay "
                            "placed by the first-person look");
         }
-        else if (auto armed = install_inline_hook(hooks, "SegmentBoxPoint", segment_box, s_segment_box_point_original,
-                                                  segment_box_point_detour);
+        else if (auto armed = install_inline_hook<&segment_box_point_detour>(hooks, "SegmentBoxPoint", segment_box,
+                                                                             s_segment_box_point_original);
                  !armed)
         {
             logger.warning("InteractionHook[init]: the prompt segment hook failed ({}), so cross-centered use prompts "

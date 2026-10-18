@@ -127,8 +127,7 @@ namespace TPVCamera
 
         /**
          * @brief Runs orbit_capture_and_decide under SEH. A fault falls back to normal dispatch.
-         * @details Apart from the detour, because the detour's DetourScope needs C++ object unwinding, which a __try
-         *          frame cannot hold.
+         * @details Apart from the detour, so the guard covers the capture alone and the original runs outside it.
          * @return true to block (swallow) the event, false to dispatch it normally.
          */
         [[nodiscard]] bool orbit_capture_guarded(uintptr_t input_event) noexcept
@@ -148,7 +147,6 @@ namespace TPVCamera
          */
         void __fastcall detour_input_dispatch(uintptr_t controller, uintptr_t input_event, char flag) noexcept
         {
-            const DetourScope in_flight;
             if (orbit_capture_guarded(input_event))
             {
                 return;
@@ -161,7 +159,7 @@ namespace TPVCamera
 
     } // namespace
 
-    void install_input_dispatch_hook(HookSet &hooks)
+    void install_input_dispatch_hook(DMK::hook::HookStack &hooks)
     {
         DMK::Logger &logger = DMK::log();
         const uintptr_t input_addr = gated_anchor_address(Feature::Orbit, AnchorId::InputDispatch);
@@ -171,9 +169,10 @@ namespace TPVCamera
         }
         else
         {
-            auto input_result = DMK::hook::inline_at(
-                DMK::hook::InlineRequest{.name = "CameraInputDispatch", .target = DMK::Address{input_addr}},
-                detour_input_dispatch);
+            auto input_result = DMK::hook::inline_at<&detour_input_dispatch>(DMK::hook::InlineRequest{
+                .name = "CameraInputDispatch",
+                .target = DMK::Address{input_addr},
+            });
 
             if (!input_result.has_value())
             {

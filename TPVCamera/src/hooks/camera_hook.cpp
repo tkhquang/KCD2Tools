@@ -1955,8 +1955,7 @@ namespace TPVCamera
 
     /**
      * @brief Runs the per-frame camera offset under SEH, so an outdated offset or layout never crashes the game.
-     * @details Apart from the detour, because the detour's DetourScope needs C++ object unwinding, which a __try
-     *          frame cannot hold.
+     * @details Apart from the detour, so the guard covers the offset alone and the original runs outside it.
      */
     static void frustum_build_offset_guarded(uintptr_t camera, FrustumBuildProfile &profile) noexcept
     {
@@ -1978,7 +1977,6 @@ namespace TPVCamera
      */
     static uintptr_t __fastcall detour_frustum_build(uintptr_t camera) noexcept
     {
-        const DetourScope in_flight;
         FrustumBuildProfile profile;
         profile.begin_mod();
         frustum_build_offset_guarded(camera, profile);
@@ -2062,7 +2060,7 @@ namespace TPVCamera
                                  DMK::math::radians_to_degrees(heading));
     }
 
-    DMK::Result<void> initialize_camera(uintptr_t module_base, size_t module_size, HookSet &hooks)
+    DMK::Result<void> initialize_camera(uintptr_t module_base, size_t module_size, DMK::hook::HookStack &hooks)
     {
         HookProfile::initialize();
         DMK::Logger &logger = DMK::log();
@@ -2115,15 +2113,16 @@ namespace TPVCamera
         {
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "camera_hook/frustum_anchor"});
         }
-        auto frustum_result = DMK::hook::inline_at(
-            DMK::hook::InlineRequest{.name = "CameraFrustumBuild", .target = DMK::Address{frustum_addr}},
-            detour_frustum_build);
+        auto frustum_result = DMK::hook::inline_at<&detour_frustum_build>(DMK::hook::InlineRequest{
+            .name = "CameraFrustumBuild",
+            .target = DMK::Address{frustum_addr},
+        });
         if (!frustum_result.has_value())
         {
             return std::unexpected(frustum_result.error());
         }
         // Publish the trampoline and store the handle BEFORE enable() arms the patch. The detour then cannot observe a
-        // null original on its first frame, and the set owns a hook whose arm fails with the patch live. The backend
+        // null original on its first frame, and the stack owns a hook whose arm fails with the patch live. The backend
         // allocates the trampoline at install, so it is readable off the still-disabled handle.
         s_frustum_build_original.store(frustum_result->original<FrustumBuildFunc>(), std::memory_order_release);
         if (auto armed = hooks.push(std::move(*frustum_result)).enable(); !armed.has_value())

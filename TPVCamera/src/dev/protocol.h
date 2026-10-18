@@ -5,22 +5,19 @@
  * The loader outlives every generation, so the request it hands across the DLL boundary is a plain C struct
  * with an explicit size and version. The logic DLL validates both before it reads a field. The request layout,
  * the export signatures and each export's result values form one versioned contract (TPVCAMERA_RELOAD_ABI_VERSION).
+ * Init returns DMK_STAGED_RELOAD_OK for a live generation and zero for a failed one. Shutdown returns a
+ * DetourModKit/abi/staged_reload.h value.
  */
 #ifndef KCD2_TPVCAMERA_PROTOCOL_H
 #define KCD2_TPVCAMERA_PROTOCOL_H
 
+#include <DetourModKit/abi/staged_reload.h>
 #include <DetourModKit/abi/wheel_host.h>
 
 #include <stdint.h>
 
 /** @brief ABI revision of the request, the export signatures and their result values. */
-#define TPVCAMERA_RELOAD_ABI_VERSION 2u
-
-/** @brief A live Init result, or a retired Shutdown result with no retained resources. */
-#define TPVCAMERA_RELOAD_OK 1u
-
-/** @brief A retired Shutdown result that requires the loader to keep its module reference. */
-#define TPVCAMERA_RELOAD_RETAINED 2u
+#define TPVCAMERA_RELOAD_ABI_VERSION 3u
 
 /**
  * @struct TpvReloadInitRequest

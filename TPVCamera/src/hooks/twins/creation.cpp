@@ -2319,7 +2319,6 @@ namespace TPVCamera::Twins
 
     void *__fastcall shader_gen_load_detour(void *manager, void *out, const char *name) noexcept
     {
-        const DetourScope in_flight;
         const ShaderGenLoadFn original = s_shader_gen_original.load(std::memory_order_acquire);
         if (name != nullptr)
         {
@@ -3383,7 +3382,6 @@ namespace TPVCamera::Twins
     std::uintptr_t __fastcall load_cgf_material_detour(std::uintptr_t manager, const char *material, const char *asset,
                                                        std::uint32_t flags) noexcept
     {
-        const DetourScope detour_scope;
         const auto original = s_load_cgf_material_original.load(std::memory_order_acquire);
         const auto slot = s_asset_scope_tls;
         struct AssetScope
@@ -3410,7 +3408,6 @@ namespace TPVCamera::Twins
                                                 std::uint64_t mask, std::uintptr_t resources,
                                                 std::uintptr_t public_params) noexcept
     {
-        const DetourScope detour_scope;
         const auto original = s_load_material_shader_original.load(std::memory_order_acquire);
         const bool result = original(material, parent, shader, mask, resources, public_params);
         if (!result || !s_available.load(std::memory_order_acquire) || !shader_twins_wanted())
@@ -3470,7 +3467,6 @@ namespace TPVCamera::Twins
 
     void __fastcall set_system_state_detour(std::uintptr_t system, std::int32_t state) noexcept
     {
-        const DetourScope detour_scope;
         const auto original = s_set_system_state_original.load(std::memory_order_acquire);
         // A bad/off-thread close can never authorize preparation, but it must still close admission. Otherwise
         // an unexpected engine transition could leave loader callbacks admitted during gameplay.
@@ -3518,7 +3514,6 @@ namespace TPVCamera::Twins
     bool __fastcall save_game_load_detour(std::uintptr_t manager, std::uintptr_t chunk,
                                           std::uintptr_t save_path) noexcept
     {
-        const DetourScope detour_scope;
         const auto original = s_save_game_load_original.load(std::memory_order_acquire);
         const bool admitted = s_available.load(std::memory_order_acquire) && loading_renderer() != 0 &&
                               !s_loading_finalizing.load(std::memory_order_acquire);

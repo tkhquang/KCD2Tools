@@ -634,7 +634,6 @@ namespace TPVCamera::Twins
     void __fastcall add_render_object_detour(void *view, void *element, const ShaderItem *item, std::uint8_t *object,
                                              const std::uint8_t *pass, int list, int after_water) noexcept
     {
-        const DetourScope in_flight;
         HookProfile::Scope timing(HookProfile::Path::AddRenderObject);
         const AddRenderObjectFn original = s_add_render_object_original.load(std::memory_order_acquire);
         const SwapSet *set = s_swap_sets.latest();

@@ -175,7 +175,6 @@ namespace TPVCamera
          */
         void __fastcall proxy_render_detour(void *proxy, std::uint8_t *params, const std::uint8_t *pass) noexcept
         {
-            const DetourScope in_flight;
             const ProxyRenderFn original = s_original.load(std::memory_order_acquire);
             const bool main_view = proxy != nullptr && pass != nullptr && main_view_pass(pass);
             const auto address = reinterpret_cast<std::uintptr_t>(proxy);
@@ -313,19 +312,17 @@ namespace TPVCamera
 
     } // namespace
 
-    DMK::Result<void> initialize_character_fade(HookSet &hooks)
+    DMK::Result<void> initialize_character_fade(DMK::hook::HookStack &hooks)
     {
         const std::uintptr_t target = gated_anchor_address(Feature::CharacterFade, AnchorId::ProxyRender);
         if (target == 0)
         {
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "character_fade/proxy_render_anchor"});
         }
-        auto result = DMK::hook::inline_at(
-            DMK::hook::InlineRequest{
-                .name = "CRenderProxyRender",
-                .target = DMK::Address{target},
-            },
-            proxy_render_detour);
+        auto result = DMK::hook::inline_at<&proxy_render_detour>(DMK::hook::InlineRequest{
+            .name = "CRenderProxyRender",
+            .target = DMK::Address{target},
+        });
         if (!result.has_value())
         {
             return std::unexpected(result.error());

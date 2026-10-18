@@ -13,6 +13,7 @@
 #include "tuning.hpp"
 #include "version.hpp"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -87,6 +88,14 @@ namespace Constants
     constexpr const char *LOG_FILE_NAME = "KCD2_TPVCamera.log";
     /** @brief Per-PID instance-mutex prefix so duplicate ASI loads bail cleanly. */
     constexpr const char *INSTANCE_MUTEX_PREFIX = "KCD2_TPVCamera_";
+
+    /**
+     * @brief How long one hook retirement waits for a thread inside a detour.
+     * @details A camera or render detour normally returns within a frame, but a save load or a pipeline compile inside
+     *          a hooked original can hold one for seconds. A Busy retirement changes nothing, and the dev loader
+     *          retries it.
+     */
+    constexpr std::chrono::milliseconds HOOK_RETIREMENT_DEADLINE{250};
 
     // Default Configuration Values
     /** @brief Default logging level ("INFO"). */

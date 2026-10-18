@@ -105,8 +105,6 @@ namespace TPVCamera
 
         /**
          * @brief Runs the head-visibility latch and the original setter under SEH.
-         * @details Apart from the detour, because the detour's DetourScope needs C++ object unwinding, which a __try
-         *          frame cannot hold.
          */
         void set_head_visibility_guarded(SetHeadVisibilityFunc original, uintptr_t entity, bool hide_head,
                                          char flags) noexcept
@@ -147,7 +145,6 @@ namespace TPVCamera
          */
         void __fastcall detour_set_head_visibility(uintptr_t entity, bool hide_head, char flags) noexcept
         {
-            const DetourScope in_flight;
             if (const SetHeadVisibilityFunc original = s_set_head_visibility_original.load(std::memory_order_acquire))
             {
                 set_head_visibility_guarded(original, entity, hide_head, flags);
@@ -155,7 +152,7 @@ namespace TPVCamera
         }
     } // namespace
 
-    void install_head_visibility_hook(HookSet &hooks)
+    void install_head_visibility_hook(DMK::hook::HookStack &hooks)
     {
         DMK::Logger &logger = DMK::log();
         // The head-visibility hook is best-effort: if it fails the camera still works,
@@ -167,9 +164,10 @@ namespace TPVCamera
         }
         else
         {
-            auto head_result = DMK::hook::inline_at(
-                DMK::hook::InlineRequest{.name = "SetHeadVisibility", .target = DMK::Address{head_addr}},
-                detour_set_head_visibility);
+            auto head_result = DMK::hook::inline_at<&detour_set_head_visibility>(DMK::hook::InlineRequest{
+                .name = "SetHeadVisibility",
+                .target = DMK::Address{head_addr},
+            });
 
             if (!head_result.has_value())
             {

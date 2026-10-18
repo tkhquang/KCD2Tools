@@ -5,8 +5,9 @@
 #ifndef TPVCAMERA_HOOKS_AI_OBSERVER_HPP
 #define TPVCAMERA_HOOKS_AI_OBSERVER_HPP
 
-#include "hooks/hook_set.hpp"
 #include "math_utils.hpp"
+
+#include <DetourModKit/hook.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -21,7 +22,7 @@ namespace TPVCamera
      *          among its first instructions), so a patch that moves the slot leaves the hook uninstalled rather than
      *          hooking another function.
      */
-    void install_camera_observer_hook(std::uintptr_t module_base, std::size_t module_size, HookSet &hooks);
+    void install_camera_observer_hook(std::uintptr_t module_base, std::size_t module_size, DMK::hook::HookStack &hooks);
 } // namespace TPVCamera
 
 #endif // TPVCAMERA_HOOKS_AI_OBSERVER_HPP
