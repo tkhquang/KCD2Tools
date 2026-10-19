@@ -107,7 +107,7 @@ All keys are rebindable in `KCD2_HenrySenses.ini`. Defaults:
 | Highlight loot and butcherable carcasses | `H` | Hold `RB` + press `Start` |
 | Highlight herbs | `Left Shift + H` | Hold `RB` + press `Back` |
 
-Highlights pulse for **5 seconds**, then fade over **1 second**, within **20 metres**. Loot, Butcher and Herbs start enabled; the other groups start disabled. The Loot group excludes empty and stolen targets; Butcher separately highlights butcherable carcasses. Highlights hide during **dialogue** by default. Group hotkeys also work while menus are open.
+Highlights pulse for **5 seconds**, then fade over **1 second**, within **20 metres**. Loot, Books, Butcher and Herbs start enabled; the other groups start disabled. The Loot group excludes empty and stolen targets. Books shows books, recipes and letters in a parchment colour. Butcher separately highlights butcherable carcasses. Highlights hide during **dialogue** by default. Group hotkeys also work while menus are open.
 
 ## How It Works
 
@@ -147,10 +147,11 @@ The supplied groups are working examples you can edit, rename, remove or use as 
 
 | Group | What it highlights | Enabled by default |
 | --- | --- | --- |
-| Loot | Corpses, carcasses, items and containers, excluding empty or stolen targets. | Yes |
+| Loot | Corpses, carcasses, items and containers, excluding empty or stolen targets. Items include books, bows and crossbows. | Yes |
+| Books | Books, recipes and letters you can take, in a parchment colour, excluding stolen ones. | Yes |
 | Butcher | Butcherable carcasses. | Yes |
 | Locked | Locked, non-empty containers. | No |
-| Stolen | Stolen items, containers, corpses and carcasses, excluding empty targets. | No |
+| Stolen | Stolen items (books included), containers, corpses and carcasses, excluding empty targets. | No |
 | Herbs | Unpicked herbs and mushrooms, outlined. | Yes |
 | Places | Doors, workstations, beds, use spots and other usable objects. Experimental. | No |
 | Living | Living NPCs and animals, with separate colours for horses and dogs. | No |
@@ -196,7 +197,7 @@ Set a group's `Mode` to choose how its key works:
 | `Hold` | Highlights stay visible while you hold the key. |
 | `Always` | Highlights stay on without a keypress. |
 
-`Key.HoldTime` sets how many seconds you must hold a key before it acts, so a quick tap does nothing. Pulse and Toggle act once that time passes, and Hold shows from then until you let go. The default `0` acts on the press. Mouse wheel keys cannot be held.
+`Key.HoldTimeInSeconds` sets how many seconds you must hold a key before it acts, so a quick tap does nothing. Pulse and Toggle act once that time passes, and Hold shows from then until you let go. The default `0` acts on the press. Mouse wheel keys cannot be held.
 
 `FadeOut` controls how many seconds they take to disappear; the default is **1 second**. `HideIn` accepts `Dialogue, Combat, Minigame` and defaults to `Dialogue`. Add `Combat` or `Minigame` to hide highlights in those situations too. Group hotkeys also work while menus are open.
 

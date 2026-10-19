@@ -48,9 +48,10 @@ Step 3 - Launch and play:
   Highlight loot and butcherable carcasses: H, or hold RB + press Start.
   Highlight herbs: Left Shift + H, or hold RB + press Back.
   Highlights pulse for 5 seconds, then fade over 1 second, within 20 metres.
-  Loot, Butcher and Herbs start enabled; all other groups start disabled.
-  The Loot group excludes empty and stolen targets. Butcher separately highlights
-  butcherable carcasses. Highlights hide during dialogue by default.
+  Loot, Books, Butcher and Herbs start enabled; all other groups start disabled.
+  The Loot group excludes empty and stolen targets. Books shows books, recipes
+  and letters in a parchment colour. Butcher separately highlights butcherable
+  carcasses. Highlights hide during dialogue by default.
   Group hotkeys also work while menus are open.
   Key.Consume is enabled for both bindings, so the controller's last button is
   hidden from the game while the combination is held. Keyboard keys still reach it.

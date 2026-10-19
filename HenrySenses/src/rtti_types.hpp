@@ -73,6 +73,10 @@ namespace HenrySenses
         ItemSlot,
         /// wh::entitymodule::C_ItemSlotPile, a world slot holding a stack (bowls on a shelf).
         ItemSlotPile,
+        /// wh::entitymodule::C_ItemSlotBook, a world slot holding a book (a C_ItemSlot).
+        ItemSlotBook,
+        /// wh::entitymodule::C_ItemSlotMultiClass, a world slot that takes items of several classes (a C_ItemSlot).
+        ItemSlotMultiClass,
         /// wh::entitymodule::C_ItemVectorBorrower, the items an NPC borrowed for a task (bread in hand, eggs).
         ItemVectorBorrower,
         /// wh::entitymodule::C_ItemWrapper, an item that is a part of another item (a crossbow's goat's foot).
@@ -81,6 +85,10 @@ namespace HenrySenses
         WorldInventory,
         /// wh::entitymodule::C_PickableItem, a world item.
         PickableItem,
+        /// wh::entitymodule::C_DocumentItem, a world book, recipe or letter (a C_PickableItem).
+        DocumentItem,
+        /// wh::entitymodule::C_MissileWeaponItem, a world bow or crossbow (a C_PickableItem).
+        MissileWeaponItem,
         /// wh::entitymodule::C_Item, the data of an item.
         Item,
         /// CActorSystem.

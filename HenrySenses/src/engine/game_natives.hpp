@@ -11,9 +11,10 @@
  *   keeps its CEntity at +0x38 and its C_Soul at +0x668; its class (C_Player, C_NPCActor, C_Horse, C_Dog, C_Animal)
  *   is its kind. IsDead and GetHealth are actor virtuals; IsUnconscious, CanBeButchered and the inventory are soul
  *   virtuals.
- * - World items: IGameFramework::GetIItemSystem (CCryAction + 0x520, interface at +8) holds every C_PickableItem in
- *   an EntityId map; its C_Item is at +0x58, whose owner (+0x98, else +0x90) is a C_Inventory while an inventory
- *   holds it and a C_ItemSlot while it sits in a world slot.
+ * - World items: IGameFramework::GetIItemSystem (CCryAction + 0x520, interface at +8) holds every C_PickableItem
+ *   (books and bows as its subclasses C_DocumentItem and C_MissileWeaponItem) in an EntityId map; its C_Item is at
+ *   +0x58, whose owner (+0x98, else +0x90) is a C_Inventory while an inventory holds it and a C_ItemSlot while it
+ *   sits in a world slot.
  * - The global context (AnchorId::Context) is a module registry: C_Game +0x18, C_EntityModule +0xE0 (whose
  *   C_InventoryManager at +0xE8 resolves inventory WUIDs), C_ShopModule +0x110, C_RPGModule +0x130 (souls by WUID),
  *   CActorSystem +0x180.
@@ -74,7 +75,8 @@ namespace HenrySenses
 
     /**
      * @struct ItemView
-     * @brief One world item (C_PickableItem) of the item system.
+     * @brief One world item of the item system: a C_PickableItem, a C_DocumentItem (book, recipe, letter) or a
+     *        C_MissileWeaponItem (bow, crossbow), the two classes that derive from it.
      */
     struct ItemView
     {
@@ -160,6 +162,15 @@ namespace HenrySenses
      *         inventory dummies) or with unreadable memory answers false.
      */
     [[nodiscard]] bool actor_despawned(std::uintptr_t actor) noexcept;
+
+    /**
+     * @brief Reports whether the game's corpse-disappear timer disposed of a body.
+     * @details The timer hides the body's entity and leaves its AI bound, so actor_despawned() misses it. Only the
+     *          soul's corpse state (constants::SOUL_CORPSE_STATE_OFFSET) records it.
+     * @param soul A class-checked soul (actor_soul), or 0.
+     * @return True only for a readable corpse state of constants::SOUL_CORPSE_STATE_DISPOSED.
+     */
+    [[nodiscard]] bool soul_corpse_disposed(std::uintptr_t soul) noexcept;
 
     /** @brief actor:IsDead() (actor vtable slot 38). */
     [[nodiscard]] std::optional<bool> actor_is_dead(std::uintptr_t actor) noexcept;
@@ -295,7 +306,7 @@ namespace HenrySenses
      */
     [[nodiscard]] bool item_still_on(const ItemView &item, std::uintptr_t entity) noexcept;
 
-    /** @brief The world item of an entity (IItemSystem::GetItem), as a C_PickableItem. */
+    /** @brief The world item of an entity (IItemSystem::GetItem), as a C_PickableItem or a subclass. */
     [[nodiscard]] std::optional<ItemView> item_of(EntityId id) noexcept;
 
     /**
@@ -356,6 +367,16 @@ namespace HenrySenses
      */
     [[nodiscard]] std::optional<bool>
     script_table_bool(std::uintptr_t entity, const char *table_key, const char *key) noexcept;
+
+    /**
+     * @brief Reports whether a Book entity is read in place (Properties.bIsDirectlyReadable).
+     * @details Book:GetActions offers only "read" for such a book, a lectern copy that the player cannot take. Any
+     *          other Book runs PickableItem:GetActions, so it is an item.
+     * @param entity A CEntity of class Book.
+     * @return The flag, or std::nullopt when the script table has no such field.
+     * @note Main thread (it runs the script system).
+     */
+    [[nodiscard]] std::optional<bool> book_reads_in_place(std::uintptr_t entity) noexcept;
 
 } // namespace HenrySenses
 

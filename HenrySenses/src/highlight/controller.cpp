@@ -1835,7 +1835,7 @@ namespace HenrySenses
             maintain_loot_effects();
 
             const bool see_through_changed = refresh_on_see_through_change();
-            // Before the idle check, so a press that reaches its Key.HoldTime now shows on this tick.
+            // Before the idle check, so a press that reaches its Key.HoldTimeInSeconds now shows on this tick.
             fire_held_hotkeys(now);
             if (c_player != 0 && tick_can_idle(now))
             {
