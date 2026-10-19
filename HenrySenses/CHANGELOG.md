@@ -2,6 +2,14 @@
 
 All notable changes to the HenrySenses mod will be documented in this file.
 
+## [1.1.0] - Hold Hotkeys, Books and Bows
+
+- Added `Key.HoldTimeInSeconds` to make a hotkey act only after you hold it for a set time, so a quick tap does nothing.
+- Fixed books, recipes, letters, bows and crossbows never highlighting as items.
+- Added a Books group that shows books, recipes and letters in a parchment colour.
+- Fixed a red marker over empty ground where the game had removed a body.
+- Changed the mod to build on DetourModKit 4.4.0.
+
 ## [1.0.2] - HDR and Third-Person Camera Fixes
 
 - Fixed highlights not showing with HDR turned on in the game's settings.
@@ -25,6 +33,7 @@ All notable changes to the HenrySenses mod will be documented in this file.
 - Filter stolen, empty, locked and hostile targets using the game's own checks.
 - Add optional sparkles, glow or a tinted focus effect.
 
+[1.1.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/HenrySenses-v1.1.0
 [1.0.2]: https://github.com/tkhquang/KCD2Tools/releases/tag/HenrySenses-v1.0.2
 [1.0.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/HenrySenses-v1.0.1
 [1.0.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/HenrySenses-v1.0.0
