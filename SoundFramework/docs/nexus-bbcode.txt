@@ -1,0 +1,151 @@
+[size=5]Foreword[/size]
+[b]Sound Framework[/b] lets mods add sounds and voice lines to the game without writing code. A mod drops an INI file into its own SoundFramework folder; the framework plays its sounds on the game's own audio mixer, makes NPCs speak its voice lines with subtitles and lip movement, and can replace the game's sounds and voice lines with the mod's.
+
+On its own it changes nothing you can hear: install it for the mods that need it. [b]Stop Right There, Criminal Scum[/b] is one, and the [url=https://github.com/tkhquang/KCD2Tools/blob/main/SoundFramework/docs/MODDING.md]modding guide[/url] shows how to make your own.
+
+It is still early days. If something doesn't work properly, please report it with your game/mod versions, settings and log. Thank you for giving it a try!
+
+[size=5]Key Features[/size]
+[list]
+[*][b]Sounds:[/b] play a pack's files on the game's buses (world, voice, music and others), in 3D or flat, with volume and pitch variation, loops, cooldowns and instance limits[/*]
+[*][b]Sound replacement:[/b] play a pack sound instead of a game sound event, everywhere or only for chosen characters and animals[/*]
+[*][b]Voice lines:[/b] NPCs speak a pack's lines through the game's own speech system, with a bottom subtitle and speaker name, a chat bubble, or both[/*]
+[*][b]Voice replacement:[/b] play a pack line instead of a game voice line, by exact key or by pattern[/*]
+[*][b]Lip sync:[/b] a pack's lines move the speaker's mouth, with a small model that learned from the game's own animation or from the loudness of the voice[/*]
+[*][b]Moods:[/b] facial expressions held while a line plays, with eleven defaults that packs can change or add to[/*]
+[*][b]Live reload:[/b] saving a pack or the settings INI applies it while you play[/*]
+[*]Every problem in a pack is logged with its file and line; debug options log the game's sound events and voice lines[/*]
+[*]Ships as an ASI and as a KCSE plugin[/*]
+[*][url=https://github.com/tkhquang/KCD2Tools]Open-source[/url], built on the [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url] modding framework[/*]
+[/list]
+
+[size=5]Requirements[/size]
+[list]
+[*]Kingdom Come: Deliverance II on PC; built around Steam 1.5.6, with game-code signatures that also match the GOG and Game Pass builds[/*]
+[*]For the ASI build: an ASI loader - [b]not included[/b] (see below)[/*]
+[*]For the KCSE build: [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332]Kingdom Come Script Extender (KCSE)[/url][/*]
+[/list]
+
+[size=5]Installation[/size]
+The framework comes in two builds in the Files tab. [b]Install one of them, not both.[/b] If both are installed, the second one to load stays off and says so in its log.
+
+[size=4]Option A: ASI build[/size]
+Open your KC:D 2 installation folder, then open the Bin/Win64MasterMaster... subfolder that contains [b]WHGame.dll[/b]. On Steam this is:
+[code]<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/[/code]
+Other stores use their own Bin/Win64MasterMaster... folder; use WHGame.dll to identify the correct one.
+
+[b]Step 1: Install an ASI loader.[/b] If you already have a working ASI loader for KC:D 2, skip this step. Download [b]one x64[/b] variant of [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases]Ultimate ASI Loader[/url] by ThirteenAG and extract its DLL beside WHGame.dll:
+[list]
+[*][url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/dinput8-x64.zip][b]dinput8.dll[/b][/url] - Usual choice if dinput8.dll is unused.[/*]
+[*][url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/version-x64.zip][b]version.dll[/b][/url] - Alternative when dinput8.dll is already used.[/*]
+[*][url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/winmm-x64.zip][b]winmm.dll[/b][/url] - Another alternative if version.dll is also used or does not load.[/*]
+[/list]
+KCSE also loads .asi files beside its dinput8.dll, so KCSE users need no separate loader. Do not overwrite a DLL belonging to another mod.
+
+[b]Step 2: Install the mod.[/b] Extract the archive directly into the same folder, beside WHGame.dll, without an extra archive-named subfolder:
+[code]
+Bin/Win64MasterMasterSteamPGO/
+|-- WHGame.dll                             (game file, already present)
+|-- dinput8.dll                            (ASI loader)
+|-- KCD2_SoundFramework.asi                (this mod)
+|-- KCD2_SoundFramework.ini                (settings)
+|-- KCD2_SoundFramework_moods.ini          (default facial moods)
+|-- KCD2_SoundFramework_lipmodel.bin       (advanced lip sync model)
+\-- KCD2_SoundFramework.log                (created when the mod loads)
+[/code]
+On Wine/Proton, add an override for your loader in Steam's [b]Properties -> Launch Options[/b]:
+[code]WINEDLLOVERRIDES="dinput8=n,b" %command%[/code]
+Use version=n,b or winmm=n,b instead when using that loader name.
+
+[size=4]Option B: KCSE build[/size]
+Install [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332]KCSE[/url], then install the KCSE archive with your mod manager, or extract it into your [b]Mods[/b] folder (create it if it is missing):
+[code]
+Mods/
+\-- KCD2_SoundFramework/
+    |-- mod.manifest
+    \-- KCSE/
+        \-- Plugins/
+            |-- KCD2_SoundFramework.dll
+            |-- KCD2_SoundFramework.ini
+            |-- KCD2_SoundFramework_moods.ini
+            \-- KCD2_SoundFramework_lipmodel.bin
+[/code]
+
+[size=4]Verify[/size]
+Load a save, then open [b]KCD2_SoundFramework.log[/b] beside the mod's DLL or ASI. It lists every sound pack the framework found and any problem in them.
+
+When updating, back up your customized INI before extracting the new archive, then reapply your settings to the supplied INI.
+
+[size=5]Configuration[/size]
+Open [b]KCD2_SoundFramework.ini[/b] beside the mod with a text editor such as Notepad. Save the file to apply changes while playing; only [b][LipSync] Enabled[/b] needs a restart.
+[list]
+[*][b][Settings] LogLevel[/b] - TRACE, DEBUG, INFO, WARNING or ERROR.[/*]
+[*][b][LipSync] Enabled[/b] - Lip movement for voice lines without the game's own lip-sync animation, such as custom and replaced lines.[/*]
+[*][b][LipSync] Mode = ADVANCED[/b] (default) - A small machine-learned model moves the whole lower face: jaw, lips, mouth corners and smile lines. It needs [b]KCD2_SoundFramework_lipmodel.bin[/b] beside the INI.[/*]
+[*][b][LipSync] Mode = BASIC[/b] - Jaw and lip shapes from the voice's loudness and spectrum. This mode is also the fallback when the model file is missing.[/*]
+[*][b][LipSync] OffsetMs[/b] - Moves the mouth earlier (positive) or later (negative) than the sound. Try values live with [b]sfw_lipsync_offset <ms>[/b] in the console.[/*]
+[*][b][Debug] EventLog / SpeakLog[/b] - For mod authors: log the game's sound events and voice lines, to find what to replace.[/*]
+[/list]
+[b]KCD2_SoundFramework_moods.ini[/b] holds the default moods. It is replaced on update; change a mood by defining it again in your own pack.
+
+[size=5]Console Commands[/size]
+Open the console with [b]~[/b].
+[list]
+[*][b]sfw_play <sound> [x y z][/b] - Plays a pack sound at a world position, or at the camera.[/*]
+[*][b]sfw_stop <sound>[/b] / [b]sfw_stop_all[/b] - Stops a sound / every framework sound.[/*]
+[*][b]sfw_say <entity> <line or voice path>[/b] - An NPC says a pack voice line, or speaks a recording.[/*]
+[*][b]sfw_lipsync_offset <ms>[/b] - Moves the mouth earlier or later.[/*]
+[*][b]sfw_mood_override <mood> [pose:weight ...][/b] / [b]sfw_mood_dump <mood>[/b] - Tries mood values live / writes a mood to the log.[/*]
+[*][b]sfw_reload[/b] / [b]sfw_list[/b] - Reads every pack again / writes the catalog to the log.[/*]
+[/list]
+
+[size=5]For Mod Authors[/size]
+A sound pack is an ordinary mod folder with a [b]SoundFramework[/b] folder inside; every .ini file in it is a pack:
+[code]
+[mymod_bell]
+Files = bell_1.ogg, bell_2.ogg
+Bus = world
+Replaces = event:/animals/dog/dog_bark
+
+[mymod_guard_hello]
+Voice = Localization/dialog/mymod/mymd_hello_01
+TextKey = mymd_hello_01
+Speaker = soul_ui_name_guard
+Display = subtitle
+Mood = angry
+ReplacesVoice = zaty_strazny_z_*
+[/code]
+The [url=https://github.com/tkhquang/KCD2Tools/blob/main/SoundFramework/docs/MODDING.md]modding guide[/url] covers every key, the bus names, voice recordings and text tables, moods, and how to find the game's event paths and line keys. [b]Stop Right There, Criminal Scum[/b] is a complete example pack.
+
+Please list Sound Framework as a requirement on your mod page.
+
+[size=5]Known Limitations[/size]
+[list]
+[*]Voice recordings and text live in the mod's paks, which the game reads only at startup; changing them needs a restart. Pack INIs and loose sound files reload live.[/*]
+[*]Game lines that have Warhorse's own lip-sync animation keep it: a mood then moves only the upper face.[/*]
+[*]Game updates may require a mod update if the framework stops finding the game code it hooks.[/*]
+[/list]
+
+[size=5]Troubleshooting[/size]
+[list]
+[*]Set LogLevel = DEBUG under [Settings], save the INI and reproduce the problem.[/*]
+[*]Check KCD2_SoundFramework.log beside the mod. Pack problems are listed with their file and line.[/*]
+[*]If a mod's sounds don't play, check that the mod has a SoundFramework folder with its INI and that the log lists the pack.[/*]
+[/list]
+Please [url=https://github.com/tkhquang/KCD2Tools/issues]report issues[/url] with the log, INI, game/mod versions and reproduction steps.
+
+[size=5]Credits & License[/size]
+Built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url] for core functionality.
+[list]
+[*][url=https://github.com/ThirteenAG/Ultimate-ASI-Loader]Ultimate ASI Loader[/url] by ThirteenAG - ASI loading layer[/*]
+[*][url=https://github.com/cursey/safetyhook]SafetyHook[/url] by cursey - hooking[/*]
+[*][url=https://github.com/zyantific/zydis]Zydis[/url] / [url=https://github.com/zyantific/zycore-c]Zycore[/url] by Florian Bernd & Joel Hoener - disassembly used by SafetyHook[/*]
+[*][url=https://github.com/brofield/simpleini]SimpleIni[/url] by Brodie Thiesfield - INI configuration[/*]
+[*]Warhorse Studios - Kingdom Come: Deliverance II[/*]
+[/list]
+
+[b]About advanced lip sync:[/b] it is machine-learned. A small neural network (about 680,000 parameters), trained on Kingdom Come: Deliverance II's own voice lines and facial animation, turns each voice line into mouth movement while you play. It generates facial animation only: no audio, text or images. Set [b]Mode = BASIC[/b] for the mouth without machine learning.
+
+[b]License:[/b] the code is MIT licensed. [b]KCD2_SoundFramework_lipmodel.bin[/b] is derived from Kingdom Come: Deliverance II game data owned by Warhorse Studios and PLAION. The MIT license does not cover it: use it only with KC:D 2 through this mod, and not in other games, other products or commercially.
+
+All my Kingdom Come: Deliverance II mods and tools can be found in this [url=https://github.com/tkhquang/KCD2Tools]GitHub repository[/url]. Feel free to contribute or suggest improvements!

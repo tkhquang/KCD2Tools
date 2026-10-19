@@ -17,6 +17,9 @@ A standalone third-person camera that renders behind the player while aiming, lo
 ### [Henry's Senses - Loot and Object Highlighting](HenrySenses/)
 A loot and object highlighting mod for Kingdom Come: Deliverance II. The native (ASI) successor to LootBeacon.
 
+### [Sound Framework - Custom Sounds and Voices](SoundFramework/)
+A framework that lets mods add sounds and voice lines without code: new sounds on the game's mixer, NPC voice lines with subtitles, lip sync and facial moods, and replacements for the game's own sounds and voice lines.
+
 ### [Loot Beacon - Never Miss a Drop or Corpse (Highlight Pickable Items)](LootBeacon/)
 A mod that helps players spot dropped items in the game world. Activate the highlight feature with a keypress and watch as nearby pickable items are highlighted with a colorful particle effect. Superseded by Henry's Senses.
 
