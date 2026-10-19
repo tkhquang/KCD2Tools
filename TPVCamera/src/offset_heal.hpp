@@ -66,6 +66,7 @@ namespace TPVCamera
         DMK::rtti::HealedSlot animated_human_animchar;
         DMK::rtti::HealedSlot context_manager;
         DMK::rtti::HealedSlot context_minigame_subsystem;
+        DMK::rtti::HealedSlot context_combat_module;
     };
 
     /**

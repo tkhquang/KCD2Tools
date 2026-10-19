@@ -18,6 +18,7 @@ start in first-person instead.
 - Zoom in and out on the fly
 - Basic free-look orbit to look around your character (early; see Known Limitations)
 - Henry turns on the spot with the game's own turn-in-place animations when you look around while standing still, and the camera stays put; switched off automatically in combat, aiming, riding, conversations and minigames
+- Works with the game's combat lock-on: Henry turns to the enemy it picks, the camera keeps that enemy in view beside Henry, and after a kill the lock moves to the next enemy your camera points at
 - Automatic view switching by situation: switch to first or third person when you enter combat, aiming a bow, dialogue, minigames, riding, or menus (you can still toggle manually during it), with your previous view restored when the situation ends
 - In-game preset manager: edit, add, and save camera presets from an overlay; built-in presets for normal play, combat, aiming, horseback, sneaking, and special poses (lying down, sitting, kneeling, riding a cart) apply automatically by situation, and you can bind your own presets to combinations of states (such as aiming while crouched), with the most specific match winning
 - Several presets per situation, switched in game with a key; Close Shoulder (a tight over-the-shoulder camera) and Aiming Wide (the everyday framing while aiming) ship ready to use

@@ -138,6 +138,7 @@ set(COMMON_SOURCES
   src/camera/see_through_driver.cpp
   src/camera_rules_files.cpp
   src/character_attachments.cpp
+  src/combat_lock.cpp
   src/config.cpp
   src/game_interface.cpp
   src/game_state.cpp
@@ -153,6 +154,7 @@ set(COMMON_SOURCES
   src/hooks/ranged_hook.cpp
   src/hooks/camera_hook.cpp
   src/hooks/character_fade.cpp
+  src/hooks/combat_retarget.cpp
   src/hooks/head_visibility.cpp
   src/hooks/input_hook.cpp
   src/hooks/ui_menu_hooks.cpp

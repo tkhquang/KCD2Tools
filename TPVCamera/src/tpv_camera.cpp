@@ -634,7 +634,7 @@ namespace TPVCamera
                 // population, the self-heal drift, and the anchor quality in one place rather than the mod counting
                 // them itself. total_intentional_leaks counts caller-requested leaks alongside the library's own
                 // defensive pins, so read it as a delta across one operation rather than as an absolute.
-                std::array<DMK::rtti::DriftEntry, 12> drift_report{};
+                std::array<DMK::rtti::DriftEntry, 16> drift_report{};
                 const std::size_t drift_count = offset_heal_drift_report(drift_report);
                 const DMK::diagnostics::Snapshot diag = DMK::diagnostics::collect(
                     std::span<const DMK::rtti::DriftEntry>(drift_report.data(), drift_count), anchor_report());

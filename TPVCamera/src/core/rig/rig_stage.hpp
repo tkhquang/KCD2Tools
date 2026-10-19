@@ -33,6 +33,9 @@ namespace TPVCamera
         float offset_right = 0.0f;
         float follow_yaw = 0.0f;
         float follow_pitch = 0.0f;
+        float lock_framing_angle = 0.0f;
+        float lock_focus_height = 0.0f;
+        float lock_focus_offset = 0.0f;
         float arm_follow_up = 0.0f;
         float lens_drop_up = 0.0f;
         float fov = 0.0f;
@@ -217,6 +220,15 @@ namespace TPVCamera
         // time since, and aim_handoff_written is set once they are written: the hand-off is not taken as done before
         // that. It ends without a write when a situation that sets the facing shows up (aim_handoff_cancel, raised by
         // the frustum detour), when aim_handoff_player changes or the body jumps, and when a look write fails.
+        // aim_handoff_opponent marks a hand-off toward the combat lock-on's opponent (RigInput::aim_handoff_heading)
+        // rather than the camera's direction: it leaves the look pitch to the game and ends once the look is within
+        // k_aim_handoff_opponent_tolerance of the heading, where the game's own steer takes over.
+        // rig_last_azimuth / rig_last_elevation and the arm (rig_last_offset_*, the camera less the pivot) are kept on
+        // every build (rig_last_built), the rest only while orbited.
+        bool rig_last_built = false;
+        float rig_last_offset_x = 0.0f;
+        float rig_last_offset_y = 0.0f;
+        float rig_last_offset_z = 0.0f;
         bool rig_last_orbited = false;
         float rig_last_azimuth = 0.0f;
         float rig_last_elevation = 0.0f;
@@ -227,6 +239,35 @@ namespace TPVCamera
         bool aim_handoff_active = false;
         bool aim_handoff_written = false;
         bool aim_handoff_cancel = false;
+        bool aim_handoff_opponent = false;
+        // RigInput::game_owns_facing with free-look on: the rig basis yaw of the previous build, whose turns are taken
+        // out of the free-look yaw so the camera keeps its world heading (facing_hold_valid: the last build held).
+        bool facing_hold_valid = false;
+        float facing_hold_last_yaw = 0.0f;
+        // Combat lock framing (RigInput::lock_focus): its 0..1 ramp, and the focus point it aims at, kept after the
+        // lock ends so the ease out still aims there (lock_frame_focus_valid: one has been taken since the ramp was
+        // last 0).
+        float lock_frame_weight = 0.0f;
+        bool lock_frame_focus_valid = false;
+        float lock_frame_focus_x = 0.0f;
+        float lock_frame_focus_y = 0.0f;
+        float lock_frame_focus_z = 0.0f;
+        // The focus as RigInput::lock_focus gave it last build, and a pan from lock_frame_from_* to it when the lock
+        // moves to another opponent (lock_frame_switch: 0..1 ramp, 1 = done).
+        float lock_frame_raw_x = 0.0f;
+        float lock_frame_raw_y = 0.0f;
+        float lock_frame_raw_z = 0.0f;
+        float lock_frame_from_x = 0.0f;
+        float lock_frame_from_y = 0.0f;
+        float lock_frame_from_z = 0.0f;
+        float lock_frame_switch = 1.0f;
+        // The camera the framing eases in from (the last frame's arm and look, lock_frame_entering while it does).
+        bool lock_frame_entering = false;
+        float lock_frame_entry_x = 0.0f;
+        float lock_frame_entry_y = 0.0f;
+        float lock_frame_entry_z = 0.0f;
+        float lock_frame_entry_yaw = 0.0f;
+        float lock_frame_entry_pitch = 0.0f;
         std::uintptr_t aim_handoff_player = 0;
         float aim_handoff_azimuth = 0.0f;
         float aim_handoff_elevation = 0.0f;
@@ -246,9 +287,21 @@ namespace TPVCamera
         bool orbit_active = false;     // free-look is on (CameraControls::orbit_active)
         bool shoulder_swapped = false; // the camera sits over the other shoulder (CameraControls::shoulder_swapped)
         bool zoom_reset = false;       // a zoom reset was asked for since the last build (taken from CameraControls)
-        bool orbit_suspended = false;  // the orbit-exclude policy holds free-look off and will restore it
+        bool orbit_suspended = false;  // the mod, not the player, turned free-look off (the orbit-exclude policy, or a
+                                       // kill's own free-look ending)
         bool aim_handoff_requested =
             false; // the policy turned free-look off this frame where the player owns the facing
+        // With aim_handoff_requested: the heading the look and the body turn to instead of the camera's direction (the
+        // combat lock-on's opponent, as seen from the player), a world yaw in radians (forward = (-sin, cos)).
+        std::optional<float> aim_handoff_heading{};
+        // The game still sets the player's facing although free-look is on (a combat stance held on a dead opponent
+        // through the finishing animation): free-look turns the camera only, and a movement key does not turn the body.
+        bool game_owns_facing = false;
+        // The feet of the living opponent the combat stance is locked on (not while aiming): the lock framing aims
+        // LockFocusHeight above them.
+        std::optional<Vector3> lock_focus{};
+        // The lock-on's free look is on (the player turns the view with the mouse or the stick, the steer paused).
+        bool lock_free_look = false;
     };
 
     /** @brief The zoom keys held this build. */
@@ -297,6 +350,7 @@ namespace TPVCamera
         MoveStopGameIdle,    // a: magnitude
         BodyTurnEngaged,     //
         BodyTurnReleased,    //
+        HandoffToOpponent,   // a: look turn to the opponent, b: camera turn off the look (degrees)
     };
 
     /** @brief The engine as the rig sees it (see the file details). */

@@ -40,6 +40,10 @@ namespace TPVCamera
         constexpr float k_aim_handoff_timeout = 0.5f;      // seconds
         constexpr float k_aim_handoff_jump = 3.0f;         // meters per frame
         constexpr float k_aim_handoff_max_pitch = 1.4f;    // rad (80 deg)
+        // A hand-off toward the combat opponent ends this close to his heading. The game steers the look from the eye
+        // to a point on the opponent's body, which can sit a few degrees off the line between the two entity origins
+        // the hand-off aims along, so finishing the last degrees is left to the game rather than fought over.
+        constexpr float k_aim_handoff_opponent_tolerance = 0.1f; // rad (6 deg)
 
         // Aim-basis low-pass (AimBasisSmoothing). Maps the 0..1 strength to a frame-rate-independent slerp
         // catch-up speed: higher strength -> lower speed -> more damping (and slightly laggier aim). The window
@@ -555,6 +559,22 @@ namespace TPVCamera
         // revolution the player made. The re-based value is only stored back on release (below), so the wrap
         // here stays local while held. The accumulator also takes the input dispatcher's mouse deltas, which arrive
         // between frames on this same thread, and the gamepad integration above.
+        // While the game sets the facing with free-look on (a stance held on a dead opponent through the finishing
+        // animation), it turns the look on its own. Free-look angles are measured from the look, so the camera would
+        // turn with it, onto the body. Each frame's turn of the rig basis is taken back out of the free-look yaw, the
+        // smoothed copy included so the low-pass only ever acts on the player's input: the camera keeps its world
+        // heading and only the player turns it. The frame's second build sees no turn.
+        const bool facing_compensated = orbit_held && in.game_owns_facing;
+        if (facing_compensated && state.facing_hold_valid)
+        {
+            const float look_turn_deg =
+                radians_to_degrees(std::remainder(forward_yaw - state.facing_hold_last_yaw, DirectX::XM_2PI));
+            state.orbit_yaw -= look_turn_deg;
+            state.orbit_yaw_render -= look_turn_deg;
+        }
+        state.facing_hold_valid = facing_compensated;
+        state.facing_hold_last_yaw = forward_yaw;
+
         float orbit_yaw_deg = std::remainder(state.orbit_yaw, 360.0f);
         float orbit_pitch_deg = state.orbit_pitch;
 
@@ -747,25 +767,53 @@ namespace TPVCamera
         // camera points. So the look and the body are turned to the camera's direction (the follow-up below the orbit
         // rig), and the orbit rig holds the camera where it was until the look shows it. The direction comes from the
         // previous frame, the one on screen, measured against that frame's own plain rig.
-        if (in.aim_handoff_requested && !orbit_held && !state.aim_handoff_active && state.rig_last_orbited &&
-            in.orbit_suspended &&
-            (std::fabs(state.rig_last_turn) > k_aim_handoff_min_angle ||
-             std::fabs(state.rig_last_rise) > k_aim_handoff_min_angle))
+        // A drawn weapon whose lock-on has picked an opponent hands the look and the body to the opponent's heading
+        // instead: the game's lock-on turns them there itself, from the eye toward his body, and drops the lock while
+        // the body faces too far off him, so turning them anywhere else fights that steer. The camera is held the same
+        // way, on the direction it had (the lock-on picked the opponent from it). It starts when the look is off that
+        // heading, whatever the camera did, since that gap is what the game's body test reads.
+        const bool toward_opponent = in.aim_handoff_heading.has_value();
+        const bool handoff_needed =
+            toward_opponent ? std::fabs(std::remainder(*in.aim_handoff_heading - forward_yaw, DirectX::XM_2PI)) >
+                                  k_aim_handoff_opponent_tolerance
+                            : (std::fabs(state.rig_last_turn) > k_aim_handoff_min_angle ||
+                               std::fabs(state.rig_last_rise) > k_aim_handoff_min_angle);
+        // Without free-look the camera is the look, so a hand-off to the opponent holds the camera where the last frame
+        // showed it: the stance that picked him may already have turned the look back to the body on this frame. It
+        // runs even with the look already on him: the body trails the look, and the lock-on's own view starts from
+        // the body, so the body and that view are what need turning.
+        const bool from_follow = toward_opponent && !state.rig_last_orbited;
+        if (in.aim_handoff_requested && !orbit_held && !state.aim_handoff_active &&
+            (from_follow || (state.rig_last_orbited && in.orbit_suspended && handoff_needed)))
         {
             state.aim_handoff_active = true;
-            state.aim_handoff_azimuth = state.rig_last_azimuth;
-            state.aim_handoff_elevation = state.rig_last_elevation;
-            state.aim_handoff_yaw = state.rig_last_yaw;
-            state.aim_handoff_pitch = state.rig_last_pitch;
+            state.aim_handoff_opponent = toward_opponent;
+            const bool follow_fresh = from_follow && !state.rig_last_built;
+            state.aim_handoff_azimuth =
+                follow_fresh ? std::atan2(-look_forward.x, look_forward.y) : state.rig_last_azimuth;
+            state.aim_handoff_elevation =
+                follow_fresh ? -std::asin(std::clamp(look_forward.z, -1.0f, 1.0f)) : state.rig_last_elevation;
+            state.aim_handoff_yaw = toward_opponent ? *in.aim_handoff_heading : state.rig_last_yaw;
+            state.aim_handoff_pitch = from_follow ? forward_pitch : state.rig_last_pitch;
             state.aim_handoff_seconds = 0.0f;
             state.aim_handoff_written = false;
             state.aim_handoff_player = c_player;
             // The plain rig takes over at once; the hold keeps the camera in place across the switch.
             state.orbit_base_held = false;
-            port.event(RigEvent::HandoffStart, radians_to_degrees(state.rig_last_turn),
-                       radians_to_degrees(forward_pitch), radians_to_degrees(state.rig_last_pitch), 0);
+            if (toward_opponent)
+            {
+                port.event(RigEvent::HandoffToOpponent,
+                           radians_to_degrees(std::remainder(state.aim_handoff_yaw - forward_yaw, DirectX::XM_2PI)),
+                           radians_to_degrees(state.rig_last_turn), 0.0f, 0);
+            }
+            else
+            {
+                port.event(RigEvent::HandoffStart, radians_to_degrees(state.rig_last_turn),
+                           radians_to_degrees(forward_pitch), radians_to_degrees(state.rig_last_pitch), 0);
+            }
         }
         const Vector3 plain_look = look_forward;
+        const Vector3 plain_offset = camera_position - pivot;
 
         // Free-look orbit: turn the WHOLE non-orbit rig (the camera's offset from the pivot, its look and its up)
         // rigidly about the pivot with turn_rig - yaw about world up, then pitch about the look heading's horizontal
@@ -853,18 +901,153 @@ namespace TPVCamera
             rebuild_basis = true;
         }
 
+        // Combat lock framing. While the game's lock-on steers toward a living opponent (RigInput::lock_focus), the
+        // spring arm on the look puts him straight ahead of the player, so the player stands in front of him on screen.
+        // The rig is turned about the pivot onto the line to him, swung LockFramingAngle further to the shoulder side,
+        // and aimed at his focus point: he sits mid-screen and the sightline passes beside the player. It eases in and
+        // out, pans when the lock moves to another opponent, lets go as the player turns the view well off him (looking
+        // for another opponent, which the game picks along the camera's direction), and stays off while free-look or a
+        // hand-off owns the camera.
+        {
+            constexpr float k_lock_frame_seconds = 0.35f;
+            constexpr float k_lock_release_start = 0.26f; // rad (15 deg) of look off the opponent
+            constexpr float k_lock_release_end = 0.61f;   // rad (35 deg)
+            // Nearer than this (horizontally) the bearing to the focus is not worth turning to.
+            constexpr float k_lock_min_reach_sq = 0.04f; // m^2 (0.2 m)
+            // A focus that moves farther than this in one build is another opponent (the game moved the lock): the aim
+            // pans over to him instead of jumping.
+            constexpr float k_lock_switch_jump_sq = 0.36f; // m^2 (0.6 m)
+            constexpr float k_lock_switch_seconds = 0.45f;
+            float target = 0.0f;
+            if (in.lock_focus.has_value() && params.lock_framing_angle > 0.05f)
+            {
+                const Vector3 raw = *in.lock_focus + world_up * params.lock_focus_height;
+                const Vector3 raw_step{raw.x - state.lock_frame_raw_x, raw.y - state.lock_frame_raw_y,
+                                       raw.z - state.lock_frame_raw_z};
+                if (!state.lock_frame_focus_valid)
+                {
+                    state.lock_frame_switch = 1.0f;
+                }
+                else if (raw_step.magnitude_squared() > k_lock_switch_jump_sq)
+                {
+                    state.lock_frame_from_x = state.lock_frame_focus_x;
+                    state.lock_frame_from_y = state.lock_frame_focus_y;
+                    state.lock_frame_from_z = state.lock_frame_focus_z;
+                    state.lock_frame_switch = 0.0f;
+                }
+                state.lock_frame_raw_x = raw.x;
+                state.lock_frame_raw_y = raw.y;
+                state.lock_frame_raw_z = raw.z;
+                state.lock_frame_switch = ramp_weight(state.lock_frame_switch, 1.0f, k_lock_switch_seconds, delta_time);
+                const float pan = smoothstep(state.lock_frame_switch);
+                const Vector3 from{state.lock_frame_from_x, state.lock_frame_from_y, state.lock_frame_from_z};
+                const Vector3 focus = pan >= 1.0f ? raw : from + (raw - from) * pan;
+                // The focus is kept, so the ease out after the lock ends still aims where it was.
+                state.lock_frame_focus_x = focus.x;
+                state.lock_frame_focus_y = focus.y;
+                state.lock_frame_focus_z = focus.z;
+                state.lock_frame_focus_valid = true;
+                const float dx = focus.x - pivot.x;
+                const float dy = focus.y - pivot.y;
+                if (!orbit_held && !state.aim_handoff_active && dx * dx + dy * dy > k_lock_min_reach_sq)
+                {
+                    target = 1.0f;
+                    // Only the player's own view turn lets go (the lock-on's free look, a mouse or stick turn): a
+                    // turn of the game's (a block that moves the lock to another opponent while the body still
+                    // faces the first) keeps the framing on.
+                    if (in.lock_free_look)
+                    {
+                        const float look_off =
+                            std::fabs(std::remainder(std::atan2(-dx, dy) - forward_yaw, DirectX::XM_2PI));
+                        const float release =
+                            std::clamp((look_off - k_lock_release_start) / (k_lock_release_end - k_lock_release_start),
+                                       0.0f, 1.0f);
+                        target = 1.0f - smoothstep(release);
+                    }
+                }
+            }
+            const float previous_weight = state.lock_frame_weight;
+            state.lock_frame_weight = state.lock_frame_focus_valid ? ramp_weight(state.lock_frame_weight, target,
+                                                                                 k_lock_frame_seconds, delta_time)
+                                                                   : 0.0f;
+            // It eases in from the camera the last frame showed, not from this frame's rig: right after a kill that is
+            // free-look's camera, which the player may already have turned onto the next opponent, while the rig
+            // itself is still easing back from free-look behind the player. Easing from the rig would swing away
+            // and back.
+            if (previous_weight <= 0.0f && state.lock_frame_weight > 0.0f && state.rig_last_built)
+            {
+                state.lock_frame_entering = true;
+                state.lock_frame_entry_x = state.rig_last_offset_x;
+                state.lock_frame_entry_y = state.rig_last_offset_y;
+                state.lock_frame_entry_z = state.rig_last_offset_z;
+                state.lock_frame_entry_yaw = state.rig_last_azimuth;
+                state.lock_frame_entry_pitch = -state.rig_last_elevation;
+            }
+            if (target <= 0.0f || state.lock_frame_weight >= 1.0f)
+            {
+                state.lock_frame_entering = false;
+            }
+            const Vector3 focus{state.lock_frame_focus_x, state.lock_frame_focus_y, state.lock_frame_focus_z};
+            const float focus_dx = focus.x - pivot.x;
+            const float focus_dy = focus.y - pivot.y;
+            const float weight = smoothstep(state.lock_frame_weight);
+            if (state.lock_frame_weight <= 0.0f)
+            {
+                state.lock_frame_focus_valid = false;
+            }
+            if (weight > 1e-3f && focus_dx * focus_dx + focus_dy * focus_dy > k_lock_min_reach_sq)
+            {
+                // The full framing, from the plain rig (free-look and a hand-off do not move it), toward the side the
+                // shoulder offset is on, which slides through the middle while the shoulder swap runs.
+                const float side = (params.offset_right < 0.0f ? -1.0f : 1.0f) * shoulder_side(state.shoulder_swap);
+                const PivotPose full =
+                    lock_frame_pose(plain_offset, std::atan2(-plain_look.x, plain_look.y), focus - pivot, side,
+                                    degrees_to_radians(params.lock_framing_angle), params.lock_focus_offset);
+                const PivotPose from =
+                    state.lock_frame_entering
+                        ? PivotPose{
+                              .offset = Vector3{state.lock_frame_entry_x, state.lock_frame_entry_y,
+                                                state.lock_frame_entry_z},
+                              .yaw = state.lock_frame_entry_yaw,
+                              .pitch = state.lock_frame_entry_pitch,
+                          }
+                        : PivotPose{
+                              .offset = camera_position - pivot,
+                              .yaw = std::atan2(-look_forward.x, look_forward.y),
+                              .pitch = std::asin(std::clamp(look_forward.z, -1.0f, 1.0f)),
+                          };
+                const PivotPose framed = blend_pivot_pose(from, full, weight);
+                camera_position = pivot + framed.offset;
+                const float yaw = framed.yaw;
+                const float pitch = framed.pitch;
+                look_forward =
+                    Vector3(-std::sin(yaw) * std::cos(pitch), std::cos(yaw) * std::cos(pitch), std::sin(pitch));
+                const float up_along = look_forward.z;
+                look_up = Vector3(-look_forward.x * up_along, -look_forward.y * up_along, 1.0f - up_along * up_along)
+                              .normalized();
+                rebuild_basis = true;
+            }
+        }
+
         // While the orbit rig shapes the camera, record for the next frame's aim hand-off its look heading and arm
         // elevation, its turn and rise off this frame's plain rig, and the player look that puts the plain rig on it.
         // All are measured within one frame, so a preset blend or a basis turn between frames does not count as orbit.
         // The orbit and the follow angle both turn the rig as a spring arm, which adds to the look's yaw and pitch, so
         // that player look is this frame's look turned by the yaw and pitch of the orbited look off the plain look.
+        // The heading, elevation and arm are kept on every build: a hand-off from the follow rig holds the camera where
+        // the last frame showed it, since the game may have turned the look already on the frame the hand-off starts,
+        // and the lock framing eases in from there.
+        const float rig_pitch = std::asin(std::clamp(look_forward.z, -1.0f, 1.0f));
+        state.rig_last_azimuth = std::atan2(-look_forward.x, look_forward.y);
+        state.rig_last_elevation = -rig_pitch;
+        state.rig_last_offset_x = camera_position.x - pivot.x;
+        state.rig_last_offset_y = camera_position.y - pivot.y;
+        state.rig_last_offset_z = camera_position.z - pivot.z;
+        state.rig_last_built = true;
         state.rig_last_orbited = false;
         if (orbit_rig)
         {
-            const float rig_pitch = std::asin(std::clamp(look_forward.z, -1.0f, 1.0f));
             const float plain_pitch = std::asin(std::clamp(plain_look.z, -1.0f, 1.0f));
-            state.rig_last_azimuth = std::atan2(-look_forward.x, look_forward.y);
-            state.rig_last_elevation = -rig_pitch;
             state.rig_last_turn =
                 std::remainder(state.rig_last_azimuth - std::atan2(-plain_look.x, plain_look.y), DirectX::XM_2PI);
             state.rig_last_rise = plain_pitch - rig_pitch;
@@ -894,7 +1077,9 @@ namespace TPVCamera
                 state.aim_handoff_cancel = false;
                 port.event(RigEvent::HandoffLost, 0.0f, 0.0f, 0.0f, 0);
             }
-            else if (state.aim_handoff_written && !in.repeat_build && std::fabs(yaw_gap) < k_aim_handoff_min_angle)
+            else if (state.aim_handoff_written && !in.repeat_build &&
+                     std::fabs(yaw_gap) <
+                         (state.aim_handoff_opponent ? k_aim_handoff_opponent_tolerance : k_aim_handoff_min_angle))
             {
                 state.aim_handoff_active = false;
                 port.event(RigEvent::HandoffTurned, state.aim_handoff_seconds, 0.0f, 0.0f, 0);
@@ -909,7 +1094,9 @@ namespace TPVCamera
                 state.aim_handoff_active = false;
                 port.event(RigEvent::HandoffTimeout, radians_to_degrees(yaw_gap), state.aim_handoff_seconds, 0.0f, 0);
             }
-            else if (!port.aim_control(1.0f, state.aim_handoff_pitch, true, state.aim_handoff_yaw))
+            // Toward an opponent the pitch is left alone: the game's steer raises or lowers the look onto his body.
+            else if (!port.aim_control(state.aim_handoff_opponent ? 0.0f : 1.0f, state.aim_handoff_pitch, true,
+                                       state.aim_handoff_yaw))
             {
                 state.aim_handoff_active = false;
                 port.event(RigEvent::HandoffWriteFailed, 0.0f, 0.0f, 0.0f, 0);
@@ -972,8 +1159,9 @@ namespace TPVCamera
                 state.rig_stale_move_logged = false;
                 port.event(RigEvent::MoveArmedByGame, move_magnitude, 0.0f, 0.0f, 0);
             }
-            // A hand-off still turning the look and the body (free-look back on before it ends) is not interrupted.
-            if (!moving && !state.aim_handoff_active && move_magnitude > k_move_input_start)
+            // A hand-off still turning the look and the body (free-look back on before it ends) is not interrupted, and
+            // while the game sets the facing (RigInput::game_owns_facing) a press waits until it lets go.
+            if (!moving && !state.aim_handoff_active && !in.game_owns_facing && move_magnitude > k_move_input_start)
             {
                 if (state.orbit_move_armed)
                 {

@@ -1150,6 +1150,37 @@ namespace TPVCamera
                 -0x0E),
         };
 
+        // The combat lock-on's set-opponent (sub_180B21364; GOG 0x180B16A04, Game Pass 0x18075AD1C), called, not
+        // hooked: void(C_CombatPlayer *player, CEntity *opponent). It tests the player's combat-enabled byte
+        // (`cmp byte [rcx+27Ah], 0; jz`), loads its opponent manager (`mov rcx, [rcx+3B8h]`) and calls the setter that
+        // builds the C_CombatTarget. P1 also matches that setter's prologue right after (Steam and GOG place it there):
+        // `mov rax, [rcx+8]` (the combat player), its state block (`mov r8, [rax+210h]`) and the target slot
+        // (`mov rdi, [r8+0CF0h]`). P2 is the wrapper alone with the call left open (Game Pass places the setter
+        // further on); its call target is proven against k_setCombatOpponentSetterBody before the wrapper is trusted.
+        inline const Candidate k_setCombatOpponentCandidates[] = {
+            Candidate::direct("SetCombatOpponent_P1_WrapperAndSetter",
+                              Pattern::literal("48 83 EC 28 80 B9 7A 02 00 00 00 74 0C 48 8B 89 B8 03 00 00 E8 07 00 "
+                                               "00 00 48 83 C4 28 C3 CC CC 48 89 5C 24 10 48 89 74 24 20 57 48 83 EC "
+                                               "30 48 8B 41 08 48 8B F2 48 8B D9 4C 8B 80 10 02 00 00 49 8B B8 F0 0C "
+                                               "00 00")),
+            Candidate::direct("SetCombatOpponent_P2_Wrapper",
+                              Pattern::literal("48 83 EC 28 80 B9 7A 02 00 00 00 74 0C 48 8B 89 B8 03 00 00 E8 ?? ?? "
+                                               "?? ?? 48 83 C4 28 C3")),
+        };
+        // The setter the set-opponent wrapper calls, matched at its first byte (see k_setCombatOpponentCandidates).
+        inline constexpr Pattern k_setCombatOpponentSetterBody = Pattern::literal(
+            "48 89 5C 24 ?? 48 89 74 24 ?? 57 48 83 EC 30 48 8B 41 08 48 8B F2 48 8B D9 4C 8B 80 10 02 "
+            "00 00 49 8B B8 F0 0C 00 00");
+        // The set-opponent wrapper's `call rel32` (E8), its byte offset from the wrapper's entry.
+        inline constexpr std::size_t k_setCombatOpponentCallSite = 0x14;
+        // C_CombatPlayer's per-frame update (vtable slot COMBAT_PLAYER_VTABLE_UPDATE_SLOT; sub_181002DD4, GOG
+        // 0x180FFFE24, Game Pass 0x18075B5B8), matched at its first byte before it is hooked: the frame,
+        // `mov rbx, rcx`, the lock-on controller load (`mov rcx, [rcx+450h]`), the call of its update, and the tail
+        // jump.
+        inline constexpr Pattern k_combatPlayerUpdateBody = Pattern::literal(
+            "40 53 48 83 EC 30 48 8B D9 0F 29 74 24 20 48 8B 89 50 04 00 00 0F 28 F1 E8 ?? ?? ?? ?? 0F "
+            "28 CE 48 8B CB 0F 28 74 24 20 48 83 C4 30 5B E9");
+
         // Loading-only shader preparation: fail-closed entry anchors, with no gameplay-creation fallback.
         // CSystem::SetSystemGlobalState(this, int state) (sub_1809B315C; GOG 0x1809D7B7C, Game Pass 0x18091263C), a
         // direct entry hook. States 1..9 cover level preparation, and the closure runs before the transition out of
@@ -1624,11 +1655,10 @@ namespace TPVCamera
      *          scalars. AddOrCreateRO is an address, and so are the window ids (PerViewUpload is a call site the mid
      *          hook sits on). ResourceLookup is an address, ResourceLock and ShaderResourceContainer globals, and the
      *          three PSO builder ids call sites. VegetationGroups is a global, and LevelBrushTables an instruction site
-     *          that only proves two member offsets. ClipVolumeManager is a global and GetClipVolumeByPos, OctreeCollectByType and
-     *          EngineDeallocate addresses. Of
-     *          the DEV-only ids, HardwareShaderForName is an address and HardwareShaderLockSite an instruction site its
-     *          consumer decodes; the ids from TechniqueLayout to HardwareShaderCache are instruction sites that only
-     *          prove layouts.
+     *          that only proves two member offsets. ClipVolumeManager is a global, and GetClipVolumeByPos,
+     *          OctreeCollectByType, EngineDeallocate and SetCombatOpponent are addresses. Of the DEV-only ids,
+     *          HardwareShaderForName is an address and HardwareShaderLockSite an instruction site its consumer decodes;
+     *          the ids from TechniqueLayout to HardwareShaderCache are instruction sites that only prove layouts.
      */
     enum class AnchorId : std::size_t
     {
@@ -1698,6 +1728,7 @@ namespace TPVCamera
         GetClipVolumeByPos,       // CClipVolumeManager::GetClipVolumeByPos (the indoors query; called, not hooked)
         OctreeCollectByType,      // the typed octree query's collector (the occluder scan; called, not hooked)
         EngineDeallocate,         // the engine's std::_Deallocate (frees the collector's vector; called, not hooked)
+        SetCombatOpponent,        // the combat lock-on's set-opponent (the kill retarget; called, not hooked)
 #if defined(TPVCAMERA_DEV_BUILD)
         HardwareShaderForName,  // CHWShader::mfForName (the DEV twin clone's factory)
         HardwareShaderLockSite, // the HW shader factory's SRWLOCK lea (an instruction site the consumer decodes)
@@ -1759,6 +1790,7 @@ namespace TPVCamera
         IndoorState,          // ClipVolumeManager, GetClipVolumeByPos: the Indoors state the `indoors` bind token reads
         OctreeSingleWalk,     // OctreeCollectByType, EngineDeallocate: one octree walk per typed occluder-scan query
                               // instead of a count and a fill (needs Occlusion)
+        CombatRetarget,       // SetCombatOpponent: after a kill the lock-on moves to the hostile the camera points at
 #if defined(TPVCAMERA_DEV_BUILD)
         TwinCloneDryRun, // the layout proofs (TechniqueLayout to HardwareShaderCache), the HW shader factory and
                          // its lock, ResourceLookup: the twin clone's read-only dry-run (needs ShaderTwins)

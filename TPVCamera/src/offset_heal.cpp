@@ -130,6 +130,11 @@ namespace TPVCamera
             .expected_mangled = Constants::C_PLAYER_MODULE_RTTI_NAME,
             .indirection = DMK::rtti::Indirection::PointerToObject,
         };
+        const DMK::rtti::Landmark k_combat_module_lm{
+            .nominal_offset = Constants::OFFSET_COMBAT_MODULE,
+            .expected_mangled = Constants::C_COMBAT_MODULE_RTTI_NAME,
+            .indirection = DMK::rtti::Indirection::PointerToObject,
+        };
 
         const DMK::rtti::Landmark k_hitdeath_lm{
             .nominal_offset = Constants::C_PLAYER_HIT_DEATH_REACTIONS_OFFSET,
@@ -169,7 +174,7 @@ namespace TPVCamera
         // Accumulated per-landmark drift report, appended by record_drift() as each group heals. rtti::heal_report
         // is the one-base batch form of this; these landmarks span four bases that become live at different times,
         // so building the report from the results the groups already produced avoids a second full scan.
-        constexpr std::size_t k_drift_capacity = 14;
+        constexpr std::size_t k_drift_capacity = 16;
         std::array<DMK::rtti::DriftEntry, k_drift_capacity> s_drift{};
         std::atomic<std::size_t> s_drift_count{0};
 
@@ -195,6 +200,7 @@ namespace TPVCamera
             DMK::rtti::Landmark localactor;
             DMK::rtti::Landmark manager;
             DMK::rtti::Landmark minigame;
+            DMK::rtti::Landmark combat;
             std::array<DMK::rtti::Landmark, 2> bracket;
         };
 
@@ -348,6 +354,7 @@ namespace TPVCamera
         animated_human_animchar.seed_nominal(Constants::ANIMATED_HUMAN_ANIMCHAR_OFFSET);
         context_manager.seed_nominal(Constants::OFFSET_MANAGER_PTR_STORAGE);
         context_minigame_subsystem.seed_nominal(Constants::OFFSET_MINIGAME_SUBSYSTEM);
+        context_combat_module.seed_nominal(Constants::OFFSET_COMBAT_MODULE);
     }
 
     RuntimeOffsets &runtime_offsets() noexcept
@@ -410,6 +417,7 @@ namespace TPVCamera
                 .localactor = with_window(k_localactor_lm, window),
                 .manager = with_window(k_manager_lm, window),
                 .minigame = with_window(k_minigame_subsystem_lm, window),
+                .combat = with_window(k_combat_module_lm, window),
                 .bracket = {with_window(k_player_top_bracket[0], window), with_window(k_player_top_bracket[1], window)},
             }
         );
@@ -553,6 +561,16 @@ namespace TPVCamera
                     context,
                     offsets.context_minigame_subsystem
                 );
+            },
+            []() noexcept { return s_context_base.load(std::memory_order_relaxed) != 0; }
+        );
+
+        register_group(
+            "combatModule",
+            [&offsets, &lm](DMK::rtti::HealRun &run) noexcept
+            {
+                const std::uintptr_t context = s_context_base.load(std::memory_order_relaxed);
+                return heal_and_record(run, "combatModule", lm.combat, context, offsets.context_combat_module);
             },
             []() noexcept { return s_context_base.load(std::memory_order_relaxed) != 0; }
         );

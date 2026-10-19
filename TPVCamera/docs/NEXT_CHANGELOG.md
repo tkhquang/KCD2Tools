@@ -1,4 +1,4 @@
-## Fading Obstacles, See-Through Trees and Camera Rules
+## Fading Obstacles, See-Through Trees, Camera Rules and Combat Lock-On
 
 - Added the close-up fade: with no room behind Henry, he fades out with his gear, eyes, hair and beard instead of the view jumping to first person (CloseUpFade, CloseUpFadeMinOpacity).
 - Added the occluder fade: posts, fences, open carts, lamps, furniture and hanging decorations between the camera and Henry fade out instead of pulling the camera in (UseOccluderFade, OccluderFadeMinOpacity).
@@ -15,6 +15,7 @@
 - Added Blend In Seconds to every preset: how long the camera takes to settle into it (aiming 0.3 s, mount and cart 1 s, the rest 0.52 s); presets you already have keep the feel PresetBlendSpeed gave them.
 - Added the Indoors state for your own presets: bind one to Indoors, alone or with another state such as Crouch, to use it inside houses, sheds, barns and cellars.
 - Added CollisionPullInSeconds (0.12 by default): when something comes between the camera and Henry, the camera eases in over that long instead of jumping in one frame, moving only through open air, so it never passes into a wall; 0 brings back the jump.
+- Added lock framing for the game's combat lock-on: the camera swings toward your shoulder side and keeps the locked enemy in view beside Henry instead of behind him (Lock Framing Angle, Lock Focus Height and Lock Focus Offset in every preset).
 - Changed the camera to keep its distance and pass through bushes and tree trunks, while buildings, walls, tall fences, platforms, covered wagons, big haystacks, rocks and the ground still stop it.
 - Changed leaves and prop corners right at the lens to be cut away instead of filling the view (UseLensCut, on by default).
 - Changed the shaders behind the fades and the window to be prepared at loading screens and pauses, never while you play.
@@ -27,6 +28,8 @@
 - Changed MaxAimCorrection to default to 90, so shots at the ground at Henry's feet and other close targets land on the crosshair (an existing INI keeps its value).
 - Changed the first-person/third-person switch with ViewTransitionDuration above 0: the camera now swings out around Henry instead of sliding straight from the eye, stops at walls along the way, keeps his head hidden while it passes through it, eases the FOV with it, and no longer flips halfway when free-look has the camera facing him.
 - Changed the mod to build on DetourModKit 4.4.0.
+- Changed the combat lock-on in third person to move to the next enemy your camera points at after a kill, instead of ending the fight stance while other enemies are near.
+- Changed free-look to come back the moment your opponent dies, and the camera with free-look off to stay put instead of following the finishing animation.
 - Removed UseCoverageCollision, CoverageThreshold, CameraProbeSize and UseRenderOcclusion, which the fade replaces.
 - Removed PresetBlendSpeed, replaced by each preset's Blend In Seconds.
 - Removed UseSphereCollision: the camera's rays alone decide where it stops (the sphere moved the stop by under 6 cm when it changed anything), which saves an engine query on most frames next to a wall.
@@ -38,3 +41,4 @@
 - Fixed the camera jumping out from a wall when a preset with Enable Collision off becomes active; it now eases out, and only once the switch into that preset has settled.
 - Fixed Henry popping between solid and faded in one frame when the camera jumps in or out at a wall; the close-up fade now eases like the obstacle fade.
 - Fixed parts of the mod staying active when it cannot start, for example after a game update; it now switches itself fully off.
+- Fixed free-look fighting the game's combat lock-on: Henry now turns to the enemy the lock-on picked, so the lock holds instead of dropping.
