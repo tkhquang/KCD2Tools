@@ -144,8 +144,6 @@ namespace TPVCamera::ProbeRecord
         return "?";
     }
 
-    // --- RecordingProbe ---
-
     std::optional<RayHit> RecordingProbe::ray(QueryLedger::Tag tag, const Vector3 &origin, const Vector3 &sweep,
                                               int objtypes, unsigned int flags, const std::uintptr_t *skip, int n_skip)
     {
@@ -272,8 +270,6 @@ namespace TPVCamera::ProbeRecord
         m_out.put(now);
         return now;
     }
-
-    // --- ReplayProbe ---
 
     void ReplayProbe::diverge(const std::string &why)
     {
@@ -488,8 +484,6 @@ namespace TPVCamera::ProbeRecord
         }
         return true;
     }
-
-    // --- Frames ---
 
     Vector3 record_arm(std::vector<std::byte> &out, CollisionState &state, const CollisionInput &in,
                        const CollisionParams &params, WorldProbe &probe, CollisionTrace &trace)

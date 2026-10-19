@@ -260,8 +260,6 @@ namespace TPVCamera::ProbeRecord
         return "?";
     }
 
-    // --- RecordingRigPort ---
-
     ZoomHeld RecordingRigPort::zoom_held()
     {
         const ZoomHeld held = m_inner.zoom_held();
@@ -403,8 +401,6 @@ namespace TPVCamera::ProbeRecord
         m_out.put(c);
         m_out.put(mask);
     }
-
-    // --- ReplayRigPort ---
 
     void ReplayRigPort::diverge(const std::string &why)
     {
@@ -614,8 +610,6 @@ namespace TPVCamera::ProbeRecord
         }
         return true;
     }
-
-    // --- Frames ---
 
     bool record_rig(std::vector<std::byte> &out, RigState &state, const RigParams &params, const RigInput &in,
                     RigPort &port, RigFrame &frame)

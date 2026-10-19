@@ -559,6 +559,8 @@ namespace TPVCamera::Overlay::Detail
                 if (!IsWindow(s_game_hwnd))
                     break;
 
+                TPVCamera::Overlay::auto_save_presets();
+
                 // Only show the panel when the game (or our overlay) is foreground, so
                 // it does not linger over other apps when alt-tabbed.
                 const HWND fg = GetForegroundWindow();

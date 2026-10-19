@@ -16,6 +16,7 @@
 - Added the Indoors state for your own presets: bind one to Indoors, alone or with another state such as Crouch, to use it inside houses, sheds, barns and cellars.
 - Added CollisionPullInSeconds (0.12 by default): when something comes between the camera and Henry, the camera eases in over that long instead of jumping in one frame, moving only through open air, so it never passes into a wall; 0 brings back the jump.
 - Added lock framing for the game's combat lock-on: the camera swings toward your shoulder side and keeps the locked enemy in view beside Henry instead of behind him (Lock Framing Angle, Lock Focus Height and Lock Focus Offset in every preset).
+- Added AutoSaveCyclePick and AutoSaveShoulder (on by default): the preset you cycle to and the shoulder you swap to are kept for your next session; off keeps them for this session only, unless you press Save.
 - Changed the camera to keep its distance and pass through bushes and tree trunks, while buildings, walls, tall fences, platforms, covered wagons, big haystacks, rocks and the ground still stop it.
 - Changed leaves and prop corners right at the lens to be cut away instead of filling the view (UseLensCut, on by default).
 - Changed the shaders behind the fades and the window to be prepared at loading screens and pauses, never while you play.
@@ -30,6 +31,10 @@
 - Changed the mod to build on DetourModKit 4.4.0.
 - Changed the combat lock-on in third person to move to the next enemy your camera points at after a kill, instead of ending the fight stance while other enemies are near.
 - Changed free-look to come back the moment your opponent dies, and the camera with free-look off to stay put instead of following the finishing animation.
+- Changed the overlay's Save button to light up for every unsaved change, UI Scale and Compact precision included.
+- Changed aiming to stay in third person by default (Aiming is no longer in ForcedFPVState).
+- Changed COMBAT to look down at Henry a little (Follow Pitch 5); press Reset to factory on COMBAT to get it in an existing setup.
+- Changed the overlay to keep the whole panel on screen: the preset settings scroll in their own box, which you can make taller or shorter by dragging its bottom edge, and the Overlay settings come first.
 - Removed UseCoverageCollision, CoverageThreshold, CameraProbeSize and UseRenderOcclusion, which the fade replaces.
 - Removed PresetBlendSpeed, replaced by each preset's Blend In Seconds.
 - Removed UseSphereCollision: the camera's rays alone decide where it stops (the sphere moved the stop by under 6 cm when it changed anything), which saves an engine query on most frames next to a wall.
@@ -42,3 +47,4 @@
 - Fixed Henry popping between solid and faded in one frame when the camera jumps in or out at a wall; the close-up fade now eases like the obstacle fade.
 - Fixed parts of the mod staying active when it cannot start, for example after a game update; it now switches itself fully off.
 - Fixed free-look fighting the game's combat lock-on: Henry now turns to the enemy the lock-on picked, so the lock holds instead of dropping.
+- Fixed the overlay showing an ImGui "conflicting ID" error when hovering a preset that is in a cycle group.

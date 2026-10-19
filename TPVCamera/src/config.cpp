@@ -143,6 +143,7 @@ namespace TPVCamera
         camera.bind<bool>("NativeTurnAnimation", "Native Turn Animation", s.native_turn_animation, true);
         camera.bind<float>("NativeTurnAngle", "Native Turn Angle", s.native_turn_angle, 35.0f);
         camera.bind<float>("NativeTurnSettleDelay", "Native Turn Settle Delay", s.native_turn_settle_delay, 0.8f);
+        camera.bind<bool>("AutoSaveShoulder", "Auto Save Shoulder", s.auto_save_shoulder, true);
 
         // Ranged (non-preset, always-live): third-person shots and distraction stones aimed at the crosshair point,
         // the flight trail, the aim preview and the per-weapon drop.
@@ -200,7 +201,7 @@ namespace TPVCamera
         state_behavior.bind<bool>("EnableStateBehavior", "Enable State Behavior", s.enable_state_behavior, true);
         state_behavior.bind_parsed(
             "ForcedFPVState", "Forced FPV State", s.forced_fpv_mask, parse_state_mask,
-            "Aiming,Cart,Dice,Reading,Alchemy,Blacksmithing,ForgeBuilder,Sharpening,StoneThrowing,BattleArchery");
+            "Cart,Dice,Reading,Alchemy,Blacksmithing,ForgeBuilder,Sharpening,StoneThrowing,BattleArchery");
         // The defaults match the shipped INI, so a missing key behaves like the file users get.
         state_behavior.bind_parsed("ForcedTPVState", "Forced TPV State", s.forced_tpv_mask, parse_state_mask, "Mount");
         state_behavior.bind_parsed("OrbitExcludeState", "Orbit Exclude State", s.orbit_exclude_mask, parse_state_mask,
@@ -224,6 +225,7 @@ namespace TPVCamera
         // Preset manager (always active). Each preset carries its own blend time; PresetBlendSpeed, the single rate
         // older INIs set, is read only to give the presets of an older presets file the same feel (PresetStore::load).
         presets.bind<float>("PresetBlendSpeed", "Preset Blend Speed", s.legacy_preset_blend_speed, 8.0f);
+        presets.bind<bool>("AutoSaveCyclePick", "Auto Save Cycle Pick", s.auto_save_cycle_pick, true);
     }
 
 } // namespace TPVCamera

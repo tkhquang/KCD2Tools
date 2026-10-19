@@ -8,7 +8,7 @@
  *            - seed and write the presets file on first run (create-if-missing),
  *            - re-add any built-in a user file is missing (e.g. AIMING added by a later update), and
  *            - back the "Reset to factory" and "Reset all" actions.
- *          The schema mirrors PresetStore::save() output (root: version/editing/ui_scale/value_compact/
+ *          The schema mirrors PresetStore::write() output (root: version/editing/ui_scale/value_compact/
  *          cycle_picks plus a presets array; each preset: name/builtin/bind_state/fields). Only the
  *          "presets" array and "cycle_picks" are parsed from this literal; the other root scalars are kept
  *          purely so the embedded copy matches the on-disk layout (the runtime root values come from the
@@ -62,7 +62,7 @@ namespace TPVCamera::Presets
         "follow_distance": 3.5,
         "follow_distance_max": 10.0,
         "follow_distance_min": 0.8,
-        "follow_pitch": 0.0,
+        "follow_pitch": 5.0,
         "follow_yaw": 0.0,
         "fov": 60.0,
         "gamepad_orbit_speed_x": 200.0,

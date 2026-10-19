@@ -8,6 +8,7 @@
 #include "config.hpp"
 #include "core/blend/blend.hpp"
 #include "default_presets.hpp"
+#include "global_state.hpp"
 #include "preset_runtime.hpp"
 
 #include <DetourModKit.hpp>
@@ -78,6 +79,16 @@ namespace TPVCamera::Presets
                     return &field;
             }
             return nullptr;
+        }
+
+        /**
+         * @brief Sorts @p picks by mask.
+         * @details A group has at most one pick, and the order carries no meaning, so sorted lists compare equal
+         *          exactly when they hold the same picks.
+         */
+        void sort_by_mask(std::vector<CyclePick> &picks)
+        {
+            std::ranges::sort(picks, {}, &CyclePick::mask);
         }
 
         /// Copies the value of @p field from @p source into @p target.
@@ -368,17 +379,15 @@ namespace TPVCamera::Presets
         DMK::Logger &logger = DMK::log();
         m_file_path = file_path;
         m_presets.clear();
-        m_dirty = false;
-        m_prefs_dirty = false;
         m_ui_scale = 1.0f;
         m_value_compact = true;
         m_shared_fields.clear();
-        m_saved_presets.clear();
-        m_saved_shared_fields.clear();
-        m_saved_cycle_picks.clear();
+        m_saved = FileContents{};
+        m_auto_save_blocked = false;
 
         std::string editing_name = k_builtin_default;
         std::vector<CyclePick> loaded_picks;
+        bool shoulder_swapped = false;
 
         // Presets are user-owned customization, not a shipped asset (see default_presets.hpp). The file is
         // OPTIONAL: a missing one is created from the embedded factory defaults on first run, and a corrupt
@@ -401,6 +410,8 @@ namespace TPVCamera::Presets
                     m_ui_scale = std::clamp(root["ui_scale"].get<float>(), 0.5f, 3.0f);
                 if (root.contains("value_compact") && root["value_compact"].is_boolean())
                     m_value_compact = root["value_compact"].get<bool>();
+                if (root.contains("shoulder_swapped") && root["shoulder_swapped"].is_boolean())
+                    shoulder_swapped = root["shoulder_swapped"].get<bool>();
                 if (root.contains("shared_fields") && root["shared_fields"].is_array())
                 {
                     for (const json &shared_key : root["shared_fields"])
@@ -460,6 +471,7 @@ namespace TPVCamera::Presets
                 m_presets.clear();
                 m_shared_fields.clear();
                 loaded_picks.clear();
+                shoulder_swapped = false;
             }
         }
 
@@ -481,56 +493,130 @@ namespace TPVCamera::Presets
         const bool builtins_added = arrange_builtins();
 
         // Resolve the editing selection BEFORE any save, so a repair-save persists the user's actual choice
-        // rather than the default-0 index (save() writes the "editing" key from m_editing_index).
+        // rather than the default-0 index (a write takes the "editing" key from m_editing_index).
         const int editing_idx = find_by_name(editing_name);
         m_editing_index = (editing_idx >= 0) ? editing_idx : 0;
         m_editing_pinned = false;
 
         // Seed the cycle picks from the file, replacing any a previous load published. publish() drops the ones
-        // whose preset is gone or bound elsewhere.
+        // whose preset is gone or bound elsewhere. The input engine starts after this load, so no hotkey changes the
+        // picks or the shoulder side before the saved state below is taken.
         publish([&loaded_picks](std::vector<CyclePick> &picks) { picks = loaded_picks; });
+        camera_controls().shoulder_swapped.store(shoulder_swapped, std::memory_order_relaxed);
 
         // Create-if-missing, and persist a repaired set (a newly-added built-in, a valid file recovered from having
-        // lost its presets, or one of an older schema given its blend times) so the next launch is clean. A corrupt file (file_usable == false)
-        // is deliberately left untouched on disk.
-        if (!file_present || (file_usable && (builtins_added || seeded || migrated_blend)))
-            save(); // clears m_dirty and snapshots the saved baseline
-        else
-            m_dirty = false;
-
-        // Baseline for the content-aware Save indicator = the data as just loaded/repaired. The save() path above
-        // already captured it; this covers the no-save path so a later edit-then-revert can clear the flag. The
-        // input engine is not running yet, so no cycle hotkey can change the picks in between.
-        capture_saved_baseline(persistable_cycle_picks());
+        // lost its presets, or one of an older schema given its blend times) so the next launch is clean. A corrupt
+        // file (file_usable == false) is deliberately left untouched on disk. Without a successful write, the values
+        // as loaded become the saved state, so a later edit reverted to them clears the Save indicator.
+        const bool repair = !file_present || (file_usable && (builtins_added || seeded || migrated_blend));
+        if (!repair || !write(live_contents(true)))
+            m_saved = live_contents(true);
 
         logger.info("Presets ready ({} entries) at {}", m_presets.size(), file_path);
     }
 
     void PresetStore::save()
     {
+        write(live_contents(true));
+    }
+
+    void PresetStore::flush()
+    {
+        FileContents contents = live_contents(false);
+        if (contents != m_saved)
+            write(std::move(contents));
+    }
+
+    void PresetStore::auto_save()
+    {
+        if (m_auto_save_blocked)
+            return;
+        const LiveSettings &live = settings();
+        const bool save_picks = live.auto_save_cycle_pick.load(std::memory_order_relaxed);
+        const bool save_shoulder = live.auto_save_shoulder.load(std::memory_order_relaxed);
+        if (!save_picks && !save_shoulder)
+            return;
+
+        std::vector<CyclePick> picks = save_picks ? live_cycle_picks() : std::vector<CyclePick>{};
+        const bool swapped = camera_controls().shoulder_swapped.load(std::memory_order_relaxed);
+        const bool picks_changed = save_picks && picks != m_saved.cycle_picks;
+        const bool shoulder_changed = save_shoulder && swapped != m_saved.shoulder_swapped;
+        if (!picks_changed && !shoulder_changed)
+            return;
+
+        // The rest stays as saved, so a pending preset edit is not written with the pick.
+        FileContents contents = m_saved;
+        if (picks_changed)
+            contents.cycle_picks = std::move(picks);
+        if (shoulder_changed)
+            contents.shoulder_swapped = swapped;
+        if (!write(std::move(contents)))
+            m_auto_save_blocked = true;
+    }
+
+    bool PresetStore::dirty() const
+    {
+        const LiveSettings &live = settings();
+        // An auto-saved value is pending only while auto-save is blocked: otherwise the next auto_save() writes it.
+        const bool picks_auto = !m_auto_save_blocked && live.auto_save_cycle_pick.load(std::memory_order_relaxed);
+        const bool shoulder_auto = !m_auto_save_blocked && live.auto_save_shoulder.load(std::memory_order_relaxed);
+        const FileContents contents = live_contents(true);
+        return contents.presets != m_saved.presets || contents.shared_fields != m_saved.shared_fields ||
+               contents.ui_scale != m_saved.ui_scale || contents.value_compact != m_saved.value_compact ||
+               (!picks_auto && contents.cycle_picks != m_saved.cycle_picks) ||
+               (!shoulder_auto && contents.shoulder_swapped != m_saved.shoulder_swapped);
+    }
+
+    void PresetStore::commit(const PickEdit &edit_picks)
+    {
+        write(live_contents(false, edit_picks));
+    }
+
+    PresetStore::FileContents PresetStore::live_contents(bool keep_session, const PickEdit &edit_saved_picks) const
+    {
+        const LiveSettings &live = settings();
+        FileContents contents{
+            .presets = m_presets,
+            .shared_fields = m_shared_fields,
+            .cycle_picks = (keep_session || live.auto_save_cycle_pick.load(std::memory_order_relaxed))
+                               ? live_cycle_picks()
+                               : saved_cycle_picks(edit_saved_picks),
+            .editing = (m_editing_index >= 0 && m_editing_index < static_cast<int>(m_presets.size()))
+                           ? m_presets[static_cast<std::size_t>(m_editing_index)].name
+                           : std::string{k_builtin_default},
+            .ui_scale = m_ui_scale,
+            .value_compact = m_value_compact,
+            .shoulder_swapped = (keep_session || live.auto_save_shoulder.load(std::memory_order_relaxed))
+                                    ? camera_controls().shoulder_swapped.load(std::memory_order_relaxed)
+                                    : m_saved.shoulder_swapped,
+        };
+        std::ranges::sort(contents.shared_fields);
+        return contents;
+    }
+
+    bool PresetStore::write(FileContents contents)
+    {
         DMK::Logger &logger = DMK::log();
         if (m_file_path.empty())
         {
             logger.warning("Preset save skipped: no file path set");
-            return;
+            return false;
         }
 
         json root;
         root["version"] = k_schema_version;
-        root["ui_scale"] = m_ui_scale;
-        root["value_compact"] = m_value_compact;
-        root["shared_fields"] = m_shared_fields;
+        root["ui_scale"] = contents.ui_scale;
+        root["value_compact"] = contents.value_compact;
+        root["shoulder_swapped"] = contents.shoulder_swapped;
+        root["shared_fields"] = contents.shared_fields;
         // Keyed by the group's token list so a hand-edited file reads like the presets' own bind_state values.
-        std::vector<CyclePick> cycle_picks = persistable_cycle_picks();
         json picks = json::object();
-        for (const CyclePick &pick : cycle_picks)
+        for (const CyclePick &pick : contents.cycle_picks)
             picks[cycle_group_tokens(pick.mask)] = pick.preset;
         root["cycle_picks"] = std::move(picks);
-        root["editing"] = (m_editing_index >= 0 && m_editing_index < static_cast<int>(m_presets.size()))
-                              ? m_presets[static_cast<std::size_t>(m_editing_index)].name
-                              : std::string{k_builtin_default};
+        root["editing"] = contents.editing;
         json arr = json::array();
-        for (const CameraPreset &p : m_presets)
+        for (const CameraPreset &p : contents.presets)
             arr.push_back(preset_to_json(p));
         root["presets"] = std::move(arr);
 
@@ -546,7 +632,7 @@ namespace TPVCamera::Presets
             if (!out)
             {
                 logger.warning("Preset save failed: cannot open {}", temp_path);
-                return;
+                return false;
             }
             // dump(2) can throw (e.g. nlohmann type_error.316 on invalid UTF-8 in a preset string); the catch
             // below treats it like a write failure so the live preset file is never disturbed.
@@ -555,7 +641,7 @@ namespace TPVCamera::Presets
             if (!out)
             {
                 logger.warning("Preset save failed: write error on {}", temp_path);
-                return;
+                return false;
             }
         } // close the stream so the rename sees a fully flushed file
         catch (const std::exception &e)
@@ -563,7 +649,7 @@ namespace TPVCamera::Presets
             logger.warning("Preset save failed: serialization error ({})", e.what());
             std::error_code remove_ec;
             std::filesystem::remove(temp_path, remove_ec); // do not leave a partial temp behind
-            return;
+            return false;
         }
 
         std::error_code rename_ec;
@@ -573,21 +659,15 @@ namespace TPVCamera::Presets
             logger.warning("Preset save failed: cannot replace {} ({})", m_file_path, rename_ec.message());
             std::error_code remove_ec;
             std::filesystem::remove(temp_path, remove_ec); // best-effort: do not leave the temp behind
-            return;
+            return false;
         }
 
-        m_dirty = false;
-        m_prefs_dirty = false;
-        // The file now matches the live data: this is the new revert baseline. The picks are the ones written, not a
-        // fresh read, so a hotkey that cycles during the write still differs from the baseline and flushes later.
-        capture_saved_baseline(std::move(cycle_picks));
+        // The saved state is what was written, not a fresh read, so a hotkey that cycles during the write still
+        // differs from it and is written later.
+        m_saved = std::move(contents);
+        m_auto_save_blocked = false;
         logger.info("Presets saved to {}", m_file_path);
-    }
-
-    void PresetStore::flush()
-    {
-        if (m_dirty || m_prefs_dirty || persistable_cycle_picks() != m_saved_cycle_picks)
-            save();
+        return true;
     }
 
     void PresetStore::set_editing_index(int index)
@@ -596,11 +676,9 @@ namespace TPVCamera::Presets
             return;
         if (index == m_editing_index)
             return; // re-selecting the current preset is a no-op: nothing to persist or republish
+        // The file keeps the selection ("editing" key), but a switch to another preset is no change to report, so
+        // dirty() leaves it out and flush() writes it on shutdown.
         m_editing_index = index;
-        // The editing selection is persisted ("editing" key), but it is UI bookkeeping, not a preset-value edit:
-        // flag it prefs-dirty so it flushes on shutdown WITHOUT lighting the Save indicator (changing which
-        // preset you are looking at is not an unsaved change to report).
-        m_prefs_dirty = true;
         publish();
     }
 
@@ -616,15 +694,11 @@ namespace TPVCamera::Presets
         if (clamped == m_ui_scale)
             return;
         m_ui_scale = clamped;
-        m_prefs_dirty = true; // editor preference: persisted on shutdown / next save, not a Save-worthy change
     }
 
     void PresetStore::set_value_compact(bool compact)
     {
-        if (compact == m_value_compact)
-            return;
         m_value_compact = compact;
-        m_prefs_dirty = true; // editor-only preference; persisted on shutdown / next save, not a Save-worthy change
     }
 
     bool PresetStore::is_field_shared(std::string_view key) const noexcept
@@ -648,14 +722,13 @@ namespace TPVCamera::Presets
         {
             m_shared_fields.emplace_back(key);
             // Sync the value across every preset right away so enabling the link matches them immediately.
-            broadcast_field(key); // marks the store dirty and republishes
+            broadcast_field(key); // republishes
         }
         else
         {
             const std::string key_str(key);
             m_shared_fields.erase(std::remove(m_shared_fields.begin(), m_shared_fields.end(), key_str),
                                   m_shared_fields.end());
-            mark_dirty(); // persist the dropped link
         }
     }
 
@@ -686,7 +759,7 @@ namespace TPVCamera::Presets
         if (field == nullptr)
             return;
         copy_field_from_editing(*field);
-        mark_dirty();
+        publish();
     }
 
     int PresetStore::add_new()
@@ -700,7 +773,7 @@ namespace TPVCamera::Presets
         m_presets.push_back(std::move(preset));
         m_editing_index = static_cast<int>(m_presets.size()) - 1;
         publish();
-        save();
+        commit();
         return m_editing_index;
     }
 
@@ -715,7 +788,7 @@ namespace TPVCamera::Presets
         m_presets.push_back(std::move(preset));
         m_editing_index = static_cast<int>(m_presets.size()) - 1;
         publish();
-        save();
+        commit();
         return m_editing_index;
     }
 
@@ -729,16 +802,16 @@ namespace TPVCamera::Presets
             return false;
         const std::string previous = std::exchange(m_presets[static_cast<std::size_t>(index)].name, name);
         // A pick names its preset, so it follows the rename and the group keeps the member it uses.
-        publish(
-            [&previous, &name](std::vector<CyclePick> &picks)
+        const PickEdit rekey = [&previous, &name](std::vector<CyclePick> &picks)
+        {
+            for (CyclePick &pick : picks)
             {
-                for (CyclePick &pick : picks)
-                {
-                    if (pick.preset == previous)
-                        pick.preset = name;
-                }
-            });
-        save();
+                if (pick.preset == previous)
+                    pick.preset = name;
+            }
+        };
+        publish(rekey);
+        commit(rekey);
         return true;
     }
 
@@ -753,7 +826,7 @@ namespace TPVCamera::Presets
         // A binding change alters auto-apply routing: republish so the live resolver picks it up this frame (and
         // the preset's pick in its old group is dropped), then persist it like a rename.
         publish();
-        save();
+        commit();
     }
 
     bool PresetStore::remove(int index)
@@ -768,7 +841,7 @@ namespace TPVCamera::Presets
         if (m_editing_index < 0)
             m_editing_index = 0;
         publish();
-        save();
+        commit();
         return true;
     }
 
@@ -816,24 +889,24 @@ namespace TPVCamera::Presets
             }
         }
 
-        publish(
-            [restored, &mask, &in_use](std::vector<CyclePick> &picks)
+        const PickEdit keep_in_use = [restored, &mask, &in_use](std::vector<CyclePick> &picks)
+        {
+            // `restored` implies the built-in's mask was parsed.
+            if (!restored)
+                return;
+            const std::uint32_t group = *mask;
+            const bool picked =
+                std::any_of(picks.begin(), picks.end(), [group](const CyclePick &pick) { return pick.mask == group; });
+            if (!picked)
             {
-                // `restored` implies the built-in's mask was parsed.
-                if (!restored)
-                    return;
-                const std::uint32_t group = *mask;
-                const bool picked = std::any_of(picks.begin(), picks.end(),
-                                                [group](const CyclePick &pick) { return pick.mask == group; });
-                if (!picked)
-                {
-                    picks.push_back(CyclePick{
-                        .mask = group,
-                        .preset = in_use,
-                    });
-                }
-            });
-        save();
+                picks.push_back(CyclePick{
+                    .mask = group,
+                    .preset = in_use,
+                });
+            }
+        };
+        publish(keep_in_use);
+        commit(keep_in_use);
     }
 
     void PresetStore::reset_all_to_factory()
@@ -862,53 +935,22 @@ namespace TPVCamera::Presets
 
         // The factory picks replace the picks of the groups they name, so those groups start on their built-in
         // again. A group the player made keeps its pick.
-        publish(
-            [](std::vector<CyclePick> &picks)
+        const PickEdit factory_picks = [](std::vector<CyclePick> &picks)
+        {
+            for (const CyclePick &factory_pick : factory_data().cycle_picks)
             {
-                for (const CyclePick &factory_pick : factory_data().cycle_picks)
-                {
-                    std::erase_if(picks,
-                                  [&factory_pick](const CyclePick &pick) { return pick.mask == factory_pick.mask; });
-                    picks.push_back(factory_pick);
-                }
-            });
-        save();
+                std::erase_if(picks, [&factory_pick](const CyclePick &pick) { return pick.mask == factory_pick.mask; });
+                picks.push_back(factory_pick);
+            }
+        };
+        publish(factory_picks);
+        commit(factory_picks);
         DMK::log().info("Presets: reset {} factory presets to factory values and added back {}", restored, added);
     }
 
-    void PresetStore::mark_dirty()
+    void PresetStore::apply_edit()
     {
-        // Content-aware: an edit that lands back on the saved value (a manual revert, or a per-field reset to a
-        // value that was already saved) leaves nothing to write, so diff against the baseline instead of latching
-        // the flag true.
-        recompute_dirty();
         publish();
-    }
-
-    void PresetStore::recompute_dirty() noexcept
-    {
-        // The shared-field collection is an unordered SET: vector order is not meaningful (disabling then
-        // re-enabling a key relocates it to the end), so compare it set-wise rather than with the order-sensitive
-        // vector operator!=, or a no-op reorder would falsely light the Save indicator. Neither side holds
-        // duplicates, so equal size plus one-way containment proves the sets match.
-        bool shared_changed = m_shared_fields.size() != m_saved_shared_fields.size();
-        for (const std::string &key : m_shared_fields)
-        {
-            if (shared_changed)
-            {
-                break;
-            }
-            shared_changed = std::find(m_saved_shared_fields.begin(), m_saved_shared_fields.end(), key) ==
-                             m_saved_shared_fields.end();
-        }
-        m_dirty = (m_presets != m_saved_presets) || shared_changed;
-    }
-
-    void PresetStore::capture_saved_baseline(std::vector<CyclePick> cycle_picks)
-    {
-        m_saved_presets = m_presets;
-        m_saved_shared_fields = m_shared_fields;
-        m_saved_cycle_picks = std::move(cycle_picks);
     }
 
     bool PresetStore::is_live_pick(const CyclePick &pick) const
@@ -921,7 +963,7 @@ namespace TPVCamera::Presets
         return mask.has_value() && *mask == pick.mask;
     }
 
-    std::vector<CyclePick> PresetStore::persistable_cycle_picks() const
+    std::vector<CyclePick> PresetStore::live_cycle_picks() const
     {
         // The overlay sets a pick from the snapshot it read at the start of its frame, so a rename or rebind earlier
         // in that frame can leave the pick naming a preset outside its group until the next publish drops it.
@@ -934,10 +976,21 @@ namespace TPVCamera::Presets
                     live.push_back(pick);
             }
         }
+        sort_by_mask(live);
         return live;
     }
 
-    void PresetStore::publish(const std::function<void(std::vector<CyclePick> &)> &edit_picks)
+    std::vector<CyclePick> PresetStore::saved_cycle_picks(const PickEdit &edit_picks) const
+    {
+        std::vector<CyclePick> picks = m_saved.cycle_picks;
+        if (edit_picks)
+            edit_picks(picks);
+        std::erase_if(picks, [this](const CyclePick &pick) { return !is_live_pick(pick); });
+        sort_by_mask(picks);
+        return picks;
+    }
+
+    void PresetStore::publish(const PickEdit &edit_picks)
     {
         StateBindingTable table;
         table.presets.reserve(m_presets.size());

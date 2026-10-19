@@ -106,7 +106,7 @@ namespace TPVCamera::Presets
         bool shoulder_collision = false;
 
         // Content equality over every persisted field, so the store can detect when an edit has been reverted
-        // back to the saved value and clear the unsaved-changes indicator (see PresetStore::recompute_dirty).
+        // back to the saved value and clear the unsaved-changes indicator (see PresetStore::dirty).
         bool operator==(const CameraPreset &) const = default;
     };
 
