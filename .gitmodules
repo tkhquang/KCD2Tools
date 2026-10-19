@@ -22,3 +22,7 @@
 	path = HotPak/external/DetourModKit
 	url = https://github.com/tkhquang/DetourModKit.git
 	ignore = dirty
+[submodule "SoundFramework/external/DetourModKit"]
+	path = SoundFramework/external/DetourModKit
+	url = https://github.com/tkhquang/DetourModKit.git
+	ignore = dirty

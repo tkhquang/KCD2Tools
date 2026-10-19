@@ -1,0 +1,7 @@
+# Build trees are local; only the shipped templates are tracked.
+build/*
+!build/template/
+
+# Python bytecode from the helper scripts.
+__pycache__/
+*.pyc
