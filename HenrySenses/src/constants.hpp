@@ -308,6 +308,13 @@ namespace HenrySenses::constants
     inline constexpr std::ptrdiff_t SOUL_VTABLE_REPUTATION_OFFSET = 50 * 8;
     inline constexpr std::ptrdiff_t SOUL_VTABLE_INVENTORY_HOLDER_OFFSET = 60 * 8;
     inline constexpr std::ptrdiff_t SOUL_VTABLE_CAN_BE_BUTCHERED_OFFSET = 144 * 8;
+    // C_Soul + 0x49C (u8) = corpse state: 0 alive (sub_1819C7B7C), 1 dead and undiscovered (the death handler
+    // sub_180D590DC), 2 discovered (vtable slot 157, sub_1816EE034), 3 disposed (sub_1816EE424, vtable slot 154
+    // sub_1804CBAA0). The corpse-disappear timer (rpg params CorpseDisappearanceTimeUndiscovered/Discovered, held while
+    // the player is near or the body renders) hides the body's entity and writes 3 through sub_1816EE424. It leaves the
+    // C_NPC bound, so AI_NPC_ACTOR_ID_OFFSET misses the body. The soul saves the state, so a load keeps the body gone.
+    inline constexpr std::ptrdiff_t SOUL_CORPSE_STATE_OFFSET = 0x49C;
+    inline constexpr std::uint8_t SOUL_CORPSE_STATE_DISPOSED = 3;
     inline constexpr std::ptrdiff_t INVENTORY_HOLDER_VTABLE_GET_OFFSET = 0;
     // Reputation component: vtable slot 14 = HasFactionTag(tag); with AnchorId::PublicEnemyTag it is IsPublicEnemy.
     inline constexpr std::ptrdiff_t REPUTATION_VTABLE_HAS_TAG_OFFSET = 14 * 8;
@@ -860,10 +867,15 @@ namespace HenrySenses::constants
     inline constexpr const char *C_INVENTORY_RTTI_NAME = ".?AVC_Inventory@entitymodule@wh@@";
     inline constexpr const char *C_ITEM_SLOT_RTTI_NAME = ".?AVC_ItemSlot@entitymodule@wh@@";
     inline constexpr const char *C_ITEM_SLOT_PILE_RTTI_NAME = ".?AVC_ItemSlotPile@entitymodule@wh@@";
+    inline constexpr const char *C_ITEM_SLOT_BOOK_RTTI_NAME = ".?AVC_ItemSlotBook@entitymodule@wh@@";
+    inline constexpr const char *C_ITEM_SLOT_MULTI_CLASS_RTTI_NAME = ".?AVC_ItemSlotMultiClass@entitymodule@wh@@";
     inline constexpr const char *C_ITEM_VECTOR_BORROWER_RTTI_NAME = ".?AVC_ItemVectorBorrower@entitymodule@wh@@";
     inline constexpr const char *C_ITEM_WRAPPER_RTTI_NAME = ".?AVC_ItemWrapper@entitymodule@wh@@";
     inline constexpr const char *C_WORLD_INVENTORY_RTTI_NAME = ".?AVC_WorldInventory@entitymodule@wh@@";
     inline constexpr const char *C_PICKABLE_ITEM_RTTI_NAME = ".?AVC_PickableItem@entitymodule@wh@@";
+    // C_PickableItem subclasses (base at offset 0, so its layout and virtuals hold) in the same item map.
+    inline constexpr const char *C_DOCUMENT_ITEM_RTTI_NAME = ".?AVC_DocumentItem@entitymodule@wh@@";
+    inline constexpr const char *C_MISSILE_WEAPON_ITEM_RTTI_NAME = ".?AVC_MissileWeaponItem@entitymodule@wh@@";
     inline constexpr const char *C_ITEM_RTTI_NAME = ".?AVC_Item@entitymodule@wh@@";
     inline constexpr const char *C_ACTOR_SYSTEM_RTTI_NAME = ".?AVCActorSystem@@";
     inline constexpr const char *C_ITEM_SYSTEM_RTTI_NAME = ".?AVCItemSystem@@";

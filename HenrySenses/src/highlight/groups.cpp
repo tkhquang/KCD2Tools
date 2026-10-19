@@ -490,7 +490,7 @@ namespace HenrySenses
             group.name = section.name;
             group.key_text = default_key();
             group.consume = s.key_consume.load(std::memory_order_relaxed);
-            group.hold_time = s.key_hold_time.load(std::memory_order_relaxed);
+            group.hold_seconds = s.key_hold_seconds.load(std::memory_order_relaxed);
             group.mode = static_cast<GroupMode>(s.mode.load(std::memory_order_relaxed));
             group.duration = s.duration.load(std::memory_order_relaxed);
             group.fade_out = s.fade_out.load(std::memory_order_relaxed);
@@ -615,16 +615,16 @@ namespace HenrySenses
                     }
                     group.consume = consume.value_or(group.consume);
                 }
-                else if (iequals(key, "Key.HoldTime"))
+                else if (iequals(key, "Key.HoldTimeInSeconds"))
                 {
-                    if (const std::optional<float> hold_time = parse_float(value); hold_time.has_value())
+                    if (const std::optional<float> hold_seconds = parse_float(value); hold_seconds.has_value())
                     {
-                        group.hold_time = *hold_time;
+                        group.hold_seconds = *hold_seconds;
                     }
                     else if (!value.empty())
                     {
                         problems.push_back(
-                            std::format("[Highlight.{}] Key.HoldTime: '{}' is not a number", group.name, value)
+                            std::format("[Highlight.{}] Key.HoldTimeInSeconds: '{}' is not a number", group.name, value)
                         );
                     }
                 }
@@ -718,20 +718,21 @@ namespace HenrySenses
                     problems.push_back(std::format("[Highlight.{}] unknown key '{}'", group.name, key));
                 }
             }
-            group.hold_time = std::clamp(group.hold_time, 0.0f, 10.0f);
+            group.hold_seconds = std::clamp(group.hold_seconds, 0.0f, 10.0f);
             group.duration = std::clamp(group.duration, 0.5f, 600.0f);
             group.fade_out = std::clamp(group.fade_out, 0.0f, 10.0f);
             group.radius = std::clamp(group.radius, 2.0f, 100.0f);
             group.effect_scale = std::clamp(group.effect_scale, 0.1f, 10.0f);
             group.keys = parse_keys(group.key_text, group.name, problems);
-            // A wheel notch is down for one poll only, so a binding that waits for Key.HoldTime never sees it held.
+            // A wheel notch is down for one poll only, so a binding that waits for a hold time never sees it held.
             const auto has_wheel = [](const DMK::input::KeyCombo &combo) -> bool
             { return std::ranges::contains(combo.keys, DMK::InputSource::MouseWheel, &DMK::InputCode::source); };
-            if (group.hold_time > 0.0f && group.mode != GroupMode::Always && std::ranges::any_of(group.keys, has_wheel))
+            if (group.hold_seconds > 0.0f && group.mode != GroupMode::Always &&
+                std::ranges::any_of(group.keys, has_wheel))
             {
                 problems.push_back(
                     std::format(
-                        "[Highlight.{}] Key.HoldTime: a mouse wheel key cannot be held and never acts",
+                        "[Highlight.{}] Key.HoldTimeInSeconds: a mouse wheel key cannot be held and never acts",
                         group.name
                     )
                 );
@@ -760,7 +761,7 @@ namespace HenrySenses
                     group.except,
                     lowercase(group.key_text),
                     group.consume,
-                    group.hold_time,
+                    group.hold_seconds,
                     static_cast<int>(group.mode),
                     group.duration,
                     group.fade_out,
@@ -803,7 +804,7 @@ namespace HenrySenses
             s_hotkeys->names.clear();
         }
 
-        /** @brief The due time in which a Pulse or Toggle press with a Key.HoldTime waits for the tick. */
+        /** @brief The due time in which a Pulse or Toggle press with a Key.HoldTimeInSeconds waits for the tick. */
         [[nodiscard]] std::atomic<std::int64_t> &press_due_ms(GroupActivation &activation, GroupMode mode) noexcept
         {
             return mode == GroupMode::Toggle ? activation.toggle_due_ms : activation.pulse_due_ms;
@@ -812,7 +813,7 @@ namespace HenrySenses
         /**
          * @brief Acts on a Pulse or Toggle press: restarts the pulse, or flips the toggle (its fade-out starts when it
          *        goes off).
-         * @note Runs on the input poll thread, or on the main-thread tick when the key has a Key.HoldTime.
+         * @note Runs on the input poll thread, or on the main-thread tick when the key has a Key.HoldTimeInSeconds.
          */
         void fire_press(GroupActivation &activation, GroupMode mode, std::string_view name) noexcept
         {
@@ -870,7 +871,7 @@ namespace HenrySenses
                 const std::shared_ptr<GroupActivation> activation = group.activation;
                 const std::string name = group.name;
                 const GroupMode mode = group.mode;
-                const auto hold_ms = static_cast<std::int64_t>(group.hold_time * 1000.0f);
+                const auto hold_ms = static_cast<std::int64_t>(group.hold_seconds * 1000.0f);
                 if (group.mode == GroupMode::Hold)
                 {
                     binding.trigger = DMK::input::Trigger::Hold;
@@ -903,7 +904,7 @@ namespace HenrySenses
                         (void)DMK::log().try_log(DMK::LogLevel::Debug, "Highlight.{} released", name);
                     };
                 }
-                else if (group.hold_time > 0.0f)
+                else if (group.hold_seconds > 0.0f)
                 {
                     // The input engine reports only edges, so the down edge stores the press's due time and the
                     // main-thread tick acts on it once that time is reached (fire_held_hotkeys).
@@ -920,7 +921,8 @@ namespace HenrySenses
                             return;
                         }
                         // A release before the due time cancels the press. A later one leaves it for the tick, so a
-                        // key held for Key.HoldTime acts even when no tick ran between the due time and the release.
+                        // key held for Key.HoldTimeInSeconds acts even when no tick ran between the due time and the
+                        // release.
                         std::int64_t due = due_ms.load(std::memory_order_relaxed);
                         if (due != 0 && steady_ms() < due)
                         {
@@ -1134,7 +1136,7 @@ namespace HenrySenses
                     state_list_text(group.gate_mask),
                     group.key_text,
                     group.consume ? " consume" : "",
-                    group.hold_time > 0.0f ? std::format(" holdTime={:.2f}", group.hold_time) : std::string{},
+                    group.hold_seconds > 0.0f ? std::format(" holdSeconds={:.2f}", group.hold_seconds) : std::string{},
                     group_mode_name(group.mode),
                     group.duration,
                     group.fade_out,

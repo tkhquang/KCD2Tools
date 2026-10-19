@@ -87,7 +87,7 @@ All keys are rebindable in KCD2_HenrySenses.ini.
 [*][b]Highlight loot and butcherable carcasses:[/b] H, or hold RB + press Start on a controller.[/*]
 [*][b]Highlight herbs:[/b] Left Shift + H, or hold RB + press Back on a controller.[/*]
 [/list]
-Highlights pulse for [b]5 seconds[/b], then fade over [b]1 second[/b], within [b]20 metres[/b]. Loot, Butcher and Herbs start enabled; the other groups start disabled. The Loot group excludes empty and stolen targets; Butcher separately highlights butcherable carcasses. Highlights hide during [b]dialogue[/b] by default. Group hotkeys also work while menus are open.
+Highlights pulse for [b]5 seconds[/b], then fade over [b]1 second[/b], within [b]20 metres[/b]. Loot, Books, Butcher and Herbs start enabled; the other groups start disabled. The Loot group excludes empty and stolen targets. Books shows books, recipes and letters in a parchment colour. Butcher separately highlights butcherable carcasses. Highlights hide during [b]dialogue[/b] by default. Group hotkeys also work while menus are open.
 
 [size=5]Configuration[/size]
 Open [b]KCD2_HenrySenses.ini[/b] beside the ASI with a text editor such as Notepad. Save the file to apply changes while playing. Lines starting with a semicolon are comments explaining the options.
@@ -97,10 +97,11 @@ A [b]highlight group[/b] is a set of things you want to see together. Each Highl
 
 The supplied groups are working examples you can edit, rename, remove or use as starting points for your own combinations:
 [list]
-[*][b]Loot (enabled):[/b] corpses, carcasses, items and containers, excluding empty or stolen targets.[/*]
+[*][b]Loot (enabled):[/b] corpses, carcasses, items and containers, excluding empty or stolen targets. Items include books, bows and crossbows.[/*]
+[*][b]Books (enabled):[/b] books, recipes and letters you can take, in a parchment colour, excluding stolen ones.[/*]
 [*][b]Butcher (enabled):[/b] butcherable carcasses.[/*]
 [*][b]Locked (disabled):[/b] locked, non-empty containers.[/*]
-[*][b]Stolen (disabled):[/b] stolen items, containers, corpses and carcasses, excluding empty targets.[/*]
+[*][b]Stolen (disabled):[/b] stolen items (books included), containers, corpses and carcasses, excluding empty targets.[/*]
 [*][b]Herbs (enabled):[/b] unpicked herbs and mushrooms, outlined.[/*]
 [*][b]Places (disabled):[/b] doors, workstations, beds, use spots and other usable objects. Experimental.[/*]
 [*][b]Living (disabled):[/b] living NPCs and animals, with separate colours for horses and dogs.[/*]
@@ -144,7 +145,7 @@ Set a group's [b]Mode[/b] to choose how its key works:
 [*][b]Always:[/b] highlights stay on without a keypress.[/*]
 [/list]
 
-[b]Key.HoldTime[/b] sets how many seconds you must hold a key before it acts, so a quick tap does nothing. Pulse and Toggle act once that time passes, and Hold shows from then until you let go. The default [b]0[/b] acts on the press. Mouse wheel keys cannot be held.
+[b]Key.HoldTimeInSeconds[/b] sets how many seconds you must hold a key before it acts, so a quick tap does nothing. Pulse and Toggle act once that time passes, and Hold shows from then until you let go. The default [b]0[/b] acts on the press. Mouse wheel keys cannot be held.
 
 [b]FadeOut[/b] controls how many seconds they take to disappear; the default is [b]1 second[/b]. [b]HideIn[/b] accepts Dialogue, Combat and Minigame and defaults to [b]Dialogue[/b]. Add Combat or Minigame to hide highlights in those situations too. Group hotkeys also work while menus are open.
 

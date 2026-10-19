@@ -111,6 +111,8 @@ namespace HenrySenses
         constexpr float PATTERN_MARGIN = 30.0f;
         // The class of every individual flock animal (chicken, rat, mouse, bird, fish).
         constexpr std::string_view BOID_CLASS = "Boid";
+        // The entity class of every C_DocumentItem the player can take: books, recipes, letters and diaries.
+        constexpr std::string_view BOOK_CLASS = "Book";
         // Static world objects a Model pattern may pick, and the node cap of one octree query (a corruption guard far
         // above the brushes of any real box: a real count past it would drop matches inside the radius).
         constexpr std::uint32_t MAX_MODEL_NODES = 1u << 20;
@@ -272,6 +274,8 @@ namespace HenrySenses
         LootWorkStats s_work{};
 
         std::unordered_map<EntityId, CachedAnswer> s_shop_items;
+        // Whether the player can take a world document (document_takeable), for the session.
+        std::unordered_map<EntityId, bool> s_takeable_documents;
         // Keyed by entity id and category: an unconscious human is logged once as a body and once as an NPC.
         std::unordered_map<std::uint64_t, std::uint64_t> s_logged;
         // Item and container verdicts, and the options they were made under.
@@ -1082,6 +1086,11 @@ namespace HenrySenses
             {
                 return reject(category, flags, "despawned");
             }
+            // The corpse-disappear timer hides the body but leaves its AI bound. Only the soul records the disposal.
+            if (soul_corpse_disposed(view.soul))
+            {
+                return reject(category, flags, "disposed");
+            }
             if (render_node_of(view.entity) == 0)
             {
                 return reject(category, flags, "not_rendered", true);
@@ -1120,6 +1129,25 @@ namespace HenrySenses
             );
         }
 
+        /**
+         * @brief True when the player can take a document (a C_DocumentItem), read once per entity.
+         * @details A Book that book_reads_in_place() offers only "read", and RecipesBook:GetActions offers only the
+         *          alchemy table's "read". Any other Book runs PickableItem:GetActions, whose rules classify_item
+         *          applies. A document of another entity class is not loot, because no known script lets the player
+         *          take it.
+         */
+        [[nodiscard]] bool document_takeable(EntityId id, std::uintptr_t entity)
+        {
+            if (const auto it = s_takeable_documents.find(id); it != s_takeable_documents.end())
+            {
+                return it->second;
+            }
+            const bool takeable =
+                entity_class_name(entity) == BOOK_CLASS && !book_reads_in_place(entity).value_or(false);
+            s_takeable_documents.emplace(id, takeable);
+            return takeable;
+        }
+
         [[nodiscard]] Verdict classify_item(const ScanContext &ctx, const ItemView &item, std::uintptr_t entity)
         {
             constexpr LootCategory item_category = LootCategory::Item;
@@ -1154,6 +1182,11 @@ namespace HenrySenses
             if (!item_is_pickable(item).value_or(false))
             {
                 return reject(item_category, 0, "cannot_use");
+            }
+            // After the cheap rejects: the first test of a document reads its script table.
+            if (object_is(GameClass::DocumentItem, item.item) && !document_takeable(item.id, entity))
+            {
+                return reject(item_category, 0, "read_in_place");
             }
             // Shop display goods are loot the game offers to steal (PickableItem never checks IsFromShop), so they
             // are kept and flagged.
@@ -1583,6 +1616,7 @@ namespace HenrySenses
         s_patterns = GroupPatterns{};
         drop_index();
         s_shop_items.clear();
+        s_takeable_documents.clear();
         s_logged.clear();
         s_unknown_owner_types.clear();
         s_verdicts.clear();
@@ -1614,6 +1648,7 @@ namespace HenrySenses
             s_class_kinds.clear();
             s_kind_memo.clear();
             s_shop_items.clear();
+            s_takeable_documents.clear();
             s_logged.clear();
             s_unknown_owner_types.clear();
             s_verdicts.clear();

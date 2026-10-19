@@ -66,7 +66,7 @@ namespace HenrySenses
             InteractiveClass{"DiceInteractor", InteractKind::Station},
             InteractiveClass{"DiceMinigameCup", InteractKind::Station},
             InteractiveClass{"StoneThrowingPile", InteractKind::Station},
-            // A book offers reading in place only with Properties.bIsDirectlyReadable; any other book is an item.
+            // A Book is a station only when book_reads_in_place(). Any other book is an item.
             InteractiveClass{"Book", InteractKind::Station, TRAIT_READABLE},
             InteractiveClass{"RecipesBook", InteractKind::Station},
             InteractiveClass{"Bed", InteractKind::Bed},
@@ -1442,7 +1442,7 @@ namespace HenrySenses
             {
                 return it->second;
             }
-            const bool readable = script_table_bool(entity, "Properties", "bIsDirectlyReadable").value_or(false);
+            const bool readable = book_reads_in_place(entity).value_or(false);
             s_readable_books.emplace(id, readable);
             (void)DMK::log().try_log(
                 DMK::LogLevel::Debug,

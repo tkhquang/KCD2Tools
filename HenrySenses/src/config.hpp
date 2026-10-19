@@ -62,8 +62,8 @@ namespace HenrySenses
         // [Settings] Key.Consume: the fallback of a group's Key.Consume (hide the key's trigger, a digital controller
         // button or the mouse wheel, from the game while its combo is down).
         std::atomic<bool> key_consume{true};
-        // [Settings] Key.HoldTime: the fallback of a group's Key.HoldTime (seconds its key must stay down to act).
-        std::atomic<float> key_hold_time{0.0f};
+        // [Settings] Key.HoldTimeInSeconds: the fallback of a group's own value (seconds its key must stay down).
+        std::atomic<float> key_hold_seconds{0.0f};
         std::atomic<int> scan_interval_ms{250};
 
         // [Render]

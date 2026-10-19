@@ -314,6 +314,16 @@ namespace HenrySenses
             return object_is(GameClass::ItemSystem, system) ? system + constants::ITEM_SYSTEM_INTERFACE_OFFSET : 0;
         }
 
+        /**
+         * @brief True for a C_PickableItem or one of the two classes that derive from it (C_DocumentItem,
+         *        C_MissileWeaponItem), which share its layout and virtuals.
+         */
+        [[nodiscard]] bool is_pickable_item(std::uintptr_t object) noexcept
+        {
+            return object_is(GameClass::PickableItem, object) || object_is(GameClass::DocumentItem, object) ||
+                   object_is(GameClass::MissileWeaponItem, object);
+        }
+
         [[nodiscard]] bool wuid_type_is(Wuid wuid, std::uint8_t type) noexcept
         {
             return static_cast<std::uint8_t>(wuid >> 56) == type && (wuid & 0xFFFF) != 0;
@@ -769,6 +779,16 @@ namespace HenrySenses
         return bound.has_value() && *bound == 0;
     }
 
+    bool soul_corpse_disposed(std::uintptr_t soul) noexcept
+    {
+        if (soul == 0)
+        {
+            return false;
+        }
+        const auto state = DMK::memory::read<std::uint8_t>(DMK::Address{soul + constants::SOUL_CORPSE_STATE_OFFSET});
+        return state.has_value() && *state == constants::SOUL_CORPSE_STATE_DISPOSED;
+    }
+
     std::optional<bool> actor_is_dead(std::uintptr_t actor) noexcept
     {
         return actor != 0 ? vcall<bool>(actor, constants::ACTOR_VTABLE_IS_DEAD_OFFSET) : std::nullopt;
@@ -1140,7 +1160,7 @@ namespace HenrySenses
         keep_within(s_item_refs, constants::PICKABLE_ITEM_ENTITY_OFFSET, center, reach * reach);
         for (const NodeRef &ref : s_item_refs)
         {
-            if (object_is(GameClass::PickableItem, ref.object) && object_is(GameClass::Entity, ref.entity) &&
+            if (is_pickable_item(ref.object) && object_is(GameClass::Entity, ref.entity) &&
                 entity_id_of(ref.entity) == ref.id)
             {
                 const std::uintptr_t data = read_ptr(ref.object + constants::PICKABLE_ITEM_DATA_OFFSET);
@@ -1214,7 +1234,7 @@ namespace HenrySenses
         }
         const std::optional<std::uintptr_t> item =
             vcall<std::uintptr_t>(system, constants::ITEM_SYSTEM_VTABLE_GET_ITEM_OFFSET, id);
-        if (!item || !object_is(GameClass::PickableItem, *item))
+        if (!item || !is_pickable_item(*item))
         {
             return std::nullopt;
         }
@@ -1297,7 +1317,8 @@ namespace HenrySenses
         {
             return ItemHolder::Attached;
         }
-        if (object_is(GameClass::ItemSlot, owner) || object_is(GameClass::ItemSlotPile, owner))
+        if (object_is(GameClass::ItemSlot, owner) || object_is(GameClass::ItemSlotPile, owner) ||
+            object_is(GameClass::ItemSlotBook, owner) || object_is(GameClass::ItemSlotMultiClass, owner))
         {
             return ItemHolder::Slot;
         }
@@ -1439,6 +1460,11 @@ namespace HenrySenses
         }
         release_script_table(nested);
         return result;
+    }
+
+    std::optional<bool> book_reads_in_place(std::uintptr_t entity) noexcept
+    {
+        return script_table_bool(entity, "Properties", "bIsDirectlyReadable");
     }
 
 } // namespace HenrySenses
