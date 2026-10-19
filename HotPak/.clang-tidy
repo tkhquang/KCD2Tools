@@ -1,0 +1,30 @@
+# Advisory static-analysis profile for HenrySenses.
+# Win32, SEH, and low-level pointer idioms are intentional
+# in a game-memory mod, so the checks that flag them are disabled rather than
+# worked around at the call site:
+#   - performance-no-int-to-ptr: integer <-> pointer conversion at game-memory and hook boundaries is the core idiom.
+#   - bugprone-empty-catch: an empty catch(...) is the deliberate fail-closed swallow on noexcept paths.
+Checks: >
+  -*,
+  bugprone-*,
+  performance-*,
+  modernize-use-nullptr,
+  modernize-use-override,
+  modernize-use-equals-default,
+  modernize-use-using,
+  cppcoreguidelines-pro-type-member-init,
+  cppcoreguidelines-slicing,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-reserved-identifier,
+  -bugprone-assignment-in-if-condition,
+  -bugprone-empty-catch,
+  -performance-no-int-to-ptr
+# Advisory only: never fail a build on a tidy finding.
+WarningsAsErrors: ''
+# Only diagnose HenrySenses headers, including the dev loader's .h headers.
+# Match both Windows and Unix-style paths without including external/ submodules.
+HeaderFilterRegex: '(^|[\\/])HenrySenses[\\/]src[\\/].*\.(h|hpp)$'
+FormatStyle: file
+CheckOptions:
+  # `(void)expr;` is the sanctioned discard of a [[nodiscard]] return. Honour it instead of flagging the cast.
+  bugprone-unused-return-value.AllowCastToVoid: 'true'
