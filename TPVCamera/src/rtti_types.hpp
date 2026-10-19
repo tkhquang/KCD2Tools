@@ -103,6 +103,18 @@ namespace TPVCamera
         ActorSystem,
         /// CClipVolumeManager, the level's clip volumes (building interiors) the Indoors state is read from.
         ClipVolumeManager,
+        /// wh::combatmodule::C_CombatModule, the global-context member that owns the player's combat actor.
+        CombatModule,
+        /// wh::combatmodule::C_CombatPlayer, the player's combat actor.
+        CombatPlayer,
+        /// wh::combatmodule::C_CombatPlayerController, the player's lock-on logic.
+        CombatPlayerController,
+        /// wh::combatmodule::C_CombatPlayerInput, the lock-on's mouse and gamepad input and view steer.
+        CombatPlayerInput,
+        /// wh::rpgmodule::C_Soul, an actor's soul, whose health decides whether the actor is dead.
+        Soul,
+        /// wh::combatmodule::C_CombatTarget, the opponent the player's lock-on moves to next.
+        CombatTarget,
         /// Enumerator count. Not a class.
         Count,
     };

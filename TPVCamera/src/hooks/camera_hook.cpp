@@ -38,6 +38,7 @@
 #include "core/view/view_blend.hpp"
 #include "aob_resolver.hpp"
 #include "character_attachments.hpp"
+#include "combat_lock.hpp"
 #include "constants.hpp"
 #include "dev/hook_profile.hpp"
 #include "config.hpp"
@@ -54,6 +55,7 @@
 #include "hooks/ranged_hook.hpp"
 #include "hooks/vtable_slots.hpp"
 #include "hooks/character_fade.hpp"
+#include "hooks/combat_retarget.hpp"
 #include "hooks/head_visibility.hpp"
 #include "hooks/input_hook.hpp"
 #include "hooks/native_turn_hooks.hpp"
@@ -114,6 +116,22 @@ namespace TPVCamera
     // Raised on the frame the orbit-exclude policy turns free-look off in a situation where the game leaves the facing
     // to the player (main thread only): the rig's aim hand-off starts on it (RigInput::aim_handoff_requested).
     static bool s_aim_handoff_requested = false;
+    // With s_aim_handoff_requested: the combat opponent's heading the hand-off turns to
+    // (RigInput::aim_handoff_heading).
+    static std::optional<float> s_aim_handoff_heading;
+    // The heading of the view the rig built last, which picks the next combat opponent after a kill and goes into the
+    // combat lock-on log (main thread only). Unset in first person.
+    static std::optional<float> s_camera_heading;
+    // The game sets the facing while free-look is on (RigInput::game_owns_facing): a stance held on a dead opponent.
+    static bool s_game_owns_facing = false;
+    // Raised on the frame the free-look a kill turned on by itself turns back off (main thread only): like the
+    // orbit-exclude policy's switch, it lets the rig hand the look off (RigInput::orbit_suspended).
+    static bool s_kill_orbit_released = false;
+    // The feet of the living opponent the combat lock-on steers toward, for the rig's lock framing
+    // (RigInput::lock_focus), main thread only.
+    static std::optional<Vector3> s_lock_focus;
+    // The lock-on's free look is on (RigInput::lock_free_look), main thread only.
+    static bool s_lock_free_look = false;
     // The first-person <-> third-person switch's yaw latch (see core/view/view_blend.hpp), cleared when the offset
     // turns off. Main thread only (the camera detour).
     static ViewBlendLatch s_view_latch{};
@@ -196,6 +214,13 @@ namespace TPVCamera
         state_bit(GameState::MinigameDice) | state_bit(GameState::MinigamePickpocketing) |
         state_bit(GameState::MinigameBlacksmithing) | state_bit(GameState::MinigameForgeBuilder);
 
+    // Situations the player aims: a drawn bow or crossbow, and the throwing and shooting minigames. What starts there
+    // (a shot, a throw) leaves along the look, so the aim hand-off keeps turning the look to the camera direction in
+    // them even when the combat lock-on has an opponent selected.
+    constexpr uint32_t k_player_aimed_states =
+        state_bit(GameState::Aiming) | state_bit(GameState::MinigameStoneThrowing) |
+        state_bit(GameState::MinigameBattleArchery) | state_bit(GameState::MinigameDistract);
+
     // The states read from the live UI signals rather than the debounced mask: the suppression gate and the
     // orbit-exclude policy both react on the frame a menu or an overlay opens or closes.
     constexpr uint32_t k_live_ui_states = state_bit(GameState::Menu) | state_bit(GameState::Overlay);
@@ -237,6 +262,8 @@ namespace TPVCamera
     {
         /// UI-clock frame-start stamp, identical for every read within one frame.
         std::int64_t start_stamp;
+        /// Game-clock frame-start stamp (1/100000 s), the clock the combat controller's timers count on; 0 unread.
+        std::int64_t game_stamp;
         /// Seconds the world advanced this frame.
         float seconds;
         /// Real seconds this frame took, whatever the game's time scale; seconds when the real clock cannot be read.
@@ -292,6 +319,9 @@ namespace TPVCamera
         {
             return std::nullopt;
         }
+        const std::int64_t *game_slot =
+            reinterpret_cast<TimerGetFrameStartTimeFunc>(*start_fn)(*timer, Constants::ETIMER_GAME);
+        const auto game_stamp = DMK::memory::read<std::int64_t>(DMK::Address{reinterpret_cast<uintptr_t>(game_slot)});
         const auto get_frame_time = reinterpret_cast<TimerGetFrameTimeFunc>(*time_fn);
         float seconds = get_frame_time(*timer, Constants::ETIMER_GAME);
         const bool paused = !(seconds > 0.0f);
@@ -312,7 +342,7 @@ namespace TPVCamera
                 real_seconds = real;
             }
         }
-        return EngineFrame{*stamp, seconds, real_seconds, paused};
+        return EngineFrame{*stamp, game_stamp ? *game_stamp : 0, seconds, real_seconds, paused};
     }
 
     // The heading a movement press captures (radians), when it was published (GetTickCount64, 0 = none) and
@@ -343,6 +373,8 @@ namespace TPVCamera
         bool repeat_build{false};
         /// The game clock stands still (the pause menu); false when the engine clock cannot be read.
         bool paused{false};
+        /// The game clock's frame-start stamp (1/100000 s); 0 when the engine clock cannot be read.
+        std::int64_t game_clock{0};
     };
 
     /**
@@ -376,6 +408,7 @@ namespace TPVCamera
 
         const std::optional<EngineFrame> frame = read_engine_frame();
         step.paused = frame.has_value() && frame->paused;
+        step.game_clock = frame.has_value() ? frame->game_stamp : 0;
 
         // Report which clock paces the camera once per switch, so a log shows whether the engine clock resolved.
         enum class ClockSource
@@ -966,9 +999,15 @@ namespace TPVCamera
                                              "direction, turning {:.1f} deg, pitch {:.1f} to {:.1f} deg",
                                              a, b, c);
                     return;
+                case RigEvent::HandoffToOpponent:
+                    (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                             "Orbit: hand-off to the combat lock-on's opponent; the look and the body "
+                                             "turn {:.1f} deg to him, the camera held {:.1f} deg off the look",
+                                             a, b);
+                    return;
                 case RigEvent::HandoffTurned:
                     (void)DMK::log().try_log(DMK::LogLevel::Debug,
-                                             "Orbit: the look took the camera direction after {:.2f} s", a);
+                                             "Orbit: the look took the hand-off heading after {:.2f} s", a);
                     return;
                 case RigEvent::HandoffLost:
                     (void)DMK::log().try_log(DMK::LogLevel::Debug,
@@ -1055,6 +1094,9 @@ namespace TPVCamera
                 .offset_right = preset.offset_right,
                 .follow_yaw = preset.follow_yaw,
                 .follow_pitch = preset.follow_pitch,
+                .lock_framing_angle = preset.lock_framing_angle,
+                .lock_focus_height = preset.lock_focus_height,
+                .lock_focus_offset = preset.lock_focus_offset,
                 .arm_follow_up = preset.arm_follow_up,
                 .lens_drop_up = preset.lens_drop_up,
                 .fov = preset.fov,
@@ -1132,8 +1174,12 @@ namespace TPVCamera
             .orbit_active = controls.orbit_active.load(std::memory_order_relaxed),
             .shoulder_swapped = controls.shoulder_swapped.load(std::memory_order_relaxed),
             .zoom_reset = controls.zoom_reset_requested.exchange(false, std::memory_order_relaxed),
-            .orbit_suspended = s_orbit_suspended,
+            .orbit_suspended = s_orbit_suspended || s_kill_orbit_released,
             .aim_handoff_requested = s_aim_handoff_requested,
+            .aim_handoff_heading = s_aim_handoff_heading,
+            .game_owns_facing = s_game_owns_facing,
+            .lock_focus = s_lock_focus,
+            .lock_free_look = s_lock_free_look,
         };
         RigFrame rig{};
 #ifdef TPVCAMERA_DEV_BUILD
@@ -1145,6 +1191,40 @@ namespace TPVCamera
         if (!built)
         {
             return; // the CView pose did not read; leave the view untouched this frame
+        }
+        if (rig.look_forward.x * rig.look_forward.x + rig.look_forward.y * rig.look_forward.y > 1e-6f)
+        {
+            s_camera_heading = std::atan2(-rig.look_forward.x, rig.look_forward.y);
+        }
+        static bool s_lock_framed = false;
+        if (const bool framed = s_rig.lock_frame_weight > 0.0f; framed != s_lock_framed && !step.repeat_build)
+        {
+            s_lock_framed = framed;
+            (void)DMK::log().try_log(
+                DMK::LogLevel::Debug,
+                "Orbit: lock framing {} (angle {:.1f} deg, aimed {:.2f} m above his feet and {:.2f} m to your side)",
+                framed ? "eases in" : "has eased out", params.lock_framing_angle, params.lock_focus_height,
+                params.lock_focus_offset);
+        }
+        // A hand-off to the combat opponent turns the lock-on's own view with the look and the body, on every frame it
+        // writes them: the lock-on stops following the look once it is on, so without this its steer and its mouse free
+        // look turn the player straight back to the heading he had when the lock began.
+        if (s_rig.aim_handoff_active && s_rig.aim_handoff_opponent && !step.repeat_build)
+        {
+            static bool s_view_write_failed_logged = false;
+            if (!set_combat_view_heading(c_player, s_rig.aim_handoff_yaw))
+            {
+                if (!s_view_write_failed_logged)
+                {
+                    s_view_write_failed_logged = true;
+                    (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                             "Orbit: the combat lock-on's view did not take the hand-off heading");
+                }
+            }
+            else
+            {
+                s_view_write_failed_logged = false;
+            }
         }
         publish_rig_readout(RigReadout{
             .zoom_offset = s_rig.zoom_offset,
@@ -1712,6 +1792,8 @@ namespace TPVCamera
             // Offset disengaged: the orbit cannot be capturing, and the cursor flag is only refreshed on
             // the game-view path below, so clear it here to keep it from latching true across the gap.
             s_cursor_shown.store(false, std::memory_order_relaxed);
+            // The next combat opponent is chosen by the third-person camera only; its standing request ends with it.
+            request_combat_retarget(0, 0, 0);
             // The trees the tree see-through still holds swapped go back to the stock shader once its hold runs out,
             // so it keeps getting its frames while any is left. The twins a pause creates come in first person too.
             if (!repeat_build && shader_twins_available())
@@ -1734,14 +1816,211 @@ namespace TPVCamera
         const uint32_t raw_state = poll_game_state(c_player) | poll_indoors(cview, repeat_build);
         const uint32_t state =
             debounce_game_state(raw_state, delta_time, cfg.state_exit_hold_seconds.load(std::memory_order_relaxed));
+        // The game's lock-on, read once per frame. With an opponent selected the combat controller turns the player's
+        // look and body toward that opponent every frame (outside the stance it locks on first, then steers), and it
+        // drops the lock while the body faces too far off him. Its pick, though, measures from the rendered camera,
+        // which free-look turns away from the body: a hand-off to the camera's direction would fight the steer, and
+        // none at all leaves the body facing away, so the lock drops on the next update and free-look picks him again.
+        // The hand-off therefore turns the look and the body to the opponent, the heading the game steers to.
+        // It is read only while the third-person view is wanted. In first person the empty reading turns every combat
+        // rule below off, so the camera neither moves the lock-on nor writes the game's timers there, and the game's
+        // own combat runs as without the mod.
+        const bool third_person_wanted = controls.applying.load(std::memory_order_relaxed) && should_apply_view();
+        static CombatLock s_combat_lock{};
+        if (!repeat_build)
+        {
+            s_combat_lock = third_person_wanted ? read_combat_lock(c_player) : CombatLock{};
+            if (third_person_wanted)
+            {
+                log_combat_lock(s_combat_lock, step.game_clock, s_camera_heading);
+            }
+        }
+        // A dead opponent is not one to turn to: the game only holds the lock on the body until the stance ends.
+        const bool lock_steers = s_combat_lock.has_opponent() && !s_combat_lock.opponent_dead &&
+                                 ((state | raw_state) & k_player_aimed_states) == 0u;
+        // The rig frames the opponent the stance holds (it lets go itself as the player turns the view away from him).
+        s_lock_free_look = s_combat_lock.free_mouse || s_combat_lock.free_pad;
+        if (lock_steers && s_combat_lock.stance && s_combat_lock.geometry)
+        {
+            s_lock_focus = Vector3{s_combat_lock.opponent_position[0], s_combat_lock.opponent_position[1],
+                                   s_combat_lock.opponent_position[2]};
+        }
+        else
+        {
+            s_lock_focus.reset();
+        }
+        // Kill release. The killing blow leaves the stance and the lock on the dead opponent for about four seconds
+        // more (the finishing animation, then the game's end-of-stance delay), and the game keeps turning the player
+        // to the body meanwhile. Combat stops excluding free-look at the blow, so free-look the combat had suspended
+        // comes back and the view is the player's again. The release holds until the combat state ends, or until the
+        // lock-on picks a living opponent, which excludes free-look again; dropping it as the stance ends would
+        // suspend free-look again for the combat state's exit hold. The game still sets the facing while the stance
+        // lasts, so free-look turns only the camera then. An unread lock-on (first person) ends it.
+        static bool s_kill_release = false;
+        const bool in_combat = (state & state_bit(GameState::Combat)) != 0u;
+        if (!in_combat || !s_combat_lock.resolved || (s_combat_lock.has_opponent() && !s_combat_lock.opponent_dead))
+        {
+            s_kill_release = false;
+        }
+        else if (!s_kill_release && s_combat_lock.has_opponent() && s_combat_lock.opponent_dead)
+        {
+            s_kill_release = true;
+            (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                     "Orbit: the combat opponent is dead; combat no longer holds free-look off while "
+                                     "the game finishes the kill");
+        }
+        s_game_owns_facing = s_kill_release && s_combat_lock.stance;
+        // With free-look off by choice the camera follows the look, which the game holds on the body for the finishing
+        // move, so the kill release turns free-look on itself, from the pose on screen, and off again once the lock-on
+        // moves to a living opponent or the stance ends. The look then hands off to that opponent, or to where the
+        // camera points, so the view stays put. Ending with the stance, not the combat state, finishes that hand-off
+        // inside the combat state's exit hold, before the native turn comes back on and would answer the look's jump
+        // with a turn animation. Free-look the player turns off meanwhile is left off.
+        static bool s_kill_orbit = false;
+        bool kill_orbit_ended = false;
+        if (!repeat_build)
+        {
+            s_kill_orbit_released = false;
+            if (s_kill_orbit && !controls.orbit_active.load(std::memory_order_relaxed))
+            {
+                s_kill_orbit = false;
+            }
+            else if (s_kill_orbit && (!s_kill_release || !s_combat_lock.stance))
+            {
+                s_kill_orbit = false;
+                bool on = true;
+                kill_orbit_ended = controls.orbit_active.compare_exchange_strong(on, false);
+                s_kill_orbit_released = kill_orbit_ended;
+                if (kill_orbit_ended)
+                {
+                    (void)player_onaction_reset();
+                    (void)DMK::log().try_log(DMK::LogLevel::Debug, "Orbit: the kill is over; free-look turns back off");
+                }
+            }
+            else if (s_kill_release && s_combat_lock.stance && !s_kill_orbit && !s_orbit_suspended &&
+                     third_person_wanted)
+            {
+                bool off = false;
+                s_kill_orbit = controls.orbit_active.compare_exchange_strong(off, true);
+                if (s_kill_orbit)
+                {
+                    (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                             "Orbit: free-look turns on until the kill is over, so the camera leaves "
+                                             "the finishing move");
+                }
+            }
+        }
+        if (!repeat_build)
+        {
+            static bool s_was_dead_held = false;
+            const bool dead_held = s_combat_lock.has_opponent() && s_combat_lock.opponent_dead && s_combat_lock.stance;
+            // The lock moved on to a living opponent while it held the dead one. The controller clears the kill's
+            // end-of-stance timer only as it ends the stance, which this move skipped, so it is cleared here.
+            if (s_was_dead_held && !dead_held && s_combat_lock.has_opponent() && s_combat_lock.stance &&
+                clear_kill_end_timer(c_player))
+            {
+                (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                         "Combat lock: moved on to a living opponent; cleared the kill's "
+                                         "end-of-stance timer");
+            }
+            s_was_dead_held = dead_held;
+            // From the killing blow on, the lock-on moves to the living hostile the camera points at most closely: the
+            // game's own pick takes only a hostile nearer than the held opponent, and the body lies nearest. Its list
+            // only holds hostiles within the camera's view, the lock reach and the body's turn limit, so any of them is
+            // one the player can see.
+            // The one picked stays the next opponent while he lives and stays within the lock-on's own reach, even
+            // when the camera turns off him (the finishing move swings it), until another listed one is nearer the
+            // camera's direction. The request starts at the blow, not at the game's end-of-stance timer: with other
+            // hostiles about that timer often never arms, and the game drops the dead opponent, and the stance with
+            // it, a second or two later. The game takes the new opponent as the attack under way ends. The move itself
+            // is made on the combat update's thread (request_combat_retarget), which checks again that it is still due.
+            static CombatCandidate s_next{};
+            if (dead_held && s_camera_heading.has_value())
+            {
+                std::array<CombatCandidate, 8> candidates{};
+                const std::size_t count = read_combat_candidates(c_player, candidates);
+                const std::span<const CombatCandidate> seen(candidates.data(), count);
+                const CombatCandidate *pick = nullptr;
+                float best_gap = DirectX::XM_PI;
+                for (const CombatCandidate &candidate : seen)
+                {
+                    const float gap = std::fabs(std::remainder(candidate.heading - *s_camera_heading, DirectX::XM_2PI));
+                    if (!candidate.dead && candidate.id != 0 && candidate.id != s_combat_lock.opponent_id &&
+                        gap < best_gap)
+                    {
+                        best_gap = gap;
+                        pick = &candidate;
+                    }
+                }
+                // The lock-on drops an opponent farther than this (sub_1809D4920).
+                constexpr float k_next_opponent_reach = 7.0f;
+                if (pick != nullptr)
+                {
+                    s_next = *pick;
+                }
+                else if (s_next.id != 0)
+                {
+                    const std::optional<CombatCandidate> still = read_combat_actor(c_player, s_next.human, s_next.id);
+                    s_next = still.has_value() && !still->dead && still->distance <= k_next_opponent_reach
+                                 ? *still
+                                 : CombatCandidate{};
+                }
+                // Where the living hostiles are against the camera, a few times a second while the dead one is held.
+                static std::int64_t s_next_candidate_log = 0;
+                constexpr std::int64_t k_candidate_log_ticks =
+                    static_cast<std::int64_t>(0.25 * Constants::COMBAT_TIMER_TICKS_PER_SECOND);
+                // The game clock restarts when a save loads, so a deadline further out than one period is stale.
+                if (step.game_clock >= s_next_candidate_log ||
+                    s_next_candidate_log - step.game_clock > k_candidate_log_ticks)
+                {
+                    s_next_candidate_log = step.game_clock + k_candidate_log_ticks;
+                    log_combat_candidates(s_combat_lock, seen, *s_camera_heading);
+                }
+            }
+            else
+            {
+                s_next = CombatCandidate{};
+            }
+            const std::uint32_t retarget_id = s_next.id;
+            // While a move stands, the kill's end-of-stance timer is kept a few frames ahead of the clock, so the
+            // update that moves the lock-on as the attack ends does not also end the stance.
+            constexpr std::int64_t k_end_hold_ticks =
+                static_cast<std::int64_t>(0.25 * Constants::COMBAT_TIMER_TICKS_PER_SECOND);
+            request_combat_retarget(s_next.human, retarget_id, step.game_clock + k_end_hold_ticks);
+            // The set-opponent call repeats every update while the request stands, so only a change is logged.
+            static std::uint32_t s_logged_next = 0;
+            if (const std::uint32_t next = take_combat_retarget_done(); next != 0 && next != s_logged_next)
+            {
+                s_logged_next = next;
+                (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                         "Combat lock: the next opponent is the hostile in view (id {}); the lock-on "
+                                         "takes him once the attack under way ends",
+                                         next);
+            }
+            if (dead_held && retarget_id == 0 && s_logged_next != 0)
+            {
+                (void)DMK::log().try_log(
+                    DMK::LogLevel::Debug,
+                    "Combat lock: the next opponent (id {}) died or went beyond the lock-on's reach "
+                    "before it took him; the request is withdrawn",
+                    s_logged_next);
+            }
+            if (!dead_held || retarget_id == 0)
+            {
+                s_logged_next = 0;
+            }
+        }
         // The frame the orbit-exclude policy turns free-look off raises the aim hand-off (see offset_game_view_camera),
         // unless the game sets the character's facing in that situation. The policy reads the menu and the overlays
         // live, as should_apply_view does, so free-look comes back on the frame third person does. The raw state
         // counts for the facing too, since such a situation can still be inside its hold delay while the policy
-        // already reacts to a screen. A same-frame rebuild reads the same state, so it is raised once.
-        const uint32_t policy_state = (state & ~k_live_ui_states) | (raw_state & k_live_ui_states);
+        // already reacts to a screen. A same-frame rebuild reads the same state, so it is raised once. The kill release
+        // takes Combat out of the policy's state.
+        const uint32_t release_mask = s_kill_release ? ~state_bit(GameState::Combat) : ~0u;
+        const uint32_t policy_state = ((state & ~k_live_ui_states) | (raw_state & k_live_ui_states)) & release_mask;
         const bool facing_held = ((state | raw_state) & k_game_held_facing_states) != 0u;
         s_aim_handoff_requested = false;
+        s_aim_handoff_heading.reset();
         if (policy.edge_rules())
         {
             // Both policies are edge-triggered (they act on state-change edges, not every frame) so the
@@ -1749,17 +2028,71 @@ namespace TPVCamera
             // on entry and restores it on exit; the orbit-exclude policy suspends free-look on entry and
             // restores it on exit.
             apply_forced_view_policy(controls, state, policy);
-            s_aim_handoff_requested =
-                apply_orbit_exclude_policy(controls, policy_state, policy.orbit_exclude()) && !facing_held;
+            const bool suspended = apply_orbit_exclude_policy(controls, policy_state, policy.orbit_exclude());
+            // Without the opponent's position there is no heading to hand to, and the camera's would fight the steer.
+            s_aim_handoff_requested = suspended && !facing_held && (!lock_steers || s_combat_lock.geometry);
+            if (s_aim_handoff_requested && lock_steers)
+            {
+                s_aim_handoff_heading = s_combat_lock.opponent_heading;
+            }
         }
         else
         {
             // No policy restores free-look while state behavior is off, so nothing stays suspended.
             s_orbit_suspended = false;
         }
-        // One that shows up while a hand-off runs ends it after this frame's rig, and the camera eases back.
-        if (facing_held && s_rig.aim_handoff_active)
+        // The kill release's own free-look turned off this frame hands the look off as the policy's suspension does.
+        if (kill_orbit_ended && !facing_held && (!lock_steers || s_combat_lock.geometry))
         {
+            s_aim_handoff_requested = true;
+            if (lock_steers)
+            {
+                s_aim_handoff_heading = s_combat_lock.opponent_heading;
+            }
+        }
+        // With free-look off (by choice, or held off by combat) the camera is the look, and in third person the body
+        // trails the look (the native turn turns it after), while the lock-on's own view starts from the body. A pick
+        // of the opponent the camera points at would snap the look back to the body, off him, and the lock drops. So
+        // a pick hands the look, the body and the lock-on's view to him, as free-look's switch does; when another
+        // hand-off is running it waits for it, for a short while.
+        static bool s_lock_steered = false;
+        static float s_pick_handoff_wait = 0.0f;
+        if (!repeat_build)
+        {
+            constexpr float k_pick_handoff_wait_seconds = 0.25f;
+            if (lock_steers && !s_lock_steered)
+            {
+                s_pick_handoff_wait = k_pick_handoff_wait_seconds;
+            }
+            else if (!lock_steers || (s_rig.aim_handoff_active && s_rig.aim_handoff_opponent))
+            {
+                s_pick_handoff_wait = 0.0f;
+            }
+            else
+            {
+                s_pick_handoff_wait = std::max(0.0f, s_pick_handoff_wait - delta_time);
+            }
+            s_lock_steered = lock_steers;
+        }
+        if (s_pick_handoff_wait > 0.0f && !s_aim_handoff_requested && !facing_held && s_combat_lock.geometry &&
+            !controls.orbit_active.load(std::memory_order_relaxed))
+        {
+            s_aim_handoff_requested = true;
+            s_aim_handoff_heading = s_combat_lock.opponent_heading;
+        }
+        // One that shows up while a hand-off runs ends it after this frame's rig, and the camera eases back. A lock-on
+        // that selects an opponent while the look turns to the camera's direction (the weapon drawn first, the
+        // opponent picked a few frames later) ends that hand-off too: the game turns the look from there. A hand-off
+        // already turning to the opponent keeps going even when the lock drops meanwhile, so the next pick finds the
+        // body facing him.
+        if ((facing_held || (lock_steers && !s_rig.aim_handoff_opponent)) && s_rig.aim_handoff_active)
+        {
+            if (!facing_held && !s_rig.aim_handoff_cancel)
+            {
+                (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                         "Orbit: a combat opponent was selected while the look turned to the camera "
+                                         "direction; the game turns the look, so the hand-off ends");
+            }
             s_rig.aim_handoff_cancel = true;
         }
         game_state_mask().store(state, std::memory_order_relaxed);
@@ -1934,6 +2267,10 @@ namespace TPVCamera
             s_rig.aim_handoff_active = false; // and the aim hand-off, which has no camera to hold
             s_rig.aim_handoff_cancel = false;
             s_rig.rig_last_orbited = false;
+            s_rig.rig_last_built = false;
+            s_rig.lock_frame_weight = 0.0f; // and the lock framing, which has no camera to turn
+            s_rig.lock_frame_focus_valid = false;
+            s_camera_heading.reset(); // the next opponent is picked against a camera built after the gap
             // Back to first person: the next engaged frame should snap the preset, not ease across the gap.
             Presets::reset_transition();
             // Shots loosed in first person are still followed and drawn (the pose is invalid, so none is re-aimed).
@@ -2139,6 +2476,10 @@ namespace TPVCamera
         // Keep the AI judging which NPCs to update (and which to hide and pause) from the first-person eye while the
         // third-person offset renders. Best-effort, like the two hooks above.
         install_camera_observer_hook(module_base, module_size, hooks);
+
+        // After a kill, move the combat lock-on to the hostile the camera points at instead of holding the body.
+        // Best-effort, like the hooks above.
+        install_combat_retarget_hook(module_base, module_size, hooks);
 
         // Let the body play the game's own turn-in-place animations while the third-person view is engaged.
         // Best-effort, like the hooks above.

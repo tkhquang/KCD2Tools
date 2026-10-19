@@ -32,6 +32,9 @@ namespace TPVCamera::Presets
         a.offset_right = lerp(a.offset_right, t.offset_right);
         a.follow_yaw = lerp(a.follow_yaw, t.follow_yaw);
         a.follow_pitch = lerp(a.follow_pitch, t.follow_pitch);
+        a.lock_framing_angle = lerp(a.lock_framing_angle, t.lock_framing_angle);
+        a.lock_focus_height = lerp(a.lock_focus_height, t.lock_focus_height);
+        a.lock_focus_offset = lerp(a.lock_focus_offset, t.lock_focus_offset);
         a.arm_follow_up = lerp(a.arm_follow_up, t.arm_follow_up);
         a.lens_drop_up = lerp(a.lens_drop_up, t.lens_drop_up);
         // FOV is SNAPPED to the active target here; the actual smooth ease lives in the camera hook, which blends

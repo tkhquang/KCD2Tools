@@ -53,6 +53,13 @@ namespace TPVCamera::Presets
         float offset_right = 0.4f;
         float follow_yaw = 0.0f;   // static resting orbit yaw around the pivot, degrees (0 = directly behind)
         float follow_pitch = 0.0f; // static resting orbit pitch around the pivot, degrees (0 = level)
+        // While the combat lock-on steers toward a living opponent: how far the camera swings around you toward its
+        // shoulder side, off the line to him, degrees (0 = off, the camera stays on your look), the height on him,
+        // above his feet, it aims at (meters), and how far beside him toward your side it aims (meters), so he sits
+        // that far toward the other side of the screen from you.
+        float lock_framing_angle = 15.0f;
+        float lock_focus_height = 1.3f;
+        float lock_focus_offset = 0.5f;
         float fov = 60.0f;         // third-person FOV in degrees (0 = use the game FOV / no override)
         // Looking up only: the share of the look's pitch the arm follows (1 swings it on the sphere about the pivot,
         // 0 keeps it level, so the camera does not dive toward the ground behind), and how far the camera is lowered,

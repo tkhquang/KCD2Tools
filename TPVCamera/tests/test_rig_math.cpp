@@ -1,8 +1,9 @@
 /**
  * @file test_rig_math.cpp
  * @brief core/rig/rig_math.hpp: a turned rig is the plain rig of the turned look, the turn's pitch raises the camera
- *        and tilts the look down, the look is rebuilt without roll, the arm bends only when looking up, and the
- *        shoulder side passes through the look line.
+ *        and tilts the look down, the look is rebuilt without roll, the arm bends only when looking up, the shoulder
+ *        side passes through the look line, and the lock framing swings to the shoulder side, aims beside the
+ *        opponent within the lock-on's drop angle and blends about the pivot.
  */
 
 #include "core/rig/rig_math.hpp"
@@ -16,7 +17,10 @@
 namespace
 {
     using TPVCamera::aim_arm_shift;
+    using TPVCamera::blend_pivot_pose;
     using TPVCamera::level_look_rotation;
+    using TPVCamera::lock_frame_pose;
+    using TPVCamera::PivotPose;
     using TPVCamera::Quaternion;
     using TPVCamera::shoulder_side;
     using TPVCamera::turn_rig;
@@ -150,5 +154,96 @@ namespace
             EXPECT_LE(side, last);
             last = side;
         }
+    }
+
+    /** @brief The opponent's focus seen from the pivot: @p reach meters out at heading @p bearing, @p rise up. */
+    Vector3 focus_at(float bearing, float reach, float rise)
+    {
+        return Vector3{-std::sin(bearing) * reach, std::cos(bearing) * reach, rise};
+    }
+
+    /** @brief How far @p point lies to the right of the vertical plane through the camera ray of @p pose, meters. */
+    float right_of_ray(const PivotPose &pose, const Vector3 &point)
+    {
+        const Vector3 right = right_of(look_of(pose.yaw, pose.pitch));
+        const Vector3 to_point = point - pose.offset;
+        return right.x * to_point.x + right.y * to_point.y;
+    }
+
+    TEST(RigMath, LockFrameSwingsTheArmPastTheLineToTheShoulderSide)
+    {
+        constexpr float k_angle = 15.0f * k_deg;
+        constexpr float k_bearing = -1.2f;
+        const Vector3 to_focus = focus_at(k_bearing, 2.5f, -0.3f);
+        const Vector3 right_plain = plain_offset(look_of(0.7f, 0.0f), 3.0f, 0.4f);
+        const PivotPose right = lock_frame_pose(right_plain, 0.7f, to_focus, 1.0f, k_angle, 0.5f);
+        expect_near(right.offset, plain_offset(look_of(k_bearing + k_angle, 0.0f), 3.0f, 0.4f), 1e-4f);
+        const Vector3 left_plain = plain_offset(look_of(0.7f, 0.0f), 3.0f, -0.4f);
+        const PivotPose left = lock_frame_pose(left_plain, 0.7f, to_focus, -1.0f, k_angle, 0.5f);
+        expect_near(left.offset, plain_offset(look_of(k_bearing - k_angle, 0.0f), 3.0f, -0.4f), 1e-4f);
+        // Halfway through the shoulder swap the arm lies on the line to the opponent and aims straight at him.
+        const PivotPose middle =
+            lock_frame_pose(plain_offset(look_of(0.7f, 0.0f), 3.0f, 0.0f), 0.7f, to_focus, 0.0f, k_angle, 0.5f);
+        expect_near(middle.offset, plain_offset(look_of(k_bearing, 0.0f), 3.0f, 0.0f), 1e-4f);
+        EXPECT_NEAR(std::remainder(middle.yaw - k_bearing, 2.0f * std::numbers::pi_v<float>), 0.0f, 1e-5f);
+    }
+
+    TEST(RigMath, LockFrameAimsBesideTheFocusTowardTheShoulderSide)
+    {
+        constexpr float k_offset = 0.5f;
+        const Vector3 to_focus = focus_at(0.4f, 2.0f, -0.3f);
+        for (const float side : {1.0f, -1.0f})
+        {
+            const PivotPose pose = lock_frame_pose(plain_offset(look_of(0.0f, 0.0f), 3.0f, 0.4f * side), 0.0f, to_focus,
+                                                   side, 15.0f * k_deg, k_offset);
+            // The aim point sits k_offset beside him, square to the camera's line to him, toward the shoulder side,
+            // so he sits on the other side of the ray: d * k_offset / sqrt(d^2 + k_offset^2) off it, d being his
+            // level distance from the camera.
+            const Vector3 to_target = to_focus - pose.offset;
+            const float level = std::hypot(to_target.x, to_target.y);
+            const float slant = std::hypot(level, k_offset);
+            EXPECT_NEAR(right_of_ray(pose, to_focus), side * k_offset * level / slant, 1e-4f);
+            // And it points down at his height, below the pivot.
+            EXPECT_NEAR(pose.pitch, std::atan2(to_target.z, slant), 1e-5f);
+            EXPECT_LT(pose.pitch, 0.0f);
+        }
+    }
+
+    TEST(RigMath, LockFrameAimStaysInsideTheLockOnDropAngle)
+    {
+        constexpr float k_reach = 8.0f;
+        const PivotPose pose = lock_frame_pose(plain_offset(look_of(0.0f, 0.0f), 3.0f, 0.4f), 0.0f,
+                                               focus_at(0.0f, k_reach, 0.0f), 1.0f, 45.0f * k_deg, 1.5f);
+        const float limit = TPVCamera::k_lock_area_share * std::atan2(TPVCamera::k_lock_area_width, k_reach);
+        // The unclamped aim is 0.34 rad off the line to him, past the limit, so it is held at it.
+        EXPECT_NEAR(std::fabs(std::remainder(pose.yaw, 2.0f * std::numbers::pi_v<float>)), limit, 1e-5f);
+    }
+
+    TEST(RigMath, BlendPivotPoseCirclesThePivotAndTakesTheShorterWay)
+    {
+        const PivotPose from{
+            .offset = Vector3{0.0f, -3.0f, 0.5f},
+            .yaw = 3.0f,
+            .pitch = 0.1f,
+        };
+        const PivotPose to{
+            .offset = Vector3{3.0f * std::cos(60.0f * k_deg), 3.0f * std::sin(60.0f * k_deg), 0.2f},
+            .yaw = -3.0f,
+            .pitch = -0.2f,
+        };
+        const PivotPose start = blend_pivot_pose(from, to, 0.0f);
+        expect_near(start.offset, from.offset, 1e-5f);
+        EXPECT_NEAR(start.yaw, from.yaw, 1e-6f);
+        const PivotPose end = blend_pivot_pose(from, to, 1.0f);
+        expect_near(end.offset, to.offset, 1e-5f);
+        EXPECT_NEAR(std::remainder(end.yaw - to.yaw, 2.0f * std::numbers::pi_v<float>), 0.0f, 1e-5f);
+        EXPECT_NEAR(end.pitch, to.pitch, 1e-6f);
+        // Halfway, the camera stays 3 m out, between the two on the shorter way round (-90 deg to 60 deg).
+        const PivotPose middle = blend_pivot_pose(from, to, 0.5f);
+        EXPECT_NEAR(std::hypot(middle.offset.x, middle.offset.y), 3.0f, 1e-5f);
+        EXPECT_NEAR(std::atan2(middle.offset.y, middle.offset.x), -15.0f * k_deg, 1e-5f);
+        EXPECT_NEAR(middle.offset.z, 0.35f, 1e-6f);
+        // The look turns through pi, not through 0.
+        EXPECT_NEAR(std::cos(middle.yaw), -1.0f, 1e-4f);
     }
 } // namespace

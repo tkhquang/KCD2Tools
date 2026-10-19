@@ -422,6 +422,7 @@ namespace TPVCamera
             code_ladder("GetClipVolumeByPos", Aob::k_getClipVolumeByPosCandidates, Role::Entry),
             code_ladder("OctreeCollectByType", Aob::k_octreeCollectByTypeCandidates, Role::Entry),
             code_ladder("EngineDeallocate", Aob::k_engineDeallocateCandidates, Role::Entry),
+            code_ladder("SetCombatOpponent", Aob::k_setCombatOpponentCandidates, Role::Entry),
 #if defined(TPVCAMERA_DEV_BUILD)
             code_ladder("HardwareShaderForName", Aob::k_hardwareShaderForNameCandidates, Role::Entry),
             code_ladder("HardwareShaderLockSite", Aob::k_hardwareShaderLockSiteCandidates, Role::Site),
@@ -499,6 +500,7 @@ namespace TPVCamera
                                                          AnchorId::LevelBrushTables};
         constexpr AnchorId k_indoor_state_anchors[] = {AnchorId::ClipVolumeManager, AnchorId::GetClipVolumeByPos};
         constexpr AnchorId k_octree_single_walk_anchors[] = {AnchorId::OctreeCollectByType, AnchorId::EngineDeallocate};
+        constexpr AnchorId k_combat_retarget_anchors[] = {AnchorId::SetCombatOpponent};
 #if defined(TPVCAMERA_DEV_BUILD)
         // The DEV twin clone's dry-run reads CShader, SShaderTechnique, CBaseResource and CHWShader_D3D fields only
         // where every one of their layouts is proven, HW shader token maps only under the factory's own lock, and
@@ -549,6 +551,7 @@ namespace TPVCamera
             {"TwinInventory", k_twin_inventory_anchors},
             {"IndoorState", k_indoor_state_anchors},
             {"OctreeSingleWalk", k_octree_single_walk_anchors},
+            {"CombatRetarget", k_combat_retarget_anchors},
 #if defined(TPVCAMERA_DEV_BUILD)
             {"TwinCloneDryRun", k_twin_clone_dry_run_anchors},
 #endif

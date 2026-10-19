@@ -1,7 +1,7 @@
 /**
  * @file core/rig/rig_math.hpp
  * @brief The over-the-shoulder rig's geometry: the roll-free look, the rigid turn of the rig about its pivot, the arm
- *        bent when looking up, and the shoulder side the swap slides through.
+ *        bent when looking up, the shoulder side the swap slides through, and the combat lock framing.
  *
  * @details The follow rig sits `distance` back from the pivot along the rendered look and the shoulder offset to its
  *          right, so it is a function of the rendered look alone: the follow angle, the free-look orbit and the aim
@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 
 namespace TPVCamera
 {
@@ -152,6 +153,97 @@ namespace TPVCamera
     [[nodiscard]] inline float shoulder_side(float swap) noexcept
     {
         return 1.0f - 2.0f * smoothstep(std::clamp(swap, 0.0f, 1.0f));
+    }
+
+    // The game drops the lock-on while the player turns the view once the camera points farther from the opponent,
+    // seen from the player, than atan2(k_lock_area_width, distance): LockAreaWidth + UnlockAreaWidthHyst with the
+    // shipped wh_cs_ values (sub_1808BA62C). The lock framing aims within k_lock_area_share of that angle.
+    constexpr float k_lock_area_width = 1.75f; // m
+    constexpr float k_lock_area_share = 0.6f;
+
+    /**
+     * @struct PivotPose
+     * @brief A camera about the rig's pivot: its offset from the pivot and its look's heading and pitch.
+     */
+    struct PivotPose
+    {
+        /// The camera's offset from the pivot.
+        Vector3 offset{};
+        /// The look's heading, a world yaw in radians (forward = (-sin yaw, cos yaw)).
+        float yaw = 0.0f;
+        /// The look's pitch in radians, positive up.
+        float pitch = 0.0f;
+    };
+
+    /**
+     * @brief The fully framed camera of the combat lock framing.
+     * @details The plain rig's arm turns about the pivot onto the line to the focus and @p framing_angle further toward
+     *          @p side, and the look aims @p focus_offset beside the focus toward @p side, so the opponent sits that
+     *          far toward the other side of the screen from the player. The aim stays within k_lock_area_share of the
+     *          angle at which the game drops the lock while the player turns the view, so at range the opponent sits a
+     *          little off the framed spot instead of the lock dropping with the next mouse move.
+     * @param plain_offset The plain rig's camera offset from the pivot.
+     * @param plain_yaw The plain rig's look heading.
+     * @param to_focus The focus point less the pivot. Its level part must not be zero.
+     * @param side The shoulder side: +1 right, -1 left, and in between while the shoulder swap slides.
+     * @param framing_angle Radians the arm swings past the line to the focus.
+     * @param focus_offset Meters the aim point sits beside the focus.
+     * @return The framed camera.
+     */
+    [[nodiscard]] inline PivotPose lock_frame_pose(const Vector3 &plain_offset, float plain_yaw,
+                                                   const Vector3 &to_focus, float side, float framing_angle,
+                                                   float focus_offset) noexcept
+    {
+        constexpr float k_two_pi = 2.0f * std::numbers::pi_v<float>;
+        const float bearing = std::atan2(-to_focus.x, to_focus.y);
+        const float turn = std::remainder(bearing + side * framing_angle - plain_yaw, k_two_pi);
+        const float cos_turn = std::cos(turn);
+        const float sin_turn = std::sin(turn);
+        const Vector3 offset{plain_offset.x * cos_turn - plain_offset.y * sin_turn,
+                             plain_offset.x * sin_turn + plain_offset.y * cos_turn, plain_offset.z};
+        const Vector3 to_target = to_focus - offset;
+        const Vector3 aim_right = to_target.cross(Vector3{0.0f, 0.0f, 1.0f}).normalized();
+        const Vector3 aim = (to_target - aim_right * (side * focus_offset)).normalized();
+        float yaw = std::atan2(-aim.x, aim.y);
+        const float reach = std::sqrt(to_focus.x * to_focus.x + to_focus.y * to_focus.y);
+        const float aim_limit = k_lock_area_share * std::atan2(k_lock_area_width, reach);
+        const float aim_off = std::remainder(yaw - bearing, k_two_pi);
+        if (std::fabs(aim_off) > aim_limit)
+        {
+            yaw = bearing + std::copysign(aim_limit, aim_off);
+        }
+        return PivotPose{
+            .offset = offset,
+            .yaw = yaw,
+            .pitch = std::asin(std::clamp(aim.z, -1.0f, 1.0f)),
+        };
+    }
+
+    /**
+     * @brief Blends two cameras about the pivot by angle, so a wide swing circles the pivot instead of cutting through
+     *        it.
+     * @details The offset's level angle about the pivot and the look's heading take the shorter way round. The level
+     *          reach, the height and the pitch blend linearly.
+     * @param from The camera at @p weight 0.
+     * @param to The camera at @p weight 1.
+     * @param weight The blend, 0..1.
+     * @return The blended camera.
+     */
+    [[nodiscard]] inline PivotPose blend_pivot_pose(const PivotPose &from, const PivotPose &to, float weight) noexcept
+    {
+        constexpr float k_two_pi = 2.0f * std::numbers::pi_v<float>;
+        const float from_reach = std::sqrt(from.offset.x * from.offset.x + from.offset.y * from.offset.y);
+        const float to_reach = std::sqrt(to.offset.x * to.offset.x + to.offset.y * to.offset.y);
+        const float from_around = std::atan2(from.offset.y, from.offset.x);
+        const float around =
+            from_around + weight * std::remainder(std::atan2(to.offset.y, to.offset.x) - from_around, k_two_pi);
+        const float reach = from_reach + (to_reach - from_reach) * weight;
+        return PivotPose{
+            .offset = Vector3{std::cos(around) * reach, std::sin(around) * reach,
+                              from.offset.z + (to.offset.z - from.offset.z) * weight},
+            .yaw = from.yaw + weight * std::remainder(to.yaw - from.yaw, k_two_pi),
+            .pitch = from.pitch + (to.pitch - from.pitch) * weight,
+        };
     }
 } // namespace TPVCamera
 

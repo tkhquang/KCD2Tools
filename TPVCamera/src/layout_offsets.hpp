@@ -1194,6 +1194,94 @@ namespace Constants
     constexpr const char *C_MINIGAME_BLACKSMITHING_RTTI_NAME = ".?AVC_Blacksmithing@playermodule@wh@@";  // 12
     constexpr const char *C_MINIGAME_FORGE_BUILDER_RTTI_NAME = ".?AVC_ForgeBuilder@playermodule@wh@@";   // 13
 
+    // Combat lock-on. The player's lock-on runs in the combat module, which hangs off the SAME global context as the
+    // camera manager and the minigame subsystem:
+    //   module     = *(context + OFFSET_COMBAT_MODULE)                // wh::combatmodule::C_CombatModule
+    //   player     = *(module + COMBAT_MODULE_PLAYER_OFFSET)          // C_CombatPlayer, the player's combat actor
+    //   controller = *(player + COMBAT_PLAYER_CONTROLLER_OFFSET)      // C_CombatPlayerController, the lock logic
+    //   input      = *(controller + COMBAT_CONTROLLER_INPUT_OFFSET)   // C_CombatPlayerInput, mouse/pad + view steer
+    //   state      = *(player + COMBAT_ACTOR_STATE_OFFSET)            // the combat actor's state block
+    //   opponent   = *(state + COMBAT_STATE_OPPONENT_OFFSET)          // the opponent's combat actor, 0 for none
+    //   target     = *(state + COMBAT_STATE_TARGET_OFFSET)            // C_CombatTarget, the opponent-to-be, 0 for none
+    // The state block has no vtable of its own: it opens with the combat-mode model property (a C_ModelProperty<bool>),
+    // whose getter (vtable slot 1) returns the byte at COMBAT_STATE_STANCE_OFFSET. That byte is the combat stance; the
+    // controller's IsLocked (vtable slot 3) is that stance with an opponent selected.
+    // The game's set-opponent (AnchorId::SetCombatOpponent, sub_180B21384) is the only writer of the target
+    // (sub_180B214BC): a fresh C_CombatTarget holding the CEntity at COMBAT_TARGET_ENTITY_OFFSET (its vtable slot 1
+    // returns it), or 0. It moves the opponent to the target at once only when no attack or finishing move runs
+    // (sub_1809D32E4); otherwise the game's commit (sub_180A518F4) moves it as soon as that move ends.
+    // The opponent's combat actor points at its entity-module actor (C_Human or C_Player) at COMBAT_ACTOR_HUMAN_OFFSET,
+    // whose EntityId is the dword at HUMAN_ENTITY_ID_OFFSET (the local player reads 0x7777) and whose CEntity sits at
+    // C_PLAYER_ENTITY_OFFSET, as on the player. The controller's unlock test compares the angle between the player
+    // ENTITY's forward and the direction to the opponent with wh_cs_PlayerMaxOpponentAngleToUnlock, while its target
+    // pick measures from the render camera's forward: a camera turned far off the body can pick an opponent the body
+    // test then drops on the next update.
+    // Death: C_Actor::IsDead (vtable slot 38) asks the actor's C_Soul at HUMAN_SOUL_OFFSET when there is one (C_Soul's
+    // own IsDead, slot 6, is its health at SOUL_HEALTH_OFFSET <= 0) and the actor's health at HUMAN_HEALTH_OFFSET
+    // otherwise. The killing blow sets it, before the death or finishing animation plays out.
+    constexpr ptrdiff_t OFFSET_COMBAT_MODULE = 0xF8;
+    // C_CombatPlayer's per-frame update: it runs the lock-on controller (the combat-player update the kill retarget
+    // hooks, so the game's own set-opponent is called on the thread that calls it).
+    constexpr size_t COMBAT_PLAYER_VTABLE_UPDATE_SLOT = 101;
+    constexpr const char *C_COMBAT_MODULE_RTTI_NAME = ".?AVC_CombatModule@combatmodule@wh@@";
+    constexpr ptrdiff_t COMBAT_MODULE_PLAYER_OFFSET = 0x28;
+    constexpr const char *C_COMBAT_PLAYER_RTTI_NAME = ".?AVC_CombatPlayer@combatmodule@wh@@";
+    constexpr ptrdiff_t COMBAT_PLAYER_CONTROLLER_OFFSET = 0x450;
+    constexpr const char *C_COMBAT_PLAYER_CONTROLLER_RTTI_NAME = ".?AVC_CombatPlayerController@combatmodule@wh@@";
+    constexpr ptrdiff_t COMBAT_CONTROLLER_INPUT_OFFSET = 0x28;
+    constexpr const char *C_COMBAT_PLAYER_INPUT_RTTI_NAME = ".?AVC_CombatPlayerInput@combatmodule@wh@@";
+    constexpr ptrdiff_t COMBAT_ACTOR_STATE_OFFSET = 0x210;
+    constexpr ptrdiff_t COMBAT_STATE_STANCE_OFFSET = 0x8;
+    constexpr ptrdiff_t COMBAT_STATE_OPPONENT_OFFSET = 0xCF8;
+    constexpr ptrdiff_t COMBAT_STATE_TARGET_OFFSET = 0xCF0;
+    constexpr const char *C_COMBAT_TARGET_RTTI_NAME = ".?AVC_CombatTarget@combatmodule@wh@@";
+    constexpr ptrdiff_t COMBAT_TARGET_ENTITY_OFFSET = 0x8;
+    constexpr ptrdiff_t COMBAT_ACTOR_HUMAN_OFFSET = 0x1F8;
+    constexpr ptrdiff_t HUMAN_ENTITY_ID_OFFSET = 0x30;
+    constexpr ptrdiff_t HUMAN_SOUL_OFFSET = 0x668;
+    constexpr ptrdiff_t HUMAN_HEALTH_OFFSET = 0x164;
+    constexpr ptrdiff_t SOUL_HEALTH_OFFSET = 0x708;
+    constexpr const char *C_SOUL_RTTI_NAME = ".?AVC_Soul@rpgmodule@wh@@";
+    // The controller's timers. Each is an int64 deadline on the game clock (ITimer::GetFrameStartTime(ETIMER_GAME), in
+    // 1/100000 s), set by the controller as now + duration, and parked at or below COMBAT_TIMER_UNARMED when unarmed.
+    //   DELAYED_UNLOCK: armed when the player changes target. While it runs, the controller's pick takes the hostile
+    //     the camera points at even when he stands farther off than the opponent (sub_1809D411C); when it runs out
+    //     the controller re-picks an opponent and drops the lock if it finds none (sub_1809D4244).
+    //   DELAYED_END: armed by the kill event (wh_cs_PlayerInputCombatDelayAfterKill, or ...WithOtherOpponent when a
+    //     threat is near); when it runs out with no live hostile opponent the controller ends the stance.
+    // The controller's opponent selector (no RTTI of its own): it starts with the player's combat actor and holds the
+    // combat actors the pick chooses from as a vector<C_CombatActor *> (begin, end). sub_180686A50 walks it.
+    constexpr ptrdiff_t COMBAT_CONTROLLER_SELECTOR_OFFSET = 0x20;
+    constexpr ptrdiff_t COMBAT_SELECTOR_CANDIDATES_BEGIN_OFFSET = 0x8;
+    constexpr ptrdiff_t COMBAT_SELECTOR_CANDIDATES_END_OFFSET = 0x10;
+    // The game's hard lock, a byte: the opponent_lock action (Tab) sets it and cycles the opponent (sub_1827C3640), and
+    // the unlock action (middle mouse) clears it (sub_180D4A768). While set, the view never leaves the opponent for the
+    // mouse (sub_1808BAE70), a mouse flick moves the lock to the next opponent that way (sub_1808BA62C), and the
+    // camera's pick does not move the lock (sub_1809D411C).
+    constexpr ptrdiff_t COMBAT_CONTROLLER_HARD_LOCK_OFFSET = 0xC0;
+    constexpr ptrdiff_t COMBAT_CONTROLLER_DELAYED_UNLOCK_OFFSET = 0xA8;
+    constexpr ptrdiff_t COMBAT_CONTROLLER_DELAYED_END_OFFSET = 0xB8;
+    constexpr std::int64_t COMBAT_TIMER_UNARMED = -100000;
+    constexpr double COMBAT_TIMER_TICKS_PER_SECOND = 100000.0;
+    // The input's free-look bytes. A fast mouse (or right-stick) sweep sets the byte and the view steer toward the
+    // opponent stops; the byte clears once the input has rested for wh_cs_PlayerInputMouseUnlockReturnTime (or the
+    // gamepad twin), and the steer swings the view back. Both bytes also read 1 whenever the steer is not running at
+    // all (outside the stance).
+    constexpr ptrdiff_t COMBAT_INPUT_FREE_MOUSE_OFFSET = 0xF4;
+    constexpr ptrdiff_t COMBAT_INPUT_FREE_PAD_OFFSET = 0x120;
+    // The input's own view while the lock-on runs (its view update, sub_180830BCC). It
+    // copies the player's look into these while the lock is off and stops copying once it is on: the steer then slerps
+    // VIEW_BASE (Quat, x y z w) toward the opponent into VIEW (Quat), and VIEW_ANGLES (Ang3 x = pitch, y = roll,
+    // z = yaw, radians) is taken from VIEW; mouse or right-stick free look adds the input to VIEW_ANGLES and turns the
+    // player's body to its yaw and the look to it. VIEW_ANGLES_RESET is the copy taken with VIEW_ANGLES on that same
+    // hand-over. A look or body turned by anyone else is therefore undone by the next steer or free-look frame unless
+    // these four agree with it. VIEW_BASE and VIEW are rebuilt from VIEW_ANGLES with Quat::SetRotationXYZ
+    // (sub_18053F6C0).
+    constexpr ptrdiff_t COMBAT_INPUT_VIEW_BASE_OFFSET = 0x4C;
+    constexpr ptrdiff_t COMBAT_INPUT_VIEW_OFFSET = 0x5C;
+    constexpr ptrdiff_t COMBAT_INPUT_VIEW_ANGLES_OFFSET = 0x6C;
+    constexpr ptrdiff_t COMBAT_INPUT_VIEW_ANGLES_RESET_OFFSET = 0x78;
+
     // Aiming a missile weapon (bow/crossbow). The player's C_MissileWeaponPlayerController is an
     // input action-map listener constructed inside the C_Player constructor, so it is EMBEDDED in
     // C_Player at a fixed offset (always present, and player-only); it is reached by adding the

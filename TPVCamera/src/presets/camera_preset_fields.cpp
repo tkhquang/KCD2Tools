@@ -73,6 +73,21 @@ namespace TPVCamera::Presets
                         "(0 = level, positive lifts the camera and looks down). This rotates the camera, and "
                         "because aiming follows the camera it also shifts your effective aim/shot direction.",
                         "Framing", &CameraPreset::follow_pitch, -89.0f, 89.0f, 0.01f),
+            float_field("lock_framing_angle", "Lock Framing Angle",
+                        "While the combat lock-on holds a living opponent, swings the camera around you toward its "
+                        "shoulder side by this many degrees and aims it at him, so he stays in the middle of the "
+                        "screen and you do not stand in front of him. It lets go when you turn the view well away "
+                        "from him or the lock ends. 0 turns it off: the camera keeps looking where you look.",
+                        "Framing", &CameraPreset::lock_framing_angle, 0.0f, 45.0f, 0.1f),
+            float_field("lock_focus_height", "Lock Focus Height",
+                        "The height on the locked opponent, above his feet, the Lock Framing Angle aims the camera at, "
+                        "in meters (1.3 is about the chest).",
+                        "Framing", &CameraPreset::lock_focus_height, 0.0f, 2.5f, 0.01f),
+            float_field("lock_focus_offset", "Lock Focus Offset",
+                        "How far beside the locked opponent, toward your side, the Lock Framing Angle aims the camera, "
+                        "in meters, so he sits that far toward the other side of the screen from you (like Offset "
+                        "Right does for you). 0 puts him in the middle.",
+                        "Framing", &CameraPreset::lock_focus_offset, -1.5f, 1.5f, 0.01f),
             float_field("arm_follow_up", "Arm Follow Up",
                         "Looking up: how much the camera swings down around you with the look. 1 swings it all the "
                         "way, which can drive it toward the ground behind you; 0 keeps it at your height. Looking "
