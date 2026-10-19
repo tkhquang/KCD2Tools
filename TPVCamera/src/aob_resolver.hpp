@@ -1156,7 +1156,10 @@ namespace TPVCamera
         // builds the C_CombatTarget. P1 also matches that setter's prologue right after (Steam and GOG place it there):
         // `mov rax, [rcx+8]` (the combat player), its state block (`mov r8, [rax+210h]`) and the target slot
         // (`mov rdi, [r8+0CF0h]`). P2 is the wrapper alone with the call left open (Game Pass places the setter
-        // further on); its call target is proven against k_setCombatOpponentSetterBody before the wrapper is trusted.
+        // further on). P3 starts at the byte test, leaves the jz distance and the frame size open, and walks back over
+        // `sub rsp, 28h`. Its wildcards keep every instruction's length, so the call stays at
+        // k_setCombatOpponentCallSite. P2 and P3 match on all three builds. The call target is proven against
+        // k_setCombatOpponentSetterBody or k_setCombatOpponentSetterTargetLoad before the wrapper is trusted.
         inline const Candidate k_setCombatOpponentCandidates[] = {
             Candidate::direct("SetCombatOpponent_P1_WrapperAndSetter",
                               Pattern::literal("48 83 EC 28 80 B9 7A 02 00 00 00 74 0C 48 8B 89 B8 03 00 00 E8 07 00 "
@@ -1166,20 +1169,34 @@ namespace TPVCamera
             Candidate::direct("SetCombatOpponent_P2_Wrapper",
                               Pattern::literal("48 83 EC 28 80 B9 7A 02 00 00 00 74 0C 48 8B 89 B8 03 00 00 E8 ?? ?? "
                                                "?? ?? 48 83 C4 28 C3")),
+            Candidate::direct("SetCombatOpponent_P3_GateAndForward",
+                              Pattern::literal("80 B9 7A 02 00 00 00 74 ?? 48 8B 89 B8 03 00 00 E8 ?? ?? ?? ?? 48 83 "
+                                               "C4 ?? C3"),
+                              -0x04),
         };
-        // The setter the set-opponent wrapper calls, matched at its first byte (see k_setCombatOpponentCandidates).
+        // The setter the set-opponent wrapper calls, proven at its address by either shape: the prologue through the
+        // target slot load, matched at its first byte, or the two loads alone (`mov r8, [rax+210h]`,
+        // `mov rdi, [r8+0CF0h]`, the state block and the target slot the mod reads) within its first
+        // k_setCombatOpponentSetterTargetLoadWindow bytes. Both hold on all three builds.
         inline constexpr Pattern k_setCombatOpponentSetterBody = Pattern::literal(
             "48 89 5C 24 ?? 48 89 74 24 ?? 57 48 83 EC 30 48 8B 41 08 48 8B F2 48 8B D9 4C 8B 80 10 02 "
             "00 00 49 8B B8 F0 0C 00 00");
+        inline constexpr Pattern k_setCombatOpponentSetterTargetLoad =
+            Pattern::literal("4C 8B 80 10 02 00 00 49 8B B8 F0 0C 00 00");
+        inline constexpr std::size_t k_setCombatOpponentSetterTargetLoadWindow = 0x30;
         // The set-opponent wrapper's `call rel32` (E8), its byte offset from the wrapper's entry.
         inline constexpr std::size_t k_setCombatOpponentCallSite = 0x14;
-        // C_CombatPlayer's per-frame update (vtable slot COMBAT_PLAYER_VTABLE_UPDATE_SLOT; sub_181002DD4, GOG
-        // 0x180FFFE24, Game Pass 0x18075B5B8), matched at its first byte before it is hooked: the frame,
-        // `mov rbx, rcx`, the lock-on controller load (`mov rcx, [rcx+450h]`), the call of its update, and the tail
-        // jump.
+        // C_CombatPlayer's per-frame update (vtable slot COMBAT_PLAYER_VTABLE_UPDATE_SLOT on all three builds;
+        // sub_181002DD4, GOG 0x180FFFE24, Game Pass 0x18075B5B8), proven before it is hooked by either shape: the whole
+        // body matched at its first byte (the frame, `mov rbx, rcx`, the lock-on controller load
+        // `mov rcx, [rcx+450h]`, the call of its update, and the tail jump), or the controller load and the call alone,
+        // a bounded gap apart, within its first k_combatPlayerUpdateControllerWindow bytes. Both hold on all three
+        // builds.
         inline constexpr Pattern k_combatPlayerUpdateBody = Pattern::literal(
             "40 53 48 83 EC 30 48 8B D9 0F 29 74 24 20 48 8B 89 50 04 00 00 0F 28 F1 E8 ?? ?? ?? ?? 0F "
             "28 CE 48 8B CB 0F 28 74 24 20 48 83 C4 30 5B E9");
+        inline constexpr Pattern k_combatPlayerUpdateController = Pattern::literal("48 8B 89 50 04 00 00 [0-8] E8");
+        inline constexpr std::size_t k_combatPlayerUpdateControllerWindow = 0x30;
 
         // Loading-only shader preparation: fail-closed entry anchors, with no gameplay-creation fallback.
         // CSystem::SetSystemGlobalState(this, int state) (sub_1809B315C; GOG 0x1809D7B7C, Game Pass 0x18091263C), a
