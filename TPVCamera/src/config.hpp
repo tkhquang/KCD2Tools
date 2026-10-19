@@ -138,6 +138,11 @@ namespace TPVCamera
         // The PresetBlendSpeed key of an INI from before the per-preset blend times, read only to migrate a presets
         // file of schema 2 or older (PresetStore::load); the shipped INI no longer has it.
         std::atomic<float> legacy_preset_blend_speed{8.0f};
+        // Whether the presets file takes a cycle pick (the cycle keys, the overlay's Cycle groups) at once, and the
+        // side SwapShoulderKey puts the camera on. Off, a change lasts for the session unless the overlay's Save keeps
+        // it (PresetStore::auto_save).
+        std::atomic<bool> auto_save_cycle_pick{true};
+        std::atomic<bool> auto_save_shoulder{true};
 
         // Always-live "Camera" INI settings.
         // Re-origin the player use/interaction cone onto the render camera + crosshair (third person)

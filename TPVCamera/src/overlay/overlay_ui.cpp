@@ -10,7 +10,7 @@
  *          The panel drives PresetStore CRUD (list selection, rename, new/duplicate/
  *          remove/reset-to-factory, save) and the per-preset field editors generated
  *          from Presets::fields(). Every field mutation this frame calls
- *          PresetStore::mark_dirty(), which republishes the live binding table so the
+ *          PresetStore::apply_edit(), which republishes the live binding table so the
  *          edit previews on the third-person camera in real time. The overlay never
  *          sets any menu/overlay GameState bit, so the camera keeps rendering live
  *          while the panel is open.
@@ -74,6 +74,13 @@ namespace TPVCamera::Overlay
 
         /// Amber tint marking cycle groups: presets bound to exactly the same states, which the cycle keys switch.
         constexpr ImVec4 k_cycle_group{0.95f, 0.75f, 0.30f, 1.0f};
+
+        /// Height in text lines the field box opens at when less room is left below it on the screen.
+        constexpr float k_field_box_min_lines = 10.0f;
+
+        /// The panel's screen position and size as the last frame left them (see keep_panel_on_screen).
+        ImVec2 s_panel_pos{};
+        ImVec2 s_panel_size{};
 
         /// Label of the umbrella minigame binding, which matches whichever minigame is on screen.
         constexpr const char *k_any_minigame_label = "Any minigame";
@@ -279,6 +286,30 @@ namespace TPVCamera::Overlay
                                         ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
             }
             return ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+        }
+
+        /**
+         * @brief Places the panel back inside the viewport when the last frame left it past an edge.
+         * @details AlwaysAutoResize caps the panel at the viewport size and scrolls what does not fit, but a panel
+         *          placed near an edge, or one that grew after the player placed it, still hangs off the screen,
+         *          and the rows past the edge cannot be reached. Call it before Begin: Begin draws the title bar and
+         *          the frame of this frame, and a move after it shifts the contents away from them.
+         */
+        void keep_panel_on_screen()
+        {
+            if (s_panel_size.x <= 0.0f || s_panel_size.y <= 0.0f)
+            {
+                return;
+            }
+            const ImGuiViewport *viewport = ImGui::GetMainViewport();
+            const float max_x = viewport->WorkPos.x + (std::max)(0.0f, viewport->WorkSize.x - s_panel_size.x);
+            const float max_y = viewport->WorkPos.y + (std::max)(0.0f, viewport->WorkSize.y - s_panel_size.y);
+            const ImVec2 inside(std::clamp(s_panel_pos.x, viewport->WorkPos.x, max_x),
+                                std::clamp(s_panel_pos.y, viewport->WorkPos.y, max_y));
+            if (inside.x != s_panel_pos.x || inside.y != s_panel_pos.y)
+            {
+                ImGui::SetNextWindowPos(inside);
+            }
         }
 
         /**
@@ -513,6 +544,10 @@ namespace TPVCamera::Overlay
             }
             ImGui::TextDisabled("NextPresetKey / PreviousPresetKey (INI) switch the one the current state uses.");
 
+            // The preset list scopes each row by its index, as this loop scopes each group, and a member radio is
+            // labelled with its preset's name, as that preset's row is. Without this scope group i and row i hash to
+            // the same IDs, such as DEFAULT in group 0 and in row 0, and ImGui reports an ID conflict.
+            ImGui::PushID("cycle_groups");
             for (std::size_t i = 0; i < frame.groups.size(); ++i)
             {
                 const CycleGroup &group = frame.groups[i];
@@ -542,6 +577,7 @@ namespace TPVCamera::Overlay
                 ImGui::Unindent();
                 ImGui::PopID();
             }
+            ImGui::PopID();
         }
 
         /**
@@ -1083,7 +1119,7 @@ namespace TPVCamera::Overlay
 
         /**
          * @brief Renders the grouped field editors (Framing / Orbit / Collision) for @p edited.
-         * @param store  The process-wide preset store (for mark_dirty on any edit and the precision pref).
+         * @param store  The process-wide preset store (for apply_edit on any edit and the precision pref).
          * @param edited The preset bound to the editor (presets()[editing_index()]).
          */
         void draw_field_editors(PresetStore &store, CameraPreset &edited)
@@ -1152,14 +1188,14 @@ namespace TPVCamera::Overlay
                 if (changed)
                 {
                     // Republish immediately so the edit previews on the live camera this frame. A shared field
-                    // also pushes its new value into every other preset (broadcast_field marks dirty too).
+                    // also pushes its new value into every other preset (broadcast_field republishes too).
                     if (store.is_field_shared(field.key))
                     {
                         store.broadcast_field(field.key);
                     }
                     else
                     {
-                        store.mark_dirty();
+                        store.apply_edit();
                     }
                 }
 
@@ -1219,14 +1255,90 @@ namespace TPVCamera::Overlay
                           "Off: 3 decimals for finer control. Stored in the presets JSON; Save to keep it.");
         }
 
+        /**
+         * @brief Draws the panel contents: the overlay settings, the preset list, pin toggle, CRUD/save button row,
+         *        the cycle groups, the state binding and the grouped field editors.
+         * @details Guards against an empty list / an out-of-range editing index so a transient store state cannot
+         *          dereference an invalid preset.
+         * @param store The process-wide preset store.
+         */
+        void draw_panel(PresetStore &store)
+        {
+            draw_overlay_settings(store);
+            ImGui::Separator();
+
+            auto &presets = store.presets();
+
+            if (presets.empty())
+            {
+                ImGui::TextDisabled("No presets loaded.");
+                return;
+            }
+
+            // Read once, before any widget can publish: the sections below then show one consistent snapshot, and
+            // a change made this frame shows from the next one.
+            const PanelFrame frame = read_panel_frame(store);
+
+            draw_preset_list(store, frame);
+
+            // Clamp the editing index defensively: a removal elsewhere can shrink the
+            // list after the row loop captured it. set_editing_index clamps in-store, but the
+            // value used for the editor below must also be re-read and bounded here.
+            int editing = store.editing_index();
+            if (editing < 0 || editing >= static_cast<int>(presets.size()))
+            {
+                editing = 0;
+                store.set_editing_index(editing);
+            }
+
+            ImGui::Spacing();
+            draw_pin_toggle(store);
+
+            ImGui::Spacing();
+            // draw_button_row may add / duplicate / remove / reset a preset, which can reallocate the presets
+            // vector and move the selection. Pass the current selection by index, then re-resolve the editing
+            // index and bind the editor reference AFTER it, so the editors below never dereference a reference
+            // invalidated by that mutation.
+            draw_button_row(store, presets[static_cast<std::size_t>(editing)]);
+
+            editing = store.editing_index();
+            if (editing < 0 || editing >= static_cast<int>(presets.size()))
+            {
+                editing = 0;
+                store.set_editing_index(editing);
+            }
+
+            CameraPreset &edited = presets[static_cast<std::size_t>(editing)];
+
+            ImGui::Separator();
+            draw_cycle_groups(frame);
+
+            ImGui::Separator();
+            draw_bind_editor(store, edited, editing, frame);
+
+            ImGui::Separator();
+            // The field editors are the longest section, so they scroll in a box of their own that the player can
+            // resize by its bottom edge. ResizeY takes this height on first use only and keeps the player's height
+            // after that. The box opens as tall as the room left down to the bottom of the screen, so the whole
+            // panel starts on screen, and never shorter than k_field_box_min_lines.
+            const ImGuiViewport *viewport = ImGui::GetMainViewport();
+            const ImGuiStyle &style = ImGui::GetStyle();
+            const float room = viewport->WorkPos.y + viewport->WorkSize.y - ImGui::GetCursorScreenPos().y -
+                               style.WindowPadding.y - style.DisplaySafeAreaPadding.y;
+            const float height = (std::max)(room, ImGui::GetTextLineHeightWithSpacing() * k_field_box_min_lines);
+            if (ImGui::BeginChild("##fields", ImVec2(0.0f, height),
+                                  ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_ResizeY))
+            {
+                draw_field_editors(store, edited);
+            }
+            ImGui::EndChild();
+        }
+
     } // namespace
 
     /**
-     * @brief Renders the preset-manager window contents inside the active ImGui frame.
-     * @details Begins the "TPV Camera - Presets" window, draws the preset list, pin toggle,
-     *          CRUD/save button row, the cycle groups, the state binding and the grouped field
-     *          editors, then ends the window. Guards against an empty list / an out-of-range
-     *          editing index so a transient store state cannot dereference an invalid preset.
+     * @brief Renders the preset-manager window inside the active ImGui frame.
+     * @details Keeps the window on screen. Its scrollbar shows whenever the screen is shorter than the panel.
      */
     void draw_ui()
     {
@@ -1235,72 +1347,25 @@ namespace TPVCamera::Overlay
         // Apply the persisted UI scale for this frame (stacks on the overlay's auto-DPI font size).
         ImGui::GetIO().FontGlobalScale = store.ui_scale();
 
+        keep_panel_on_screen();
+
         // AlwaysAutoResize makes the window hug its content every frame, so it expands to fit the widest
         // row (long preset names, the field rows) instead of cropping or leaving dead space. Value widgets
-        // set an explicit width (see edit_float) so they stay readable under auto-resize.
-        if (!ImGui::Begin("TPV Camera - Presets", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        // set an explicit width (see edit_float) so they stay readable under auto-resize. The size is taken
+        // collapsed or not, so a collapsed panel is kept on screen by its own title bar.
+        const bool open = ImGui::Begin("TPV Camera - Presets", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+        s_panel_pos = ImGui::GetWindowPos();
+        s_panel_size = ImGui::GetWindowSize();
+        if (open)
         {
-            ImGui::End();
-            return;
+            draw_panel(store);
         }
-
-        auto &presets = store.presets();
-
-        if (presets.empty())
-        {
-            ImGui::TextDisabled("No presets loaded.");
-            ImGui::End();
-            return;
-        }
-
-        // Read once, before any widget can publish: the sections below then show one consistent snapshot, and
-        // a change made this frame shows from the next one.
-        const PanelFrame frame = read_panel_frame(store);
-
-        draw_preset_list(store, frame);
-
-        // Clamp the editing index defensively: a removal elsewhere could have shrunk the
-        // list since the row loop captured it. set_editing_index clamps in-store, but the
-        // value used for the editor below must also be re-read and bounded here.
-        int editing = store.editing_index();
-        if (editing < 0 || editing >= static_cast<int>(presets.size()))
-        {
-            editing = 0;
-            store.set_editing_index(editing);
-        }
-
-        ImGui::Spacing();
-        draw_pin_toggle(store);
-
-        ImGui::Spacing();
-        // draw_button_row may add / duplicate / remove / reset a preset, which can reallocate the presets
-        // vector and move the selection. Pass the current selection by index, then re-resolve the editing
-        // index and bind the editor reference AFTER it, so the editors below never dereference a reference
-        // invalidated by that mutation.
-        draw_button_row(store, presets[static_cast<std::size_t>(editing)]);
-
-        editing = store.editing_index();
-        if (editing < 0 || editing >= static_cast<int>(presets.size()))
-        {
-            editing = 0;
-            store.set_editing_index(editing);
-        }
-
-        CameraPreset &edited = presets[static_cast<std::size_t>(editing)];
-
-        ImGui::Separator();
-        draw_cycle_groups(frame);
-
-        ImGui::Separator();
-        draw_bind_editor(store, edited, editing, frame);
-
-        ImGui::Separator();
-        draw_field_editors(store, edited);
-
-        ImGui::Separator();
-        draw_overlay_settings(store);
-
         ImGui::End();
+    }
+
+    void auto_save_presets()
+    {
+        PresetStore::instance().auto_save();
     }
 
 } // namespace TPVCamera::Overlay

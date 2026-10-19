@@ -50,6 +50,13 @@ namespace TPVCamera::Overlay
      */
     void draw_ui();
 
+    /**
+     * @brief Writes the cycle picks and the shoulder side the input thread changed (PresetStore::auto_save).
+     * @details Implemented in overlay_ui.cpp. The overlay render loop calls it on every pass, shown or hidden,
+     *          because the preset store runs on the overlay thread only.
+     */
+    void auto_save_presets();
+
 } // namespace TPVCamera::Overlay
 
 #endif // TPVCAMERA_OVERLAY_OVERLAY_HPP

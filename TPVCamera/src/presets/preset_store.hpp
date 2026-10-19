@@ -3,8 +3,8 @@
  * @brief Owns the preset list and its JSON persistence; the only writer of presets.
  *
  * @details Single-threaded: every method is intended to run on ONE thread (the overlay
- *          UI thread at runtime, or the Bootstrap thread during init). The store never
- *          touches the live camera directly; instead it publishes an immutable
+ *          UI thread at runtime, or the Bootstrap thread during init). Apart from the shoulder
+ *          side load() restores, the store never touches the live camera. It publishes an immutable
  *          StateBindingTable snapshot (see preset_runtime.hpp) that the main thread
  *          consumes via a single atomic shared_ptr load (no allocation). CRUD operations that change
  *          applied values call publish().
@@ -12,7 +12,10 @@
  *          The cycle picks (which member of each cycle group is in use) live in that snapshot, because
  *          the cycle hotkeys change them on the input thread without touching the store. The store
  *          seeds them on load, re-keys them on rename, drops the ones a change invalidates, and
- *          persists them in the presets JSON.
+ *          persists them in the presets JSON. The file also keeps the side SwapShoulderKey puts the
+ *          camera on (CameraControls::shoulder_swapped). A cycle pick or shoulder change is written at
+ *          once while its [Presets] AutoSaveCyclePick or [Camera] AutoSaveShoulder key is on. While the
+ *          key is off the change lasts for the session, and only the Save button keeps it.
  *
  *          The built-ins (DEFAULT/COMBAT/AIMING/MOUNT/STEALTH/LYING/SITTING/KNEEL/CART) are defined by
  *          embedded factory data (default_presets.hpp), NOT shipped in a file: load() creates the presets
@@ -66,11 +69,26 @@ namespace TPVCamera::Presets
          */
         void load(const std::string &file_path);
 
-        /** @brief Writes the presets to the cached path immediately and clears the dirty flag. */
+        /**
+         * @brief Writes every live value to the cached path now: the Save button.
+         * @details Also keeps a cycle pick or shoulder change that its auto-save key leaves unsaved.
+         */
         void save();
 
-        /** @brief Writes only if there are unsaved changes, cycle picks included (call on shutdown). */
+        /**
+         * @brief Writes the live values when they differ from the file (call on shutdown).
+         * @details A cycle pick or shoulder change keeps the saved value while its auto-save key is off.
+         */
         void flush();
+
+        /**
+         * @brief Writes the live cycle picks and shoulder side when they changed and their auto-save key is on.
+         * @details Call on every pass of the overlay thread. The write keeps the saved presets, so a pending
+         *          preset edit stays pending. After a failed write, auto-save stops until the next successful
+         *          write, and the change shows on the Save indicator instead, so a locked file is not retried on
+         *          every pass.
+         */
+        void auto_save();
 
         /** @brief The preset list (built-ins first). UI thread only. */
         [[nodiscard]] std::vector<CameraPreset> &presets() noexcept { return m_presets; }
@@ -87,12 +105,12 @@ namespace TPVCamera::Presets
 
         /** @brief Overlay UI scale (ImGui font global scale); persisted in the presets JSON root. */
         [[nodiscard]] float ui_scale() const noexcept { return m_ui_scale; }
-        /** @brief Sets the overlay UI scale (clamped to [0.5, 3.0]) and marks the store dirty. */
+        /** @brief Sets the overlay UI scale, clamped to [0.5, 3.0]. */
         void set_ui_scale(float scale);
 
         /** @brief Edit/show preset float values at 2 decimals (true) or 3 (false). Persisted in JSON root. */
         [[nodiscard]] bool value_compact() const noexcept { return m_value_compact; }
-        /** @brief Sets the 2-vs-3 decimal editing precision and marks the store dirty. */
+        /** @brief Sets the 2-vs-3 decimal editing precision. */
         void set_value_compact(bool compact);
 
         /** @brief Whether preset field @p key is shared (kept identical) across every preset. Persisted in JSON root.
@@ -112,9 +130,13 @@ namespace TPVCamera::Presets
          */
         void broadcast_field(std::string_view key);
 
-        /** @brief Whether there are unsaved preset VALUE changes (drives the Save indicator). UI-only bookkeeping
-         *         such as the editing selection or overlay scale does not count here; it persists on shutdown. */
-        [[nodiscard]] bool dirty() const noexcept { return m_dirty; }
+        /**
+         * @brief Whether a value the presets file holds differs from the file: drives the Save indicator.
+         * @details Counts the presets, the shared fields, the overlay settings, and a cycle pick or shoulder
+         *          change that auto_save() does not write. The editing selection does not count: flush() writes
+         *          it on shutdown.
+         */
+        [[nodiscard]] bool dirty() const;
 
         /**
          * @brief Adds a new user preset (auto-named, non-built-in), selects it, republishes.
@@ -165,23 +187,72 @@ namespace TPVCamera::Presets
         void reset_all_to_factory();
 
         /**
-         * @brief Marks the store dirty and republishes the binding table (live preview).
-         * @details Call after the editor mutates a field value via a slider/checkbox. Does NOT
-         *          write to disk; the explicit Save action / shutdown flush persists.
+         * @brief Republishes the binding table after the editor changed a field value (live preview).
+         * @details Does not write the file: the Save button and the shutdown flush do.
          */
-        void mark_dirty();
+        void apply_edit();
 
     private:
+        /// Rewrite of a list of cycle picks (see publish_table).
+        using PickEdit = std::function<void(std::vector<CyclePick> &)>;
+
+        /**
+         * @struct FileContents
+         * @brief Every value the presets file holds, as written or read.
+         * @details The two unordered lists are kept sorted, so equality compares their content.
+         */
+        struct FileContents
+        {
+            std::vector<CameraPreset> presets;
+            /// Preset field keys kept identical across every preset, sorted.
+            std::vector<std::string> shared_fields;
+            /// Cycle picks, sorted by mask.
+            std::vector<CyclePick> cycle_picks;
+            /// Name of the preset the editor shows.
+            std::string editing;
+            float ui_scale = 1.0f;
+            bool value_compact = true;
+            bool shoulder_swapped = false;
+
+            /// Content equality: the shutdown flush writes only a difference.
+            bool operator==(const FileContents &) const = default;
+        };
+
         PresetStore() = default;
 
         /**
          * @brief Rebuilds and publishes the StateBindingTable snapshot for the main thread.
          * @details The live cycle picks carry over, pass through @p edit_picks, and lose every pick that no longer
-         *          names a member of its group. save() reads the picks from the published snapshot, so a change
-         *          publishes before it saves.
-         * @param edit_picks Optional rewrite of the carried-over picks (see publish_table).
+         *          names a member of its group. A write reads the picks from the published snapshot, so a change
+         *          publishes before it writes.
+         * @param edit_picks Optional rewrite of the carried-over picks.
          */
-        void publish(const std::function<void(std::vector<CyclePick> &)> &edit_picks = {});
+        void publish(const PickEdit &edit_picks = {});
+
+        /**
+         * @brief Writes the live values after a list change (new, duplicate, rename, rebind, remove, reset).
+         * @details A cycle pick or shoulder change that its auto-save key leaves unsaved keeps the saved value. The
+         *          saved picks then pass through @p edit_picks, the same rewrite publish() gave the live ones, so a
+         *          rename or a reset reaches the file.
+         * @param edit_picks Optional rewrite of the saved picks.
+         */
+        void commit(const PickEdit &edit_picks = {});
+
+        /**
+         * @brief The live values in the form the file holds them.
+         * @param keep_session Whether a cycle pick or shoulder change that its auto-save key leaves unsaved goes in.
+         *                     When false the saved value goes in instead.
+         * @param edit_saved_picks Optional rewrite of the saved picks when they go in.
+         */
+        [[nodiscard]] FileContents live_contents(bool keep_session, const PickEdit &edit_saved_picks = {}) const;
+
+        /**
+         * @brief Serializes @p contents to a sibling temp file and renames it over the presets file.
+         * @details On success @p contents becomes the saved state and auto-save resumes. On failure the file and
+         *          the saved state are unchanged.
+         * @return True when the file now holds @p contents.
+         */
+        bool write(FileContents contents);
 
         /** @brief Re-adds any missing built-in from factory and orders all built-ins first; true if any was added. */
         [[nodiscard]] bool arrange_builtins();
@@ -190,38 +261,26 @@ namespace TPVCamera::Presets
         [[nodiscard]] std::string make_unique_name(const std::string &base) const;
         /** @brief Whether @p pick names a preset that is bound to exactly the pick's mask. */
         [[nodiscard]] bool is_live_pick(const CyclePick &pick) const;
-        /** @brief The published cycle picks that name a member of their group: what save() writes. */
-        [[nodiscard]] std::vector<CyclePick> persistable_cycle_picks() const;
+        /** @brief The published cycle picks that name a member of their group. */
+        [[nodiscard]] std::vector<CyclePick> live_cycle_picks() const;
+        /** @brief The saved cycle picks after @p edit_picks, less those that no longer name a member of their group. */
+        [[nodiscard]] std::vector<CyclePick> saved_cycle_picks(const PickEdit &edit_picks) const;
         /** @brief Copies field @p field's value from the editing preset into every preset (no save/publish). */
         void copy_field_from_editing(const PresetField &field) noexcept;
         /** @brief Copies the value of every shared field from @p source into @p target. */
         void copy_shared_fields(const CameraPreset &source, CameraPreset &target) const noexcept;
-        /** @brief Recomputes m_dirty as the difference between the live presets/shared set and the saved baseline. */
-        void recompute_dirty() noexcept;
-        /**
-         * @brief Snapshots the live presets/shared set and @p cycle_picks as the saved baseline (after a successful
-         *        load/save).
-         * @param cycle_picks The cycle picks the file now holds.
-         */
-        void capture_saved_baseline(std::vector<CyclePick> cycle_picks);
 
         std::vector<CameraPreset> m_presets;
         int m_editing_index = 0;
         bool m_editing_pinned = false;
-        bool m_dirty = false;       // unsaved preset VALUE changes; drives the Save * highlight and forces a save
-        bool m_prefs_dirty = false; // unsaved editor/UI bookkeeping (selection, scale, precision): flushed on
-                                    // shutdown but NOT surfaced as a pending value change
         float m_ui_scale = 1.0f;
         bool m_value_compact = true;
         std::vector<std::string> m_shared_fields; // preset field keys kept identical across every preset
-        // Snapshot of the on-disk state (presets + shared set) taken at the last successful load/save. The Save
-        // indicator (m_dirty) is the difference between the live data and this baseline, so reverting an edit back
-        // to the saved value clears it.
-        std::vector<CameraPreset> m_saved_presets;
-        std::vector<std::string> m_saved_shared_fields;
-        // The cycle picks the file holds. The cycle hotkeys change the live picks without the store, so flush()
-        // compares against this instead of a dirty flag. The picks never light the Save indicator.
-        std::vector<CyclePick> m_saved_cycle_picks;
+        // What the file holds since the last successful load or write. dirty() compares the live values against it,
+        // so an edit reverted to the saved value clears the Save indicator.
+        FileContents m_saved;
+        // Set by a failed auto_save() write and cleared by the next successful write.
+        bool m_auto_save_blocked = false;
         std::string m_file_path;
     };
 

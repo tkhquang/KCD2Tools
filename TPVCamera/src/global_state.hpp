@@ -63,7 +63,8 @@ namespace TPVCamera
         // restore, and cleared by every engage (see apply_orbit_exclude_policy).
         std::atomic<bool> orbit_hold_released{false};
         // The shoulder the camera sits over, flipped by SwapShoulderKey: true puts the active preset's Offset Right on
-        // the other side. A player choice, so it outlasts preset switches and first-person gaps.
+        // the other side. A player choice, so it outlasts preset switches and first-person gaps. The presets file keeps
+        // it across sessions while AutoSaveShoulder is on (PresetStore).
         std::atomic<bool> shoulder_swapped{false};
         // Asks the camera frame to drop the zoom (a preset cycle, the overlay's Reset zoom). The frame hands the offset
         // to the preset ease, so the camera glides back instead of jumping.

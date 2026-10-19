@@ -55,8 +55,10 @@ namespace TPVCamera::HookProfile
         ScanFullFirst,
         /// A scan built ahead a type per frame that went in use.
         ScanAhead,
-        /// A scan built ahead that was dropped (rules changed, a type did not fit, the points left its box, a full
-        /// scan).
+        /**
+         * @brief A scan built ahead that was dropped (rules changed, a type did not fit, the points left its box, a
+         *        full scan).
+         */
         ScanAheadDropped,
         /// A draw of a listed item whose shader has no twin yet, which asked the creation queue again.
         UntwinnedRetry,

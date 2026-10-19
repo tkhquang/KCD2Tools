@@ -129,8 +129,9 @@ namespace TPVCamera
      * @brief Switches the current state to the next or previous preset bound to exactly the same states.
      * @details The state is the debounced mask the main thread publishes every game-view frame, first person
      *          included, so a press in first person picks the preset that third person then uses. The pick goes
-     *          to the main thread directly: the preset store is single-threaded and runs on the overlay thread.
-     *          The store writes the pick to the presets file on its next save or at shutdown. A switch also eases
+     *          to the main thread directly: the preset store is single-threaded and runs on the overlay thread,
+     *          which writes the pick to the presets file while AutoSaveCyclePick is on (PresetStore::auto_save).
+     *          A switch also eases
      *          the zoom out: the zoom keys offset whichever preset is in use, and a carried-over offset hides the
      *          difference between the presets the player cycles through.
      * @param step +1 for the next preset, -1 for the previous one.
@@ -347,7 +348,8 @@ namespace TPVCamera
             "");
 
         // Put the camera over the other shoulder: the active preset's Offset Right on the other side, for every preset
-        // until pressed again. Unbound by default, so it collides with no game key until the player picks one.
+        // until pressed again. The presets file keeps the side while AutoSaveShoulder is on (PresetStore::auto_save).
+        // Unbound by default, so it collides with no game key until the player picks one.
         add_press(
             camera, "SwapShoulderKey", "Swap Shoulder Key", "swap_shoulder",
             []
