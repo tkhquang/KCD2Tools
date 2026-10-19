@@ -18,3 +18,7 @@
 	path = HenrySenses/external/DetourModKit
 	url = https://github.com/tkhquang/DetourModKit.git
 	ignore = dirty
+[submodule "HotPak/external/DetourModKit"]
+	path = HotPak/external/DetourModKit
+	url = https://github.com/tkhquang/DetourModKit.git
+	ignore = dirty

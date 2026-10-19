@@ -10,6 +10,9 @@ TPVCamera/build/*
 HenrySenses/build/*
 !HenrySenses/build/template
 
+HotPak/build/*
+!HotPak/build/template
+
 LootBeacon/build/*
 LootBeacon/src/**/*.pak
 
