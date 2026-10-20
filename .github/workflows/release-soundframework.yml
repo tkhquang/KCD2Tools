@@ -129,7 +129,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Unit tests failed.' }
 
       # ASI archive: everything at the root, extracted beside WHGame.dll. KCSE archive: a regular mod folder whose
-      # KCSE/Plugins/ holds the DLL with the same runtime files beside it.
+      # KCSE/Plugins/ holds the DLL with the same runtime files beside it. The folder is named after the modid, as
+      # the game's modding guide recommends; a modid allows only lowercase letters and underscores, and
+      # mod_order.txt lists mods by it.
       - name: Assemble release archives
         run: |
           $template = "SoundFramework\build\template\*"
@@ -143,7 +145,8 @@ jobs:
           Compress-Archive -Path "$asiPackage\*" -DestinationPath $env:ARTIFACT_NAME -Force
 
           $kcsePackage = "SoundFramework\package\kcse"
-          $modDir = Join-Path $kcsePackage 'KCD2_SoundFramework'
+          $modId = 'soundframework'
+          $modDir = Join-Path $kcsePackage $modId
           $pluginDir = Join-Path $modDir 'KCSE\Plugins'
           New-Item -ItemType Directory -Force -Path $pluginDir | Out-Null
           Copy-Item "SoundFramework\build\release-msvc\KCSE\KCD2_SoundFramework.dll" $pluginDir
@@ -154,8 +157,8 @@ jobs:
           <kcd_mod>
             <info>
               <name>Sound Framework (KCSE plugin)</name>
-              <modid>kcd2_soundframework</modid>
-              <description>Custom sounds and voices for mods. Needs Kingdom Come Script Extender (KCSE).</description>
+              <modid>{1}</modid>
+              <description>Custom sounds and voices with lip sync for mods. Needs Kingdom Come Script Extender (KCSE).</description>
               <author>tkhquang</author>
               <version>{0}</version>
               <created_on>2026-10-19</created_on>
@@ -163,7 +166,7 @@ jobs:
             </info>
           </kcd_mod>
           '@
-          $manifest = $manifest -f $env:NEW_VERSION
+          $manifest = $manifest -f $env:NEW_VERSION, $modId
           Set-Content -LiteralPath (Join-Path $modDir 'mod.manifest') -Value $manifest -Encoding utf8
           Compress-Archive -Path $modDir -DestinationPath $env:KCSE_ARTIFACT_NAME -Force
 
@@ -203,7 +206,7 @@ jobs:
              KCSE also loads `.asi` files beside its `dinput8.dll`, so KCSE users need no separate loader.
           2. Extract the archive directly into that same binary folder, beside `WHGame.dll`, without an extra archive-named subfolder.
 
-          **KCSE build** (`{5}`): install [Kingdom Come Script Extender](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332), then extract the archive into `<game>/Mods/` or install it with a mod manager. The DLL and its files land in `Mods/KCD2_SoundFramework/KCSE/Plugins/`.
+          **KCSE build** (`{5}`): install [Kingdom Come Script Extender](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332), then extract the archive into `<game>/Mods/` or install it with a mod manager. The DLL and its files land in `Mods/soundframework/KCSE/Plugins/`.
 
           Load a save and check `KCD2_SoundFramework.log` beside the mod: it lists every sound pack found. Edit `KCD2_SoundFramework.ini` and save to apply changes while playing. Back up your customized INI before updating.
 
