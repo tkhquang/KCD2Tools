@@ -571,6 +571,34 @@ namespace TPVCamera
         inline constexpr Pattern k_cameraObserverUpdateBody =
             Pattern::literal("48 8B 01 FF 90 ?? ?? ?? ?? 8B 48 0C F3 0F 10 40 1C F3 0F 10 48 2C");
         inline constexpr std::size_t k_cameraObserverUpdateBodyWindow = 0x40;
+        // The player's skeleton getters (character_pose.cpp), checked before the mod calls them. Every shape below
+        // matches on Steam 1.5.6, GOG 1.5 and Game Pass 1.4.
+        // CCharInstance's GetISkeletonPose is `lea rax, [rcx+disp32]; ret` and its GetIDefaultSkeleton
+        // `mov rax, [rcx+disp32]; ret`, each matched at its first byte. The whole getter is those eight bytes, so each
+        // has one shape.
+        // CSkeletonPose's GetAbsJointByID, two shapes. The first, after the 10-byte frame, takes the pose data
+        // (`lea rbx, [rcx+disp32]`), checks the index against the joint count (`call [rax+8]`) and returns the
+        // absolute joint (`call [rax+50h]`, where the relative one calls +10h). The second is that call, the static
+        // identity an out-of-range index gets (`lea rax, [rip+disp32]`) and the epilogue.
+        // CDefaultSkeleton's GetJointIDByCRC32, two shapes. The first is its start: the name table (`mov rcx,
+        // [rcx+10h]`) and the hash (`imul eax, edx, 0Dh`). The second is the bucket probe: the hash masked to 0x1FF,
+        // the bucket's first index (`movzx r8d, word [rcx+rax*2]`) and the CRC compare (`cmp [rcx+rax*4+4], edx`).
+        inline constexpr Pattern k_charGetSkeletonPoseBody = Pattern::literal("48 8D 81 ?? ?? ?? ?? C3");
+        inline constexpr Pattern k_charGetDefaultSkeletonBody = Pattern::literal("48 8B 81 ?? ?? ?? ?? C3");
+        inline constexpr std::size_t k_charGetterBodyWindow = 8;
+        inline constexpr Pattern k_skeletonPoseAbsJointBody =
+            Pattern::literal("48 8D 99 ?? ?? ?? ?? 8B FA 85 D2 78 ?? 48 8B 03 48 8B CB FF 50 08 3B F8 73 ?? "
+                             "48 8B 03 8B D7 48 8B CB FF 50 50");
+        inline constexpr std::size_t k_skeletonPoseAbsJointBodyWindow = 0x30;
+        inline constexpr Pattern k_skeletonPoseAbsJointTail =
+            Pattern::literal("FF 50 50 EB ?? 48 8D 05 ?? ?? ?? ?? 48 8B 5C 24 ?? 48 83 C4 ?? 5F C3");
+        inline constexpr std::size_t k_skeletonPoseAbsJointTailWindow = 0x48;
+        inline constexpr Pattern k_jointIdByCrcBody = Pattern::literal("48 8B 49 10 48 85 C9 74 ?? 6B C2 0D");
+        inline constexpr std::size_t k_jointIdByCrcBodyWindow = 12;
+        inline constexpr Pattern k_jointIdByCrcProbe =
+            Pattern::literal("6B C2 0D [8-14] 25 FF 01 00 00 44 0F B7 04 41 [16-28] 39 54 81 04");
+        inline constexpr std::size_t k_jointIdByCrcProbeWindow = 0x40;
+
         // CAnimationSet's GetAnimIDByCRC slot holds a thunk, matched at its first byte: `add rcx, imm8` (to the name
         // map), then `jmp rel32` (to the map lookup).
         inline constexpr Pattern k_animIdByCrcThunk = Pattern::literal("48 83 C1 ?? E9");
@@ -1197,6 +1225,22 @@ namespace TPVCamera
             "28 CE 48 8B CB 0F 28 74 24 20 48 83 C4 30 5B E9");
         inline constexpr Pattern k_combatPlayerUpdateController = Pattern::literal("48 8B 89 50 04 00 00 [0-8] E8");
         inline constexpr std::size_t k_combatPlayerUpdateControllerWindow = 0x30;
+        // The combat lock-on's target pick reading the view camera's forward (sub_180686A50 at 0x180686AE7, GOG
+        // 0x1806AC047, Game Pass 0x180655197), the instruction site the mid hook sits on: `movss xmm13, [rax+4]` and
+        // `movss xmm14, [rax+14h]` read the forward's x and y from the CCamera that ISystem::GetViewCamera returned in
+        // rax (`call [rax+438h]` on Steam, +430h on GOG and Game Pass). P1 is the ISystem load through the call, the
+        // FLT_MAX load and both reads. P2 is the call, a bounded gap and the reads. P3 is the reads, the combat config
+        // call and its corridor width load (`movss xmm9, [rax+10Ch]`). Each matches once on all three builds.
+        inline const Candidate k_combatPickViewReadCandidates[] = {
+            Candidate::direct("CombatPickViewRead_P1_CallThroughReads",
+                              Pattern::literal("48 8B 0D ?? ?? ?? ?? 48 8B 01 FF 90 ?? 04 00 00 F3 44 0F 10 15 ?? ?? "
+                                               "?? ?? | F3 44 0F 10 68 04 F3 44 0F 10 70 14 E8")),
+            Candidate::direct("CombatPickViewRead_P2_CallGapReads",
+                              Pattern::literal("FF 90 ?? 04 00 00 [6-12] | F3 44 0F 10 68 04 F3 44 0F 10 70 14")),
+            Candidate::direct("CombatPickViewRead_P3_ReadsThroughCorridor",
+                              Pattern::literal("F3 44 0F 10 68 04 F3 44 0F 10 70 14 E8 ?? ?? ?? ?? 45 84 ?? 74 ?? F3 "
+                                               "44 0F 10 88 0C 01 00 00")),
+        };
 
         // Loading-only shader preparation: fail-closed entry anchors, with no gameplay-creation fallback.
         // CSystem::SetSystemGlobalState(this, int state) (sub_1809B315C; GOG 0x1809D7B7C, Game Pass 0x18091263C), a
@@ -1673,7 +1717,8 @@ namespace TPVCamera
      *          hook sits on). ResourceLookup is an address, ResourceLock and ShaderResourceContainer globals, and the
      *          three PSO builder ids call sites. VegetationGroups is a global, and LevelBrushTables an instruction site
      *          that only proves two member offsets. ClipVolumeManager is a global, and GetClipVolumeByPos,
-     *          OctreeCollectByType, EngineDeallocate and SetCombatOpponent are addresses. Of the DEV-only ids,
+     *          OctreeCollectByType, EngineDeallocate and SetCombatOpponent are addresses, and CombatPickViewRead an
+     *          instruction site the mid hook sits on. Of the DEV-only ids,
      *          HardwareShaderForName is an address and HardwareShaderLockSite an instruction site its consumer decodes;
      *          the ids from TechniqueLayout to HardwareShaderCache are instruction sites that only prove layouts.
      */
@@ -1746,6 +1791,7 @@ namespace TPVCamera
         OctreeCollectByType,      // the typed octree query's collector (the occluder scan; called, not hooked)
         EngineDeallocate,         // the engine's std::_Deallocate (frees the collector's vector; called, not hooked)
         SetCombatOpponent,        // the combat lock-on's set-opponent (the kill retarget; called, not hooked)
+        CombatPickViewRead,       // the lock-on target pick's read of the view camera forward (a mid hook site)
 #if defined(TPVCAMERA_DEV_BUILD)
         HardwareShaderForName,  // CHWShader::mfForName (the DEV twin clone's factory)
         HardwareShaderLockSite, // the HW shader factory's SRWLOCK lea (an instruction site the consumer decodes)
@@ -1808,6 +1854,8 @@ namespace TPVCamera
         OctreeSingleWalk,     // OctreeCollectByType, EngineDeallocate: one octree walk per typed occluder-scan query
                               // instead of a count and a fill (needs Occlusion)
         CombatRetarget,       // SetCombatOpponent: after a kill the lock-on moves to the hostile the camera points at
+        CombatPickForward,    // CombatPickViewRead: the lock-on's target pick goes along the opponent the game steers
+                              // to, or along the look before the lock framing
 #if defined(TPVCAMERA_DEV_BUILD)
         TwinCloneDryRun, // the layout proofs (TechniqueLayout to HardwareShaderCache), the HW shader factory and
                          // its lock, ResourceLookup: the twin clone's read-only dry-run (needs ShaderTwins)

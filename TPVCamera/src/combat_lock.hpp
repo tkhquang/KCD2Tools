@@ -37,6 +37,9 @@ namespace TPVCamera
         std::uintptr_t opponent{0};
         /// The opponent's EntityId, 0 when there is no opponent or it did not read.
         std::uint32_t opponent_id{0};
+        /// The combat target's EntityId (the opponent-to-be the game's pick, a block or the retarget set, which its
+        /// commit moves into the lock), 0 for none or when it did not read.
+        std::uint32_t target_id{0};
         /// The opponent is dead (C_Actor::IsDead), set by the killing blow.
         bool opponent_dead{false};
         /// The opponent's health (its soul's, or the actor's own without a soul), NaN when it did not read.
@@ -199,9 +202,12 @@ namespace TPVCamera
      * @param lock This frame's reading.
      * @param game_clock The game clock's frame-start stamp in 1/100000 s, 0 when it did not read.
      * @param camera_heading The heading of the view the camera rendered last, when known.
+     * @param pick_heading The heading the game's target pick went along last frame instead of the rendered camera's
+     *        (hooks/combat_pick.hpp), when it did.
      * @note Main thread only, once per frame.
      */
-    void log_combat_lock(const CombatLock &lock, std::int64_t game_clock, std::optional<float> camera_heading) noexcept;
+    void log_combat_lock(const CombatLock &lock, std::int64_t game_clock, std::optional<float> camera_heading,
+                         std::optional<float> pick_heading) noexcept;
 } // namespace TPVCamera
 
 #endif // TPVCAMERA_COMBAT_LOCK_HPP

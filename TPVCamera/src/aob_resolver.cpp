@@ -423,6 +423,7 @@ namespace TPVCamera
             code_ladder("OctreeCollectByType", Aob::k_octreeCollectByTypeCandidates, Role::Entry),
             code_ladder("EngineDeallocate", Aob::k_engineDeallocateCandidates, Role::Entry),
             code_ladder("SetCombatOpponent", Aob::k_setCombatOpponentCandidates, Role::Entry),
+            code_ladder("CombatPickViewRead", Aob::k_combatPickViewReadCandidates, Role::Site),
 #if defined(TPVCAMERA_DEV_BUILD)
             code_ladder("HardwareShaderForName", Aob::k_hardwareShaderForNameCandidates, Role::Entry),
             code_ladder("HardwareShaderLockSite", Aob::k_hardwareShaderLockSiteCandidates, Role::Site),
@@ -501,6 +502,7 @@ namespace TPVCamera
         constexpr AnchorId k_indoor_state_anchors[] = {AnchorId::ClipVolumeManager, AnchorId::GetClipVolumeByPos};
         constexpr AnchorId k_octree_single_walk_anchors[] = {AnchorId::OctreeCollectByType, AnchorId::EngineDeallocate};
         constexpr AnchorId k_combat_retarget_anchors[] = {AnchorId::SetCombatOpponent};
+        constexpr AnchorId k_combat_pick_forward_anchors[] = {AnchorId::CombatPickViewRead};
 #if defined(TPVCAMERA_DEV_BUILD)
         // The DEV twin clone's dry-run reads CShader, SShaderTechnique, CBaseResource and CHWShader_D3D fields only
         // where every one of their layouts is proven, HW shader token maps only under the factory's own lock, and
@@ -552,6 +554,7 @@ namespace TPVCamera
             {"IndoorState", k_indoor_state_anchors},
             {"OctreeSingleWalk", k_octree_single_walk_anchors},
             {"CombatRetarget", k_combat_retarget_anchors},
+            {"CombatPickForward", k_combat_pick_forward_anchors},
 #if defined(TPVCAMERA_DEV_BUILD)
             {"TwinCloneDryRun", k_twin_clone_dry_run_anchors},
 #endif
@@ -593,6 +596,7 @@ namespace TPVCamera
             AnchorId::LoadMaterialShader,
             AnchorId::AddOrCreateRO,
             AnchorId::PerViewUpload,
+            AnchorId::CombatPickViewRead,
 #if defined(TPVCAMERA_DEV_BUILD)
             AnchorId::HardwareShaderForName,
 #endif

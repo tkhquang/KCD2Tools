@@ -17,6 +17,8 @@
 - Added CollisionPullInSeconds (0.12 by default): when something comes between the camera and Henry, the camera eases in over that long instead of jumping in one frame, moving only through open air, so it never passes into a wall; 0 brings back the jump.
 - Added lock framing for the game's combat lock-on: the camera swings toward your shoulder side and keeps the locked enemy in view beside Henry instead of behind him (Lock Framing Angle, Lock Focus Height and Lock Focus Offset in every preset).
 - Added AutoSaveCyclePick and AutoSaveShoulder (on by default): the preset you cycle to and the shoulder you swap to are kept for your next session; off keeps them for this session only, unless you press Save.
+- Changed the camera to follow Henry's upper body during his own animations (praying, eating, sitting down, standing up, bending): it lowers and leans with him smoothly instead of staying put until his head drops far and then dropping in one go, and ignores head bob and nods.
+- Changed Eye Height 0 (COMBAT, AIMING, SITTING, KNEEL, LYING, CART) to follow Henry's upper body instead of his bobbing first-person eye, so switching between those presets and the others no longer moves the camera in one jump, and Henry's turn-in-place animations now play with it too.
 - Changed the camera to keep its distance and pass through bushes and tree trunks, while buildings, walls, tall fences, platforms, covered wagons, big haystacks, rocks and the ground still stop it.
 - Changed leaves and prop corners right at the lens to be cut away instead of filling the view (UseLensCut, on by default).
 - Changed the shaders behind the fades and the window to be prepared at loading screens and pauses, never while you play.
@@ -33,11 +35,12 @@
 - Changed free-look to come back the moment your opponent dies, and the camera with free-look off to stay put instead of following the finishing animation.
 - Changed the overlay's Save button to light up for every unsaved change, UI Scale and Compact precision included.
 - Changed aiming to stay in third person by default (Aiming is no longer in ForcedFPVState).
-- Changed COMBAT to look down at Henry a little (Follow Pitch 5); press Reset to factory on COMBAT to get it in an existing setup.
+- Changed COMBAT to look down at Henry a little from straight behind him (Follow Pitch 5, Offset Right 0) and to frame a locked enemy wider (Lock Framing Angle 30); press Reset to factory on COMBAT to get it in an existing setup.
 - Changed the overlay to keep the whole panel on screen: the preset settings scroll in their own box, which you can make taller or shorter by dragging its bottom edge, and the Overlay settings come first.
 - Removed UseCoverageCollision, CoverageThreshold, CameraProbeSize and UseRenderOcclusion, which the fade replaces.
 - Removed PresetBlendSpeed, replaced by each preset's Blend In Seconds.
 - Removed UseSphereCollision: the camera's rays alone decide where it stops (the sphere moved the stop by under 6 cm when it changed anything), which saves an engine query on most frames next to a wall.
+- Fixed the camera swinging a metre or more in one frame when the game turns Henry's view at the start or end of an action (sitting down, standing up, eating): it now eases after the game's turn, even while you move the mouse, and your own mouse and stick turns stay as direct as before.
 - Fixed scatter shot in third person spreading around a spot beside the crosshair; with AimAtCrosshair it now spreads around the crosshair point, as in first person.
 - Fixed the inventory showing the sky or a blank view instead of Henry when ViewTransitionDuration is above 0: the switch to first person now runs on real time, not on the game clock the inventory slows down.
 - Fixed the camera jiggling when swung up and down next to a market stall, a roof edge or a counter.
@@ -47,4 +50,7 @@
 - Fixed Henry popping between solid and faded in one frame when the camera jumps in or out at a wall; the close-up fade now eases like the obstacle fade.
 - Fixed parts of the mod staying active when it cannot start, for example after a game update; it now switches itself fully off.
 - Fixed free-look fighting the game's combat lock-on: Henry now turns to the enemy the lock-on picked, so the lock holds instead of dropping.
+- Fixed the lock-on switching back to the first enemy after you block an attack from a second one.
+- Fixed Henry and the camera jiggling when you turn and press a movement key during a stealth kill.
+- Fixed the camera sinking to Henry's feet and looking up (or rising over his head) in a fight after a drop off a raised spot: while the lock-on holds an enemy, the camera's height and tilt now come from where the enemy stands.
 - Fixed the overlay showing an ImGui "conflicting ID" error when hovering a preset that is in a cycle group.

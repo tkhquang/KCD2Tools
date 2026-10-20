@@ -133,6 +133,12 @@ namespace TPVCamera
     [[nodiscard]] bool collect_character_nodes(std::uintptr_t entity, CharacterNodes &out) noexcept;
 
     /**
+     * @brief The CCharInstance @p entity's render proxy draws, read the way CEntity::GetCharacter(0) does and checked
+     *        by its vtable, or 0. Main thread only.
+     */
+    [[nodiscard]] std::uintptr_t character_instance_of(std::uintptr_t entity) noexcept;
+
+    /**
      * @brief Clears @p nodes and forgets the item set last logged, so the next walk logs its set afresh.
      * @details For a frame that does not walk: CloseUpFade, UseOccluderFade and collision all off, or the camera
      *          leaving third person. Main thread only.

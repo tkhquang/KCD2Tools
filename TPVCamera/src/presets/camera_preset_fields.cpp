@@ -53,15 +53,15 @@ namespace TPVCamera::Presets
                         "your own line of sight; shots and the use prompt follow the crosshair.",
                         "Framing", &CameraPreset::offset_right, -2.0f, 2.0f, 0.01f),
             float_field("eye_height", "Eye Height",
-                        "Height of the camera anchor above your feet, in meters. 0 is special: it anchors to the "
-                        "first-person eye, which moves with the walk/run head bob, so the camera will bob too. Use "
-                        "a positive value (around 1.6) for a steady, bob-free anchor.",
+                        "Height of the camera anchor above your feet when you stand, in meters (around 1.6 is eye "
+                        "level). 0 is special: the anchor follows your upper body fully, its height and its lean, "
+                        "eased so that head bob and nods stay out.",
                         "Framing", &CameraPreset::eye_height, 0.0f, 2.5f, 0.01f),
             bool_field("dynamic_eye_sync", "Dynamic Eye Sync",
-                       "Lowers the camera anchor to your real eye when a pose drops it well below Eye Height "
-                       "(kneeling, praying, and other low poses Eye Height does not account for), so the camera "
-                       "stops floating above you. It eases in and out, and accepts a little head bob in those "
-                       "poses. Only applies when Eye Height is non-zero.",
+                       "Lets the camera anchor follow your upper body as an action moves it away from the standing "
+                       "pose: lower when you kneel, pray or sit, forward when you bend or lean. Small movements "
+                       "(breathing, head bob) stay out, larger ones come through, and the anchor eases along without "
+                       "steps. Only applies when Eye Height is non-zero.",
                        "Framing", &CameraPreset::dynamic_eye_sync),
             float_field("follow_yaw", "Follow Yaw",
                         "Affects your aim. Statically swings the resting camera left/right around you, in degrees "

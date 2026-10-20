@@ -1023,39 +1023,39 @@ namespace TPVCamera::Overlay
         }
 
         /**
-         * @brief Read-out: the player's live REAL first-person eye height above the feet (drops on kneel/pray/sit).
-         * @details Shows the same value Dynamic Eye Sync uses - the rig's real_eye_height (rig_readout()), published by
-         * the
-         *          frustum-builder detour each engaged frame. Reading the relaxed atomic from the overlay thread
-         *          races only the render thread's own relaxed write, so a stale-by-a-frame readout is harmless.
+         * @brief Read-out: the player's live eye height above the feet as the upper body gives it (drops on
+         *        kneel/pray/sit).
+         * @details Shows the same value Dynamic Eye Sync follows - the rig's real_eye_height (rig_readout()), published
+         *          by the frustum-builder detour each engaged frame: the neck joint lifted to eye level, or the
+         *          first-person eye when the neck does not read. The overlay thread reads the frame's published copy,
+         *          so a stale-by-a-frame readout is harmless.
          */
         void draw_applied_eye_height(int decimals)
         {
             const RigReadout rig = rig_readout();
             const float real_eye_height = rig.real_eye_height;
             ImGui::TextDisabled("Current eye height (real): %.*f m", decimals, real_eye_height);
-            hover_tooltip("Your character's actual first-person eye height above the feet right now. It drops when\n"
-                          "you kneel, pray, sit, etc. With Dynamic Eye Sync on, the camera re-anchors to this when it\n"
-                          "falls well below Eye Height. Updates live as your pose changes.");
+            hover_tooltip("Your character's eye height above the feet right now, read from the neck so a nod does not\n"
+                          "move it. It drops when you kneel, pray, sit, etc. With Dynamic Eye Sync on, the camera\n"
+                          "follows it as it moves away from Eye Height. Updates live as your pose changes.");
 
             // Live status of the dynamic sync (the ACTIVE preset's, which is the live camera): highlight when the
-            // camera is currently driven by the re-anchored real eye, vs. dim when the steady Eye Height is in effect.
+            // camera is moved off Eye Height by the upper body, vs. dim when the steady Eye Height is in effect.
             if (Presets::preset_readout().dynamic_eye_sync)
             {
                 if (rig.eye_sync_engaged)
                 {
                     const float effective = rig.eye_sync_effective;
                     ImGui::TextColored(ImVec4(0.40f, 0.85f, 0.45f, 1.0f),
-                                       "  -> Dynamic Eye Sync ACTIVE: anchored to %.*f m (real eye)", decimals,
-                                       effective);
-                    hover_tooltip("A low pose dropped your eye out of Eye Height range, so the camera is following\n"
-                                  "your real eye (head bob included) instead of the configured Eye Height.");
+                                       "  -> Dynamic Eye Sync ACTIVE: anchored at %.*f m", decimals, effective);
+                    hover_tooltip("Your pose moved your upper body away from Eye Height (lower, or leaning), so the\n"
+                                  "camera anchor follows it.");
                 }
                 else
                 {
-                    ImGui::TextDisabled("  -> Dynamic Eye Sync idle: using Eye Height (pose in range)");
-                    hover_tooltip("Dynamic Eye Sync is on, but your pose is within range, so the steady configured\n"
-                                  "Eye Height is in effect (no bob).");
+                    ImGui::TextDisabled("  -> Dynamic Eye Sync idle: using Eye Height (standing pose)");
+                    hover_tooltip("Dynamic Eye Sync is on, but your pose is close to standing, so the steady\n"
+                                  "configured Eye Height is in effect (no bob).");
                 }
             }
         }
@@ -1148,8 +1148,9 @@ namespace TPVCamera::Overlay
                     continue;
                 }
 
-                // The Dynamic Eye Sync toggle only does anything when Eye Height > 0 (it re-anchors the body-lifted
-                // anchor; at Eye Height 0 the camera already rides the FP eye). Hide it while Eye Height is 0.
+                // The Dynamic Eye Sync toggle only does anything when Eye Height > 0 (it softly follows the upper body
+                // off the standing height, and at Eye Height 0 the anchor follows it fully). Hide it while Eye Height
+                // is 0.
                 if (std::string_view(field.key) == "dynamic_eye_sync" && edited.eye_height <= 0.0f)
                 {
                     continue;

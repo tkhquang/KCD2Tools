@@ -150,8 +150,10 @@ namespace TPVCamera
             return pad ? "pad" : "off";
         }
 
-        /// Formats where the opponent is: distance, and how far the body and the camera are turned off him.
-        [[nodiscard]] std::string format_geometry(const CombatLock &lock, std::optional<float> camera_heading)
+        /// Formats where the opponent is: distance, and how far the body, the camera and the target pick's heading are
+        /// turned off him.
+        [[nodiscard]] std::string format_geometry(const CombatLock &lock, std::optional<float> camera_heading,
+                                                  std::optional<float> pick_heading)
         {
             if (lock.opponent == 0)
             {
@@ -168,6 +170,10 @@ namespace TPVCamera
                 text +=
                     std::format(", camera off {:.0f} deg", heading_gap_degrees(*camera_heading, lock.opponent_heading));
             }
+            if (pick_heading.has_value())
+            {
+                text += std::format(", pick off {:.0f} deg", heading_gap_degrees(*pick_heading, lock.opponent_heading));
+            }
             return text;
         }
 
@@ -180,7 +186,7 @@ namespace TPVCamera
         {
             const auto armed = [](std::int64_t deadline) { return deadline > Constants::COMBAT_TIMER_UNARMED; };
             return a.resolved != b.resolved || a.stance != b.stance || a.opponent != b.opponent ||
-                   a.opponent_id != b.opponent_id || a.opponent_dead != b.opponent_dead ||
+                   a.opponent_id != b.opponent_id || a.target_id != b.target_id || a.opponent_dead != b.opponent_dead ||
                    a.free_mouse != b.free_mouse || a.free_pad != b.free_pad || a.unlock_deadline != b.unlock_deadline ||
                    armed(a.end_deadline) != armed(b.end_deadline) || a.hard_lock != b.hard_lock;
         }
@@ -415,6 +421,13 @@ namespace TPVCamera
         const auto hard =
             DMK::memory::read<std::uint8_t>(DMK::Address{controller + Constants::COMBAT_CONTROLLER_HARD_LOCK_OFFSET});
         lock.hard_lock = hard && *hard != 0;
+        if (const std::optional<std::uintptr_t> target = combat_target_entity(*chain);
+            target.has_value() && *target != 0)
+        {
+            const auto target_id =
+                DMK::memory::read<std::uint32_t>(DMK::Address{*target + Constants::ENTITY_ID_OFFSET});
+            lock.target_id = target_id ? *target_id : 0u;
+        }
         if (lock.opponent == 0)
         {
             return lock;
@@ -659,7 +672,8 @@ namespace TPVCamera
         }
     }
 
-    void log_combat_lock(const CombatLock &lock, std::int64_t game_clock, std::optional<float> camera_heading) noexcept
+    void log_combat_lock(const CombatLock &lock, std::int64_t game_clock, std::optional<float> camera_heading,
+                         std::optional<float> pick_heading) noexcept
     {
         static CombatLock s_last{};
         static bool s_logged = false;
@@ -685,15 +699,19 @@ namespace TPVCamera
                 }
                 return;
             }
-            const std::string opponent = lock.opponent == 0
-                                             ? std::string{"none"}
-                                             : std::format("{:#x} (id {}, {}, health {:.1f}{})", lock.opponent,
-                                                           lock.opponent_id, lock.opponent_dead ? "dead" : "alive",
-                                                           lock.opponent_health, format_geometry(lock, camera_heading));
+            const std::string opponent =
+                lock.opponent == 0 ? std::string{"none"}
+                                   : std::format("{:#x} (id {}, {}, health {:.1f}{})", lock.opponent, lock.opponent_id,
+                                                 lock.opponent_dead ? "dead" : "alive", lock.opponent_health,
+                                                 format_geometry(lock, camera_heading, pick_heading));
+            const std::string target = lock.target_id == 0                  ? std::string{"none"}
+                                       : lock.target_id == lock.opponent_id ? std::string{"the opponent"}
+                                                                            : std::format("id {}", lock.target_id);
             (void)DMK::log().try_log(
                 DMK::LogLevel::Debug,
-                "Combat lock: stance {}, opponent {}, hard lock {}, free look {}, delayed unlock {}, end after kill {}",
-                lock.stance ? "on" : "off", opponent, lock.hard_lock ? "on" : "off",
+                "Combat lock: stance {}, opponent {}, target {}, hard lock {}, free look {}, delayed unlock {}, "
+                "end after kill {}",
+                lock.stance ? "on" : "off", opponent, target, lock.hard_lock ? "on" : "off",
                 format_free(lock.free_mouse, lock.free_pad), format_timer(lock.unlock_deadline, game_clock),
                 format_timer(lock.end_deadline, game_clock));
         }

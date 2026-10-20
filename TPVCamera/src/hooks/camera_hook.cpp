@@ -38,6 +38,7 @@
 #include "core/view/view_blend.hpp"
 #include "aob_resolver.hpp"
 #include "character_attachments.hpp"
+#include "character_pose.hpp"
 #include "combat_lock.hpp"
 #include "constants.hpp"
 #include "dev/hook_profile.hpp"
@@ -55,6 +56,7 @@
 #include "hooks/ranged_hook.hpp"
 #include "hooks/vtable_slots.hpp"
 #include "hooks/character_fade.hpp"
+#include "hooks/combat_pick.hpp"
 #include "hooks/combat_retarget.hpp"
 #include "hooks/head_visibility.hpp"
 #include "hooks/input_hook.hpp"
@@ -122,6 +124,12 @@ namespace TPVCamera
     // The heading of the view the rig built last, which picks the next combat opponent after a kill and goes into the
     // combat lock-on log (main thread only). Unset in first person.
     static std::optional<float> s_camera_heading;
+    // While the lock-on steers toward a living opponent (no free look), the heading from the player to him (main thread
+    // only): the lock-on's target pick goes along it (hooks/combat_pick.hpp).
+    static std::optional<float> s_lock_steer_heading;
+    // The heading the lock-on's target pick goes along instead of the rendered camera's, for the combat lock-on log
+    // (main thread only). Unset while the pick reads the rendered camera.
+    static std::optional<float> s_pick_heading;
     // The game sets the facing while free-look is on (RigInput::game_owns_facing): a stance held on a dead opponent.
     static bool s_game_owns_facing = false;
     // Raised on the frame the free-look a kill turned on by itself turns back off (main thread only): like the
@@ -914,7 +922,22 @@ namespace TPVCamera
                 {
                     return std::nullopt;
                 }
-                return LookReading{*quat, *pitch};
+                LookReading reading{*quat, *pitch};
+                // This frame's turns from the player's look input and from the procedural kick (Ang3 deltas). A miss
+                // leaves them 0, which counts the whole turn as the game's: the rig then only eases its jumps.
+                const auto read_delta = [&controller](std::ptrdiff_t delta, std::ptrdiff_t axis) noexcept
+                {
+                    const auto value = DMK::memory::read<float>(DMK::Address{*controller + delta + axis});
+                    return value && std::isfinite(*value) ? *value : 0.0f;
+                };
+                reading.input_pitch =
+                    read_delta(Constants::LOOK_CONTROLLER_INPUT_DELTA_OFFSET, Constants::ANG3_PITCH_OFFSET);
+                reading.input_yaw =
+                    read_delta(Constants::LOOK_CONTROLLER_INPUT_DELTA_OFFSET, Constants::ANG3_YAW_OFFSET);
+                reading.kick_pitch =
+                    read_delta(Constants::LOOK_CONTROLLER_KICK_DELTA_OFFSET, Constants::ANG3_PITCH_OFFSET);
+                reading.kick_yaw = read_delta(Constants::LOOK_CONTROLLER_KICK_DELTA_OFFSET, Constants::ANG3_YAW_OFFSET);
+                return reading;
             }
 
             [[nodiscard]] float game_fov() override { return m_frustum.fov; }
@@ -947,6 +970,11 @@ namespace TPVCamera
                     body.valid = true;
                 }
                 return body;
+            }
+
+            [[nodiscard]] std::optional<Vector3> neck(std::uintptr_t entity) override
+            {
+                return neck_model_position(entity);
             }
 
             [[nodiscard]] bool native_turn() override { return native_turn_engaged(); }
@@ -1071,6 +1099,13 @@ namespace TPVCamera
                 case RigEvent::BodyTurnReleased:
                     (void)DMK::log().log_noexcept(DMK::LogLevel::Trace, "Camera: orbit body-turn released");
                     return;
+                case RigEvent::LookSnapHeld:
+                    (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                             "Camera: the game turned the look {:.1f} deg heading, {:.1f} deg pitch in "
+                                             "one frame ({:.0f} deg/s) besides the player's own turn, and the camera "
+                                             "eases after it",
+                                             a, b, c);
+                    return;
                 }
             }
 
@@ -1180,6 +1215,7 @@ namespace TPVCamera
             .game_owns_facing = s_game_owns_facing,
             .lock_focus = s_lock_focus,
             .lock_free_look = s_lock_free_look,
+            .raw_look_known = input_dispatch_hooked(),
         };
         RigFrame rig{};
 #ifdef TPVCAMERA_DEV_BUILD
@@ -1196,15 +1232,35 @@ namespace TPVCamera
         {
             s_camera_heading = std::atan2(-rig.look_forward.x, rig.look_forward.y);
         }
+        // The direction the lock-on's target pick goes along instead of the rendered camera (hooks/combat_pick.hpp):
+        // the line to the opponent while the game steers toward him, else the rig's look before the lock framing
+        // while the framing turns the camera.
+        s_pick_heading = s_lock_steer_heading;
+        if (!s_pick_heading.has_value() && rig.lock_framed &&
+            rig.pick_forward.x * rig.pick_forward.x + rig.pick_forward.y * rig.pick_forward.y > 1e-6f)
+        {
+            s_pick_heading = std::atan2(-rig.pick_forward.x, rig.pick_forward.y);
+        }
+        if (s_pick_heading.has_value())
+        {
+            publish_combat_pick_forward(-std::sin(*s_pick_heading), std::cos(*s_pick_heading));
+        }
+        else
+        {
+            withdraw_combat_pick_forward();
+        }
         static bool s_lock_framed = false;
         if (const bool framed = s_rig.lock_frame_weight > 0.0f; framed != s_lock_framed && !step.repeat_build)
         {
             s_lock_framed = framed;
+            const std::uint32_t picks = take_combat_pick_forward_count();
             (void)DMK::log().try_log(
                 DMK::LogLevel::Debug,
-                "Orbit: lock framing {} (angle {:.1f} deg, aimed {:.2f} m above his feet and {:.2f} m to your side)",
+                "Orbit: lock framing {} (angle {:.1f} deg, aimed {:.2f} m above his feet and {:.2f} m to your side){}",
                 framed ? "eases in" : "has eased out", params.lock_framing_angle, params.lock_focus_height,
-                params.lock_focus_offset);
+                params.lock_focus_offset,
+                framed ? std::string{}
+                       : std::format(", and the lock-on's target pick took the camera's direction {} time(s)", picks));
         }
         // A hand-off to the combat opponent turns the lock-on's own view with the look and the body, on every frame it
         // writes them: the lock-on stops following the look once it is on, so without this its steer and its mouse free
@@ -1832,7 +1888,7 @@ namespace TPVCamera
             s_combat_lock = third_person_wanted ? read_combat_lock(c_player) : CombatLock{};
             if (third_person_wanted)
             {
-                log_combat_lock(s_combat_lock, step.game_clock, s_camera_heading);
+                log_combat_lock(s_combat_lock, step.game_clock, s_camera_heading, s_pick_heading);
             }
         }
         // A dead opponent is not one to turn to: the game only holds the lock on the body until the stance ends.
@@ -1848,6 +1904,11 @@ namespace TPVCamera
         else
         {
             s_lock_focus.reset();
+        }
+        s_lock_steer_heading.reset();
+        if (s_lock_focus.has_value() && !s_lock_free_look)
+        {
+            s_lock_steer_heading = s_combat_lock.opponent_heading;
         }
         // Kill release. The killing blow leaves the stance and the lock on the dead opponent for about four seconds
         // more (the finishing animation, then the game's end-of-stance delay), and the game keeps turning the player
@@ -2177,9 +2238,10 @@ namespace TPVCamera
         }
         reassert_head_visibility(offset_engaged, c_player);
         // The body's native turn-in-place animation follows the offset too (it follows the look again once the view is
-        // back at the eye), and is off while the view rides the first-person eye (the head fallback, or an Eye Height 0
-        // preset anchored to it). No turn starts under free-look.
-        const bool eye_anchored = head_fallback() || Presets::live_params().eye_height <= 0.0f;
+        // back at the eye), and is off while the view rides the first-person eye (the head fallback). Every Eye Height
+        // keeps the camera still through a turn: the anchor follows the neck, not the eye, holds the turn's steps off
+        // the pivot and keeps its lean and height targets while the body turns. No turn starts under free-look.
+        const bool eye_anchored = head_fallback();
         update_native_turn(c_player, offset_engaged, state, eye_anchored,
                            !controls.orbit_active.load(std::memory_order_relaxed), delta_time);
 
@@ -2240,7 +2302,7 @@ namespace TPVCamera
             s_rig.orbit_render_valid =
                 false; // next engaged frame snaps the orbit low-pass instead of easing across the gap
             s_rig.orbit_steer_valid = false;   // and the continuous-align steer low-pass
-            s_rig.eye_sync_valid = false;      // and the dynamic eye-height low-pass
+            s_rig.body_anchor_valid = false;   // and the body anchor's ease
             s_rig.fov_ease_valid = false;      // and the per-preset FOV override ease
             s_rig.basis_quat_valid = false;    // and the aim-basis low-pass
             s_rig.turn_track_valid = false;    // and the turn-in-place pivot hold
@@ -2271,6 +2333,10 @@ namespace TPVCamera
             s_rig.lock_frame_weight = 0.0f; // and the lock framing, which has no camera to turn
             s_rig.lock_frame_focus_valid = false;
             s_camera_heading.reset(); // the next opponent is picked against a camera built after the gap
+            s_pick_heading.reset();
+            s_lock_steer_heading.reset();
+            withdraw_combat_pick_forward(); // first person: the lock-on picks along its own camera
+
             // Back to first person: the next engaged frame should snap the preset, not ease across the gap.
             Presets::reset_transition();
             // Shots loosed in first person are still followed and drawn (the pose is invalid, so none is re-aimed).
@@ -2432,6 +2498,8 @@ namespace TPVCamera
         // What the character carries fades with it, found through the entity system g_env holds. Handed over before
         // any hook below is armed, so no camera frame walks the attachments without it.
         initialize_character_attachments(s_genv_runtime);
+        // The body anchor follows the player's neck joint through the skeleton getters, checked against this image.
+        initialize_character_pose(module_base, module_size);
 
         // The default hook::Options prologue policy is Fail, which is what this mod wants: refuse the
         // install when the resolved entry leads with a call or breakpoint byte, the shape a cascade
@@ -2480,6 +2548,9 @@ namespace TPVCamera
         // After a kill, move the combat lock-on to the hostile the camera points at instead of holding the body.
         // Best-effort, like the hooks above.
         install_combat_retarget_hook(module_base, module_size, hooks);
+        // Hand the lock-on's own target pick the camera's direction, so neither a block that moves the lock to the
+        // attacker nor the lock framing makes the next pick move the lock back. Best-effort.
+        install_combat_pick_forward_hook(hooks);
 
         // Let the body play the game's own turn-in-place animations while the third-person view is engaged.
         // Best-effort, like the hooks above.
