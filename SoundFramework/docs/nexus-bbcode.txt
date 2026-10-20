@@ -3,7 +3,11 @@
 
 On its own it changes nothing you can hear: install it for the mods that need it. [b]Stop Right There, Criminal Scum[/b] and [b]Chiuuu! Mouth-Sound Bows[/b] are two, and the [url=https://github.com/tkhquang/KCD2Tools/blob/main/SoundFramework/docs/MODDING.md]modding guide[/url] shows how to make your own.
 
+Questions, packs to share or ideas? Join the [url=https://discord.gg/wzhhsQRnkZ]KCD Modding Community[/url] on Discord.
+
 It is still early days. If something doesn't work properly, please report it with your game/mod versions, settings and log. Thank you for giving it a try!
+
+[youtube]oTJTcMXMzU0[/youtube]
 
 [size=5]Key Features[/size]
 [list]
@@ -134,7 +138,7 @@ ReplacesVoice = zaty_strazny_z_*
 [/code]
 The [url=https://github.com/tkhquang/KCD2Tools/blob/main/SoundFramework/docs/MODDING.md]modding guide[/url] covers every key, the bus names, voice recordings and text tables, moods, and how to find the game's event paths and line keys. [b]Stop Right There, Criminal Scum[/b] is a complete example pack.
 
-Please list Sound Framework as a requirement on your mod page.
+Please list Sound Framework as a requirement on your mod page. Share your packs and ask for help in the [url=https://discord.gg/wzhhsQRnkZ]KCD Modding Community[/url] Discord.
 
 [size=5]Known Limitations[/size]
 [list]

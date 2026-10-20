@@ -8,6 +8,8 @@ Draw, aim, release, and instead of the bowstring you hear a grown man going *"Ch
 
 It is a small joke mod and a showcase for [Sound Framework](../SoundFramework/): it is made of one pack INI and two sound files, with no code and no paks. It shows how a pack can replace the game's own sounds with brand-new ones, timed to the moment the arrow leaves the bow.
 
+[![Showcase video on YouTube](https://img.youtube.com/vi/NwKRRVTob6I/maxresdefault.jpg)](https://youtu.be/NwKRRVTob6I)
+
 ## Features
 
 - Every bow shot plays one of two mouth-made "Chiuuu!" takes, right as the arrow leaves the bow

@@ -8,6 +8,10 @@ Sound Framework lets mods add sounds and voice lines to the game without writing
 
 On its own the framework changes nothing you can hear. Players install it for the mods that need it; [Stop Right There, Criminal Scum](../CriminalScum/) and [Chiuuu! Mouth-Sound Bows](../MouthSoundBows/) are two, and the [modding guide](docs/MODDING.md) shows how to make your own.
 
+Questions, packs to share or ideas? Join the [KCD Modding Community](https://discord.gg/wzhhsQRnkZ) on Discord.
+
+[![Showcase video on YouTube](https://img.youtube.com/vi/oTJTcMXMzU0/maxresdefault.jpg)](https://youtu.be/oTJTcMXMzU0)
+
 > [!NOTE]
 > This mod is in early development. If something doesn't work properly, please [report it](https://github.com/tkhquang/KCD2Tools/issues) with your game/mod versions, settings and log.
 
@@ -124,7 +128,7 @@ sfw_say Dude Localization/dialog/utils/roomrenting/lcar_zena_hospodska_to_pujde_
 
 ## Making Sound Packs
 
-See the [modding guide](docs/MODDING.md) for the pack format: sounds, voice lines, text, moods, replacing the game's sounds and voice lines, and how to find the event paths and line keys to replace.
+See the [modding guide](docs/MODDING.md) for the pack format: sounds, voice lines, text, moods, replacing the game's sounds and voice lines, and how to find the event paths and line keys to replace. Share your packs and ask for help in the [KCD Modding Community](https://discord.gg/wzhhsQRnkZ) Discord.
 
 ## How It Works
 
