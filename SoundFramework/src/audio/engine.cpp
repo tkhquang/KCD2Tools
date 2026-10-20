@@ -150,7 +150,8 @@ namespace SoundFramework::audio
                     return true;
                 }
             }
-            DMK::log().warning("Engine: request queue full; '{}' dropped", request.name);
+            // The FMOD start and parameter hooks queue replacements through here.
+            (void)DMK::log().try_log(DMK::LogLevel::Warning, "Engine: request queue full; '{}' dropped", request.name);
             return false;
         }
 
@@ -168,6 +169,10 @@ namespace SoundFramework::audio
             for (const std::string &note : load.notes)
             {
                 DMK::log().info("Packs: {}", note);
+            }
+            for (const packs::PackFile &file : load.catalog.files)
+            {
+                DMK::log().info("Packs: read {}", packs::path_text(file.ini));
             }
             DMK::log().info(
                 "Packs: {} sound(s) from {} pack file(s) under {}",

@@ -1,14 +1,14 @@
 [size=5]Foreword[/size]
 [b]Sound Framework[/b] lets mods add sounds and voice lines to the game without writing code. A mod drops an INI file into its own SoundFramework folder; the framework plays its sounds on the game's own audio mixer, makes NPCs speak its voice lines with subtitles and lip movement, and can replace the game's sounds and voice lines with the mod's.
 
-On its own it changes nothing you can hear: install it for the mods that need it. [b]Stop Right There, Criminal Scum[/b] is one, and the [url=https://github.com/tkhquang/KCD2Tools/blob/main/SoundFramework/docs/MODDING.md]modding guide[/url] shows how to make your own.
+On its own it changes nothing you can hear: install it for the mods that need it. [b]Stop Right There, Criminal Scum[/b] and [b]Chiuuu! Mouth-Sound Bows[/b] are two, and the [url=https://github.com/tkhquang/KCD2Tools/blob/main/SoundFramework/docs/MODDING.md]modding guide[/url] shows how to make your own.
 
 It is still early days. If something doesn't work properly, please report it with your game/mod versions, settings and log. Thank you for giving it a try!
 
 [size=5]Key Features[/size]
 [list]
 [*][b]Sounds:[/b] play a pack's files on the game's buses (world, voice, music and others), in 3D or flat, with volume and pitch variation, loops, cooldowns and instance limits[/*]
-[*][b]Sound replacement:[/b] play a pack sound instead of a game sound event, everywhere or only for chosen characters and animals[/*]
+[*][b]Sound replacement:[/b] play a pack sound in place of a game sound event or on top of it, everywhere or for chosen characters and animals, at its start or at a later moment such as a bow's release[/*]
 [*][b]Voice lines:[/b] NPCs speak a pack's lines through the game's own speech system, with a bottom subtitle and speaker name, a chat bubble, or both[/*]
 [*][b]Voice replacement:[/b] play a pack line instead of a game voice line, by exact key or by pattern[/*]
 [*][b]Lip sync:[/b] a pack's lines move the speaker's mouth, with a small model that learned from the game's own animation or from the loudness of the voice[/*]
@@ -97,6 +97,23 @@ Open the console with [b]~[/b].
 [*][b]sfw_lipsync_offset <ms>[/b] - Moves the mouth earlier or later.[/*]
 [*][b]sfw_mood_override <mood> [pose:weight ...][/b] / [b]sfw_mood_dump <mood>[/b] - Tries mood values live / writes a mood to the log.[/*]
 [*][b]sfw_reload[/b] / [b]sfw_list[/b] - Reads every pack again / writes the catalog to the log.[/*]
+[/list]
+
+[size=5]Quick Test[/size]
+No pack needed. Load a save, open the console and make Henry say other characters' lines in different moods:
+[code]
+sfw_say Dude Localization/dialog/trosecko/konecZabomysichValek/jmil_comb_bojovnici_ty_odporny_RkVq mood:angry strength:2 You disgusting, slimy, rotten piece of shit!
+sfw_say Dude Localization/dialog/open_world/lazne_a_lazebnice/aals_obje_lazebnice_sss__jeste_AjPM mood:happy Wonderful! You'll see, you'll be happy to come back here.
+sfw_say Dude Localization/dialog/open_world/crime_reaction_barks/mrtvola/mbis_npc__npc_vidi__promin_str_0DUg mood:sad I'm sorry, but I can't stand to be here any longer.
+sfw_say Dude Localization/dialog/kutnohorsko/pogrom/tsho_zena_pogrom_ob_na_pomoc_S0g7 mood:scared Somebody help us!
+sfw_say Dude Localization/dialog/open_world/lazne_a_lazebnice/aals_obje_lazebnice_ale_ty_uz__wAcW mood:surprised You're already undressed? That's a new one!
+sfw_say Dude Localization/dialog/trosecko/konecZabomysichValek/jmil_comb_bojovnici_olbramovi__xiB6 mood:disgusted Olbram's breath smells like a bull's arse!
+sfw_say Dude Localization/dialog/utils/roomrenting/lcar_zena_hospodska_to_pujde_z_8Lbz mood:smug Very well, but you'll have to pay in advance.
+[/code]
+[list]
+[*][b]Dude[/b] is Henry. A third-person camera mod shows his face.[/*]
+[*][b]strength[/b] scales the mood from 0 to 2 (default 1). The text at the end is the subtitle.[/*]
+[*]None of these recordings has the game's lip-sync animation, and the voices are other characters', so the mouth movement is the framework's lip sync and the mood moves the whole face.[/*]
 [/list]
 
 [size=5]For Mod Authors[/size]

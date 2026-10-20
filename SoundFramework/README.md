@@ -6,7 +6,7 @@ Custom sounds and voices for Kingdom Come: Deliverance II mods.
 
 Sound Framework lets mods add sounds and voice lines to the game without writing code. A mod drops an INI file into its own `SoundFramework` folder; the framework plays its sounds on the game's own audio mixer, makes NPCs speak its voice lines with subtitles and lip movement, and can replace the game's sounds and voice lines with the mod's.
 
-On its own the framework changes nothing you can hear. Players install it for the mods that need it; [Stop Right There, Criminal Scum](../CriminalScum/) is one, and the [modding guide](docs/MODDING.md) shows how to make your own.
+On its own the framework changes nothing you can hear. Players install it for the mods that need it; [Stop Right There, Criminal Scum](../CriminalScum/) and [Chiuuu! Mouth-Sound Bows](../MouthSoundBows/) are two, and the [modding guide](docs/MODDING.md) shows how to make your own.
 
 > [!NOTE]
 > This mod is in early development. If something doesn't work properly, please [report it](https://github.com/tkhquang/KCD2Tools/issues) with your game/mod versions, settings and log.
@@ -14,7 +14,7 @@ On its own the framework changes nothing you can hear. Players install it for th
 ## Features
 
 - **Sounds:** play files from a pack on the game's buses (world, voice, music and others), in 3D or flat, with volume and pitch variation, loops, cooldowns and instance limits
-- **Sound replacement:** play a pack sound instead of a game sound event, everywhere or only for chosen entities
+- **Sound replacement:** play a pack sound in place of a game sound event or on top of it, everywhere or for chosen entities, at its start or at a later moment such as a bow's release
 - **Voice lines:** NPCs speak a pack's lines through the game's own speech system, with a bottom subtitle and speaker name, a chat bubble, or both
 - **Voice replacement:** play a pack line instead of a game voice line, by exact key or by pattern
 - **Lip sync:** a pack's lines move the speaker's mouth, either with a small model that learned from the game's own animation (ADVANCED) or from the loudness of the voice (BASIC)
@@ -86,7 +86,7 @@ After loading a save, open `KCD2_SoundFramework.log` beside the mod's DLL or ASI
 | `[LipSync] Enabled` | `true` | Lip movement for voice lines without the game's own lip-sync animation. Off means the face hook is not installed at all. |
 | `[LipSync] Mode` | `ADVANCED` | `ADVANCED`: a small machine-learned model moves the whole lower face (jaw, lips, mouth corners, smile lines). `BASIC`: jaw and lip shapes follow the loudness and spectrum of the voice. Advanced falls back to basic when the model file is missing. |
 | `[LipSync] OffsetMs` | `0` | Moves the mouth earlier (positive) or later (negative) than the sound. |
-| `[Debug] EventLog` | empty | Logs every game sound event whose path contains this text (`*` for all). |
+| `[Debug] EventLog` | empty | Logs every game sound event whose path contains this text (`*` for all), and the parameters the game sets on it. |
 | `[Debug] SpeakLog` | empty | Logs every voice line the game speaks whose key or file contains this text (`*` for all). |
 
 `KCD2_SoundFramework_moods.ini` holds the default moods. It is replaced on update; change a mood by defining it again in your own pack.
@@ -103,6 +103,24 @@ Open the game console with `~`.
 | `sfw_lipsync_offset <ms>` | Moves the mouth earlier or later. |
 | `sfw_mood_override <mood> [pose:weight ...]` / `sfw_mood_dump <mood>` | Tries mood values live / writes a mood to the log. |
 | `sfw_reload` / `sfw_list` | Reads every pack again / writes the catalog to the log. |
+
+### Quick test
+
+No pack needed. Load a save, open the console and make Henry say other characters' lines in different moods:
+
+```
+sfw_say Dude Localization/dialog/trosecko/konecZabomysichValek/jmil_comb_bojovnici_ty_odporny_RkVq mood:angry strength:2 You disgusting, slimy, rotten piece of shit!
+sfw_say Dude Localization/dialog/open_world/lazne_a_lazebnice/aals_obje_lazebnice_sss__jeste_AjPM mood:happy Wonderful! You'll see, you'll be happy to come back here.
+sfw_say Dude Localization/dialog/open_world/crime_reaction_barks/mrtvola/mbis_npc__npc_vidi__promin_str_0DUg mood:sad I'm sorry, but I can't stand to be here any longer.
+sfw_say Dude Localization/dialog/kutnohorsko/pogrom/tsho_zena_pogrom_ob_na_pomoc_S0g7 mood:scared Somebody help us!
+sfw_say Dude Localization/dialog/open_world/lazne_a_lazebnice/aals_obje_lazebnice_ale_ty_uz__wAcW mood:surprised You're already undressed? That's a new one!
+sfw_say Dude Localization/dialog/trosecko/konecZabomysichValek/jmil_comb_bojovnici_olbramovi__xiB6 mood:disgusted Olbram's breath smells like a bull's arse!
+sfw_say Dude Localization/dialog/utils/roomrenting/lcar_zena_hospodska_to_pujde_z_8Lbz mood:smug Very well, but you'll have to pay in advance.
+```
+
+- `Dude` is Henry. A third-person camera such as [TPVCamera](../TPVCamera/) shows his face.
+- `strength` scales the mood from 0 to 2 (default 1). The text at the end is the subtitle.
+- None of these recordings has the game's lip-sync animation, and the voices are other characters', so the mouth movement is the framework's lip sync and the mood moves the whole face.
 
 ## Making Sound Packs
 
@@ -164,7 +182,7 @@ The build deploys the loader into the game folder, replacing the release ASI, an
 
 ### Code style
 
-The C++23 sources follow a hard 120-column baseline and DetourModKit's coding conventions, with `.clang-format` (clang-format 20 or newer). Format changed files before submitting changes and check them with `clang-format --dry-run --Werror <files>`.
+The C++23 sources follow a hard 120-column baseline and DetourModKit's coding conventions ([AGENTS.md](https://github.com/tkhquang/DetourModKit/blob/main/AGENTS.md)), with `.clang-format` (clang-format 20 or newer). Format changed files before submitting changes and check them with `clang-format --dry-run --Werror <files>`.
 
 ## Credits
 

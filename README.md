@@ -20,6 +20,9 @@ A loot and object highlighting mod for Kingdom Come: Deliverance II. The native 
 ### [Sound Framework - Custom Sounds and Voices](SoundFramework/)
 A framework that lets mods add sounds and voice lines without code: new sounds on the game's mixer, NPC voice lines with subtitles, lip sync and facial moods, and replacements for the game's own sounds and voice lines.
 
+### [Chiuuu! Mouth-Sound Bows](MouthSoundBows/)
+Every bow and crossbow shot goes "Chiuuu!", made with a human mouth. A showcase pack for Sound Framework.
+
 ### [Loot Beacon - Never Miss a Drop or Corpse (Highlight Pickable Items)](LootBeacon/)
 A mod that helps players spot dropped items in the game world. Activate the highlight feature with a keypress and watch as nearby pickable items are highlighted with a colorful particle effect. Superseded by Henry's Senses.
 

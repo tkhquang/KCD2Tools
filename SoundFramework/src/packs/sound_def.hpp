@@ -11,6 +11,8 @@
  * Volume = 0.8
  * Replaces = event:/animals/dog/dog_bark   ; optional: game events this sound plays instead of
  * ReplacesFor = tvez_vorech                ; optional: only when the event starts at one of these entities
+ * PlayAt = arrow_release:1                 ; optional: play when the game sets this event parameter, not at the start
+ * KeepOriginal = true                      ; optional: leave the game's event audible and play on top of it
  * @endcode
  */
 #ifndef SNDFW_PACKS_SOUND_DEF_HPP
@@ -65,6 +67,16 @@ namespace SoundFramework::packs
         std::vector<std::string> replaces;
         /// Entity names (lower case): when set, an event is replaced only when it starts at one of these entities.
         std::vector<std::string> replaces_for;
+        /**
+         * @brief A parameter of the replaced events (lower case). When set, this sound does not play at a replaced
+         *        event's start but once the game first sets that parameter on it, to @ref play_at_value or more when
+         *        given.
+         */
+        std::string play_at;
+        /// The lowest value of @ref play_at that plays the sound; without it, any value does.
+        std::optional<float> play_at_value;
+        /// The replaced events stay audible and this sound plays on top of them, instead of muting them.
+        bool keep_original = false;
         /// Where the sound was defined, for log lines: "<ini path>:<line>".
         std::string origin;
     };

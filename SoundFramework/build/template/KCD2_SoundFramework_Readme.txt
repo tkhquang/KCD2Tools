@@ -76,6 +76,16 @@ SETTINGS (KCD2_SoundFramework.ini):
   [Debug] EventLog and SpeakLog help mod authors find the game's sound events and
   voice lines.
 
+QUICK TEST:
+  No pack needed. Load a save, open the console (~) and make Henry ("Dude")
+  say another character's line in a mood, for example:
+    sfw_say Dude Localization/dialog/open_world/lazne_a_lazebnice/aals_obje_lazebnice_ale_ty_uz__wAcW mood:surprised You're already undressed?
+    sfw_say Dude Localization/dialog/trosecko/konecZabomysichValek/jmil_comb_bojovnici_ty_odporny_RkVq mood:angry strength:2 You disgusting, slimy, rotten piece of shit!
+  These lines have no lip-sync animation in the game, so the mouth movement is
+  the framework's own. strength scales the mood from 0 to 2 (default 1); the
+  text at the end is the subtitle. A third-person camera mod shows his face.
+  More lines are on the mod page and in the README.
+
 UPDATING:
   Back up your customized INI before extracting the new archive, then reapply
   your settings to the supplied INI. KCD2_SoundFramework_moods.ini is replaced on

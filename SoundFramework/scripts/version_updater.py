@@ -39,7 +39,7 @@ def get_current_version():
     patch_match = re.search(r'#define\s+VERSION_PATCH\s+(\d+)', version_h)
 
     if not (major_match and minor_match and patch_match):
-        print("Error: Could not extract version information from version.hpp")
+        print("Error: Cannot extract version information from version.hpp")
         sys.exit(1)
 
     major = int(major_match.group(1))
@@ -178,7 +178,7 @@ All notable changes to the SoundFramework mod will be documented in this file.
         # Find the end of this line and the double newline that follows
         insert_position = content.find("\n\n", header_end_pos) + 2
     else:
-        # Fallback, should not happen with the fixes we made above
+        # Without the intro line, the entry goes after the "# Changelog" title.
         insert_position = content.find("\n\n", content.find("# Changelog")) + 2
 
     # Format the changelog entry
@@ -209,7 +209,7 @@ All notable changes to the SoundFramework mod will be documented in this file.
         # Remove ALL existing version links using regex instead of trying to find the section start
         updated_content = re.sub(r'\n\[[0-9]+\.[0-9]+\.[0-9]+\]: .*', '', updated_content)
 
-        # Add our version link if it doesn't exist
+        # Add the new version's link when it is missing
         version_in_links = False
         for v, _ in version_links:
             if v == version:

@@ -109,6 +109,30 @@ namespace
         CHECK(valid_sound_name("my_mod.bell-2") && !valid_sound_name("a b") && !valid_sound_name(""));
     }
 
+    void test_play_at_and_keep_original()
+    {
+        const PackParse parsed = parse_pack(
+            "[shot]\nFiles = x.ogg\nReplaces = event:/combat/weapons/bow/bow_shot\nPlayAt = Release : 1\n"
+            "[anyvalue]\nFiles = x.ogg\nReplaces = event:/a\nPlayAt = Stage\n"
+            "[orphanat]\nFiles = x.ogg\nPlayAt = release\n"
+            "[noname]\nFiles = x.ogg\nReplaces = event:/a\nPlayAt = :1\n"
+            "[badvalue]\nFiles = x.ogg\nReplaces = event:/a\nPlayAt = release:high\n"
+            "[nanvalue]\nFiles = x.ogg\nReplaces = event:/a\nPlayAt = release:nan\n"
+            "[layered]\nFiles = x.ogg\nReplaces = event:/a\nKeepOriginal = yes\n"
+            "[orphankeep]\nFiles = x.ogg\nKeepOriginal = true\n",
+            fs::path("C:/Mods/m/SoundFramework/p.ini")
+        );
+        CHECK(parsed.sounds.size() == 5); // shot, anyvalue, orphanat, layered, orphankeep (alone they only warn)
+        CHECK(parsed.sounds[0].play_at == "release" && parsed.sounds[0].play_at_value == std::optional(1.0f));
+        CHECK(parsed.sounds[1].play_at == "stage" && !parsed.sounds[1].play_at_value.has_value());
+        CHECK(mentions(parsed.problems, "[orphanat] PlayAt without Replaces"));
+        CHECK(mentions(parsed.problems, "[noname] PlayAt needs a parameter name"));
+        CHECK(mentions(parsed.problems, "PlayAt value 'high' is not a number"));
+        CHECK(mentions(parsed.problems, "PlayAt value 'nan' is not a number"));
+        CHECK(!parsed.sounds[0].keep_original && parsed.sounds[3].keep_original);
+        CHECK(mentions(parsed.problems, "[orphankeep] KeepOriginal without Replaces"));
+    }
+
     void test_replaces_voice()
     {
         const PackParse parsed = parse_pack(
@@ -276,6 +300,7 @@ int main()
 {
     test_ini_reader();
     test_pack_values();
+    test_play_at_and_keep_original();
     test_replaces_voice();
     test_lines();
     test_moods();
