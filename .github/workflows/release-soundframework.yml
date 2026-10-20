@@ -290,7 +290,7 @@ jobs:
 
       # The account API key is shared; file and v3 mod IDs identify this mod. Each archive is its own Nexus file:
       # leave a file ID unset to skip that upload. mod_id is required only for changelogs, which the main file posts.
-      # The ASI build is the default download.
+      # The ASI build is the main file. It installs by hand beside WHGame.dll, so mod manager downloads stay off.
       - name: Publish ASI build to Nexus Mods
         if: ${{ !inputs.prerelease && vars.NEXUSMODS_SOUNDFRAMEWORK_FILE_ID != '' }}
         uses: Nexus-Mods/upload-action@c96019556046053aa26044b44396cd38929daf23 # v1.0.0-beta.10
@@ -303,8 +303,8 @@ jobs:
           description: ${{ steps.prepare-release.outputs.NEXUS_DESCRIPTION }}
           category: main
           archive_existing_version: false
-          primary_mod_manager_download: true
-          allow_mod_manager_download: true
+          primary_mod_manager_download: false
+          allow_mod_manager_download: false
           show_requirements_pop_up: true
           update_mod_version: true
           mod_id: ${{ vars.NEXUSMODS_SOUNDFRAMEWORK_MOD_ID }}
@@ -323,7 +323,7 @@ jobs:
           description: ${{ steps.prepare-release.outputs.NEXUS_DESCRIPTION }}
           category: main
           archive_existing_version: false
-          primary_mod_manager_download: false
+          primary_mod_manager_download: true
           allow_mod_manager_download: true
           show_requirements_pop_up: true
           update_mod_version: false
