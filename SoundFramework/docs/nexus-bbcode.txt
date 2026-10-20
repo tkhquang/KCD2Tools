@@ -107,7 +107,7 @@ sfw_say Dude Localization/dialog/open_world/lazne_a_lazebnice/aals_obje_lazebnic
 sfw_say Dude Localization/dialog/open_world/crime_reaction_barks/mrtvola/mbis_npc__npc_vidi__promin_str_0DUg mood:sad I'm sorry, but I can't stand to be here any longer.
 sfw_say Dude Localization/dialog/kutnohorsko/pogrom/tsho_zena_pogrom_ob_na_pomoc_S0g7 mood:scared Somebody help us!
 sfw_say Dude Localization/dialog/open_world/lazne_a_lazebnice/aals_obje_lazebnice_ale_ty_uz__wAcW mood:surprised You're already undressed? That's a new one!
-sfw_say Dude Localization/dialog/open_world/crime_reaction_barks/reakce_na_zvuk/dzap_npc__npc_reagu_jezisikris_ozFk mood:disgusted Jesus Christ! I can smell you from over here!
+sfw_say Dude Localization/dialog/trosecko/konecZabomysichValek/jmil_comb_bojovnici_olbramovi__xiB6 mood:disgusted Olbram's breath smells like a bull's arse!
 sfw_say Dude Localization/dialog/utils/roomrenting/lcar_zena_hospodska_to_pujde_z_8Lbz mood:smug Very well, but you'll have to pay in advance.
 [/code]
 [list]
