@@ -24,26 +24,28 @@ namespace TPVCamera
     constexpr float k_aim_rig_drop_pitch = 0.75f; // rad
 
     /**
-     * @brief Rebuilds the look orientation from its heading and the scalar pitch, without the stale roll.
-     * @details The raw look quat can carry a stale roll angle (see LOOK_CONTROLLER_QUAT_OFFSET).
-     *          C_CameraFirstPerson::Update never renders that quat directly. It takes only the heading of the look
-     *          forward vector and combines it with the scalar pitch that C_Player vtable slot 59 returns
-     *          (controller + LOOK_CONTROLLER_PITCH2_OFFSET), so the roll never reaches the first-person view. This
-     *          helper builds RotZ(heading) * RotX(pitch) from the same two inputs, which gives a level aim with no
-     *          view shake. The game's own third-person camera renders the raw quat instead, which is why it tilts on
-     *          horseback.
-     * @param look Look quat read from the controller.
-     * @param pitch Scalar look pitch in radians, 0 = level.
-     * @return Roll-free look orientation.
+     * @brief The heading of a look orientation: the yaw of its forward (look * +Y), forward = (-sin, cos).
+     * @details The engine writes forward.y as 2 * (y * y + w * w) - 1, which holds only at unit length. The homogeneous
+     *          form keeps the heading exact for the slightly non-unit quats the rig's sanity check still accepts.
      */
-    [[nodiscard]] inline Quaternion level_look_rotation(const Quaternion &look, float pitch) noexcept
+    [[nodiscard]] inline float look_heading(const Quaternion &look) noexcept
     {
-        // Heading of forward = look * +Y, the yaw the engine extracts. The engine writes forward.y as
-        // 2 * (y * y + w * w) - 1, which holds only at unit length. The homogeneous form below keeps the heading
-        // exact for the slightly non-unit quats the caller's sanity check still accepts.
         const float forward_x = 2.0f * (look.x * look.y - look.w * look.z);
         const float forward_y = look.w * look.w - look.x * look.x + look.y * look.y - look.z * look.z;
-        const float heading = std::atan2(-forward_x, forward_y);
+        return std::atan2(-forward_x, forward_y);
+    }
+
+    /**
+     * @brief The roll-free look orientation RotZ(@p heading) * RotX(@p pitch), radians.
+     * @details The raw look quat can carry a stale roll angle (see LOOK_CONTROLLER_QUAT_OFFSET).
+     *          C_CameraFirstPerson::Update never renders that quat directly. It takes only the heading of the look
+     *          forward vector (look_heading()) and combines it with the scalar pitch that C_Player vtable slot 59
+     *          returns (controller + LOOK_CONTROLLER_PITCH2_OFFSET), so the roll never reaches the first-person view.
+     *          The same two inputs give a level aim with no view shake. The game's own third-person camera renders
+     *          the raw quat instead, which is why it tilts on horseback.
+     */
+    [[nodiscard]] inline Quaternion level_rotation(float heading, float pitch) noexcept
+    {
         const float sin_heading = std::sin(heading * 0.5f);
         const float cos_heading = std::cos(heading * 0.5f);
         const float sin_pitch = std::sin(pitch * 0.5f);
@@ -51,6 +53,99 @@ namespace TPVCamera
         // Expanded product RotZ(heading) * RotX(pitch) in XYZW order.
         return Quaternion{cos_heading * sin_pitch, sin_heading * sin_pitch, sin_heading * cos_pitch,
                           cos_heading * cos_pitch};
+    }
+
+    /**
+     * @brief How fast the look turned over one step, radians per second: the heading turn shortened by the cosine of
+     *        the pitch (the arc the forward sweeps) combined with the pitch turn.
+     * @return 0 for a step of no time.
+     */
+    [[nodiscard]] inline float look_turn_speed(float turn_heading, float turn_pitch, float pitch, float dt) noexcept
+    {
+        if (!(dt > 0.0f))
+        {
+            return 0.0f;
+        }
+        const float sweep = turn_heading * std::cos(pitch);
+        return std::sqrt(sweep * sweep + turn_pitch * turn_pitch) / dt;
+    }
+
+    /**
+     * @brief Follows @p offset softly: offset^3 / (offset^2 + dead_zone^2), with no step anywhere.
+     * @details Near 0 it barely moves (a fifth of the offset at half the dead zone), at the dead zone it gives half,
+     *          and past it it tracks the offset to within dead_zone^2 / offset. So head bob and breathing stay out of
+     *          the anchor while a kneel or a bow comes through, and the follow never jumps at a threshold.
+     */
+    [[nodiscard]] inline float soft_follow(float offset, float dead_zone) noexcept
+    {
+        const float squared = offset * offset;
+        const float denominator = squared + dead_zone * dead_zone;
+        return denominator > 0.0f ? offset * squared / denominator : 0.0f;
+    }
+
+    // Look snap detection (is_look_snap()). A jump the game makes lands in one frame, so its speed scales with the
+    // frame rate: 36-74 deg jumps read over 700 deg/s, but a 10 deg one at 30 fps only 315 deg/s. A turn faster than
+    // k_look_snap_speed is a jump at any frame rate. A slower turn is a jump when it starts at once: faster than
+    // k_look_snap_onset_speed and k_look_snap_onset_ratio times the last step's speed. A turn the game eases (a horse's
+    // heading, the look that follows the body into a seat) builds up over frames and passes.
+    constexpr float k_look_snap_speed = 6.2832f;       // rad/s (360 deg/s)
+    constexpr float k_look_snap_onset_speed = 1.5708f; // rad/s (90 deg/s)
+    constexpr float k_look_snap_onset_ratio = 3.0f;
+
+    /**
+     * @brief Whether a look turn of @p speed (rad/s) after a step of @p last_speed is a jump rather than a turn the
+     *        game eases (see k_look_snap_speed).
+     */
+    [[nodiscard]] inline bool is_look_snap(float speed, float last_speed) noexcept
+    {
+        return speed > k_look_snap_speed ||
+               (speed > k_look_snap_onset_speed && speed > k_look_snap_onset_ratio * last_speed);
+    }
+
+    /**
+     * @brief Whether the game's part of a frame's look turn (@p game_heading, @p game_pitch) is a view limit that
+     *        stops the player's own turn (@p player_heading, @p player_pitch): against it, and no larger. Radians.
+     */
+    [[nodiscard]] inline bool is_look_clamp(float game_heading, float game_pitch, float player_heading,
+                                            float player_pitch) noexcept
+    {
+        const float against = game_heading * player_heading + game_pitch * player_pitch;
+        const float game = game_heading * game_heading + game_pitch * game_pitch;
+        const float player = player_heading * player_heading + player_pitch * player_pitch;
+        return against < 0.0f && game <= player * 1.001f;
+    }
+
+    /**
+     * @brief Holds a turn of the look the game made off the rendered look and eases it back out along an S-curve.
+     * @details The hold is added to the look the rig renders. A held turn is taken out of both stages of each spring,
+     *          so the rendered look does not move with it, and each spring then steps toward 0 by @p alpha
+     *          (spring_alpha() of the settle time, where 0 keeps a jump whole on its frame). The second stage trails
+     *          the first, so the ease starts from rest instead of a one-stage ease's lurch, and turns taken in frame
+     *          after frame come out as a second-order low-pass of the look. The heading hold is kept within half a
+     *          turn, so it eases back the short way.
+     * @param heading_hold The heading hold (radians), stepped in place.
+     * @param pitch_hold The pitch hold (radians), stepped in place.
+     * @param turn_heading This step's heading turn (radians), held when @p hold.
+     * @param turn_pitch This step's pitch turn (radians), held when @p hold.
+     * @param hold Whether this step's turn is held.
+     * @param alpha The step's ease weight toward 0.
+     */
+    inline void hold_look_snap(Spring<float> &heading_hold, Spring<float> &pitch_hold, float turn_heading,
+                               float turn_pitch, bool hold, float alpha) noexcept
+    {
+        if (hold)
+        {
+            heading_hold.stage1 -= turn_heading;
+            heading_hold.applied -= turn_heading;
+            pitch_hold.stage1 -= turn_pitch;
+            pitch_hold.applied -= turn_pitch;
+            const float wrap =
+                heading_hold.applied - std::remainder(heading_hold.applied, 2.0f * std::numbers::pi_v<float>);
+            heading_hold.stage1 -= wrap;
+            heading_hold.applied -= wrap;
+        }
+        heading_hold.step(0.0f, alpha);
+        pitch_hold.step(0.0f, alpha);
     }
 
     /**

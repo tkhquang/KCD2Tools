@@ -43,6 +43,7 @@ namespace TPVCamera::ProbeRecord
         PublishMovePress,
         WithdrawMovePress,
         Event,
+        Neck,
     };
 
     /** @brief The name of @p call, for a divergence report. */
@@ -61,6 +62,7 @@ namespace TPVCamera::ProbeRecord
         [[nodiscard]] float game_fov() override;
         void override_fov(float fov, float ratio) override;
         [[nodiscard]] BodyReading body(std::uintptr_t c_player) override;
+        [[nodiscard]] std::optional<Vector3> neck(std::uintptr_t entity) override;
         [[nodiscard]] bool native_turn() override;
         [[nodiscard]] std::optional<float> move_input() override;
         [[nodiscard]] std::optional<float> game_move(std::uintptr_t c_player) override;
@@ -96,6 +98,7 @@ namespace TPVCamera::ProbeRecord
         [[nodiscard]] float game_fov() override;
         void override_fov(float fov, float ratio) override;
         [[nodiscard]] BodyReading body(std::uintptr_t c_player) override;
+        [[nodiscard]] std::optional<Vector3> neck(std::uintptr_t entity) override;
         [[nodiscard]] bool native_turn() override;
         [[nodiscard]] std::optional<float> move_input() override;
         [[nodiscard]] std::optional<float> game_move(std::uintptr_t c_player) override;

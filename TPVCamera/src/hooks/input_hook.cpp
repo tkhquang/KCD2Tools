@@ -29,6 +29,44 @@ namespace TPVCamera
         // capture mouse-look deltas and freeze the player by not dispatching while orbiting.
         using InputDispatchFunc = void(__fastcall *)(uintptr_t controller, uintptr_t input_event, char flag);
         std::atomic<InputDispatchFunc> s_input_dispatch_original{nullptr};
+        // Set once the detour is armed: the rig then knows when the player's raw look input arrives.
+        std::atomic<bool> s_input_dispatch_hooked{false};
+
+        /**
+         * @brief Records that the player's mouse or stick look input arrived, whether free-look is on or not.
+         * @details The rig compares it with the turn the look controller took from its look input: input that arrives
+         *          but does not reach the controller (the combat lock-on's free look turns the view through the combat
+         *          input instead) leaves the whole turn the player's (RigState::raw_look_seen). A mouse look delta sets
+         *          raw_look_seen, and a right-stick look event latches its deflection, since the stick posts a held
+         *          position only when it changes. Main thread (the input dispatcher runs between camera frames on it),
+         *          so the rig state is written directly.
+         */
+        void note_raw_look_input(RigState &rig, uintptr_t input_event)
+        {
+            if (input_event == 0 || !DMK::memory::is_plausible_ptr(DMK::Address{input_event}))
+            {
+                return;
+            }
+            const int32_t type = *reinterpret_cast<const int32_t *>(input_event + Constants::INPUT_EVENT_TYPE_OFFSET);
+            if (type != Constants::MOUSE_INPUT_TYPE_ID)
+            {
+                return;
+            }
+            const int32_t id = *reinterpret_cast<const int32_t *>(input_event + Constants::INPUT_EVENT_ID_OFFSET);
+            const float value = *reinterpret_cast<const float *>(input_event + Constants::INPUT_EVENT_VALUE_OFFSET);
+            if (id == Constants::INPUT_LOOK_YAW_EVENT_ID || id == Constants::INPUT_LOOK_PITCH_EVENT_ID)
+            {
+                rig.raw_look_seen = rig.raw_look_seen || value != 0.0f;
+            }
+            else if (id == Constants::INPUT_PAD_LOOK_YAW_EVENT_ID)
+            {
+                rig.raw_look_pad_heading = value;
+            }
+            else if (id == Constants::INPUT_PAD_LOOK_PITCH_EVENT_ID)
+            {
+                rig.raw_look_pad_pitch = value;
+            }
+        }
 
         /**
          * @brief Free-look capture/block decision for one input event (toggle orbit camera).
@@ -44,6 +82,7 @@ namespace TPVCamera
         [[nodiscard]] bool orbit_capture_and_decide(uintptr_t input_event)
         {
             RigState &rig = rig_state();
+            note_raw_look_input(rig, input_event);
             // Gate on the offset's effective active state (so free-look also works when a forced-TPV state
             // turned the offset on without the manual toggle), the orbit toggle, the cursor-shown flag (so a
             // UI being up holds the orbit instead of letting cursor motion turn it), and the shared UI gate
@@ -188,7 +227,16 @@ namespace TPVCamera
                                    "unavailable",
                                    armed.error().message());
                 }
+                else
+                {
+                    s_input_dispatch_hooked.store(true, std::memory_order_release);
+                }
             }
         }
+    }
+
+    bool input_dispatch_hooked() noexcept
+    {
+        return s_input_dispatch_hooked.load(std::memory_order_acquire);
     }
 } // namespace TPVCamera

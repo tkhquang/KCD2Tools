@@ -49,7 +49,7 @@ namespace TPVCamera::Presets
         float zoom_step = 4.0f;
         float offset_up = 0.0f;
         float eye_height = 1.6f;
-        bool dynamic_eye_sync = true; // re-anchor eye height to the real FP eye on out-of-range low poses (kneel/pray)
+        bool dynamic_eye_sync = true; // follow the upper body softly off a positive Eye Height (kneel, pray, bend)
         float offset_right = 0.4f;
         float follow_yaw = 0.0f;   // static resting orbit yaw around the pivot, degrees (0 = directly behind)
         float follow_pitch = 0.0f; // static resting orbit pitch around the pivot, degrees (0 = level)

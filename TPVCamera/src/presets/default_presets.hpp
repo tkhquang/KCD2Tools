@@ -56,7 +56,7 @@ namespace TPVCamera::Presets
       "fields": {
         "collision_return_speed": 6.0,
         "collision_skin": 0.2,
-        "dynamic_eye_sync": false,
+        "dynamic_eye_sync": true,
         "enable_collision": true,
         "eye_height": 0.0,
         "follow_distance": 3.5,
@@ -67,7 +67,8 @@ namespace TPVCamera::Presets
         "fov": 60.0,
         "gamepad_orbit_speed_x": 200.0,
         "gamepad_orbit_speed_y": 200.0,
-        "offset_right": 0.6,
+        "lock_framing_angle": 30.0,
+        "offset_right": 0.0,
         "offset_up": 0.0,
         "orbit_body_turn": true,
         "orbit_continuous_align": true,

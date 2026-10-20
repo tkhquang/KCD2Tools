@@ -458,6 +458,20 @@ namespace TPVCamera
             return {};
         }
 
+        /** @brief The CCharInstance of @p entity's render proxy, or 0. SEH-guarded, POD body. */
+        [[nodiscard]] std::uintptr_t character_guarded(const Vtables &vtables, std::uintptr_t entity) noexcept
+        {
+            __try
+            {
+                const NodeRead node = render_node_of(vtables, entity);
+                return node.node != 0 ? character_of(vtables, node.node) : 0;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return 0;
+            }
+        }
+
         /** @brief walk_body under a structured-exception frame. A fault ends the walk as WalkError::Fault. */
         [[nodiscard]] WalkResult walk_guarded(const WalkInput &in, CharacterNodes &out, SkippedItems &skipped) noexcept
         {
@@ -695,6 +709,15 @@ namespace TPVCamera
         }
 
     } // namespace
+
+    std::uintptr_t character_instance_of(std::uintptr_t entity) noexcept
+    {
+        if (entity < k_min_address || (!s_vtables_ready && resolve_vtables() >= 0))
+        {
+            return 0;
+        }
+        return character_guarded(s_vtables, entity);
+    }
 
     void initialize_character_attachments(std::uintptr_t g_env) noexcept
     {

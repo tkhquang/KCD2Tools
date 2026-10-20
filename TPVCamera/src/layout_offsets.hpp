@@ -80,8 +80,21 @@ namespace Constants
     // basis from this aim, so a multi-meter follow distance does not amplify the view-shake into a camera swing.
     // The raw quat is not always level. A horse mount animation leaves a roll angle at +0xC that normal look input
     // never clears, so the quat stays tilted for the ride. StableAimBasis therefore reads it through
-    // level_look_rotation, which keeps only the heading and the scalar pitch, as the first-person camera does.
+    // level_rotation(look_heading()), which keeps only the heading and the scalar pitch, as the first-person camera
+    // does.
     constexpr ptrdiff_t LOOK_CONTROLLER_QUAT_OFFSET = 0x24;
+    // The controller's per-frame update (1.5.6 sub_1804415E0) feeds the look angles three Ang3 deltas (pitch at +0,
+    // yaw at +8) that sub_180441928 adds before the view limits clamp them: the player's look input
+    // (LOOK_CONTROLLER_INPUT_DELTA_OFFSET, copied from the input each frame, mouse and stick alike), the change of a
+    // decaying procedural kick (LOOK_CONTROLLER_KICK_DELTA_OFFSET) and the game's own turn requests (+0x88, cleared
+    // after). The update runs before the camera each frame and leaves the first two in place until the next one, so
+    // the camera reads this frame's. A mouse turn's yaw change minus the input delta stays under 1e-5 rad. The other
+    // writers of the look angles are the body re-derive (sub_1806442A8) and the view limits. Steam 1.5.6, GOG 1.5 and
+    // Game Pass 1.4 store both deltas at these offsets (`movsd [rcx+64h]`, `movsd [rcx+7Ch]`).
+    constexpr ptrdiff_t LOOK_CONTROLLER_INPUT_DELTA_OFFSET = 0x7C;
+    constexpr ptrdiff_t LOOK_CONTROLLER_KICK_DELTA_OFFSET = 0x64;
+    constexpr ptrdiff_t ANG3_PITCH_OFFSET = 0x0;
+    constexpr ptrdiff_t ANG3_YAW_OFFSET = 0x8;
 
     // Player BODY-turn: force the entity world yaw (camera-relative body facing)
     // The look controller above is aim-only, so a separate primitive turns the BODY. The engine's
@@ -478,6 +491,20 @@ namespace Constants
     constexpr std::uint32_t ENTITY_ID_MAX_INDEX = 0x3FFFD;
     constexpr const char *C_RENDER_PROXY_RTTI_NAME = ".?AVCRenderProxy@@";
     constexpr const char *C_CHAR_INSTANCE_RTTI_NAME = ".?AVCCharInstance@@";
+
+    // The player's skeleton (character_pose.cpp), which the camera's body anchor follows. CCharInstance slot 6
+    // returns its ISkeletonPose (1.5.6 0x181AA6BC0, `lea rax, [rcx+698h]`) and slot 10 its IDefaultSkeleton
+    // (0x1808A49D0, `mov rax, [rcx+0A70h]`). CSkeletonPose slot 27 (0x180641250) is GetAbsJointByID: a joint's
+    // model-space QuatT from the pose data's absolute array, or a static identity for an index out of range (slot 28
+    // is the relative one). CDefaultSkeleton slot 4 (0x18053F5AC) is GetJointIDByCRC32: the index of the joint whose
+    // lower-case name hashes to that CRC32, or -1. A QuatT holds the rotation (x, y, z, w), then the translation.
+    constexpr std::size_t CHAR_INSTANCE_VTABLE_GET_SKELETON_POSE_SLOT = 6;
+    constexpr std::size_t CHAR_INSTANCE_VTABLE_GET_DEFAULT_SKELETON_SLOT = 10;
+    constexpr std::size_t SKELETON_POSE_VTABLE_GET_ABS_JOINT_SLOT = 27;
+    constexpr std::size_t DEFAULT_SKELETON_VTABLE_JOINT_ID_BY_CRC_SLOT = 4;
+    constexpr ptrdiff_t QUATT_TRANSLATION_OFFSET = 0x10;
+    constexpr const char *C_SKELETON_POSE_RTTI_NAME = ".?AVCSkeletonPose@@";
+    constexpr const char *C_DEFAULT_SKELETON_RTTI_NAME = ".?AVCDefaultSkeleton@@";
     constexpr const char *C_ATTACHMENT_MANAGER_RTTI_NAME = ".?AVCAttachmentManager@@";
     constexpr const char *C_ATTACHMENT_BONE_RTTI_NAME = ".?AVCAttachmentBONE@@";
     constexpr const char *C_ENTITY_ATTACHMENT_RTTI_NAME = ".?AUCEntityAttachment@@";

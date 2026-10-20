@@ -17,10 +17,10 @@ namespace TPVCamera::Presets
         a.follow_distance_max = lerp(a.follow_distance_max, t.follow_distance_max);
         a.zoom_step = lerp(a.zoom_step, t.zoom_step);
         a.offset_up = lerp(a.offset_up, t.offset_up);
-        // eye_height uses 0 as a MODE selector, not a continuous value: eye_height 0 anchors to the bobbing
-        // FP eye (> 0 anchors to the body origin lifted by the height, and the body origin sits at the feet,
-        // so a blend across 0 sweeps the anchor through the ground). The exponential ease only asymptotes
-        // toward 0, so it never re-selects the 0 mode. Snap across the 0 boundary and blend within a mode.
+        // eye_height uses 0 as a MODE selector, not a continuous value: eye_height 0 follows the upper body fully
+        // (> 0 is the standing height the anchor is lifted to). The exponential ease only asymptotes toward 0, so
+        // it never re-selects the 0 mode. Snap across the 0 boundary and blend within a mode. The rig eases the
+        // anchor across the switch.
         const auto blend_mode_zero = [alpha](float from, float to) noexcept
         {
             constexpr float k_mode_eps = 1e-4f;

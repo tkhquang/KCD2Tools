@@ -24,10 +24,9 @@ namespace TPVCamera
      *          - the third-person view is engaged, including its ease-out, so the body follows the look again only
      *            once the view is back at the eye;
      *          - the setting is on and no NativeTurnExcludeState state is active;
-     *          - the view is not on the first-person eye (@p eye_anchored: the head fallback, or an Eye Height 0
-     *            preset). On the eye the body follows the look as in first person, because the eye sits on the head
-     *            bone and swings with a turn, and a body free of the look with no turns stays behind while the player
-     *            looks around.
+     *          - the view is not on the first-person eye (@p eye_anchored: the head fallback). There the body follows
+     *            the look as in first person, because the eye sits on the head bone, which swings with a turn, and a
+     *            body free of the look with no turns stays behind while the player looks around.
      *          Turns are held off (the body stays free of the look but starts no turn) while @p turns_allowed is
      *          false, which is free-look. Its look input is captured, so a look change is the mod's own heading write
      *          on a move start and must not start a turn fragment under the orbit body override.

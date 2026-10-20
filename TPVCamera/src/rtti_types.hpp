@@ -115,6 +115,10 @@ namespace TPVCamera
         Soul,
         /// wh::combatmodule::C_CombatTarget, the opponent the player's lock-on moves to next.
         CombatTarget,
+        /// CSkeletonPose, a CCharInstance's ISkeletonPose: the animated joints the camera's body anchor follows.
+        SkeletonPose,
+        /// CDefaultSkeleton, a character model's skeleton, which looks a joint's index up by its name.
+        DefaultSkeleton,
         /// Enumerator count. Not a class.
         Count,
     };

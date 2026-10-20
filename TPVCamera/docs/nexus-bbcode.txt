@@ -16,6 +16,7 @@ It is still early days, so if anything feels off or you have an idea that would 
 [*]Zoom the camera in and out on the fly[/*]
 [*]Basic free-look orbit to look around your character (early, see Known Limitations)[/*]
 [*]Henry turns on the spot with the game's own turn-in-place animations when you look around while standing still, and the camera stays put; switched off automatically in combat, aiming, riding, conversations and minigames[/*]
+[*]The camera follows Henry's upper body through his own animations (sitting, praying, bending) and eases after the turns the game makes for him, so actions no longer jolt the view[/*]
 [*]Works with the game's combat lock-on: Henry turns to the enemy it picks, the camera keeps that enemy in view beside Henry, and after a kill the lock moves to the next enemy your camera points at[/*]
 [*]Automatic view switching by situation: switch to first or third person when you enter combat, aiming a bow, dialogue, minigames, riding, or menus (you can still toggle manually during it), restoring your previous view when it ends[/*]
 [*]In-game preset manager: edit, add, and save camera presets from an overlay; built-in presets for normal play, combat, aiming, horseback, sneaking, and special poses (lying down, sitting, kneeling, riding a cart) apply automatically by situation, and you can bind your own presets to combinations of states (such as aiming while crouched), with the most specific match winning[/*]

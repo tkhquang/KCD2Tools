@@ -169,14 +169,20 @@ namespace TPVCamera
         bool rig_stale_move_logged = false;
         bool rig_body_turn_logged = false;
 
-        // Dynamic eye-height sync. When DynamicEyeSync is on, eye_sync_applied is the eased effective eye height: it
-        // re-anchors to the REAL first-person eye when a low pose (kneel / pray, and other poses EyeHeight does not
-        // model) drops it OUT of range of the configured height, where a fixed height floats the camera too high.
-        // real_eye_height is the live FP-eye height above the body root, the sync source; eye_sync_engaged says the
-        // sync is re-anchoring (a low pose is out of range) and eye_sync_effective is the eye height applied. The three
-        // reach the overlay through RigReadout.
-        float eye_sync_applied = 0.0f;
-        bool eye_sync_valid = false;
+        // Body anchor: the pivot's offset from the body origin (meters), eased toward the target the upper body sets
+        // (run_rig): its lean in world x and y and its height, whose targets body_anchor_lean_target_* and
+        // body_anchor_up_target are kept while the body turns in place. body_anchor_valid cleared means the next
+        // engaged frame snaps. real_eye_height is the eye height the upper body gives (the neck joint lifted to eye
+        // level, or the first-person eye when the neck does not read). eye_sync_engaged says Dynamic Eye Sync moves the
+        // anchor off Eye Height, and eye_sync_effective is the anchor height applied. The three reach the overlay
+        // through RigReadout.
+        Spring<float> body_anchor_lean_x{};
+        Spring<float> body_anchor_lean_y{};
+        float body_anchor_lean_target_x = 0.0f;
+        float body_anchor_lean_target_y = 0.0f;
+        Spring<float> body_anchor_up{};
+        float body_anchor_up_target = 0.0f;
+        bool body_anchor_valid = false;
         float real_eye_height = 0.0f;
         bool eye_sync_engaged = false;
         float eye_sync_effective = 0.0f;
@@ -194,6 +200,32 @@ namespace TPVCamera
         float basis_quat_z = 0.0f;
         float basis_quat_w = 1.0f;
         bool basis_quat_valid = false;
+
+        // Look snap hold. The game turns the look by itself at the start and the end of an action (10-74 deg in one
+        // frame for a seat, a stand-up or a meal, and a 330 deg spin into a seat), and the rig built on the look would
+        // carry the camera along the arc. Each frame's turn splits into the player's (the look input and the procedural
+        // kick the controller added, LookReading) and the game's rest. look_snap_heading / look_snap_pitch (radians)
+        // hold the game's part off the rendered look and ease it back out over k_look_snap_settle: a jump
+        // (is_look_snap()) always, the rest while the player gives no input. The player's part always passes.
+        // look_snap_last_* is the previous build's look (heading, pitch) and the game part's turn speed (rad/s), and
+        // look_snap_last_valid says it was read. The hold drops with basis_quat_valid, so the rig takes a look the mod
+        // turned itself as it is. look_input_idle counts the seconds since the player's look input last turned the
+        // look.
+        Spring<float> look_snap_heading{};
+        Spring<float> look_snap_pitch{};
+        float look_snap_last_heading = 0.0f;
+        float look_snap_last_pitch = 0.0f;
+        float look_snap_last_speed = 0.0f;
+        bool look_snap_last_valid = false;
+        float look_input_idle = 0.0f;
+        // The player's raw look input, from the input dispatcher hook. raw_look_seen marks a mouse look delta since the
+        // last build, raw_look_pad_* is the right stick's latched deflection, and raw_look_idle counts the seconds
+        // since either showed input. Raw input that does not reach the look controller's input (look_input_idle) turns
+        // the view another way (the combat lock-on's free look), so its turns cannot split and nothing is held.
+        bool raw_look_seen = false;
+        float raw_look_pad_heading = 0.0f;
+        float raw_look_pad_pitch = 0.0f;
+        float raw_look_idle = 0.0f;
 
         // Turn-in-place pivot hold. A native turn-in-place animation steps the body a little (its root motion moves the
         // entity 5-20 cm), and the pivot follows the entity origin, so without this the camera shifts with every turn
@@ -302,6 +334,9 @@ namespace TPVCamera
         std::optional<Vector3> lock_focus{};
         // The lock-on's free look is on (the player turns the view with the mouse or the stick, the steer paused).
         bool lock_free_look = false;
+        // The input dispatcher hook is live, so RigState::raw_look_seen and the stick latch report the player's raw
+        // look input.
+        bool raw_look_known = false;
     };
 
     /** @brief The zoom keys held this build. */
@@ -318,11 +353,19 @@ namespace TPVCamera
         Quaternion rotation{};
     };
 
-    /** @brief The player's look controller as read: its orientation and its scalar pitch, not yet checked. */
+    /**
+     * @brief The player's look controller as read: its orientation and its scalar pitch, not yet checked, and this
+     *        frame's turns of the look the controller added from the player's look input and from its procedural kick
+     *        (radians). The rest of a frame's turn is the game's own.
+     */
     struct LookReading
     {
         Quaternion quat{};
         float pitch = 0.0f;
+        float input_pitch = 0.0f;
+        float input_yaw = 0.0f;
+        float kick_pitch = 0.0f;
+        float kick_yaw = 0.0f;
     };
 
     /** @brief The player's body: its entity, and its world origin and heading when its matrix read. */
@@ -351,6 +394,7 @@ namespace TPVCamera
         BodyTurnEngaged,     //
         BodyTurnReleased,    //
         HandoffToOpponent,   // a: look turn to the opponent, b: camera turn off the look (degrees)
+        LookSnapHeld,        // the game's part of the turn - a: heading, b: pitch (degrees), c: speed (deg/s)
     };
 
     /** @brief The engine as the rig sees it (see the file details). */
@@ -381,6 +425,11 @@ namespace TPVCamera
         virtual void override_fov(float fov, float ratio) = 0;
         /** @brief The body of @p c_player. */
         [[nodiscard]] virtual BodyReading body(std::uintptr_t c_player) = 0;
+        /**
+         * @brief The neck joint of @p entity's character in its model space (x right, y forward, z up, meters from the
+         *        entity's origin), or std::nullopt when it does not read.
+         */
+        [[nodiscard]] virtual std::optional<Vector3> neck(std::uintptr_t entity) = 0;
         /** @brief Whether a native turn-in-place step is under way (native_turn_engaged()). */
         [[nodiscard]] virtual bool native_turn() = 0;
         /** @brief The action dispatcher's movement-input magnitude, or std::nullopt when its hook did not resolve. */
@@ -419,6 +468,9 @@ namespace TPVCamera
         // The rig's look and up, after the follow angle and the orbit turned them.
         Vector3 look_forward{};
         Vector3 look_up{};
+        // The rig's look before the lock framing turned it: the lock-on's target pick reads it while lock_framed and
+        // the player turns the view (hooks/combat_pick.hpp).
+        Vector3 pick_forward{};
         // Where the rig puts the camera, before collision.
         Vector3 camera_position{};
         Vector3 pivot{};
@@ -431,6 +483,8 @@ namespace TPVCamera
         // The shoulder offset after SwapShoulderKey's slide (meters, negative = left).
         float offset_right = 0.0f;
         bool body_valid = false;
+        // The lock framing turned the camera this build.
+        bool lock_framed = false;
         // The rendered orientation is rebuilt from look_forward / look_up: the basis was shaped, or the follow angle or
         // the orbit turned the look.
         bool rebuild_basis = false;

@@ -52,6 +52,30 @@ namespace TPVCamera
         constexpr float k_basis_smooth_min_speed = 8.0f;  // strength 1.0: heaviest damping
         constexpr float k_basis_smooth_max_speed = 60.0f; // strength near 0: barely-there damping
 
+        // Body anchor (RigState::body_anchor_up). The neck joint sits k_neck_eye_lift below the first-person eye in the
+        // standing pose (1.43 m and 1.60 m above the feet). Dynamic Eye Sync follows the height through a
+        // k_anchor_height_dead_zone and the forward lean through a k_anchor_lean_dead_zone (soft_follow()). During
+        // actions the neck moves 0.26-0.48 m forward and 0.11-0.52 m in height, while a walk bobs it a few
+        // centimetres. The lean counts from the neck's place in the standing idle, k_neck_rest_forward along the
+        // body's forward: a lean the body carries at rest would swing round the origin with every turn in place. The
+        // anchor settles on its target in k_anchor_settle (99%, the two-stage Spring), and the overlay calls the sync
+        // engaged once it moves the anchor more than k_anchor_engaged.
+        constexpr float k_neck_eye_lift = 0.17f;           // meters
+        constexpr float k_neck_rest_forward = -0.044f;     // meters
+        constexpr float k_anchor_height_dead_zone = 0.15f; // meters
+        constexpr float k_anchor_lean_dead_zone = 0.12f;   // meters
+        constexpr float k_anchor_settle = 0.35f;           // seconds
+        constexpr float k_anchor_engaged = 0.02f;          // meters
+
+        // Look snap hold (RigState::look_snap_heading). The game's part of a look turn is eased back out over
+        // k_look_snap_settle (the 99% settle of the two-stage Spring), which swings the camera through a 74 deg jump at
+        // no more than about 220 deg/s. The player counts as still once their look input has not turned the look for
+        // k_look_input_hold. The held look's pitch stays inside the engine's look clamp.
+        constexpr float k_look_input_hold = 0.25f;    // seconds
+        constexpr float k_raw_pad_rest = 0.1f;        // stick deflection that counts as raw look input
+        constexpr float k_look_snap_settle = 0.8f;    // seconds
+        constexpr float k_look_pitch_limit = 1.5608f; // rad
+
         // SwapShoulderKey: seconds the camera takes to slide over to the other shoulder. A linear ramp read through a
         // smoothstep, so a press starts and lands without a kick, and a second press mid-slide turns back from where
         // the camera is.
@@ -291,7 +315,7 @@ namespace TPVCamera
         // the basis into a position swing. The EyeHeight body anchor removes the POSITIONAL bob, and this removes
         // the ROTATIONAL component the engine bakes into the eye quat during animations (head-bob and weapon-sway
         // rotation, combat / hit / landing shake). StableAimBasis follows the player's clean look-controller AIM
-        // instead, leveled by level_look_rotation. That aim carries none of the engine view-shake and equals the eye
+        // instead, leveled by level_rotation(). That aim carries none of the engine view-shake and equals the eye
         // quat at rest. AimBasisSmoothing low-passes it. basis_overridden records whether the basis was shaped at
         // all. When neither feature is active the basis stays the raw eye quat, and the orientation path below is
         // byte-identical to the follow-angle/orbit-only behavior (a fail-safe default).
@@ -299,6 +323,11 @@ namespace TPVCamera
         bool basis_overridden = false;
         Quaternion look_rotation = eye_rotation;
         bool look_valid = false;
+        float look_heading_now = 0.0f;
+        float look_pitch_now = 0.0f;
+        // This frame's turn of the look from the player's own input and from the procedural kick (LookReading).
+        float player_heading = 0.0f;
+        float player_pitch = 0.0f;
         if (params.stable_aim_basis && c_player != 0)
         {
             // The look controller the orbit aim control writes, so the basis tracks the same look.
@@ -313,10 +342,101 @@ namespace TPVCamera
                 if (std::isfinite(n2) && n2 > 0.9f && n2 < 1.1f && std::isfinite(look->pitch) &&
                     std::fabs(look->pitch) <= 1.6f)
                 {
-                    look_rotation = level_look_rotation(q, look->pitch);
+                    look_heading_now = look_heading(q);
+                    look_pitch_now = look->pitch;
+                    look_rotation = level_rotation(look_heading_now, look_pitch_now);
                     look_valid = true;
+                    player_heading = look->input_yaw + look->kick_yaw;
+                    player_pitch = look->input_pitch + look->kick_pitch;
                 }
             }
+        }
+
+        // The action dispatcher's movement input, read once for the look snap hold, the turn hold and camera-relative
+        // movement below.
+        const std::optional<float> move_signal = port.move_input();
+
+        // Look snap hold (RigState::look_snap_heading). Each frame's turn of the look splits into the player's part
+        // (what the controller added from the look input and the procedural kick) and the game's rest (its turn
+        // requests, the view limits, the body re-derive). The player's part always passes. The game's part is held off
+        // the look the basis follows and eased back out, so the camera swings after it along an S-curve instead of a
+        // swing of the arm along the arc. A jump (is_look_snap()) is held whole on its frame, whatever the player does.
+        // A slower game turn is held while the player gives neither look nor movement input (the spin into a seat).
+        // A view limit that stops the player's own turn is not held (is_look_clamp()).
+        // Nothing is held while the combat lock-on has an opponent: its free look turns the view through the combat
+        // input, not the look controller's, so the split would take the player's mouse turn for the game's. A frame
+        // whose raw look input reached the controller as no turn is skipped for the same reason. Free-look, the aim
+        // hand-off and a basis snap (the mod turned the look, or the view just engaged) hold nothing either. Only the
+        // basis takes the hold. Everything that steers by the look reads the look as it is.
+        Quaternion basis_look = look_rotation;
+        if (look_valid)
+        {
+            float game_heading = 0.0f;
+            float game_pitch = 0.0f;
+            bool hold = false;
+            bool jump = false;
+            const bool stepped = delta_time > 0.0f && !in.paused;
+            if (stepped)
+            {
+                const bool pad_held = std::fabs(state.raw_look_pad_heading) > k_raw_pad_rest ||
+                                      std::fabs(state.raw_look_pad_pitch) > k_raw_pad_rest;
+                state.raw_look_idle = state.raw_look_seen || pad_held ? 0.0f : state.raw_look_idle + delta_time;
+                state.raw_look_seen = false;
+            }
+            if (state.look_snap_last_valid && state.basis_quat_valid && stepped)
+            {
+                const float turn_heading =
+                    std::remainder(look_heading_now - state.look_snap_last_heading, 2.0f * DirectX::XM_PI);
+                const float turn_pitch = look_pitch_now - state.look_snap_last_pitch;
+                // A frame the controller did not update leaves the last one's input behind with the look unmoved.
+                const bool look_moved = turn_heading != 0.0f || turn_pitch != 0.0f;
+                const float own_heading = look_moved ? player_heading : 0.0f;
+                const float own_pitch = look_moved ? player_pitch : 0.0f;
+                state.look_input_idle =
+                    (own_heading != 0.0f || own_pitch != 0.0f) ? 0.0f : state.look_input_idle + delta_time;
+                game_heading = std::remainder(turn_heading - own_heading, 2.0f * DirectX::XM_PI);
+                game_pitch = turn_pitch - own_pitch;
+                const float speed = look_turn_speed(game_heading, game_pitch, look_pitch_now, delta_time);
+                const bool input_elsewhere = in.raw_look_known && state.raw_look_idle <= k_look_input_hold &&
+                                             own_heading == 0.0f && own_pitch == 0.0f;
+                const bool allowed = !in.orbit_active && !in.aim_handoff_requested && !state.aim_handoff_active &&
+                                     !in.lock_focus.has_value() && !input_elsewhere &&
+                                     !is_look_clamp(game_heading, game_pitch, own_heading, own_pitch);
+                const bool player_still = move_signal.has_value() && *move_signal <= k_move_input_stop &&
+                                          state.look_input_idle > k_look_input_hold;
+                jump = allowed && is_look_snap(speed, state.look_snap_last_speed);
+                hold = jump || (allowed && player_still);
+                state.look_snap_last_speed = speed;
+                if (jump)
+                {
+                    port.event(RigEvent::LookSnapHeld, radians_to_degrees(game_heading), radians_to_degrees(game_pitch),
+                               radians_to_degrees(speed), 0);
+                }
+            }
+            else if (stepped)
+            {
+                state.look_snap_last_speed = 0.0f;
+            }
+            if (!state.basis_quat_valid)
+            {
+                state.look_snap_heading.snap(0.0f);
+                state.look_snap_pitch.snap(0.0f);
+            }
+            const float hold_alpha = stepped && !jump ? spring_alpha(k_look_snap_settle, delta_time) : 0.0f;
+            hold_look_snap(state.look_snap_heading, state.look_snap_pitch, game_heading, game_pitch, hold, hold_alpha);
+            state.look_snap_last_heading = look_heading_now;
+            state.look_snap_last_pitch = look_pitch_now;
+            state.look_snap_last_valid = true;
+            basis_look = level_rotation(
+                look_heading_now + state.look_snap_heading.applied,
+                std::clamp(look_pitch_now + state.look_snap_pitch.applied, -k_look_pitch_limit, k_look_pitch_limit));
+        }
+        else
+        {
+            state.look_snap_heading.snap(0.0f);
+            state.look_snap_pitch.snap(0.0f);
+            state.look_snap_last_speed = 0.0f;
+            state.look_snap_last_valid = false;
         }
         // Low-pass the basis quaternion toward the target: the leveled look orientation when StableAimBasis resolved
         // it, else the raw eye quat. Snaps on the first engaged frame (basis_quat_valid false) so the camera does not
@@ -326,7 +446,7 @@ namespace TPVCamera
         if (look_valid || basis_smoothing > 1e-4f)
         {
             basis_overridden = true;
-            const DirectX::XMVECTOR target = (look_valid ? look_rotation : eye_rotation).to_xm_vector();
+            const DirectX::XMVECTOR target = (look_valid ? basis_look : eye_rotation).to_xm_vector();
             DirectX::XMVECTOR result;
             if (!state.basis_quat_valid)
             {
@@ -416,10 +536,9 @@ namespace TPVCamera
         // carries head-bob, breathing and weapon-sway, so anchoring the third-person camera to it
         // shakes the whole view. Instead anchor to the player BODY origin - column 3 of the entity
         // world matrix at OFFSET_ENTITY_WORLD_MATRIX_MEMBER (Matrix34, translation at m[*][3]) - which
-        // does not bob - lifted by EyeHeight to roughly eye level along world up. Falls back to the eye
-        // anchor when the feature is off (EyeHeight <= 0) or the entity/world matrix is unavailable, so
-        // a missing player or a layout drift degrades to the previous behaviour rather than misplacing
-        // the camera.
+        // does not bob, offset by the upper body's eased height and lean (the body anchor below). Falls back
+        // to the eye anchor when the entity/world matrix is unavailable, so a missing player or a layout
+        // drift degrades to the previous behaviour rather than misplacing the camera.
         const Vector3 world_up{0.0f, 0.0f, 1.0f};
         const float eye_height = params.eye_height;
         // Read the player body world origin once. It feeds the stable anchor (below) AND the
@@ -432,8 +551,6 @@ namespace TPVCamera
         const Vector3 body_origin = body.origin;
         const float body_yaw = body.yaw;
         const bool body_valid = body.valid;
-        // The action dispatcher's movement input, read once for the turn hold and camera-relative movement below.
-        const std::optional<float> move_signal = port.move_input();
         // Held off the anchor while the body steps through a native turn-in-place animation, so the camera does not
         // shift with the turn. The look yaw comes from the look quat, or from the eye quat, whose yaw is the look yaw
         // in first person.
@@ -447,51 +564,75 @@ namespace TPVCamera
                                                  look_yaw_valid, delta_time);
         }
         const Vector3 anchor_origin = body_origin - turn_hold;
-        // Publish the live REAL eye height (FP eye above the body root) for the overlay read-out and as the
-        // dynamic-eye-sync source. eye_position carries head bob; body_origin is the bob-free feet origin.
+        // Without a body the eye anchors the rig. It takes the turn hold too, so a hold in place does not jump when the
+        // body reads again.
+        Vector3 anchor_base = eye_position - turn_hold;
         if (body_valid)
         {
-            state.real_eye_height = eye_position.z - body_origin.z;
-        }
-        // The eye anchor (EyeHeight 0, or no body) takes the turn hold too, so switching anchor mode with a hold in
-        // place does not jump; the hold then eases out as usual.
-        Vector3 anchor_base = eye_position - turn_hold;
-        if (body_valid && eye_height > 0.0f)
-        {
-            float effective_eye_height = eye_height;
-            bool sync_engaged = false; // true while actively re-anchoring (vs. just using the configured height)
-            if (params.dynamic_eye_sync)
+            // The upper body's height and its lean forward or back, from the neck joint. Its model-space position is in
+            // the body's own frame, and lifted by k_neck_eye_lift it reads as the eye height of an upright head, which
+            // a nod or a glance down does not move. Its sideways position is left out: the standing idle shifts the
+            // weight and swings the neck 0.13-0.2 m from side to side, and following that would sway the camera and
+            // slide the crosshair, while no action needs it framed. When the neck does not read, the first-person eye
+            // gives the height and nothing leans.
+            const std::optional<Vector3> neck = port.neck(body.entity);
+            const float real_height = neck.has_value() ? neck->z + k_neck_eye_lift : eye_position.z - body_origin.z;
+            const float lean = neck.has_value() ? neck->y - k_neck_rest_forward : 0.0f;
+            state.real_eye_height = real_height;
+            // Eye Height 0 follows the upper body fully. A positive Eye Height is the anchor's height in the standing
+            // pose, and Dynamic Eye Sync follows how far the body moves from it softly (soft_follow()): breathing and
+            // head bob stay out, a bow, a seat or a kneel comes through, and nothing steps at a threshold. Without it
+            // the anchor stays at Eye Height over the feet. Either way the anchor eases to its target along an S-curve,
+            // so a preset change between the two moves it smoothly too.
+            float target_up = eye_height;
+            float target_lean = 0.0f;
+            if (eye_height <= 0.0f)
             {
-                // Re-anchor the eye HEIGHT to the real FP eye when a low pose (kneel / pray, and other poses
-                // EyeHeight does not model) drops it OUT OF RANGE of the configured height - where a fixed
-                // height floats the camera too high. Within the threshold (head bob / a minor pose change) keep
-                // the steady bob-free height; in the re-anchored low poses we accept the bob (they are mostly
-                // stationary). Ease so the swap slides; eye_sync_valid resets on suppression so re-engaging snaps.
-                constexpr float k_oor_threshold = 0.25f; // meters: a genuine pose drop, not head bob
-                constexpr float k_sync_rate = 9.0f;      // ease rate, 1/sec (frame-rate independent below)
-                const float real_eye_height = eye_position.z - body_origin.z;
-                sync_engaged = std::fabs(real_eye_height - eye_height) > k_oor_threshold;
-                const float target_eye_height = sync_engaged ? real_eye_height : eye_height;
-                if (!state.eye_sync_valid)
-                {
-                    state.eye_sync_applied = target_eye_height;
-                    state.eye_sync_valid = true;
-                }
-                else
-                {
-                    const float k = 1.0f - std::exp(-k_sync_rate * delta_time);
-                    state.eye_sync_applied += (target_eye_height - state.eye_sync_applied) * k;
-                }
-                effective_eye_height = state.eye_sync_applied;
+                target_up = real_height;
+                target_lean = lean;
             }
-            else
+            else if (params.dynamic_eye_sync)
             {
-                state.eye_sync_valid = false; // feature off -> the next engage snaps to the current pose
+                target_up = eye_height + soft_follow(real_height - eye_height, k_anchor_height_dead_zone);
+                target_lean = soft_follow(lean, k_anchor_lean_dead_zone);
             }
-            // Publish for the overlay status line (actively re-anchoring vs. using the configured height).
-            state.eye_sync_engaged = sync_engaged;
-            state.eye_sync_effective = effective_eye_height;
-            anchor_base = anchor_origin + world_up * effective_eye_height;
+            // The lean eases in world space. While the body turns in place (the turn hold keeps the origin's steps off
+            // the pivot), the lean and height targets stay where they were: the turn animation moves the neck in every
+            // direction and the body's forward turns under it, so a follow would slide the crosshair off its target.
+            const Vector3 body_forward{-std::sin(body_yaw), std::cos(body_yaw), 0.0f};
+            const Vector3 lean_world = body_forward * target_lean;
+            const bool turning_in_place = state.turn_hold_timer > 0.0f;
+            if (!state.body_anchor_valid)
+            {
+                state.body_anchor_lean_target_x = lean_world.x;
+                state.body_anchor_lean_target_y = lean_world.y;
+                state.body_anchor_lean_x.snap(lean_world.x);
+                state.body_anchor_lean_y.snap(lean_world.y);
+                state.body_anchor_up_target = target_up;
+                state.body_anchor_up.snap(target_up);
+                state.body_anchor_valid = true;
+            }
+            else if (delta_time > 0.0f)
+            {
+                if (!turning_in_place)
+                {
+                    state.body_anchor_lean_target_x = lean_world.x;
+                    state.body_anchor_lean_target_y = lean_world.y;
+                    state.body_anchor_up_target = target_up;
+                }
+                const float alpha = spring_alpha(k_anchor_settle, delta_time);
+                state.body_anchor_lean_x.step(state.body_anchor_lean_target_x, alpha);
+                state.body_anchor_lean_y.step(state.body_anchor_lean_target_y, alpha);
+                state.body_anchor_up.step(state.body_anchor_up_target, alpha);
+            }
+            const Vector3 anchor_lean{state.body_anchor_lean_x.applied, state.body_anchor_lean_y.applied, 0.0f};
+            const float anchor_up = state.body_anchor_up.applied;
+            // Published for the overlay: whether the sync moves the anchor off Eye Height, and the height applied.
+            state.eye_sync_engaged =
+                params.dynamic_eye_sync && eye_height > 0.0f &&
+                (std::fabs(anchor_up - eye_height) > k_anchor_engaged || anchor_lean.magnitude() > k_anchor_engaged);
+            state.eye_sync_effective = anchor_up;
+            anchor_base = anchor_origin + anchor_lean + world_up * anchor_up;
         }
         else
         {
@@ -813,6 +954,7 @@ namespace TPVCamera
             }
         }
         const Vector3 plain_look = look_forward;
+        const Vector3 plain_up = look_up;
         const Vector3 plain_offset = camera_position - pivot;
 
         // Free-look orbit: turn the WHOLE non-orbit rig (the camera's offset from the pivot, its look and its up)
@@ -905,9 +1047,11 @@ namespace TPVCamera
         // spring arm on the look puts him straight ahead of the player, so the player stands in front of him on screen.
         // The rig is turned about the pivot onto the line to him, swung LockFramingAngle further to the shoulder side,
         // and aimed at his focus point: he sits mid-screen and the sightline passes beside the player. It eases in and
-        // out, pans when the lock moves to another opponent, lets go as the player turns the view well off him (looking
-        // for another opponent, which the game picks along the camera's direction), and stays off while free-look or a
-        // hand-off owns the camera.
+        // out, pans when the lock moves to another opponent, lets go as the player turns the view well off him to look
+        // for another opponent, and stays off while free-look or a hand-off owns the camera. The look before the
+        // framing (pick_forward) is the direction the lock-on's own target pick needs (hooks/combat_pick.hpp).
+        const Vector3 pick_forward = look_forward;
+        bool lock_framed = false;
         {
             constexpr float k_lock_frame_seconds = 0.35f;
             constexpr float k_lock_release_start = 0.26f; // rad (15 deg) of look off the opponent
@@ -998,10 +1142,20 @@ namespace TPVCamera
             if (weight > 1e-3f && focus_dx * focus_dx + focus_dy * focus_dy > k_lock_min_reach_sq)
             {
                 // The full framing, from the plain rig (free-look and a hand-off do not move it), toward the side the
-                // shoulder offset is on, which slides through the middle while the shoulder swap runs.
+                // shoulder offset is on, which slides through the middle while the shoulder swap runs. Like its
+                // heading, the framing's height comes from where he stands, not from the look: the plain rig's arm is
+                // turned from the look's pitch to the pitch of the line from the pivot to the focus. The lock-on steers
+                // only the look's heading and leaves its pitch where a fight put it (a drop from a raised floor leaves
+                // it 30 deg up at an opponent who stands level), and an arm on that pitch sinks the camera to the feet.
                 const float side = (params.offset_right < 0.0f ? -1.0f : 1.0f) * shoulder_side(state.shoulder_swap);
+                const float focus_pitch =
+                    std::atan2(focus.z - pivot.z, std::sqrt(focus_dx * focus_dx + focus_dy * focus_dy));
+                Vector3 frame_offset = plain_offset;
+                Vector3 frame_look = plain_look;
+                Vector3 frame_up = plain_up;
+                turn_rig(frame_offset, frame_look, frame_up, 0.0f, forward_pitch - focus_pitch);
                 const PivotPose full =
-                    lock_frame_pose(plain_offset, std::atan2(-plain_look.x, plain_look.y), focus - pivot, side,
+                    lock_frame_pose(frame_offset, std::atan2(-plain_look.x, plain_look.y), focus - pivot, side,
                                     degrees_to_radians(params.lock_framing_angle), params.lock_focus_offset);
                 const PivotPose from =
                     state.lock_frame_entering
@@ -1026,6 +1180,7 @@ namespace TPVCamera
                 look_up = Vector3(-look_forward.x * up_along, -look_forward.y * up_along, 1.0f - up_along * up_along)
                               .normalized();
                 rebuild_basis = true;
+                lock_framed = true;
             }
         }
 
@@ -1183,6 +1338,15 @@ namespace TPVCamera
                     state.rig_stale_move_logged = true;
                 }
             }
+            else if (moving && in.game_owns_facing)
+            {
+                // The game sets the facing again (a kill's finishing animation): the move lets go of the look and the
+                // body, which would otherwise be written toward the camera every frame against the animation, and
+                // starts again from the camera once the game lets go with a key still held.
+                moving = false;
+                state.orbit_yaw = orbit_yaw_deg;
+                port.event(RigEvent::MoveStop, move_magnitude, 0.0f, 0.0f, 0);
+            }
             else if (moving && move_magnitude < k_move_input_stop)
             {
                 // Release the latch the instant the movement keys are let go (no debounce tail), so stopping
@@ -1243,9 +1407,11 @@ namespace TPVCamera
         }
         // The heading a move press captures, for orbit_move_pressed: the camera's yaw on screen (with the
         // orbit as rendered, so a smoothed angle still catching up does not snap), published only while a press
-        // starts a camera-relative move with the body turn, and stamped so a stale one is never used.
+        // starts a camera-relative move with the body turn, and stamped so a stale one is never used. Not while
+        // the game sets the facing: the press would turn the look and the body at once, ahead of the frame's own
+        // start, which waits for the game to let go.
         if (orbit_held && body_valid && move_signal.has_value() && !state.orbit_moving && state.orbit_move_armed &&
-            !state.aim_handoff_active && params.orbit_body_turn)
+            !state.aim_handoff_active && !in.game_owns_facing && params.orbit_body_turn)
         {
             port.publish_move_press(forward_yaw + degrees_to_radians(state.orbit_yaw_render), body_yaw);
         }
@@ -1316,6 +1482,7 @@ namespace TPVCamera
         out.forward = forward;
         out.look_forward = look_forward;
         out.look_up = look_up;
+        out.pick_forward = pick_forward;
         out.camera_position = camera_position;
         out.pivot = pivot;
         out.anchor_base = anchor_base;
@@ -1325,6 +1492,7 @@ namespace TPVCamera
         out.entity = body.entity;
         out.offset_right = offset_right;
         out.body_valid = body_valid;
+        out.lock_framed = lock_framed;
         // When the stable / smoothed basis shaped the rig, the rendered orientation is rebuilt from it too: otherwise
         // the engine eye orientation (which carries the view-shake) would still drive the view rotation although the
         // position is stable, leaving the view tilting during an action. When the basis was not shaped, eye_forward ==

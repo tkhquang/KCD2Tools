@@ -14,6 +14,9 @@ namespace TPVCamera
      *        warning. The detour is inert until free-look is on, so it is harmless when free-look is unused.
      */
     void install_input_dispatch_hook(DMK::hook::HookStack &hooks);
+
+    /** @brief Whether the input dispatcher detour is armed, so the rig sees the player's raw look input. */
+    [[nodiscard]] bool input_dispatch_hooked() noexcept;
 } // namespace TPVCamera
 
 #endif // TPVCAMERA_HOOKS_INPUT_HOOK_HPP

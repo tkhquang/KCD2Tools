@@ -18,11 +18,18 @@ namespace
 {
     using TPVCamera::aim_arm_shift;
     using TPVCamera::blend_pivot_pose;
-    using TPVCamera::level_look_rotation;
+    using TPVCamera::hold_look_snap;
+    using TPVCamera::is_look_clamp;
+    using TPVCamera::is_look_snap;
+    using TPVCamera::level_rotation;
     using TPVCamera::lock_frame_pose;
+    using TPVCamera::look_heading;
+    using TPVCamera::look_turn_speed;
     using TPVCamera::PivotPose;
     using TPVCamera::Quaternion;
     using TPVCamera::shoulder_side;
+    using TPVCamera::soft_follow;
+    using TPVCamera::Spring;
     using TPVCamera::turn_rig;
     using TPVCamera::Vector3;
 
@@ -89,7 +96,7 @@ namespace
         EXPECT_NEAR(std::asin(look.z), -20.0f * k_deg, 1e-5f);
     }
 
-    TEST(RigMath, LevelLookRotationKeepsHeadingAndPitchWithoutRoll)
+    TEST(RigMath, LevelRotationOfTheLookHeadingDropsTheRoll)
     {
         // A look quat with a stale roll: heading 40 deg, pitch 10 deg, roll 15 deg (RotZ * RotX * RotY).
         const float h = 40.0f * k_deg;
@@ -101,7 +108,7 @@ namespace
             DirectX::XMQuaternionRotationAxis(DirectX::XMVectorSet(0, 0, 1, 0), h));
         const Quaternion rolled{DirectX::XMVectorGetX(q), DirectX::XMVectorGetY(q), DirectX::XMVectorGetZ(q),
                                 DirectX::XMVectorGetW(q)};
-        const Quaternion level = level_look_rotation(rolled, p);
+        const Quaternion level = level_rotation(look_heading(rolled), p);
         const Vector3 forward = level.rotate(Vector3{0.0f, 1.0f, 0.0f});
         const Vector3 right = level.rotate(Vector3{1.0f, 0.0f, 0.0f});
         EXPECT_NEAR(std::atan2(-forward.x, forward.y), h, 1e-5f);
@@ -245,5 +252,140 @@ namespace
         EXPECT_NEAR(middle.offset.z, 0.35f, 1e-6f);
         // The look turns through pi, not through 0.
         EXPECT_NEAR(std::cos(middle.yaw), -1.0f, 1e-4f);
+    }
+
+    TEST(RigMath, LookHeadingReadsBackTheLevelRotation)
+    {
+        for (const float heading : {-170.0f * k_deg, -30.0f * k_deg, 0.0f, 75.0f * k_deg, 179.0f * k_deg})
+        {
+            EXPECT_NEAR(look_heading(level_rotation(heading, 40.0f * k_deg)), heading, 1e-5f);
+        }
+    }
+
+    TEST(RigMath, LookTurnSpeedSweepsTheArcAndIsZeroWithoutTime)
+    {
+        // A heading turn at 60 deg pitch sweeps half the arc it sweeps level.
+        EXPECT_NEAR(look_turn_speed(0.5f, 0.0f, 60.0f * k_deg, 0.5f), 0.5f, 1e-5f);
+        EXPECT_NEAR(look_turn_speed(0.3f, 0.4f, 0.0f, 1.0f), 0.5f, 1e-5f);
+        EXPECT_EQ(look_turn_speed(1.0f, 1.0f, 0.0f, 0.0f), 0.0f);
+    }
+
+    TEST(RigMath, HoldLookSnapKeepsTheViewAndEasesOutFromRest)
+    {
+        constexpr float dt = 1.0f / 60.0f;
+        constexpr float settle = 0.8f;
+        const float alpha = TPVCamera::spring_alpha(settle, dt);
+        Spring<float> heading{};
+        Spring<float> pitch{};
+        const float jump_heading = 74.0f * k_deg;
+        const float jump_pitch = -36.0f * k_deg;
+        // A 74 deg heading jump and a 36 deg pitch jump in one frame, held whole: the rendered look (look + hold) stays
+        // put.
+        hold_look_snap(heading, pitch, jump_heading, jump_pitch, true, 0.0f);
+        EXPECT_NEAR(jump_heading + heading.applied, 0.0f, 1e-6f);
+        EXPECT_NEAR(jump_pitch + pitch.applied, 0.0f, 1e-6f);
+        // Then it eases back without overshoot, speeding up from rest, and settles within the settle time.
+        std::array<float, 3> first_steps{};
+        float last = heading.applied;
+        const int frames = static_cast<int>(std::ceil(settle / dt));
+        for (int frame = 0; frame < frames; ++frame)
+        {
+            hold_look_snap(heading, pitch, 0.0f, 0.0f, false, alpha);
+            EXPECT_GE(heading.applied, last);
+            EXPECT_LE(heading.applied, 0.0f);
+            if (frame < static_cast<int>(first_steps.size()))
+            {
+                first_steps[static_cast<std::size_t>(frame)] = heading.applied - last;
+            }
+            last = heading.applied;
+        }
+        EXPECT_GT(first_steps[0], 0.0f);
+        EXPECT_GT(first_steps[1], first_steps[0]);
+        EXPECT_GT(first_steps[2], first_steps[1]);
+        EXPECT_LT(first_steps[0], 0.06f * jump_heading);
+        EXPECT_LT(std::fabs(heading.applied), 0.01f * jump_heading);
+        EXPECT_LT(std::fabs(pitch.applied), 0.01f * std::fabs(jump_pitch));
+    }
+
+    TEST(RigMath, LookSnapIsAFastTurnOrASuddenStart)
+    {
+        constexpr float deg_per_s = k_deg;
+        // The measured jumps: 74 deg and 36 deg in one 20 fps frame, and 10.5 deg in one 30 fps frame from rest.
+        EXPECT_TRUE(is_look_snap(74.0f * 20.0f * deg_per_s, 60.0f * deg_per_s));
+        EXPECT_TRUE(is_look_snap(36.0f * 20.0f * deg_per_s, 0.0f));
+        EXPECT_TRUE(is_look_snap(10.5f * 30.0f * deg_per_s, 0.0f));
+        // A turn the game builds up (the look following the body into a seat at 100-250 deg/s) passes once moving.
+        EXPECT_FALSE(is_look_snap(250.0f * deg_per_s, 180.0f * deg_per_s));
+        EXPECT_FALSE(is_look_snap(120.0f * deg_per_s, 100.0f * deg_per_s));
+        // Slow drift never counts.
+        EXPECT_FALSE(is_look_snap(60.0f * deg_per_s, 0.0f));
+    }
+
+    TEST(RigMath, SoftFollowKeepsSmallMovesOutAndTracksLargeOnesWithoutAStep)
+    {
+        constexpr float dead_zone = 0.15f;
+        // Breathing and head bob (a few centimetres) barely move it, while a kneel's half metre comes through.
+        EXPECT_LT(std::fabs(soft_follow(0.04f, dead_zone)), 0.003f);
+        EXPECT_NEAR(soft_follow(dead_zone, dead_zone), 0.5f * dead_zone, 1e-6f);
+        EXPECT_NEAR(soft_follow(-0.5f, dead_zone), -0.5f + dead_zone * dead_zone / 0.5f, 0.01f);
+        EXPECT_EQ(soft_follow(0.0f, dead_zone), 0.0f);
+        // Odd, and rising with no jump: its slope peaks at 9/8 (at sqrt(3) dead zones), so a millimetre step moves it
+        // by at most 1.125 mm.
+        float last = soft_follow(-1.0f, dead_zone);
+        for (int mm = -999; mm <= 1000; ++mm)
+        {
+            const float value = soft_follow(static_cast<float>(mm) * 0.001f, dead_zone);
+            EXPECT_GE(value, last);
+            EXPECT_LE(value - last, 0.00113f);
+            last = value;
+        }
+        EXPECT_NEAR(soft_follow(0.3f, dead_zone), -soft_follow(-0.3f, dead_zone), 1e-7f);
+    }
+
+    TEST(RigMath, HoldLookSnapTakesInATurnAsALowPass)
+    {
+        // The game spins the look 330 deg into a seat at 330 deg/s, and each frame's turn is held and eased.
+        constexpr float dt = 1.0f / 60.0f;
+        const float alpha = TPVCamera::spring_alpha(0.8f, dt);
+        const float step = 330.0f * k_deg * dt;
+        Spring<float> heading{};
+        Spring<float> pitch{};
+        float look = 0.0f;
+        float rendered = 0.0f;
+        for (int frame = 0; frame < 160; ++frame)
+        {
+            const float turn = frame < 60 ? step : 0.0f;
+            look += turn;
+            hold_look_snap(heading, pitch, turn, 0.0f, true, alpha);
+            const float now = look + heading.applied;
+            // The camera follows the same way, never faster than the look turned.
+            EXPECT_GE(now - rendered, -1e-5f);
+            EXPECT_LE(now - rendered, step + 1e-5f);
+            rendered = now;
+        }
+        // 1.67 s on (0.8 s settle after the turn stopped), it is on the look: the short way round to 330 deg.
+        EXPECT_NEAR(std::remainder(rendered - 330.0f * k_deg, 2.0f * std::numbers::pi_v<float>), 0.0f, 0.01f);
+    }
+
+    TEST(RigMath, LookClampIsALimitStoppingThePlayersOwnTurn)
+    {
+        // The player turns 17 deg right into a seat's yaw limit and the limit takes back 12 deg, or all of it.
+        EXPECT_TRUE(is_look_clamp(-12.0f * k_deg, 0.0f, 17.0f * k_deg, 0.0f));
+        EXPECT_TRUE(is_look_clamp(-17.0f * k_deg, 0.0f, 17.0f * k_deg, 0.0f));
+        // A game turn larger than the player's, or with it, or with no player turn at all, is the game's.
+        EXPECT_FALSE(is_look_clamp(-74.0f * k_deg, 0.0f, 17.0f * k_deg, 0.0f));
+        EXPECT_FALSE(is_look_clamp(10.0f * k_deg, 0.0f, 17.0f * k_deg, 0.0f));
+        EXPECT_FALSE(is_look_clamp(0.0f, -36.0f * k_deg, 0.0f, 0.0f));
+    }
+
+    TEST(RigMath, HoldLookSnapEasesBackTheShortWay)
+    {
+        Spring<float> heading{};
+        Spring<float> pitch{};
+        // Two jumps of 2 rad hold 4 rad, which is -2.28 rad the short way round.
+        hold_look_snap(heading, pitch, 2.0f, 0.0f, true, 0.0f);
+        hold_look_snap(heading, pitch, 2.0f, 0.0f, true, 0.0f);
+        EXPECT_NEAR(heading.applied, -4.0f + 2.0f * std::numbers::pi_v<float>, 1e-5f);
+        EXPECT_NEAR(heading.stage1, heading.applied, 1e-6f);
     }
 } // namespace

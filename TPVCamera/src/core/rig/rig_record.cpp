@@ -54,8 +54,13 @@ namespace TPVCamera::ProbeRecord
             fn("orbit_move_game_idle", state.orbit_move_game_idle);
             fn("rig_stale_move_logged", state.rig_stale_move_logged);
             fn("rig_body_turn_logged", state.rig_body_turn_logged);
-            fn("eye_sync_applied", state.eye_sync_applied);
-            fn("eye_sync_valid", state.eye_sync_valid);
+            fn("body_anchor_lean_x", state.body_anchor_lean_x);
+            fn("body_anchor_lean_y", state.body_anchor_lean_y);
+            fn("body_anchor_lean_target_x", state.body_anchor_lean_target_x);
+            fn("body_anchor_lean_target_y", state.body_anchor_lean_target_y);
+            fn("body_anchor_up", state.body_anchor_up);
+            fn("body_anchor_up_target", state.body_anchor_up_target);
+            fn("body_anchor_valid", state.body_anchor_valid);
             fn("real_eye_height", state.real_eye_height);
             fn("eye_sync_engaged", state.eye_sync_engaged);
             fn("eye_sync_effective", state.eye_sync_effective);
@@ -66,6 +71,17 @@ namespace TPVCamera::ProbeRecord
             fn("basis_quat_z", state.basis_quat_z);
             fn("basis_quat_w", state.basis_quat_w);
             fn("basis_quat_valid", state.basis_quat_valid);
+            fn("look_snap_heading", state.look_snap_heading);
+            fn("look_snap_pitch", state.look_snap_pitch);
+            fn("look_snap_last_heading", state.look_snap_last_heading);
+            fn("look_snap_last_pitch", state.look_snap_last_pitch);
+            fn("look_snap_last_speed", state.look_snap_last_speed);
+            fn("look_snap_last_valid", state.look_snap_last_valid);
+            fn("look_input_idle", state.look_input_idle);
+            fn("raw_look_seen", state.raw_look_seen);
+            fn("raw_look_pad_heading", state.raw_look_pad_heading);
+            fn("raw_look_pad_pitch", state.raw_look_pad_pitch);
+            fn("raw_look_idle", state.raw_look_idle);
             fn("turn_hold_x", state.turn_hold_x);
             fn("turn_hold_y", state.turn_hold_y);
             fn("turn_hold_timer", state.turn_hold_timer);
@@ -173,6 +189,10 @@ namespace TPVCamera::ProbeRecord
             {
                 return "orientation";
             }
+            if (!same_bits(a.pick_forward, b.pick_forward) || a.lock_framed != b.lock_framed)
+            {
+                return "target pick forward";
+            }
             if (!same_bits(a.camera_position, b.camera_position))
             {
                 return "camera position";
@@ -236,6 +256,8 @@ namespace TPVCamera::ProbeRecord
             return "override_fov";
         case RigCall::Body:
             return "body";
+        case RigCall::Neck:
+            return "neck";
         case RigCall::NativeTurn:
             return "native_turn";
         case RigCall::MoveInput:
@@ -315,6 +337,15 @@ namespace TPVCamera::ProbeRecord
         m_out.put(c_player);
         m_out.put(body);
         return body;
+    }
+
+    std::optional<Vector3> RecordingRigPort::neck(std::uintptr_t entity)
+    {
+        const std::optional<Vector3> neck = m_inner.neck(entity);
+        m_out.put(RigCall::Neck);
+        m_out.put(entity);
+        put_optional(m_out, neck);
+        return neck;
     }
 
     bool RecordingRigPort::native_turn()
@@ -518,6 +549,18 @@ namespace TPVCamera::ProbeRecord
             return BodyReading{};
         }
         return body;
+    }
+
+    std::optional<Vector3> ReplayRigPort::neck(std::uintptr_t entity)
+    {
+        std::uint8_t has = 0;
+        Vector3 neck{};
+        if (!expect(RigCall::Neck) || !expect_value(entity, "neck entity") || !answer(has) ||
+            (has != 0 && !answer(neck)))
+        {
+            return std::nullopt;
+        }
+        return has != 0 ? std::optional<Vector3>{neck} : std::nullopt;
     }
 
     bool ReplayRigPort::native_turn()
