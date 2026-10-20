@@ -20,7 +20,7 @@ on:
         required: false
         type: string
       nexus_description:
-        description: "Nexus file note (appended after the install-steps line; truncated to fit 255 chars total)"
+        description: "Nexus file note (appended after each file's build line; truncated to fit 255 chars total)"
         required: false
         type: string
       prerelease:
@@ -236,17 +236,26 @@ jobs:
           Set-Content -LiteralPath $bodyPath -Value $releaseBody -Encoding utf8
           "RELEASE_BODY_PATH=$bodyPath" >> $env:GITHUB_OUTPUT
 
-          # Nexus accepts a 255-character file note and a plain bullet-list changelog.
-          $prefix = "See the description for installation steps.`n`n"
+          # Nexus accepts a 255-character file note, BBCode tags included, and a plain bullet-list changelog. Each
+          # file opens with its own build and requirement line, and the optional note fills what is left.
+          $asiLead = 'ASI build: needs an [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases]ASI loader[/url]. Extract it beside WHGame.dll by hand. Install this or the KCSE build, not both. See the description for installation steps.'
+          $kcseLead = 'KCSE build: needs [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332]KCSE[/url]. Installs into Mods, or with a mod manager. Install this or the ASI build, not both. See the description for installation steps.'
           $note = ($env:NEXUS_DESC_INPUT -replace "`r`n", "`n").Trim()
-          $remaining = 255 - $prefix.Length
-          if ($note.Length -gt $remaining) { $note = $note.Substring(0, $remaining) }
+          function Format-FileNote([string]$lead) {
+            if ($note -eq '') { return $lead }
+            $remaining = 255 - $lead.Length - 2
+            if ($remaining -le 0) { return $lead }
+            return "$lead`n`n" + $note.Substring(0, [Math]::Min($note.Length, $remaining))
+          }
           $nexusChangelog = (($changelog -split "`r?`n") |
             ForEach-Object { ($_.Trim() -replace '^[-*+]\s+', '') } |
             Where-Object { $_ -ne '' }) -join "`n"
           $delimiter = "NEXUS_$([guid]::NewGuid().ToString('N'))"
-          "NEXUS_DESCRIPTION<<$delimiter" >> $env:GITHUB_OUTPUT
-          ($prefix + $note) >> $env:GITHUB_OUTPUT
+          "NEXUS_ASI_DESCRIPTION<<$delimiter" >> $env:GITHUB_OUTPUT
+          (Format-FileNote $asiLead) >> $env:GITHUB_OUTPUT
+          $delimiter >> $env:GITHUB_OUTPUT
+          "NEXUS_KCSE_DESCRIPTION<<$delimiter" >> $env:GITHUB_OUTPUT
+          (Format-FileNote $kcseLead) >> $env:GITHUB_OUTPUT
           $delimiter >> $env:GITHUB_OUTPUT
           "NEXUS_CHANGELOG<<$delimiter" >> $env:GITHUB_OUTPUT
           $nexusChangelog >> $env:GITHUB_OUTPUT
@@ -300,7 +309,7 @@ jobs:
           filename: ${{ env.ARTIFACT_NAME }}
           version: ${{ env.NEW_VERSION }}
           display_name: (ASI) Sound Framework
-          description: ${{ steps.prepare-release.outputs.NEXUS_DESCRIPTION }}
+          description: ${{ steps.prepare-release.outputs.NEXUS_ASI_DESCRIPTION }}
           category: main
           archive_existing_version: false
           primary_mod_manager_download: false
@@ -320,7 +329,7 @@ jobs:
           filename: ${{ env.KCSE_ARTIFACT_NAME }}
           version: ${{ env.NEW_VERSION }}
           display_name: (KCSE) Sound Framework
-          description: ${{ steps.prepare-release.outputs.NEXUS_DESCRIPTION }}
+          description: ${{ steps.prepare-release.outputs.NEXUS_KCSE_DESCRIPTION }}
           category: main
           archive_existing_version: false
           primary_mod_manager_download: true
