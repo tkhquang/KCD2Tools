@@ -20,6 +20,9 @@ A loot and object highlighting mod for Kingdom Come: Deliverance II. The native 
 ### [Sound Framework - Custom Sounds and Voices](SoundFramework/)
 A framework that lets mods add sounds and voice lines without code: new sounds on the game's mixer, NPC voice lines with subtitles, lip sync and facial moods, and replacements for the game's own sounds and voice lines.
 
+### [Stop Right There, Criminal Scum](CriminalScum/)
+Town guards arrest you with a certain famous line. A brief Sound Framework showcase, not meant for regular play.
+
 ### [Chiuuu! Mouth-Sound Bows](MouthSoundBows/)
 Every bow and crossbow shot goes "Chiuuu!", made with a human mouth. A showcase pack for Sound Framework.
 

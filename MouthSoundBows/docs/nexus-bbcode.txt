@@ -7,6 +7,8 @@ Crossbows too, a little deeper. Henry, bandits, hunters: every shooter in Bohemi
 
 This is a small joke mod and a showcase for [b]Sound Framework[/b]: one pack INI and two sound files, with no code and no paks. It shows how a pack can replace the game's own sounds with brand-new ones, timed to the moment the arrow leaves the bow.
 
+[youtube]NwKRRVTob6I[/youtube]
+
 [size=5]Key Features[/size]
 [list]
 [*]Every bow shot plays one of two mouth-made "Chiuuu!" takes, right as the arrow leaves the bow[/*]

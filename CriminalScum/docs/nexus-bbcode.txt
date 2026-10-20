@@ -1,0 +1,59 @@
+[size=5]Foreword[/size]
+Get caught stealing, trespassing or brawling and the guard who stops you has only one thing to say:
+
+[quote]Stop right there, criminal scum! You violated the law. Pay the court a fine or serve your sentence. Your stolen goods are now forfeit.[/quote]
+
+This is a brief showcase for [b]Sound Framework[/b], not a mod meant for regular play: one pack INI, three voice takes and a text table, with no code of its own.
+
+[youtube]oVVImFIX-uI[/youtube]
+
+[size=5]Key Features[/size]
+[list]
+[*]Every crime accusation in the arrest dialog (theft, lockpicking, pickpocketing, trespass, assault, murder, poaching and the rest) becomes the line, in one of three takes[/*]
+[*]Bottom subtitles with the speaker name "Guard", an angry face and lip movement[/*]
+[*]The rest of the arrest dialog, the chase and the fight are untouched[/*]
+[/list]
+
+[size=5]Requirements[/size]
+[list]
+[*][b]Sound Framework[/b], ASI or KCSE build[/*]
+[*]English voice and text language[/*]
+[/list]
+
+[size=5]Installation[/size]
+Install [b]Sound Framework[/b] first. Then install this mod with your mod manager, or extract the archive into your [b]Mods[/b] folder (create it if it is missing):
+[code]
+Mods/
+\-- criminal_scum/
+    |-- mod.manifest
+    |-- Localization/
+    |   |-- english.pak           (voice takes)
+    |   \-- English_xml.pak       (subtitle text)
+    \-- SoundFramework/
+        \-- criminal_scum.ini     (the pack)
+[/code]
+To check it, open [b]KCD2_SoundFramework.log[/b] after loading a save: it lists criminal_scum.ini. Then get caught.
+
+To uninstall, delete Mods/criminal_scum.
+
+[size=5]Make Your Own[/size]
+[b]criminal_scum.ini[/b] is a complete, commented example of voice replacement: copy it, record your own lines and point it at other conversations. The [url=https://github.com/tkhquang/KCD2Tools/blob/main/SoundFramework/docs/MODDING.md]Sound Framework modding guide[/url] covers every key and how to find the line keys of other conversations with the SpeakLog debug option.
+
+[size=5]Known Limitations[/size]
+[list]
+[*]Made for the English voice and text language.[/*]
+[*]Other mods that replace the same guard lines through Sound Framework win or lose by load order (mod_order.txt).[/*]
+[/list]
+
+[size=5]AI Disclosure[/size]
+The voices are AI-generated: they were made with the [url=https://huggingface.co/maya-research/maya1]Maya1[/url] text-to-speech model by Maya Research (Apache 2.0), from a written description of a pompous town guard. No voice actor was recorded and no audio from any Bethesda game is used.
+
+The line is a nod to [i]The Elder Scrolls IV: Oblivion[/i]. This mod is not affiliated with or endorsed by Bethesda Softworks or Warhorse Studios.
+
+[size=5]Credits[/size]
+[list]
+[*][url=https://huggingface.co/maya-research/maya1]Maya Research[/url] - Maya1 text-to-speech[/*]
+[*]Warhorse Studios - Kingdom Come: Deliverance II[/*]
+[/list]
+
+All my Kingdom Come: Deliverance II mods and tools can be found in this [url=https://github.com/tkhquang/KCD2Tools]GitHub repository[/url]. Feel free to contribute or suggest improvements!
