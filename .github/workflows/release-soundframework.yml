@@ -20,7 +20,7 @@ on:
         required: false
         type: string
       nexus_description:
-        description: "Nexus file note (appended after the install-steps line; truncated to fit 255 chars total)"
+        description: "Nexus file note (appended after each file's build line; truncated to fit 255 chars total)"
         required: false
         type: string
       prerelease:
@@ -129,7 +129,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Unit tests failed.' }
 
       # ASI archive: everything at the root, extracted beside WHGame.dll. KCSE archive: a regular mod folder whose
-      # KCSE/Plugins/ holds the DLL with the same runtime files beside it.
+      # KCSE/Plugins/ holds the DLL with the same runtime files beside it. The folder is named after the modid, as
+      # the game's modding guide recommends; a modid allows only lowercase letters and underscores, and
+      # mod_order.txt lists mods by it.
       - name: Assemble release archives
         run: |
           $template = "SoundFramework\build\template\*"
@@ -143,7 +145,8 @@ jobs:
           Compress-Archive -Path "$asiPackage\*" -DestinationPath $env:ARTIFACT_NAME -Force
 
           $kcsePackage = "SoundFramework\package\kcse"
-          $modDir = Join-Path $kcsePackage 'KCD2_SoundFramework'
+          $modId = 'soundframework'
+          $modDir = Join-Path $kcsePackage $modId
           $pluginDir = Join-Path $modDir 'KCSE\Plugins'
           New-Item -ItemType Directory -Force -Path $pluginDir | Out-Null
           Copy-Item "SoundFramework\build\release-msvc\KCSE\KCD2_SoundFramework.dll" $pluginDir
@@ -154,8 +157,8 @@ jobs:
           <kcd_mod>
             <info>
               <name>Sound Framework (KCSE plugin)</name>
-              <modid>kcd2_soundframework</modid>
-              <description>Custom sounds and voices for mods. Needs Kingdom Come Script Extender (KCSE).</description>
+              <modid>{1}</modid>
+              <description>Custom sounds and voices with lip sync for mods. Needs Kingdom Come Script Extender (KCSE).</description>
               <author>tkhquang</author>
               <version>{0}</version>
               <created_on>2026-10-19</created_on>
@@ -163,7 +166,7 @@ jobs:
             </info>
           </kcd_mod>
           '@
-          $manifest = $manifest -f $env:NEW_VERSION
+          $manifest = $manifest -f $env:NEW_VERSION, $modId
           Set-Content -LiteralPath (Join-Path $modDir 'mod.manifest') -Value $manifest -Encoding utf8
           Compress-Archive -Path $modDir -DestinationPath $env:KCSE_ARTIFACT_NAME -Force
 
@@ -203,7 +206,7 @@ jobs:
              KCSE also loads `.asi` files beside its `dinput8.dll`, so KCSE users need no separate loader.
           2. Extract the archive directly into that same binary folder, beside `WHGame.dll`, without an extra archive-named subfolder.
 
-          **KCSE build** (`{5}`): install [Kingdom Come Script Extender](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332), then extract the archive into `<game>/Mods/` or install it with a mod manager. The DLL and its files land in `Mods/KCD2_SoundFramework/KCSE/Plugins/`.
+          **KCSE build** (`{5}`): install [Kingdom Come Script Extender](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332), then extract the archive into `<game>/Mods/` or install it with a mod manager. The DLL and its files land in `Mods/soundframework/KCSE/Plugins/`.
 
           Load a save and check `KCD2_SoundFramework.log` beside the mod: it lists every sound pack found. Edit `KCD2_SoundFramework.ini` and save to apply changes while playing. Back up your customized INI before updating.
 
@@ -233,17 +236,26 @@ jobs:
           Set-Content -LiteralPath $bodyPath -Value $releaseBody -Encoding utf8
           "RELEASE_BODY_PATH=$bodyPath" >> $env:GITHUB_OUTPUT
 
-          # Nexus accepts a 255-character file note and a plain bullet-list changelog.
-          $prefix = "See the description for installation steps.`n`n"
+          # Nexus accepts a 255-character file note, BBCode tags included, and a plain bullet-list changelog. Each
+          # file opens with its own build and requirement line, and the optional note fills what is left.
+          $asiLead = 'ASI build: needs an [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases]ASI loader[/url]. Extract it beside WHGame.dll by hand. Install this or the KCSE build, not both. See the description for installation steps.'
+          $kcseLead = 'KCSE build: needs [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332]KCSE[/url]. Installs into Mods, or with a mod manager. Install this or the ASI build, not both. See the description for installation steps.'
           $note = ($env:NEXUS_DESC_INPUT -replace "`r`n", "`n").Trim()
-          $remaining = 255 - $prefix.Length
-          if ($note.Length -gt $remaining) { $note = $note.Substring(0, $remaining) }
+          function Format-FileNote([string]$lead) {
+            if ($note -eq '') { return $lead }
+            $remaining = 255 - $lead.Length - 2
+            if ($remaining -le 0) { return $lead }
+            return "$lead`n`n" + $note.Substring(0, [Math]::Min($note.Length, $remaining))
+          }
           $nexusChangelog = (($changelog -split "`r?`n") |
             ForEach-Object { ($_.Trim() -replace '^[-*+]\s+', '') } |
             Where-Object { $_ -ne '' }) -join "`n"
           $delimiter = "NEXUS_$([guid]::NewGuid().ToString('N'))"
-          "NEXUS_DESCRIPTION<<$delimiter" >> $env:GITHUB_OUTPUT
-          ($prefix + $note) >> $env:GITHUB_OUTPUT
+          "NEXUS_ASI_DESCRIPTION<<$delimiter" >> $env:GITHUB_OUTPUT
+          (Format-FileNote $asiLead) >> $env:GITHUB_OUTPUT
+          $delimiter >> $env:GITHUB_OUTPUT
+          "NEXUS_KCSE_DESCRIPTION<<$delimiter" >> $env:GITHUB_OUTPUT
+          (Format-FileNote $kcseLead) >> $env:GITHUB_OUTPUT
           $delimiter >> $env:GITHUB_OUTPUT
           "NEXUS_CHANGELOG<<$delimiter" >> $env:GITHUB_OUTPUT
           $nexusChangelog >> $env:GITHUB_OUTPUT
@@ -287,6 +299,7 @@ jobs:
 
       # The account API key is shared; file and v3 mod IDs identify this mod. Each archive is its own Nexus file:
       # leave a file ID unset to skip that upload. mod_id is required only for changelogs, which the main file posts.
+      # The ASI build is the main file. It installs by hand beside WHGame.dll, so mod manager downloads stay off.
       - name: Publish ASI build to Nexus Mods
         if: ${{ !inputs.prerelease && vars.NEXUSMODS_SOUNDFRAMEWORK_FILE_ID != '' }}
         uses: Nexus-Mods/upload-action@c96019556046053aa26044b44396cd38929daf23 # v1.0.0-beta.10
@@ -295,8 +308,8 @@ jobs:
           file_id: ${{ vars.NEXUSMODS_SOUNDFRAMEWORK_FILE_ID }}
           filename: ${{ env.ARTIFACT_NAME }}
           version: ${{ env.NEW_VERSION }}
-          display_name: Sound Framework - ASI
-          description: ${{ steps.prepare-release.outputs.NEXUS_DESCRIPTION }}
+          display_name: (ASI) Sound Framework
+          description: ${{ steps.prepare-release.outputs.NEXUS_ASI_DESCRIPTION }}
           category: main
           archive_existing_version: false
           primary_mod_manager_download: false
@@ -315,8 +328,8 @@ jobs:
           file_id: ${{ vars.NEXUSMODS_SOUNDFRAMEWORK_KCSE_FILE_ID }}
           filename: ${{ env.KCSE_ARTIFACT_NAME }}
           version: ${{ env.NEW_VERSION }}
-          display_name: Sound Framework - KCSE Plugin
-          description: ${{ steps.prepare-release.outputs.NEXUS_DESCRIPTION }}
+          display_name: (KCSE) Sound Framework
+          description: ${{ steps.prepare-release.outputs.NEXUS_KCSE_DESCRIPTION }}
           category: main
           archive_existing_version: false
           primary_mod_manager_download: true

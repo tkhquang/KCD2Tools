@@ -1,5 +1,5 @@
 KINGDOM COME: DELIVERANCE II - SOUND FRAMEWORK
-Custom Sounds and Voices for Mods
+Custom Sounds and Voices with Lip Sync for Mods
 Version 0.1.0
 
 Sound Framework lets other mods add sounds and voice lines to the game, replace
@@ -57,8 +57,8 @@ INSTALLATION - KCSE BUILD
     https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332
   Extract this archive into the game's Mods folder (create it if it is missing):
     <KC:D 2 installation folder>/Mods/
-  You get Mods/KCD2_SoundFramework/KCSE/Plugins/ with the DLL, the INIs and the
-  model file side by side. Mod managers can install the archive as a regular mod.
+  You get Mods/soundframework/KCSE/Plugins/ with the DLL, the INIs and the model
+  file side by side. Mod managers can install the archive as a regular mod.
 
 Install only one build. If both are installed, the second one to load stays off
 and the log says so.

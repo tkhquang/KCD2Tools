@@ -65,7 +65,7 @@ Use version=n,b or winmm=n,b instead when using that loader name.
 Install [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332]KCSE[/url], then install the KCSE archive with your mod manager, or extract it into your [b]Mods[/b] folder (create it if it is missing):
 [code]
 Mods/
-\-- KCD2_SoundFramework/
+\-- soundframework/
     |-- mod.manifest
     \-- KCSE/
         \-- Plugins/

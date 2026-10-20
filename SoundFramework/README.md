@@ -1,6 +1,6 @@
 # Kingdom Come: Deliverance II - Sound Framework
 
-Custom sounds and voices for Kingdom Come: Deliverance II mods.
+Custom sounds and voices with lip sync for Kingdom Come: Deliverance II mods.
 
 ## Overview
 
@@ -65,7 +65,7 @@ Install KCSE, then extract the archive into `<KC:D 2 installation folder>/Mods/`
 
 ```
 Mods/
-\-- KCD2_SoundFramework/
+\-- soundframework/
     |-- mod.manifest
     \-- KCSE/
         \-- Plugins/
