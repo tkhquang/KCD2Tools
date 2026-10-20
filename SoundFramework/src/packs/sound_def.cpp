@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cmath>
 #include <format>
 #include <utility>
 
@@ -68,6 +69,17 @@ namespace SoundFramework::packs
                 return false;
             }
             return std::nullopt;
+        }
+
+        [[nodiscard]] std::string lowered(std::string_view text)
+        {
+            std::string out(text);
+            std::ranges::transform(
+                out,
+                out.begin(),
+                [](char c) { return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c; }
+            );
+            return out;
         }
 
         /** @brief Splits a comma-separated list into trimmed, non-empty items. */
@@ -241,27 +253,44 @@ namespace SoundFramework::packs
                         reader.fatal(entry.line, std::format("Replaces item '{}' is not an event:/ path", item));
                         return;
                     }
-                    std::string path(item);
-                    std::ranges::transform(
-                        path,
-                        path.begin(),
-                        [](char c) { return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c; }
-                    );
-                    sound.replaces.push_back(std::move(path));
+                    sound.replaces.push_back(lowered(item));
                 }
             }
             else if (iequals(key, "ReplacesFor"))
             {
                 for (const std::string_view item : split_list(entry.value))
                 {
-                    std::string name(item);
-                    std::ranges::transform(
-                        name,
-                        name.begin(),
-                        [](char c) { return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c; }
-                    );
-                    sound.replaces_for.push_back(std::move(name));
+                    sound.replaces_for.push_back(lowered(item));
                 }
+            }
+            else if (iequals(key, "PlayAt"))
+            {
+                // "<parameter>" or "<parameter>:<lowest value>".
+                const std::string_view value = entry.value;
+                const std::size_t colon = value.find(':');
+                const std::string_view parameter = trim(value.substr(0, colon));
+                if (parameter.empty())
+                {
+                    reader.fatal(entry.line, "PlayAt needs a parameter name");
+                    return;
+                }
+                if (colon != std::string_view::npos)
+                {
+                    const std::string_view number = trim(value.substr(colon + 1));
+                    const std::optional<float> lowest = parse_float(number);
+                    // from_chars also reads "nan" and "inf"; no game value ever reaches those.
+                    if (!lowest.has_value() || !std::isfinite(*lowest))
+                    {
+                        reader.fatal(entry.line, std::format("PlayAt value '{}' is not a number", number));
+                        return;
+                    }
+                    sound.play_at_value = *lowest;
+                }
+                sound.play_at = lowered(parameter);
+            }
+            else if (iequals(key, "KeepOriginal"))
+            {
+                reader.flag(entry, sound.keep_original);
             }
             else
             {
@@ -568,6 +597,14 @@ namespace SoundFramework::packs
             if (!sound.replaces_for.empty() && sound.replaces.empty())
             {
                 reader.problem(section.line, "ReplacesFor without Replaces has no effect");
+            }
+            if (!sound.play_at.empty() && sound.replaces.empty())
+            {
+                reader.problem(section.line, "PlayAt without Replaces has no effect");
+            }
+            if (sound.keep_original && sound.replaces.empty())
+            {
+                reader.problem(section.line, "KeepOriginal without Replaces has no effect");
             }
             if (sound.max_distance < sound.min_distance)
             {

@@ -51,6 +51,14 @@ namespace SoundFramework::constants
     inline constexpr const char *STUDIO_EVENT_START_EXPORT =
         "?start@EventInstance@Studio@FMOD@@QEAA?AW4FMOD_RESULT@@XZ";
 
+    /**
+     * @brief FMOD::Studio::EventInstance::setParameterByName(const char*, float, bool): the only parameter setter the
+     *        game imports. It moves a running event on to its next stage, such as a bow shot from the draw to the
+     *        release.
+     */
+    inline constexpr const char *STUDIO_EVENT_SET_PARAMETER_EXPORT =
+        "?setParameterByName@EventInstance@Studio@FMOD@@QEAA?AW4FMOD_RESULT@@PEBDM_N@Z";
+
     // WHGame.dll RTTI names and layouts (verified on Steam 1.5.6, GOG 1.5 and Game Pass 1.4+).
     inline constexpr const char *RTTI_CONSOLE = ".?AVCXConsole@@";
     inline constexpr const char *RTTI_SYSTEM = ".?AVCSystem@@";

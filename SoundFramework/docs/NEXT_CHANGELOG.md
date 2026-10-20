@@ -2,6 +2,9 @@
 
 - Mods can add sounds through an INI in their own SoundFramework folder and play them on the game's buses, in 3D or flat.
 - Pack sounds can replace the game's sound events, everywhere or only for chosen entities.
+- A replacement can wait for a later moment of the game's sound, such as a bow's release.
+- A pack sound can play on top of the game's sound instead of replacing it.
+- The debug log also shows the moments inside the game's sounds that a pack can wait for.
 - NPCs can speak a pack's voice lines with a subtitle, a chat bubble or both.
 - Pack voice lines can replace the game's own voice lines, by exact key or by pattern.
 - Voice lines move the speaker's mouth: ADVANCED uses a small model trained on the game's own animation, BASIC follows the voice's loudness.

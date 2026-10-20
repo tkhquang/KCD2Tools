@@ -15,6 +15,7 @@
 #include "fmod/event_hook.hpp"
 #include "fmod/fmod_api.hpp"
 #include "fmod/listener_hook.hpp"
+#include "fmod/parameter_hook.hpp"
 #include "fmod/update_hook.hpp"
 #include "game/console_commands.hpp"
 #include "game/entity_tracker.hpp"
@@ -202,6 +203,7 @@ namespace SoundFramework
         DMK_TRY_VOID(fmod::install_listener_hook(s_hooks));
         DMK_TRY_VOID(fmod::install_update_hook(s_hooks));
         DMK_TRY_VOID(fmod::install_event_hook(s_hooks));
+        DMK_TRY_VOID(fmod::install_parameter_hook(s_hooks));
         if (!audio::start(mods_directory(), module_directory() / constants::MOODS_FILE_NAME))
         {
             return std::unexpected(DMK::Error{DMK::ErrorCode::Unknown, "SoundFramework::init/worker"});

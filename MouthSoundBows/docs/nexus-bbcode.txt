@@ -1,0 +1,58 @@
+[size=5]Foreword[/size]
+Draw, aim, release, and instead of the bowstring you hear a grown man going:
+
+[quote]Chiuuu![/quote]
+
+Crossbows too, a little deeper. Henry, bandits, hunters: every shooter in Bohemia now makes their own sound effects, with their mouth.
+
+This is a small joke mod and a showcase for [b]Sound Framework[/b]: one pack INI and two sound files, with no code and no paks. It shows how a pack can replace the game's own sounds with brand-new ones, timed to the moment the arrow leaves the bow.
+
+[size=5]Key Features[/size]
+[list]
+[*]Every bow shot plays one of two mouth-made "Chiuuu!" takes, right as the arrow leaves the bow[/*]
+[*]Crossbow shots get the same takes, a little deeper[/*]
+[*]Each shot varies a little in pitch and volume, so no two sound the same[/*]
+[*]Works for every shooter, Henry and NPCs alike[/*]
+[*]Only the shot itself changes: nocking, reloading and hits keep the game's own sounds[/*]
+[*]Optional: keep the game's own shot under the Chiuuu (see Options)[/*]
+[*]Works with any game language[/*]
+[/list]
+
+[size=5]Requirements[/size]
+[list]
+[*][b]Sound Framework[/b], ASI or KCSE build[/*]
+[/list]
+
+[size=5]Installation[/size]
+Install [b]Sound Framework[/b] first. Then install this mod with your mod manager, or extract the archive into your [b]Mods[/b] folder (create it if it is missing):
+[code]
+Mods/
+\-- mouth_sound_bows/
+    |-- mod.manifest
+    \-- SoundFramework/
+        |-- mouth_sound_bows.ini       (the pack)
+        |-- mouth_sound_bows_01.ogg    (long take)
+        \-- mouth_sound_bows_02.ogg    (short take)
+[/code]
+To check it, open [b]KCD2_SoundFramework.log[/b] after loading a save: it lists mouth_sound_bows.ini. Then shoot.
+
+To uninstall, delete Mods/mouth_sound_bows.
+
+[size=5]Options[/size]
+To hear the game's own bowstring and crossbow under the Chiuuu, open [b]SoundFramework/mouth_sound_bows.ini[/b] and set [b]KeepOriginal = true[/b] in the section you want ([b][mouth_sound_bows_shot][/b] for bows, [b][mouth_sound_bows_crossbow][/b] for crossbows). Saving the file applies it while you play.
+
+[size=5]Make Your Own[/size]
+[b]mouth_sound_bows.ini[/b] is a complete, commented example of sound replacement: swap the files for your own takes, or point Replaces at other game sounds. The [url=https://github.com/tkhquang/KCD2Tools/blob/main/SoundFramework/docs/MODDING.md]Sound Framework modding guide[/url] covers every key and how to find the game's sound events with the EventLog debug option.
+
+[size=5]Known Limitations[/size]
+[list]
+[*]Other mods that replace the bow or crossbow shot through Sound Framework win or lose by load order (mod_order.txt).[/*]
+[/list]
+
+[size=5]Credits[/size]
+[list]
+[*][url=https://freesound.org/people/monosfera/]monosfera[/url] - the mouth sounds ([url=https://freesound.org/people/monosfera/sounds/572298/]lorenc_fx21_laser[/url] and [url=https://freesound.org/people/monosfera/sounds/572296/]lorenc_fx23_laser[/url], public domain CC0) on Freesound[/*]
+[*]Warhorse Studios - Kingdom Come: Deliverance II[/*]
+[/list]
+
+All my Kingdom Come: Deliverance II mods and tools can be found in this [url=https://github.com/tkhquang/KCD2Tools]GitHub repository[/url]. Feel free to contribute or suggest improvements!

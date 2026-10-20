@@ -103,6 +103,7 @@ set(COMMON_SOURCES
   src/fmod/event_hook.cpp
   src/fmod/fmod_api.cpp
   src/fmod/listener_hook.cpp
+  src/fmod/parameter_hook.cpp
   src/fmod/update_hook.cpp
   src/game/console_commands.cpp
   src/game/entity_tracker.cpp

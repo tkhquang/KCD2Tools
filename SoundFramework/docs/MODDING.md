@@ -9,7 +9,7 @@ A sound pack is an ordinary KC:D 2 mod folder with a `SoundFramework` folder ins
 
 The framework reads the packs at startup and reads a pack again within a second of you saving it. Problems, such as a missing file or a misspelled key, are written to `KCD2_SoundFramework.log` with the INI file and line number.
 
-[Stop Right There, Criminal Scum](../../CriminalScum/) is a complete example pack: custom guard voice lines that replace the arrest dialog.
+Two complete example packs: [Stop Right There, Criminal Scum](../../CriminalScum/) replaces the arrest dialog with custom guard voice lines, and [Chiuuu! Mouth-Sound Bows](../../MouthSoundBows/) replaces bow and crossbow shots with a new sound, timed to the bow's release.
 
 ## Folder layout
 
@@ -63,6 +63,8 @@ MaxDistance = 60
 | `Cooldown` | `0` | Seconds; plays requested sooner after the last one are dropped. |
 | `Replaces` | | Game sound events this sound plays instead of (see below). |
 | `ReplacesFor` | | Only replace the events when they start at one of these entities. |
+| `PlayAt` | | Play at a later moment of the replaced events instead of their start (see below). |
+| `KeepOriginal` | `false` | Leaves the replaced events audible, so the sound plays on top of them instead of in their place. |
 
 Bus aliases:
 
@@ -90,9 +92,20 @@ Replaces = event:/animals/dog/dog_bark
 ReplacesFor = tvez_vorech               ; optional: only this one dog
 ```
 
-To find event paths, set `EventLog` under `[Debug]` in `KCD2_SoundFramework.ini` to part of a path (`dog`) or `*` for everything. The log then lists every matching event as it starts, with its world position.
+To find event paths, set `EventLog` under `[Debug]` in `KCD2_SoundFramework.ini` to part of a path (`dog`) or `*` for everything. The log then lists every matching event as it starts, with its world position, and each parameter the game sets on it whenever the value changes.
 
 `ReplacesFor` takes entity names from the game's entity system, such as `tvez_vorech`. A Lua console or mod reads an entity's name with `entity:GetName()`. An event is replaced when it starts within 2 metres of one of the named entities.
+
+Some events run through stages: a bow shot starts with the draw and plays its release later, when the game sets one of the event's parameters. `PlayAt = <parameter>:<value>` plays your sound the first time the game sets that parameter on the event to the value or more, and `PlayAt = <parameter>` the first time it sets it at all. The event is still muted from its start:
+
+```ini
+[my_mod_bow]
+Files = twang.ogg
+Replaces = event:/combat/weapons/bow/bow_shot
+PlayAt = arrow_release:1                ; the moment the arrow leaves the bow
+```
+
+The game also sets parameters it shares across all events, such as `daytime`; in the `EventLog` lines, use the one that changes at the moment you want.
 
 ## Voice lines
 
@@ -140,7 +153,11 @@ Each row is the key, the source text and the translated text. Add the same files
 
 `sfw_say <entity name> <line name>` makes an NPC say a line from the console. The entity name is the NPC's name in the game's entity system, such as `kmis_man_22` (`entity:GetName()` in Lua).
 
-`sfw_say <entity name> <voice path> [speaker:<name key>] [bubble:<text key>] [mood:<mood>] [strength:<0..2>] [subtitle text]` speaks a single recording without a pack line, for trying things out.
+`sfw_say <entity name> <voice path> [speaker:<name key>] [bubble:<text key>] [mood:<mood>] [strength:<0..2>] [subtitle text]` speaks a single recording without a pack line, for trying things out. Henry is `Dude`:
+
+```
+sfw_say Dude Localization/dialog/open_world/lazne_a_lazebnice/aals_obje_lazebnice_ale_ty_uz__wAcW mood:surprised You're already undressed?
+```
 
 ### Replacing the game's voice lines
 
