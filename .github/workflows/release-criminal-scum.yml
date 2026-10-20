@@ -227,7 +227,7 @@ jobs:
           file_id: ${{ vars.NEXUSMODS_CRIMINALSCUM_FILE_ID }}
           filename: ${{ env.ARTIFACT_NAME }}
           version: ${{ env.NEW_VERSION }}
-          display_name: Stop Right There, Criminal Scum
+          display_name: (Stop Right There) Criminal Scum
           description: ${{ steps.prepare-release.outputs.NEXUS_DESCRIPTION }}
           category: main
           archive_existing_version: false
