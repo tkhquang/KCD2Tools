@@ -1,7 +1,7 @@
 [size=5]Foreword[/size]
 [b]Sound Framework[/b] lets mods add sounds and voice lines to the game without writing code. A mod drops an INI file into its own SoundFramework folder; the framework plays its sounds on the game's own audio mixer, makes NPCs speak its voice lines with subtitles and lip movement, and can replace the game's sounds and voice lines with the mod's.
 
-On its own it changes nothing you can hear: install it for the mods that need it. [b]Stop Right There, Criminal Scum[/b] and [b]Chiuuu! Mouth-Sound Bows[/b] are two, and the [url=https://github.com/tkhquang/KCD2Tools/blob/main/SoundFramework/docs/MODDING.md]modding guide[/url] shows how to make your own.
+On its own it changes nothing you can hear: install it for the mods that need it. [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3862]Stop Right There, Criminal Scum[/url] and [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3861]Chiuuu! Mouth-Sound Bows[/url] are two, and the [url=https://github.com/tkhquang/KCD2Tools/blob/main/SoundFramework/docs/MODDING.md]modding guide[/url] shows how to make your own.
 
 Questions, packs to share or ideas? Join the [url=https://discord.gg/wzhhsQRnkZ]KCD Modding Community[/url] on Discord.
 

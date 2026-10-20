@@ -3,7 +3,7 @@ Get caught stealing, trespassing or brawling and the guard who stops you has onl
 
 [quote]Stop right there, criminal scum! You violated the law. Pay the court a fine or serve your sentence. Your stolen goods are now forfeit.[/quote]
 
-This is a brief showcase for [b]Sound Framework[/b], not a mod meant for regular play: one pack INI, three voice takes and a text table, with no code of its own.
+This is a brief showcase for [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3860]Sound Framework[/url], not a mod meant for regular play: one pack INI, three voice takes and a text table, with no code of its own.
 
 [youtube]oVVImFIX-uI[/youtube]
 
@@ -16,7 +16,7 @@ This is a brief showcase for [b]Sound Framework[/b], not a mod meant for regular
 
 [size=5]Requirements[/size]
 [list]
-[*][b]Sound Framework[/b], ASI or KCSE build[/*]
+[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3860]Sound Framework[/url], ASI or KCSE build[/*]
 [*]English voice and text language[/*]
 [/list]
 

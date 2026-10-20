@@ -5,7 +5,7 @@ Draw, aim, release, and instead of the bowstring you hear a grown man going:
 
 Crossbows too, a little deeper. Henry, bandits, hunters: every shooter in Bohemia now makes their own sound effects, with their mouth.
 
-This is a small joke mod and a showcase for [b]Sound Framework[/b]: one pack INI and two sound files, with no code and no paks. It shows how a pack can replace the game's own sounds with brand-new ones, timed to the moment the arrow leaves the bow.
+This is a small joke mod and a showcase for [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3860]Sound Framework[/url]: one pack INI and two sound files, with no code and no paks. It shows how a pack can replace the game's own sounds with brand-new ones, timed to the moment the arrow leaves the bow.
 
 [youtube]NwKRRVTob6I[/youtube]
 
@@ -22,7 +22,7 @@ This is a small joke mod and a showcase for [b]Sound Framework[/b]: one pack INI
 
 [size=5]Requirements[/size]
 [list]
-[*][b]Sound Framework[/b], ASI or KCSE build[/*]
+[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3860]Sound Framework[/url], ASI or KCSE build[/*]
 [/list]
 
 [size=5]Installation[/size]
