@@ -180,6 +180,17 @@ namespace TPVCamera
      */
     [[nodiscard]] uint32_t poll_game_state(uintptr_t c_player) noexcept;
 
+    /**
+     * @brief True while the engine plays a cutscene: IViewSystem::IsPlayingCutScene, read without a call.
+     * @details A TrackView sequence flagged as a cutscene renders through a CView of its own, which the camera must
+     *          leave alone. The member offsets come from the two getters' code (see Aob::k_frameworkGetViewSystem),
+     *          proved once; after that each call is three guarded reads and a vtable compare. Main thread only, like
+     *          poll_game_state.
+     * @param cry_action The CCryAction (IGameFramework), or 0.
+     * @return False when the count cannot be read.
+     */
+    [[nodiscard]] bool cutscene_playing(uintptr_t cry_action) noexcept;
+
     /** @brief True while the player holds a bow fully drawn or a crossbow raised: the running shot's Aiming phase. */
     [[nodiscard]] bool player_missile_drawn(uintptr_t c_player) noexcept;
 

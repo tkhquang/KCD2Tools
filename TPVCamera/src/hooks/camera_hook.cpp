@@ -181,6 +181,15 @@ namespace TPVCamera
     // Reused by the player/animchar walks. p_physical_world is g_env + PHYSICAL_WORLD_OFFSET.
     static uintptr_t s_genv_runtime = 0;
 
+    // CCryAction (IGameFramework), resolved by resolve_c_player through a virtual GetIGameFramework call and kept for
+    // the process. The cutscene gate reads the view system through it.
+    static uintptr_t s_cry_action_runtime = 0;
+
+    // Published by the frustum detour each game-view frame: true while the engine plays a cutscene. Its sequence
+    // renders through a CView of its own, which the frustum gate cannot tell from the player's, so should_apply_view
+    // holds first person until it ends. Read by the input-dispatch thread through should_apply_view.
+    static std::atomic<bool> s_cutscene{false};
+
     // CView vtable address, cached lazily on the first frustum-builder camera whose embedding object
     // passes the CView RTTI check. The steady-state game-view gate is then a single qword compare;
     // using the RTTI type name (not a hardcoded address) keeps the gate working across game patches.
@@ -238,6 +247,11 @@ namespace TPVCamera
 
     bool should_apply_view() noexcept
     {
+        // A cutscene camera is never offset, whatever the INI lists: no setting leaves third person on there.
+        if (s_cutscene.load(std::memory_order_relaxed))
+        {
+            return false;
+        }
         const uint32_t suppress = state_policy().suppress();
         if (suppress == 0)
         {
@@ -539,8 +553,7 @@ namespace TPVCamera
             return 0;
         }
 
-        static uintptr_t s_cry_action = 0;
-        if (!DMK::memory::is_plausible_ptr(DMK::Address{s_cry_action}))
+        if (!DMK::memory::is_plausible_ptr(DMK::Address{s_cry_action_runtime}))
         {
             const auto vtable = DMK::memory::read<uintptr_t>(DMK::Address{*p_game});
             if (!vtable || !DMK::memory::is_plausible_ptr(DMK::Address{*vtable}))
@@ -554,10 +567,10 @@ namespace TPVCamera
                 return 0;
             }
             using GetFrameworkFn = uintptr_t(__fastcall *)(uintptr_t);
-            s_cry_action = reinterpret_cast<GetFrameworkFn>(*fn)(*p_game);
-            if (!DMK::memory::is_plausible_ptr(DMK::Address{s_cry_action}))
+            s_cry_action_runtime = reinterpret_cast<GetFrameworkFn>(*fn)(*p_game);
+            if (!DMK::memory::is_plausible_ptr(DMK::Address{s_cry_action_runtime}))
             {
-                s_cry_action = 0;
+                s_cry_action_runtime = 0;
                 return 0;
             }
         }
@@ -566,10 +579,10 @@ namespace TPVCamera
         // and the latch: its gate stays shut (silently) until the slot holds a constructed CActionGame, so the
         // offset is nominal until then and fixed afterwards. A layout shift here would silently break every
         // walk below, which is why it is the first group registered.
-        note_framework_base(s_cry_action);
+        note_framework_base(s_cry_action_runtime);
 
         const auto p_action_game = DMK::memory::read<uintptr_t>(
-            DMK::Address{s_cry_action + runtime_offsets().ccryaction_actiongame.load().value});
+            DMK::Address{s_cry_action_runtime + runtime_offsets().ccryaction_actiongame.load().value});
         if (!p_action_game || !DMK::memory::is_plausible_ptr(DMK::Address{*p_action_game}))
         {
             return 0;
@@ -623,7 +636,7 @@ namespace TPVCamera
                 s_logged_player = *player;
                 (void)DMK::log().try_log(DMK::LogLevel::Debug, "C_Player resolved={} (CCryAction={})",
                                          DMK::format::format_address(*player),
-                                         DMK::format::format_address(s_cry_action));
+                                         DMK::format::format_address(s_cry_action_runtime));
             }
         }
 
@@ -1872,6 +1885,14 @@ namespace TPVCamera
         // below. The game state is derived from the discrete engine signals and published for the input-dispatch
         // thread.
         const uintptr_t c_player = resolve_c_player();
+        // Read before anything below asks should_apply_view, so a cutscene's first frame already renders untouched.
+        const bool cutscene = cutscene_playing(s_cry_action_runtime);
+        if (cutscene != s_cutscene.exchange(cutscene, std::memory_order_relaxed))
+        {
+            (void)DMK::log().try_log(DMK::LogLevel::Debug, "Camera: {}",
+                                     cutscene ? "a cutscene started; first person until it ends"
+                                              : "the cutscene ended");
+        }
         // Presets are always active, so the debounced game state is always needed here (to select the
         // active preset and, when state behaviour is on, to drive the forced-view / orbit-exclude policies).
         const uint32_t raw_state = poll_game_state(c_player) | poll_indoors(cview, repeat_build);
@@ -2247,7 +2268,9 @@ namespace TPVCamera
         }
         const float view_dur = cfg.view_transition_duration.load(std::memory_order_relaxed);
         const float view_target = want_tpv ? 1.0f : 0.0f;
-        s_view_blend = ramp_weight(s_view_blend, view_target, view_dur, step.real_seconds);
+        // A cutscene cuts to its own camera, wherever that stands: an ease out would carry the player's third-person
+        // pose onto it, so the view leaves at once. Once it ends the view eases back out from the eye.
+        s_view_blend = cutscene ? 0.0f : ramp_weight(s_view_blend, view_target, view_dur, step.real_seconds);
 
         // The offset is rendered while heading TO or holding third person, so the ease-OUT renders too.
         const bool offset_engaged = want_tpv || s_view_blend > 1e-3f;

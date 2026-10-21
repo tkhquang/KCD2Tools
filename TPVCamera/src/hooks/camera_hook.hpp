@@ -98,8 +98,9 @@ namespace TPVCamera
 
     /**
      * @brief Whether the third-person offset should be applied right now.
-     * @details Suppressed (forced first-person) while the game is in any state listed in SuppressTPVState,
-     *          so that context renders from the game's own untouched camera. This is a HARD gate: it
+     * @details Suppressed (forced first-person) while a cutscene plays, whatever the INI lists, and while the game
+     *          is in any state listed in SuppressTPVState, so that context renders from the game's own untouched
+     *          camera. This is a HARD gate: it
      *          overrides cam.applying, so the player cannot toggle third-person back on while a listed state
      *          lasts (unlike the edge-triggered ForcedFPVState policy), and the prior view resumes when the
      *          state ends. Menu and Overlay are read from the LIVE UI signals, so they suppress the same
