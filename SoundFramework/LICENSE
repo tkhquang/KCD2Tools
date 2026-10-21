@@ -23,19 +23,18 @@ SOFTWARE.
 
 -------------------------------------------------------------------------------
 
-Game data exclusion
+Lip model exclusion
 
-The files KCD2_SoundFramework_lipmodel.bin and KCD2_SoundFramework_cutscenes.txt
-(build/template/ in this repository, and in every release) are NOT part of the
-Software and are NOT covered by the MIT License above.
+The file KCD2_SoundFramework_lipmodel.bin (build/template/ in this repository,
+and in every release) is NOT part of the Software and is NOT covered by the MIT
+License above.
 
-The first holds model weights, the second the speakers of the game's cutscene
-lines, both derived from Kingdom Come: Deliverance II game data, which belongs
-to Warhorse Studios and PLAION. They are provided only for use with Kingdom
-Come: Deliverance II through KCD2_SoundFramework, under the game's end-user
-license agreement and Warhorse's modding guidelines. No other rights are
-granted: do not redistribute them outside this mod, use them in other games or
-products, or use them commercially.
+It holds model weights derived from Kingdom Come: Deliverance II game data,
+which belongs to Warhorse Studios and PLAION. It is provided only for use with
+Kingdom Come: Deliverance II through KCD2_SoundFramework, under the game's
+end-user license agreement and Warhorse's modding guidelines. No other rights
+are granted: do not redistribute it outside this mod, use it in other games or
+products, or use it commercially.
 
 -------------------------------------------------------------------------------
 

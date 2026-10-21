@@ -18,11 +18,11 @@
 namespace SoundFramework::game::cutscene_voices
 {
     /**
-     * @brief Loads the cutscene speaker table @p table_file when the CutsceneVoices feature passed its gate. Without
-     *        the table, cutscenes keep the game's faces (logged).
+     * @brief Loads the cutscene speaker table when the CutsceneVoices feature passed its gate: @p override_file when it
+     *        exists, else the table built into this module. Without a table, cutscenes keep the game's faces (logged).
      * @note Setup/control-plane only.
      */
-    void configure(const Anchors &anchors, const std::filesystem::path &table_file) noexcept;
+    void configure(const Anchors &anchors, const std::filesystem::path &override_file) noexcept;
 
     /**
      * @brief Resolves the cutscene voice event's GUID on the game's Studio system @p system once its strings bank

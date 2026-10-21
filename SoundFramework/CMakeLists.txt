@@ -10,7 +10,7 @@ string(REGEX REPLACE ".*VERSION_MAJOR +([0-9]+).*" "\\1" _ver_major "${_ver_majo
 string(REGEX REPLACE ".*VERSION_MINOR +([0-9]+).*" "\\1" _ver_minor "${_ver_minor}")
 string(REGEX REPLACE ".*VERSION_PATCH +([0-9]+).*" "\\1" _ver_patch "${_ver_patch}")
 
-project(KCD2_SoundFramework VERSION ${_ver_major}.${_ver_minor}.${_ver_patch} LANGUAGES CXX)
+project(KCD2_SoundFramework VERSION ${_ver_major}.${_ver_minor}.${_ver_patch} LANGUAGES CXX RC)
 
 # Re-run configure when the version header changes so PROJECT_VERSION stays current.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_version_header}")
@@ -63,6 +63,8 @@ if(SNDFW_BUILD_TESTS)
   add_executable(sndfw_packs_tests tests/packs_tests.cpp)
   configure_mod_compile(sndfw_packs_tests)
   target_link_libraries(sndfw_packs_tests PRIVATE sndfw_packs)
+  target_compile_definitions(sndfw_packs_tests PRIVATE
+    SNDFW_CUTSCENE_TABLE="${CMAKE_CURRENT_SOURCE_DIR}/data/KCD2_SoundFramework_cutscenes.txt")
   add_test(NAME packs COMMAND sndfw_packs_tests)
   add_executable(sndfw_voice_tests tests/voice_tests.cpp)
   configure_mod_compile(sndfw_voice_tests)
@@ -108,7 +110,6 @@ set(COMMON_SOURCES
   src/fmod/update_hook.cpp
   src/game/console_commands.cpp
   src/game/cutscene_voices.cpp
-  src/game/cutscene_voices.cpp
   src/game/entity_tracker.cpp
   src/game/game_clock.cpp
   src/game/lip_drive.cpp
@@ -129,6 +130,16 @@ function(configure_logic_target target)
   target_link_options(${target} PRIVATE $<$<CONFIG:Release>:/OPT:REF /OPT:ICF>)
 endfunction()
 
+# The cutscene speaker table (data/, generated from the game's files) is built into each module as an RCDATA resource;
+# a copy beside the module overrides it.
+set(SNDFW_CUTSCENE_TABLE "${CMAKE_CURRENT_SOURCE_DIR}/data/KCD2_SoundFramework_cutscenes.txt")
+set(SNDFW_CUTSCENE_TABLE_RC "${CMAKE_CURRENT_BINARY_DIR}/cutscene_table.rc")
+file(CONFIGURE OUTPUT "${SNDFW_CUTSCENE_TABLE_RC}" CONTENT "CUTSCENE_TABLE RCDATA \"${SNDFW_CUTSCENE_TABLE}\"\n")
+set_source_files_properties("${SNDFW_CUTSCENE_TABLE_RC}" PROPERTIES OBJECT_DEPENDS "${SNDFW_CUTSCENE_TABLE}")
+function(embed_cutscene_table target)
+  target_sources(${target} PRIVATE "${SNDFW_CUTSCENE_TABLE_RC}")
+endfunction()
+
 if(NOT SNDFW_DEV_BUILD)
   # Production build: one set of objects linked twice, as the ASI for an ASI loader and as a DLL for
   # Kingdom Come Script Extender (KCSE), which adds only its two plugin exports (src/kcse_plugin.cpp).
@@ -138,6 +149,7 @@ if(NOT SNDFW_DEV_BUILD)
   add_library(${PROJECT_NAME}-ASI SHARED)
   configure_logic_target(${PROJECT_NAME}-ASI)
   target_link_libraries(${PROJECT_NAME}-ASI PRIVATE sndfw_logic)
+  embed_cutscene_table(${PROJECT_NAME}-ASI)
   set_target_properties(${PROJECT_NAME}-ASI PROPERTIES
     OUTPUT_NAME "KCD2_SoundFramework-temp-asi"
     SUFFIX ".asi"
@@ -147,6 +159,7 @@ if(NOT SNDFW_DEV_BUILD)
   add_library(${PROJECT_NAME}-KCSE SHARED src/kcse_plugin.cpp)
   configure_logic_target(${PROJECT_NAME}-KCSE)
   target_link_libraries(${PROJECT_NAME}-KCSE PRIVATE sndfw_logic)
+  embed_cutscene_table(${PROJECT_NAME}-KCSE)
   set_target_properties(${PROJECT_NAME}-KCSE PROPERTIES
     OUTPUT_NAME "KCD2_SoundFramework-temp-kcse"
     SUFFIX ".dll"
@@ -237,6 +250,7 @@ else()
   configure_logic_target(${PROJECT_NAME}-logic)
   target_include_directories(${PROJECT_NAME}-logic PRIVATE src/dev)
   target_compile_definitions(${PROJECT_NAME}-logic PRIVATE SNDFW_DEV_BUILD)
+  embed_cutscene_table(${PROJECT_NAME}-logic)
   set_target_properties(${PROJECT_NAME}-logic PROPERTIES
     OUTPUT_NAME "KCD2_SoundFramework.logic"
     PREFIX ""

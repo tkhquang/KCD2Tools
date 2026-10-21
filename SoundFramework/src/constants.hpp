@@ -29,8 +29,11 @@ namespace SoundFramework::constants
     inline constexpr const wchar_t *MOODS_FILE_NAME = L"KCD2_SoundFramework_moods.ini";
     /// The learned lip model ([LipSync] Mode = ADVANCED), beside the framework module.
     inline constexpr const wchar_t *LIP_MODEL_FILE_NAME = L"KCD2_SoundFramework_lipmodel.bin";
-    /// The cutscene speaker table (packs/cutscene_table.hpp), beside the framework module.
+    /// The cutscene speaker table (packs/cutscene_table.hpp): a copy beside the framework module overrides the built-in
+    /// one.
     inline constexpr const wchar_t *CUTSCENE_TABLE_FILE_NAME = L"KCD2_SoundFramework_cutscenes.txt";
+    /// The RCDATA resource holding the built-in cutscene speaker table (CMakeLists.txt, embed_cutscene_table).
+    inline constexpr const wchar_t *CUTSCENE_TABLE_RESOURCE = L"CUTSCENE_TABLE";
     inline constexpr const char *INSTANCE_MUTEX_PREFIX = "KCD2_SoundFramework_";
     inline constexpr const char *DEFAULT_LOG_LEVEL = "INFO";
     inline constexpr const char *GAME_MODULE = "WHGame.dll";

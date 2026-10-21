@@ -54,7 +54,6 @@ Bin/Win64MasterMasterSteamPGO/
 |-- KCD2_SoundFramework.ini                (settings)
 |-- KCD2_SoundFramework_moods.ini          (default facial moods)
 |-- KCD2_SoundFramework_lipmodel.bin       (advanced lip sync model)
-|-- KCD2_SoundFramework_cutscenes.txt      (who speaks in each cutscene)
 \-- KCD2_SoundFramework.log                (created when the mod loads)
 ```
 
@@ -74,7 +73,6 @@ Mods/
             |-- KCD2_SoundFramework.ini
             |-- KCD2_SoundFramework_moods.ini
             |-- KCD2_SoundFramework_lipmodel.bin
-            |-- KCD2_SoundFramework_cutscenes.txt
             \-- KCD2_SoundFramework.log    (created when the mod loads)
 ```
 
@@ -143,7 +141,7 @@ Advanced lip sync runs a 680,000-parameter convolutional network on a worker thr
 
 Advanced lip sync is machine-learned: the network was trained on Kingdom Come: Deliverance II's own voice lines and facial animation, and generates facial animation only (no audio, text or images). Set `[LipSync] Mode = BASIC` to use the mouth without machine learning.
 
-The code is MIT licensed (see [LICENSE](LICENSE)). `KCD2_SoundFramework_lipmodel.bin` and `KCD2_SoundFramework_cutscenes.txt` are derived from Kingdom Come: Deliverance II game data owned by Warhorse Studios and PLAION. The MIT license does not cover them: use them only with KC:D 2 through this mod, and not in other games, other products or commercially.
+The code is MIT licensed (see [LICENSE](LICENSE)). `KCD2_SoundFramework_lipmodel.bin` is derived from Kingdom Come: Deliverance II game data owned by Warhorse Studios and PLAION. The MIT license does not cover it: use it only with KC:D 2 through this mod, and not in other games, other products or commercially.
 
 ## Troubleshooting
 

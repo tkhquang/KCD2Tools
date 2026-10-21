@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <string_view>
 
@@ -325,6 +326,12 @@ namespace
         CHECK(player != table.end() && player->second[0].actors.empty());
         CHECK(cutscene_line_id("Localization\\dialog\\trosecko\\Cin__X_H7G1.ogg") == "cin__x_h7g1");
         CHECK(cutscene_line_id("Localization/dialog/x/setk_ptacek_Y1mG") == "setk_ptacek_y1mg");
+
+        std::ifstream shipped(SNDFW_CUTSCENE_TABLE, std::ios::binary);
+        const std::string text((std::istreambuf_iterator<char>(shipped)), std::istreambuf_iterator<char>());
+        const CutsceneTable built_in = parse_cutscene_table(text, rejected);
+        CHECK(rejected == 0);
+        CHECK(!built_in.empty());
     }
 } // namespace
 

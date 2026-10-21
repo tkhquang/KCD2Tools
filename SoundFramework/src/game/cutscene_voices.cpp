@@ -29,6 +29,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace SoundFramework::game::cutscene_voices
@@ -207,9 +208,31 @@ namespace SoundFramework::game::cutscene_voices
                 }
             );
         }
+        /** @brief The speaker table built into this module; empty when the resource is missing. */
+        [[nodiscard]] std::string_view built_in_table() noexcept
+        {
+            HMODULE self = nullptr;
+            if (GetModuleHandleExW(
+                    GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                    reinterpret_cast<LPCWSTR>(&built_in_table),
+                    &self
+                ) == 0)
+            {
+                return {};
+            }
+            HRSRC resource =
+                FindResourceW(self, constants::CUTSCENE_TABLE_RESOURCE, reinterpret_cast<LPCWSTR>(RT_RCDATA));
+            HGLOBAL loaded = resource == nullptr ? nullptr : LoadResource(self, resource);
+            const void *data = loaded == nullptr ? nullptr : LockResource(loaded);
+            if (data == nullptr)
+            {
+                return {};
+            }
+            return {static_cast<const char *>(data), SizeofResource(self, resource)};
+        }
     } // namespace
 
-    void configure(const Anchors &anchors, const std::filesystem::path &table_file) noexcept
+    void configure(const Anchors &anchors, const std::filesystem::path &override_file) noexcept
     {
         if (!anchors.cutscene_voices)
         {
@@ -217,22 +240,28 @@ namespace SoundFramework::game::cutscene_voices
         }
         try
         {
-            std::ifstream in(table_file, std::ios::binary);
-            if (!in)
+            std::string source = "the built-in table";
+            std::string text;
+            if (std::ifstream in(override_file, std::ios::binary); in)
             {
-                DMK::log().warning(
-                    "Cutscene: {} not found; cutscenes keep the game's faces",
-                    table_file.filename().string()
-                );
+                source = override_file.filename().string();
+                text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+            }
+            else
+            {
+                text = built_in_table();
+            }
+            if (text.empty())
+            {
+                DMK::log().warning("Cutscene: {} is empty or missing; cutscenes keep the game's faces", source);
                 return;
             }
-            const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
             std::size_t rejected = 0;
             auto table = std::make_shared<const packs::CutsceneTable>(packs::parse_cutscene_table(text, rejected));
             DMK::log().info(
                 "Cutscene: {} voice line(s) with known faces in {}{}",
                 table->size(),
-                table_file.filename().string(),
+                source,
                 rejected == 0 ? std::string{} : ", " + std::to_string(rejected) + " malformed row(s) skipped"
             );
             s_event_instance_vtable = anchors.event_instance_vtable;
