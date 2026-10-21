@@ -29,6 +29,11 @@ namespace SoundFramework::constants
     inline constexpr const wchar_t *MOODS_FILE_NAME = L"KCD2_SoundFramework_moods.ini";
     /// The learned lip model ([LipSync] Mode = ADVANCED), beside the framework module.
     inline constexpr const wchar_t *LIP_MODEL_FILE_NAME = L"KCD2_SoundFramework_lipmodel.bin";
+    /// The cutscene speaker table (packs/cutscene_table.hpp): a copy beside the framework module overrides the built-in
+    /// one.
+    inline constexpr const wchar_t *CUTSCENE_TABLE_FILE_NAME = L"KCD2_SoundFramework_cutscenes.txt";
+    /// The RCDATA resource holding the built-in cutscene speaker table (CMakeLists.txt, embed_cutscene_table).
+    inline constexpr const wchar_t *CUTSCENE_TABLE_RESOURCE = L"CUTSCENE_TABLE";
     inline constexpr const char *INSTANCE_MUTEX_PREFIX = "KCD2_SoundFramework_";
     inline constexpr const char *DEFAULT_LOG_LEVEL = "INFO";
     inline constexpr const char *GAME_MODULE = "WHGame.dll";
@@ -164,8 +169,37 @@ namespace SoundFramework::constants
     inline constexpr const char *VOICE_LANGUAGE_CVAR = "g_languageAudio";
     /// The language whose facial animation the game falls back to.
     inline constexpr std::string_view FACIAL_FALLBACK_LANGUAGE = "english";
-    /// The engine animates faces only this close to the camera (ca_FacialAnimationRadius, metres).
+    /// A game line's speaker farther than this from the camera (metres) keeps the game's face.
     inline constexpr float FACIAL_ANIMATION_RADIUS = 30.0f;
+    /// The FMOD event the game's cutscenes play their voice lines through (Studio path, resolved to its GUID once).
+    inline constexpr const char *CINEMATIC_VOICE_EVENT = "event:/voice/dialog/cinematic";
+    /**
+     * @brief The game's audio event object, which FSW_B_EVENT_INSTANCE's constructor sets as its FMOD event instance's
+     *        user data. Checked by vtable before its voice file is read.
+     */
+    inline constexpr const char *RTTI_EVENT_INSTANCE = ".?AUFSW_Wh_EVENT_INSTANCE@@";
+    /**
+     * @brief The audio event object's voice file: a std::string holding the localization path without extension. The
+     *        game's programmer-sound callback opens it as `lea rdx, [rsi+40h]; cmp qword [rdx+18h], 0Fh; jbe; mov rdx,
+     *        [rdx]` and appends `.ogg` (Steam 1.5.6, GOG 1.5 and Game Pass 1.4+ alike).
+     */
+    inline constexpr std::uintptr_t EVENT_VOICE_FILE = 0x40;
+    /// MSVC std::string layout: inline buffer or heap pointer at +0x00, size at +0x10, capacity at +0x18.
+    inline constexpr std::uintptr_t STD_STRING_SIZE = 0x10;
+    inline constexpr std::uintptr_t STD_STRING_CAPACITY = 0x18;
+    /// The longest text an MSVC std::string keeps in its inline buffer.
+    inline constexpr std::size_t STD_STRING_INLINE_CAPACITY = 15;
+    /// A voice file longer than this is no localization path (they stay below MAX_PATH).
+    inline constexpr std::size_t MAX_VOICE_FILE_LENGTH = 259;
+    /// The player character's entity name.
+    inline constexpr const char *PLAYER_ENTITY_NAME = "Dude";
+    /**
+     * @brief Articulation change per second (summed over the articulation poses) at which a cutscene face without a
+     *        known speaker follows the voice fully. Cutscene speakers measure 5.3 at the median, listeners 0.001.
+     */
+    inline constexpr float FACE_MOTION_FULL = 4.0f;
+    /// Time constant (seconds) of the smoothing of that face motion.
+    inline constexpr float FACE_MOTION_SMOOTHING_S = 0.2f;
     /// The game context's UI chain to the I_UISubtitles interface: [[ctx+0x150]+0x10]+0x120.
     inline constexpr std::uintptr_t CONTEXT_UI = 0x150;
     inline constexpr std::uintptr_t UI_HUD = 0x10;

@@ -11,6 +11,7 @@
 #include "audio/replacements.hpp"
 #include "constants.hpp"
 #include "fmod/fmod_api.hpp"
+#include "game/cutscene_voices.hpp"
 
 #include <windows.h>
 
@@ -24,6 +25,7 @@ namespace SoundFramework::fmod
 
         Result __fastcall start_detour(void *instance) noexcept
         {
+            game::cutscene_voices::on_event_start(instance);
             audio::replacements::on_event_start(instance);
             return s_original(instance);
         }

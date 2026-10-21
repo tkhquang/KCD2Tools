@@ -15,9 +15,11 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 namespace SoundFramework::game::lip_drive
 {
@@ -78,6 +80,21 @@ namespace SoundFramework::game::lip_drive
             float weight;
         };
 
+        /// Upper bound of the articulation poses a face motion meter tracks.
+        constexpr std::size_t MAX_ARTICULATION_JOINTS = 32;
+
+        /**
+         * @brief How fast one face's own animation moves its articulation poses: the last weights seen, and their
+         *        smoothed change per second. Written by the pose-morph hook on animation worker threads.
+         */
+        struct MotionMeter
+        {
+            std::array<std::atomic<float>, MAX_ARTICULATION_JOINTS> previous{};
+            /// QueryPerformanceCounter ticks of the last measurement; 0 before the first.
+            std::atomic<std::int64_t> measured_at{0};
+            std::atomic<float> rate{0.0f};
+        };
+
         struct Line
         {
             std::uint64_t ticket = 0;
@@ -98,6 +115,8 @@ namespace SoundFramework::game::lip_drive
             bool replace_mouth = false;
             /// Performance::mouth_pending until the first part of the mouth arrives.
             bool awaiting_mouth = false;
+            /// Performance::follow_motion: the face's motion meter, null otherwise.
+            std::shared_ptr<MotionMeter> meter;
         };
 
         struct Target
@@ -105,6 +124,8 @@ namespace SoundFramework::game::lip_drive
             const void *character = nullptr;
             /// Clear the articulation poses before writing this frame's weights.
             bool replace_mouth = false;
+            /// Line::meter.
+            std::shared_ptr<MotionMeter> meter;
             bool has_mouth = false;
             audio::MouthPose pose;
             /// Learned channel weights for this frame; empty without a learned track.
@@ -121,6 +142,8 @@ namespace SoundFramework::game::lip_drive
         /// Joint CRCs of the articulation poses; written before the hook is armed, read-only afterwards.
         std::vector<std::uint32_t> s_articulation_joints;
         ExecuteFn s_original = nullptr;
+        /// QueryPerformanceFrequency; written before the hook is armed.
+        std::int64_t s_ticks_per_second = 1;
         std::atomic<std::shared_ptr<const Snapshot>> s_snapshot;
         /// Main-thread state.
         std::vector<Line> s_lines;
@@ -174,6 +197,39 @@ namespace SoundFramework::game::lip_drive
             );
         }
 
+        /**
+         * @brief Measures how fast a face's own animation moves its articulation poses, and returns the share of the
+         *        line's mouth that face takes: 0 for a still face, 1 from constants::FACE_MOTION_FULL up.
+         * @param weight_of Joint CRC to the face's pose weight, or null for a joint its skeleton lacks.
+         * @note Pose-morph hook only, before any weight of this pass is written.
+         */
+        template <class WeightOf>
+            requires std::is_invocable_r_v<float *, const WeightOf &, std::uint32_t>
+        [[nodiscard]] float follow_share(MotionMeter &meter, const WeightOf &weight_of) noexcept
+        {
+            LARGE_INTEGER now{};
+            QueryPerformanceCounter(&now);
+            float change = 0.0f;
+            const std::size_t joints = std::min(s_articulation_joints.size(), MAX_ARTICULATION_JOINTS);
+            for (std::size_t i = 0; i < joints; ++i)
+            {
+                const float *const weight = weight_of(s_articulation_joints[i]);
+                const float value = weight == nullptr ? 0.0f : *weight;
+                change += std::abs(value - meter.previous[i].exchange(value, std::memory_order_relaxed));
+            }
+            const std::int64_t before = meter.measured_at.exchange(now.QuadPart, std::memory_order_relaxed);
+            float rate = meter.rate.load(std::memory_order_relaxed);
+            const double seconds = static_cast<double>(now.QuadPart - before) / static_cast<double>(s_ticks_per_second);
+            // The first pass has no earlier weights, and a pause between passes says nothing about the motion.
+            if (before != 0 && seconds > 0.001 && seconds < 0.5)
+            {
+                const float blend = 1.0f - std::exp(-static_cast<float>(seconds) / constants::FACE_MOTION_SMOOTHING_S);
+                rate += blend * (change / static_cast<float>(seconds) - rate);
+                meter.rate.store(rate, std::memory_order_relaxed);
+            }
+            return std::clamp(rate / constants::FACE_MOTION_FULL, 0.0f, 1.0f);
+        }
+
         bool __fastcall execute_detour(void *self, void *const *params) noexcept
         {
             const std::shared_ptr<const Snapshot> snapshot = s_snapshot.load(std::memory_order_acquire);
@@ -216,13 +272,14 @@ namespace SoundFramework::game::lip_drive
                     }
                     else if (skeleton != nullptr)
                     {
+                        const float share = target->meter == nullptr ? 1.0f : follow_share(*target->meter, weight_of);
                         if (target->replace_mouth)
                         {
                             for (const std::uint32_t crc : s_articulation_joints)
                             {
                                 if (float *const weight = weight_of(crc); weight != nullptr)
                                 {
-                                    *weight = 0.0f;
+                                    *weight = share >= 1.0f ? 0.0f : *weight * (1.0f - share);
                                 }
                             }
                         }
@@ -230,7 +287,7 @@ namespace SoundFramework::game::lip_drive
                         {
                             for (const PoseBone &bone : POSE_BONES)
                             {
-                                apply(bone.crc, bone.scale * (target->pose.*bone.channel));
+                                apply(bone.crc, share * bone.scale * (target->pose.*bone.channel));
                             }
                         }
                         const std::size_t channels = std::min(target->channels.size(), s_channel_joints.size());
@@ -238,7 +295,7 @@ namespace SoundFramework::game::lip_drive
                         {
                             for (const std::uint32_t crc : s_channel_joints[c])
                             {
-                                apply(crc, target->channels[c]);
+                                apply(crc, share * target->channels[c]);
                             }
                         }
                         for (const MoodBone &bone : target->mood)
@@ -260,6 +317,9 @@ namespace SoundFramework::game::lip_drive
             DMK::log().warning("LipDrive: the face anchors did not resolve; lines without lip sync keep a still face");
             return {};
         }
+        LARGE_INTEGER frequency{};
+        QueryPerformanceFrequency(&frequency);
+        s_ticks_per_second = std::max<std::int64_t>(1, frequency.QuadPart);
         s_articulation_joints.clear();
         for (const std::string_view pose : face::articulation_poses())
         {
@@ -307,6 +367,7 @@ namespace SoundFramework::game::lip_drive
             .delay_ms = performance.delay_ms,
             .replace_mouth = performance.replace_mouth,
             .awaiting_mouth = performance.mouth_pending,
+            .meter = performance.follow_motion ? std::make_shared<MotionMeter>() : nullptr,
         };
         for (const face::PoseWeight &pose : performance.mood)
         {
@@ -437,6 +498,7 @@ namespace SoundFramework::game::lip_drive
                     Target target{
                         .character = character,
                         .replace_mouth = line.replace_mouth,
+                        .meter = line.meter,
                     };
                     const std::size_t index = static_cast<std::size_t>(elapsed / line.step_ms);
                     if (index < line.track.size())

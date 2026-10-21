@@ -9,6 +9,7 @@
 #ifndef SNDFW_FMOD_FMOD_API_HPP
 #define SNDFW_FMOD_FMOD_API_HPP
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -33,6 +34,18 @@ namespace SoundFramework::fmod
         Vector forward;
         Vector up;
     };
+
+    /** @brief FMOD_GUID: the ID of a Studio event, stable across bank loads. */
+    struct Guid
+    {
+        std::uint32_t data1 = 0;
+        std::uint16_t data2 = 0;
+        std::uint16_t data3 = 0;
+        std::array<std::uint8_t, 8> data4{};
+
+        [[nodiscard]] bool operator==(const Guid &) const noexcept = default;
+    };
+    static_assert(sizeof(Guid) == 16);
 
     // FMOD_STUDIO_PLAYBACK_STATE.
     inline constexpr int PLAYBACK_STOPPED = 2;
@@ -84,6 +97,7 @@ namespace SoundFramework::fmod
         int(__stdcall *studio_is_valid)(void *system) = nullptr;
         Result(__stdcall *studio_get_core_system)(void *system, void **core) = nullptr;
         Result(__stdcall *studio_get_bus)(void *system, const char *path, void **bus) = nullptr;
+        Result(__stdcall *studio_lookup_id)(void *system, const char *path, Guid *id) = nullptr;
         Result(__stdcall *bus_lock_channel_group)(void *bus) = nullptr;
         Result(__stdcall *bus_unlock_channel_group)(void *bus) = nullptr;
         Result(__stdcall *bus_get_channel_group)(void *bus, void **group) = nullptr;
@@ -91,7 +105,9 @@ namespace SoundFramework::fmod
         Result(__stdcall *event_get_3d_attributes)(void *instance, Attributes3d *attributes) = nullptr;
         Result(__stdcall *event_set_volume)(void *instance, float volume) = nullptr;
         Result(__stdcall *event_get_playback_state)(void *instance, int *state) = nullptr;
+        Result(__stdcall *event_get_user_data)(void *instance, void **user_data) = nullptr;
         Result(__stdcall *description_get_path)(void *description, char *path, int size, int *retrieved) = nullptr;
+        Result(__stdcall *description_get_id)(void *description, Guid *id) = nullptr;
         // fmod.dll
         Result(__stdcall *create_sound)(void *core, const char *name, std::uint32_t mode, void *info, void **sound) =
             nullptr;

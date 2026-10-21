@@ -64,6 +64,8 @@ namespace SoundFramework
         std::uintptr_t pose_data_vtable = 0;
         /// Primary vtable of CXConsoleVariableString, checked before a string console variable is read.
         std::uintptr_t cvar_string_vtable = 0;
+        /// Primary vtable of FSW_Wh_EVENT_INSTANCE, checked on a cutscene voice event's user data before it is read.
+        std::uintptr_t event_instance_vtable = 0;
 
         /// The console commands and the main-thread tick (gEnv, CXConsole, CSystem).
         bool commands = false;
@@ -81,6 +83,8 @@ namespace SoundFramework
         bool voice_clock = false;
         /// The voice language is read from the console, so [LipSync] DubbedVoices = AUTO can tell a dub.
         bool voice_language = false;
+        /// Cutscene voice lines drive the faces the cutscene speaker table names (needs speech and lip drive).
+        bool cutscene_voices = false;
     };
 
     /**

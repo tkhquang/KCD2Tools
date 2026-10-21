@@ -5,3 +5,6 @@ build/*
 # Python bytecode from the helper scripts.
 __pycache__/
 *.pyc
+
+# Cutscene speaker table generator (local tool, reads the installed game).
+scripts/cutscene_speakers/

@@ -419,6 +419,7 @@ namespace SoundFramework
             PoseDataVtable,
             TimerVtable,
             CvarStringVtable,
+            EventInstanceVtable,
             Speak,
             RequestCtor,
             StringAssign,
@@ -444,6 +445,7 @@ namespace SoundFramework
             make_vtable("PoseDataVtable", constants::RTTI_POSE_DATA),
             make_vtable("TimerVtable", constants::RTTI_TIMER),
             make_vtable("CvarStringVtable", constants::RTTI_CVAR_STRING),
+            make_vtable("EventInstanceVtable", constants::RTTI_EVENT_INSTANCE),
             make_anchor("Speak", SPEAK, Role::Code),
             make_anchor("RequestCtor", REQUEST_CTOR, Role::Code),
             make_anchor("StringAssign", STRING_ASSIGN, Role::Code),
@@ -528,6 +530,9 @@ namespace SoundFramework
             AnchorId::Genv,
             AnchorId::TimerVtable,
         };
+        constexpr AnchorId CUTSCENE_VOICE_ANCHORS[] = {
+            AnchorId::EventInstanceVtable,
+        };
         constexpr AnchorId VOICE_LANGUAGE_ANCHORS[] = {
             AnchorId::Genv,
             AnchorId::ConsoleVtable,
@@ -543,6 +548,7 @@ namespace SoundFramework
             {"LipDrive", LIP_DRIVE_ANCHORS, &Anchors::lip_drive},
             {"VoiceClock", VOICE_CLOCK_ANCHORS, &Anchors::voice_clock},
             {"VoiceLanguage", VOICE_LANGUAGE_ANCHORS, &Anchors::voice_language},
+            {"CutsceneVoices", CUTSCENE_VOICE_ANCHORS, &Anchors::cutscene_voices},
         };
         constexpr std::size_t MAX_FEATURE_ANCHORS = std::size(SPEECH_ANCHORS);
 
@@ -642,6 +648,7 @@ namespace SoundFramework
             .skeleton_vtable = value_of(AnchorId::SkeletonVtable),
             .pose_data_vtable = value_of(AnchorId::PoseDataVtable),
             .cvar_string_vtable = value_of(AnchorId::CvarStringVtable),
+            .event_instance_vtable = value_of(AnchorId::EventInstanceVtable),
         };
 
         for (const FeatureSpec &feature : FEATURES)
@@ -667,6 +674,8 @@ namespace SoundFramework
         // Speech and faces find their actors and characters through entities.
         anchors.speech = anchors.speech && anchors.entities;
         anchors.lip_drive = anchors.lip_drive && anchors.entities;
+        // Cutscene lines drive faces like the game's own lines: they need both.
+        anchors.cutscene_voices = anchors.cutscene_voices && anchors.lip_drive && anchors.speech;
         return anchors;
     }
 } // namespace SoundFramework

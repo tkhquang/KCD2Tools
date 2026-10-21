@@ -123,6 +123,29 @@ namespace SoundFramework::game::speech
      */
     void follow_game_line(const void *speak_man, const std::string &voice_path);
 
+    /** @brief A face a cutscene voice line moves. */
+    struct CutsceneFace
+    {
+        std::uint32_t entity = 0;
+        /// lip_drive::Performance::follow_motion: no known speaker, so the face follows its own mouth motion.
+        bool follow_motion = false;
+    };
+
+    /**
+     * @brief A cutscene voice line @p voice_file (localization path plus .ogg) has just started its sound: its voice
+     *        drives the mouths of @p faces from now on, in place of the cutscene's own articulation.
+     * @return An id for end_cutscene_line(), or 0 when no face started.
+     * @note Main thread only, when drives_game_lines() said so.
+     */
+    [[nodiscard]] std::uint64_t
+    follow_cutscene_line(const std::string &voice_file, const std::vector<CutsceneFace> &faces);
+
+    /**
+     * @brief Ends the cutscene line @p id because its sound stopped: its faces stop at once.
+     * @note Main thread only.
+     */
+    void end_cutscene_line(std::uint64_t id);
+
     /**
      * @brief Mood @p name: its poses (a live override from sfw_mood_override, else the moods file and packs) and its
      *        MaxStrength; nothing for an unknown mood.

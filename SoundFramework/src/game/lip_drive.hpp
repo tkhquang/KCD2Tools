@@ -53,6 +53,12 @@ namespace SoundFramework::game::lip_drive
          *        expression poses (corners, smile, sneer) stay.
          */
         bool replace_mouth = false;
+        /**
+         * @brief The line's speaker is unknown (a cutscene line no table row names a speaker for): this face takes the
+         *        line's mouth only as much as its own animation moves its mouth, from none for a still face to all of
+         *        it at constants::FACE_MOTION_FULL. Its own articulation gives way by the same share.
+         */
+        bool follow_motion = false;
     };
 
     /**

@@ -5,6 +5,7 @@
 
 #include "game/main_thread.hpp"
 #include "game/console_commands.hpp"
+#include "game/cutscene_voices.hpp"
 #include "game/entity_tracker.hpp"
 #include "game/game_clock.hpp"
 #include "game/lip_drive.hpp"
@@ -29,6 +30,7 @@ namespace SoundFramework::game::main_thread
             game_clock::tick();
             commands::on_frame(system);
             entities::on_frame();
+            cutscene_voices::on_frame();
             speech::on_frame();
             lip_drive::on_frame();
             return s_original(system, flags, pause_mode);

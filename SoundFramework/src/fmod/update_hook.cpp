@@ -11,6 +11,7 @@
 #include "audio/engine.hpp"
 #include "constants.hpp"
 #include "fmod/fmod_api.hpp"
+#include "game/cutscene_voices.hpp"
 
 #include <windows.h>
 
@@ -27,6 +28,7 @@ namespace SoundFramework::fmod
             if (system != nullptr)
             {
                 audio::on_system(system);
+                game::cutscene_voices::on_studio_system(system);
             }
             return s_original(system);
         }
