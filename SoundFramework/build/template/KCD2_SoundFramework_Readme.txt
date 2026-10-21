@@ -1,6 +1,6 @@
 KINGDOM COME: DELIVERANCE II - SOUND FRAMEWORK
 Custom Sounds and Voices with Lip Sync for Mods
-Version 1.1.0
+Version 1.1.1
 
 Sound Framework lets other mods add sounds and voice lines to the game, replace
 the game's own sounds and voice lines, and give the speakers lip movement and a

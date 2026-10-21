@@ -2,6 +2,11 @@
 
 All notable changes to the SoundFramework mod will be documented in this file.
 
+## [1.1.1] - Lip Sync in Cutscenes
+
+- With a voice dub, the characters who speak in a cutscene now move their lips with the dub instead of the English animation.
+- When a cutscene line has no known speaker, the mouths the cutscene already moves follow the dub instead.
+
 ## [1.1.0] - Lip Sync for Voice Dubs
 
 - With a voice dub that has no mouth animation of its own, characters' lips now follow the dub's voices instead of the English animation.
@@ -30,5 +35,6 @@ All notable changes to the SoundFramework mod will be documented in this file.
 - Saving a pack or the settings INI applies it while playing.
 - Ships as an ASI and as a KCSE plugin.
 
+[1.1.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/SoundFramework-v1.1.1
 [1.1.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/SoundFramework-v1.1.0
 [1.0.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/SoundFramework-v1.0.0
