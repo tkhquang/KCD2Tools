@@ -56,12 +56,17 @@ namespace TPVCamera
         // standing pose (1.43 m and 1.60 m above the feet). Dynamic Eye Sync follows the height through a
         // k_anchor_height_dead_zone and the forward lean through a k_anchor_lean_dead_zone (soft_follow()). During
         // actions the neck moves 0.26-0.48 m forward and 0.11-0.52 m in height, while a walk bobs it a few
-        // centimetres. The lean counts from the neck's place in the standing idle, k_neck_rest_forward along the
-        // body's forward: a lean the body carries at rest would swing round the origin with every turn in place. The
+        // centimetres. The lean counts from the neck's place in the stance's idle along the body's forward (standing
+        // k_neck_rest_forward, crouched k_neck_rest_forward_crouch_npc or _player, eased between them): a lean the body
+        // carries at rest would swing round the origin with every turn in place and move the camera after it. The
         // anchor settles on its target in k_anchor_settle (99%, the two-stage Spring), and the overlay calls the sync
         // engaged once it moves the anchor more than k_anchor_engaged.
         constexpr float k_neck_eye_lift = 0.17f;           // meters
-        constexpr float k_neck_rest_forward = -0.044f;     // meters
+        constexpr float k_neck_rest_forward = -0.044f;     // meters, relaxed_idle_both_player
+        // The crouched idles, measured from their clips: the NPC one, which the crouched animation hook swaps in for
+        // third person, holds the neck 0.17 m ahead of the feet, and the player's own holds it 0.17 m behind them.
+        constexpr float k_neck_rest_forward_crouch_npc = 0.173f;     // meters, crouched_idle
+        constexpr float k_neck_rest_forward_crouch_player = -0.170f; // meters, crouched_idle_player
         constexpr float k_anchor_height_dead_zone = 0.15f; // meters
         constexpr float k_anchor_lean_dead_zone = 0.12f;   // meters
         constexpr float k_anchor_settle = 0.35f;           // seconds
@@ -577,7 +582,18 @@ namespace TPVCamera
             // gives the height and nothing leans.
             const std::optional<Vector3> neck = port.neck(body.entity);
             const float real_height = neck.has_value() ? neck->z + k_neck_eye_lift : eye_position.z - body_origin.z;
-            const float lean = neck.has_value() ? neck->y - k_neck_rest_forward : 0.0f;
+            const float stance_rest = !in.crouched          ? k_neck_rest_forward
+                                      : in.crouched_npc_set ? k_neck_rest_forward_crouch_npc
+                                                            : k_neck_rest_forward_crouch_player;
+            if (!state.body_anchor_valid)
+            {
+                state.body_anchor_rest.snap(stance_rest);
+            }
+            else if (delta_time > 0.0f)
+            {
+                state.body_anchor_rest.step(stance_rest, spring_alpha(k_anchor_settle, delta_time));
+            }
+            const float lean = neck.has_value() ? neck->y - state.body_anchor_rest.applied : 0.0f;
             state.real_eye_height = real_height;
             // Eye Height 0 follows the upper body fully. A positive Eye Height is the anchor's height in the standing
             // pose, and Dynamic Eye Sync follows how far the body moves from it softly (soft_follow()): breathing and
@@ -596,9 +612,12 @@ namespace TPVCamera
                 target_up = eye_height + soft_follow(real_height - eye_height, k_anchor_height_dead_zone);
                 target_lean = soft_follow(lean, k_anchor_lean_dead_zone);
             }
-            // The lean eases in world space. While the body turns in place (the turn hold keeps the origin's steps off
-            // the pivot), the lean and height targets stay where they were: the turn animation moves the neck in every
-            // direction and the body's forward turns under it, so a follow would slide the crosshair off its target.
+            // The lean eases in world space, so a facing the game snaps at an action's start or end swings the pivot
+            // smoothly. While the body turns in place (the turn hold keeps the origin's steps off the pivot), the
+            // neck's own motion is not followed: the turn animation moves it in every direction, and a follow would
+            // slide the crosshair off its target. The height target stays where it was, and the lean turns with the
+            // body instead: its target and both eased stages rotate by the yaw the body turned this frame, so the pivot
+            // rides the turn round the feet and nothing is left to catch up once the turn ends.
             const Vector3 body_forward{-std::sin(body_yaw), std::cos(body_yaw), 0.0f};
             const Vector3 lean_world = body_forward * target_lean;
             const bool turning_in_place = state.turn_hold_timer > 0.0f;
@@ -610,16 +629,25 @@ namespace TPVCamera
                 state.body_anchor_lean_y.snap(lean_world.y);
                 state.body_anchor_up_target = target_up;
                 state.body_anchor_up.snap(target_up);
+                state.body_anchor_yaw = body_yaw;
                 state.body_anchor_valid = true;
             }
             else if (delta_time > 0.0f)
             {
-                if (!turning_in_place)
+                if (turning_in_place)
+                {
+                    const float turned = std::remainder(body_yaw - state.body_anchor_yaw, DirectX::XM_2PI);
+                    rotate_lean(state.body_anchor_lean_target_x, state.body_anchor_lean_target_y, turned);
+                    rotate_lean(state.body_anchor_lean_x.stage1, state.body_anchor_lean_y.stage1, turned);
+                    rotate_lean(state.body_anchor_lean_x.applied, state.body_anchor_lean_y.applied, turned);
+                }
+                else
                 {
                     state.body_anchor_lean_target_x = lean_world.x;
                     state.body_anchor_lean_target_y = lean_world.y;
                     state.body_anchor_up_target = target_up;
                 }
+                state.body_anchor_yaw = body_yaw;
                 const float alpha = spring_alpha(k_anchor_settle, delta_time);
                 state.body_anchor_lean_x.step(state.body_anchor_lean_target_x, alpha);
                 state.body_anchor_lean_y.step(state.body_anchor_lean_target_y, alpha);

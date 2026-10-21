@@ -17,7 +17,8 @@
 - Added CollisionPullInSeconds (0.12 by default): when something comes between the camera and Henry, the camera eases in over that long instead of jumping in one frame, moving only through open air, so it never passes into a wall; 0 brings back the jump.
 - Added lock framing for the game's combat lock-on: the camera swings toward your shoulder side and keeps the locked enemy in view beside Henry instead of behind him (Lock Framing Angle, Lock Focus Height and Lock Focus Offset in every preset).
 - Added AutoSaveCyclePick and AutoSaveShoulder (on by default): the preset you cycle to and the shoulder you swap to are kept for your next session; off keeps them for this session only, unless you press Save.
-- Changed the camera to follow Henry's upper body during his own animations (praying, eating, sitting down, standing up, bending): it lowers and leans with him smoothly instead of staying put until his head drops far and then dropping in one go, and ignores head bob and nods.
+- Added the mod_camera_view console variable: 1 while the camera shows Henry from outside, 0 in first person, so other mods (such as animations meant for third person only) can follow the view.
+- Changed the camera to follow Henry's upper body during his own animations (praying, eating, sitting down, standing up, bending): it lowers and leans with him smoothly instead of staying put until his head drops far and then dropping in one go, ignores head bob and nods, and stays put after he turns in place, standing or crouched.
 - Changed Eye Height 0 (COMBAT, AIMING, SITTING, KNEEL, LYING, CART) to follow Henry's upper body instead of his bobbing first-person eye, so switching between those presets and the others no longer moves the camera in one jump, and Henry's turn-in-place animations now play with it too.
 - Changed the camera to keep its distance and pass through bushes and tree trunks, while buildings, walls, tall fences, platforms, covered wagons, big haystacks, rocks and the ground still stop it.
 - Changed leaves and prop corners right at the lens to be cut away instead of filling the view (UseLensCut, on by default).
@@ -31,7 +32,7 @@
 - Changed MaxAimCorrection to default to 90, so shots at the ground at Henry's feet and other close targets land on the crosshair (an existing INI keeps its value).
 - Changed the first-person/third-person switch with ViewTransitionDuration above 0: the camera now swings out around Henry instead of sliding straight from the eye, stops at walls along the way, keeps his head hidden while it passes through it, eases the FOV with it, and no longer flips halfway when free-look has the camera facing him.
 - Changed the mod to build on DetourModKit 4.4.0.
-- Changed the combat lock-on in third person to move to the next enemy your camera points at after a kill, instead of ending the fight stance while other enemies are near.
+- Changed the combat lock-on in third person to move to the next enemy your camera points at after a kill, only one who is fighting you, instead of ending the fight stance while other enemies are near.
 - Changed free-look to come back the moment your opponent dies, and the camera with free-look off to stay put instead of following the finishing animation.
 - Changed the overlay's Save button to light up for every unsaved change, UI Scale and Compact precision included.
 - Changed aiming to stay in third person by default (Aiming is no longer in ForcedFPVState).

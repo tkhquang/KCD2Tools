@@ -137,6 +137,7 @@ set(COMMON_SOURCES
   src/camera/npc_lens_fade.cpp
   src/camera/see_through_driver.cpp
   src/camera_rules_files.cpp
+  src/camera_view_signal.cpp
   src/character_attachments.cpp
   src/character_pose.cpp
   src/combat_lock.cpp

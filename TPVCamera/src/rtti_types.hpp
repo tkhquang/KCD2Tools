@@ -119,6 +119,10 @@ namespace TPVCamera
         SkeletonPose,
         /// CDefaultSkeleton, a character model's skeleton, which looks a joint's index up by its name.
         DefaultSkeleton,
+        /// CXConsole, the engine console that holds the shared mod_camera_view variable the camera publishes.
+        Console,
+        /// CXConsoleVariableInt, an integer console variable, the type mod_camera_view must have.
+        ConsoleVariableInt,
         /// Enumerator count. Not a class.
         Count,
     };

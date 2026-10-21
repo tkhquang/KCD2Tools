@@ -155,6 +155,9 @@ namespace TPVCamera
             std::uint64_t npc = 0;
         };
         std::array<AnimationSwap, 2> s_crouched_swaps{};
+        // Set when the player's last crouched clip started from the NPC set (crouched_set_is_npc). Only the player
+        // plays the player clips, so their lookups tell his crouched clips apart from every other character's.
+        std::atomic<bool> s_crouched_npc_set{false};
 
         // Set by a press that turned the body by more than k_move_press_min_turn: the next movement request of that
         // animated character (detour_phys_ent_movement) was built along the old facing. Stamped (GetTickCount64) so a
@@ -505,25 +508,27 @@ namespace TPVCamera
          * @brief Crouched animations mid hook on CAnimationSet::GetAnimIDByCRC (see
          *        Constants::CROUCHED_IDLE_PLAYER_ANIMATION).
          * @details While the native turn is on, a lookup of the player's crouched idle or crouched turn blend space
-         * gets
-         *          its NPC twin, so the idle and the turns share one stance. The hook runs at the entry of the vtable
+         *          gets its NPC twin, so the idle and the turns share one stance. The hook runs at the entry of the vtable
          *          slot's thunk, with the name hash in rdx. Every character's lookups pass through it, so it only compares.
          *          Any other hash goes to the game unchanged, and so does any lookup while the native turn is off (first
          *          person, or the feature switched off). A clip looks its animation up when it starts, so a crouched clip
-         *          started in third person keeps that animation.
+         *          started in third person keeps that animation. Each lookup of a player clip records which set starts
+         *          (s_crouched_npc_set): a turn from the player idle starts the NPC set at its first frame, before the
+         *          NPC idle that follows it.
          */
         void detour_crouched_animation(DMK::hook::MidContext &ctx) noexcept
         {
-            if (s_native_turn_actor.load(std::memory_order_relaxed) == 0)
-            {
-                return;
-            }
             uintptr_t &hash = DMK::hook::gpr(ctx, DMK::hook::Gpr::Rdx);
             for (const AnimationSwap &swap : s_crouched_swaps)
             {
                 if (hash == swap.player)
                 {
-                    hash = swap.npc;
+                    const bool swapping = s_native_turn_actor.load(std::memory_order_relaxed) != 0;
+                    s_crouched_npc_set.store(swapping, std::memory_order_relaxed);
+                    if (swapping)
+                    {
+                        hash = swap.npc;
+                    }
                     return;
                 }
             }
@@ -949,6 +954,11 @@ namespace TPVCamera
         (void)DMK::log().try_log(DMK::LogLevel::Warning,
                                  "Shutdown: no game frame switched the native turn animation off; the body follows the "
                                  "look again on the player's next step");
+    }
+
+    bool crouched_set_is_npc() noexcept
+    {
+        return s_crouched_npc_set.load(std::memory_order_relaxed);
     }
 
     bool native_turn_engaged() noexcept

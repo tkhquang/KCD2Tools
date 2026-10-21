@@ -121,7 +121,7 @@ namespace TPVCamera
             return std::remainder(to - from, 2.0f * std::numbers::pi_v<float>) * (180.0f / std::numbers::pi_v<float>);
         }
 
-        /// Formats a timer as the seconds it has left on the game clock, or "-" when unarmed.
+        /// Formats a timer as the seconds it has left on the game clock, "run out" once due, or "-" when unarmed.
         [[nodiscard]] std::string format_timer(std::int64_t deadline, std::int64_t game_clock)
         {
             if (deadline <= Constants::COMBAT_TIMER_UNARMED)
@@ -131,6 +131,11 @@ namespace TPVCamera
             if (game_clock <= 0)
             {
                 return "armed";
+            }
+            // A deadline already passed reads as run out, the same as an unarmed timer (sub_180731070).
+            if (deadline <= game_clock)
+            {
+                return "run out";
             }
             const double left = static_cast<double>(deadline - game_clock) / Constants::COMBAT_TIMER_TICKS_PER_SECOND;
             return std::format("{:.2f} s", left);
@@ -495,23 +500,6 @@ namespace TPVCamera
                DMK::memory::write_in_place(DMK::Address{chain->input + Constants::COMBAT_INPUT_VIEW_OFFSET}, quat);
     }
 
-    bool clear_kill_end_timer(std::uintptr_t c_player) noexcept
-    {
-        const std::optional<CombatChain> chain = resolve_combat_chain(c_player);
-        if (!chain.has_value())
-        {
-            return false;
-        }
-        const DMK::Address timer{chain->controller + Constants::COMBAT_CONTROLLER_DELAYED_END_OFFSET};
-        const auto deadline = DMK::memory::read<std::int64_t>(timer);
-        if (!deadline || *deadline <= Constants::COMBAT_TIMER_UNARMED)
-        {
-            return false;
-        }
-        return static_cast<bool>(
-            DMK::memory::write_in_place(timer, static_cast<std::int64_t>(Constants::COMBAT_TIMER_UNARMED)));
-    }
-
     std::size_t read_combat_candidates(std::uintptr_t c_player, std::span<CombatCandidate> out) noexcept
     {
         const std::optional<CombatChain> chain = resolve_combat_chain(c_player);
@@ -604,21 +592,36 @@ namespace TPVCamera
         {
             return std::nullopt;
         }
+        const auto threat_source = DMK::memory::read<std::uintptr_t>(
+            DMK::Address{chain->player + Constants::COMBAT_PLAYER_THREAT_SOURCE_OFFSET});
         CombatRetarget retarget{
             .combat_player = chain->player,
             .held = *held,
             .target = *target,
+            .threat_source =
+                threat_source && DMK::memory::is_plausible_ptr(DMK::Address{*threat_source}) ? *threat_source : 0,
         };
         if (id == 0 || !DMK::memory::is_plausible_ptr(DMK::Address{human}))
         {
             return retarget;
         }
-        // Still the actor picked from the lock-on's list, alive.
+        // Still the actor picked from the lock-on's list, alive, with a combat actor that names him back.
         const auto actor_id = DMK::memory::read<std::uint32_t>(DMK::Address{human + Constants::HUMAN_ENTITY_ID_OFFSET});
         const std::optional<float> health = read_actor_health(human);
-        if (actor_id && *actor_id == id && health.has_value() && *health > 0.0f)
+        const auto combat_actor =
+            DMK::memory::read<std::uintptr_t>(DMK::Address{human + Constants::HUMAN_COMBAT_ACTOR_OFFSET});
+        if (!actor_id || *actor_id != id || !health.has_value() || *health <= 0.0f || !combat_actor ||
+            !DMK::memory::is_plausible_ptr(DMK::Address{*combat_actor}))
         {
-            retarget.next = human_entity(human).value_or(0);
+            return retarget;
+        }
+        const auto named =
+            DMK::memory::read<std::uintptr_t>(DMK::Address{*combat_actor + Constants::COMBAT_ACTOR_HUMAN_OFFSET});
+        const std::optional<std::uintptr_t> entity = human_entity(human);
+        if (named && *named == human && entity.has_value())
+        {
+            retarget.next = *entity;
+            retarget.next_combat_actor = *combat_actor;
         }
         return retarget;
     }
@@ -636,7 +639,7 @@ namespace TPVCamera
         }
         const DMK::Address timer{chain->controller + Constants::COMBAT_CONTROLLER_DELAYED_END_OFFSET};
         const auto deadline = DMK::memory::read<std::int64_t>(timer);
-        if (!deadline || *deadline <= Constants::COMBAT_TIMER_UNARMED || *deadline >= until)
+        if (!deadline || *deadline >= until)
         {
             return false;
         }

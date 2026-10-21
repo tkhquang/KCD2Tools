@@ -86,6 +86,15 @@ namespace TPVCamera
     [[nodiscard]] bool native_turn_engaged() noexcept;
 
     /**
+     * @brief Whether the player's last crouched clip (idle or turn) started from the NPC set, which the crouched
+     *        animation hook swaps in while the native turn is on.
+     * @details The two sets hold the neck at different places. A clip keeps the animation it started with, so a view
+     *          switch changes the answer only when the next crouched clip starts.
+     * @note Any thread.
+     */
+    [[nodiscard]] bool crouched_set_is_npc() noexcept;
+
+    /**
      * @brief Notes that a free-look move press turned @p animchar's body, so the turn-step detour drops the stale
      *        first step of its next movement request (built along the old facing).
      * @note Any thread; the stamp is stored before the character, which is released.

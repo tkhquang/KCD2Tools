@@ -83,6 +83,19 @@ namespace TPVCamera
         return denominator > 0.0f ? offset * squared / denominator : 0.0f;
     }
 
+    /**
+     * @brief Turns the level lean (@p x, @p y) about world up by @p yaw radians, the way a body yaw turns the body's
+     *        forward (-sin yaw, cos yaw).
+     */
+    inline void rotate_lean(float &x, float &y, float yaw) noexcept
+    {
+        const float c = std::cos(yaw);
+        const float s = std::sin(yaw);
+        const float turned_x = x * c - y * s;
+        y = x * s + y * c;
+        x = turned_x;
+    }
+
     // Look snap detection (is_look_snap()). A jump the game makes lands in one frame, so its speed scales with the
     // frame rate: 36-74 deg jumps read over 700 deg/s, but a 10 deg one at 30 fps only 315 deg/s. A turn faster than
     // k_look_snap_speed is a jump at any frame rate. A slower turn is a jump when it starts at once: faster than

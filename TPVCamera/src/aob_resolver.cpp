@@ -423,6 +423,7 @@ namespace TPVCamera
             code_ladder("OctreeCollectByType", Aob::k_octreeCollectByTypeCandidates, Role::Entry),
             code_ladder("EngineDeallocate", Aob::k_engineDeallocateCandidates, Role::Entry),
             code_ladder("SetCombatOpponent", Aob::k_setCombatOpponentCandidates, Role::Entry),
+            code_ladder("CombatThreat", Aob::k_combatThreatCandidates, Role::Entry),
             code_ladder("CombatPickViewRead", Aob::k_combatPickViewReadCandidates, Role::Site),
 #if defined(TPVCAMERA_DEV_BUILD)
             code_ladder("HardwareShaderForName", Aob::k_hardwareShaderForNameCandidates, Role::Entry),
@@ -501,7 +502,7 @@ namespace TPVCamera
                                                          AnchorId::LevelBrushTables};
         constexpr AnchorId k_indoor_state_anchors[] = {AnchorId::ClipVolumeManager, AnchorId::GetClipVolumeByPos};
         constexpr AnchorId k_octree_single_walk_anchors[] = {AnchorId::OctreeCollectByType, AnchorId::EngineDeallocate};
-        constexpr AnchorId k_combat_retarget_anchors[] = {AnchorId::SetCombatOpponent};
+        constexpr AnchorId k_combat_retarget_anchors[] = {AnchorId::SetCombatOpponent, AnchorId::CombatThreat};
         constexpr AnchorId k_combat_pick_forward_anchors[] = {AnchorId::CombatPickViewRead};
 #if defined(TPVCAMERA_DEV_BUILD)
         // The DEV twin clone's dry-run reads CShader, SShaderTechnique, CBaseResource and CHWShader_D3D fields only
