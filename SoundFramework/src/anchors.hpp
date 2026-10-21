@@ -62,6 +62,8 @@ namespace SoundFramework
         std::uintptr_t skeleton_vtable = 0;
         /// Primary vtable of Skeleton::CPoseData, checked before a pose weight is written.
         std::uintptr_t pose_data_vtable = 0;
+        /// Primary vtable of CXConsoleVariableString, checked before a string console variable is read.
+        std::uintptr_t cvar_string_vtable = 0;
 
         /// The console commands and the main-thread tick (gEnv, CXConsole, CSystem).
         bool commands = false;
@@ -77,6 +79,8 @@ namespace SoundFramework
         bool lip_drive = false;
         /// Faces and subtitles pause with the game (otherwise they run on the wall clock).
         bool voice_clock = false;
+        /// The voice language is read from the console, so [LipSync] DubbedVoices = AUTO can tell a dub.
+        bool voice_language = false;
     };
 
     /**

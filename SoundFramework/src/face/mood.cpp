@@ -121,6 +121,38 @@ namespace SoundFramework::face
             "R_upLipRaise",
         };
 
+        /**
+         * @brief Mouth poses that move with the syllables. In the game's own facial clips each one puts a fifth or
+         *        more of its motion between 2 and 8 Hz. Corners, smile, dimples, sneer, frown and chin put at most 17%
+         *        there and over half below 1 Hz.
+         */
+        constexpr std::array<std::string_view, 24> ARTICULATION_POSES = {
+            "C_O",
+            "C_U",
+            "C_bite",
+            "C_chewJawDrop",
+            "C_chewMouthStretch",
+            "C_funnel",
+            "C_jawDrop",
+            "C_mouthStretch",
+            "C_placeholder01",
+            "C_placeholder02",
+            "C_placeholder08",
+            "C_press",
+            "L_lowLipDepressor",
+            "L_sticky_in",
+            "L_sticky_mid",
+            "L_sticky_out",
+            "L_towards_negative_up",
+            "L_upLipRaise",
+            "R_lowLipDepressor",
+            "R_sticky_in",
+            "R_sticky_mid",
+            "R_sticky_out",
+            "R_towards_negative_up",
+            "R_upLipRaise",
+        };
+
         /// Upper-face poses; everything else moves the mouth or jaw.
         constexpr std::array<std::string_view, 9> UPPER_STEMS = {
             "browsLowerer",
@@ -180,6 +212,11 @@ namespace SoundFramework::face
         return std::ranges::any_of(UPPER_STEMS, [&](std::string_view upper) { return stem.starts_with(upper); })
                    ? Region::Upper
                    : Region::Mouth;
+    }
+
+    std::span<const std::string_view> articulation_poses() noexcept
+    {
+        return ARTICULATION_POSES;
     }
 
     std::optional<std::vector<PoseWeight>> parse_poses(std::string_view text, std::string &error)

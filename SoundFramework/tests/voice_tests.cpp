@@ -142,6 +142,12 @@ namespace
         CHECK(region_of("C_eyesDown") == Region::Upper);
         CHECK(region_of("L_cornerPull") == Region::Mouth);
         CHECK(region_of("C_jawDrop") == Region::Mouth);
+        for (const std::string_view pose : articulation_poses())
+        {
+            CHECK(canonical_pose(pose) == std::optional<std::string>(pose));
+            CHECK(region_of(pose) == Region::Mouth);
+        }
+        CHECK(std::ranges::find(articulation_poses(), "L_cornerPull") == articulation_poses().end());
     }
 } // namespace
 

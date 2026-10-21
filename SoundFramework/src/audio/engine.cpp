@@ -73,6 +73,8 @@ namespace SoundFramework::audio
         {
             void *system = nullptr;
             Attributes3d listener{};
+            /// The listener hook has run: on_system() can record the system before the listener is ever set.
+            bool listener_set = false;
         };
 
         struct BusEntry
@@ -693,6 +695,7 @@ namespace SoundFramework::audio
             const std::lock_guard lock(s_capture_mutex);
             s_capture.system = system;
             s_capture.listener = listener;
+            s_capture.listener_set = true;
         }
         // Core channels are spatialized against the core listener; give it the attributes the game just gave the
         // Studio listener, in the same space, so the framework's sounds sit where the game's sounds sit.
@@ -702,6 +705,18 @@ namespace SoundFramework::audio
         {
             (void)api.set_3d_listener(core, 0, &listener.position, &listener.velocity, &listener.forward, &listener.up);
         }
+    }
+
+    std::optional<WorldPosition> listener_position() noexcept
+    {
+        const std::lock_guard lock(s_capture_mutex);
+        if (!s_capture.listener_set)
+        {
+            return std::nullopt;
+        }
+        // FMOD space swaps the world's y and z (see fmod::from_world).
+        const fmod::Vector &at = s_capture.listener.position;
+        return WorldPosition{at.x, at.z, at.y};
     }
 
     void on_system(void *system) noexcept

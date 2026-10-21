@@ -66,8 +66,8 @@ namespace SoundFramework
             return false;
         }
 
-        /** @brief `<game root>/Mods`: the game runs from `<game root>/Bin/<platform>/`. */
-        [[nodiscard]] std::filesystem::path mods_directory()
+        /** @brief The game's root folder: the game runs from `<game root>/Bin/<platform>/`. */
+        [[nodiscard]] std::filesystem::path game_root()
         {
             std::wstring exe(MAX_PATH, L'\0');
             for (;;)
@@ -80,7 +80,7 @@ namespace SoundFramework
                 }
                 exe.resize(exe.size() * 2);
             }
-            return std::filesystem::path(exe).parent_path().parent_path().parent_path() / L"Mods";
+            return std::filesystem::path(exe).parent_path().parent_path().parent_path();
         }
 
         /** @brief The directory of this module (the framework DLL or ASI). */
@@ -143,6 +143,18 @@ namespace SoundFramework
             game::speech::set_lip_model(std::make_shared<const audio::LipModel>(std::move(*model)));
         }
 
+        /// @p text with its ASCII letters in lower case.
+        [[nodiscard]] std::string lowered(std::string_view text)
+        {
+            std::string result(text);
+            std::ranges::transform(
+                result,
+                result.begin(),
+                [](char c) { return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c; }
+            );
+            return result;
+        }
+
         void register_config_items()
         {
             const DMK::config::SectionBinder settings = DMK::config::section("Settings");
@@ -163,16 +175,25 @@ namespace SoundFramework
                 "Lip sync mode (ADVANCED or BASIC)",
                 [](std::string_view mode)
                 {
-                    std::string lowered(mode);
-                    std::ranges::transform(
-                        lowered,
-                        lowered.begin(),
-                        [](char c) { return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c; }
-                    );
-                    s_lip_sync_advanced.store(lowered != "basic");
-                    game::speech::set_lip_advanced(lowered != "basic");
+                    const bool advanced = lowered(mode) != "basic";
+                    s_lip_sync_advanced.store(advanced);
+                    game::speech::set_lip_advanced(advanced);
                 },
                 "ADVANCED"
+            );
+            lip_sync.bind_string(
+                "DubbedVoices",
+                "Lip sync for dubbed voices (AUTO, ON or OFF)",
+                [](std::string_view mode)
+                {
+                    const std::string value = lowered(mode);
+                    game::speech::set_dubbed_voices(
+                        value == "on"    ? game::speech::DubbedVoices::On
+                        : value == "off" ? game::speech::DubbedVoices::Off
+                                         : game::speech::DubbedVoices::Auto
+                    );
+                },
+                "AUTO"
             );
         }
     } // namespace
@@ -204,7 +225,7 @@ namespace SoundFramework
         DMK_TRY_VOID(fmod::install_update_hook(s_hooks));
         DMK_TRY_VOID(fmod::install_event_hook(s_hooks));
         DMK_TRY_VOID(fmod::install_parameter_hook(s_hooks));
-        if (!audio::start(mods_directory(), module_directory() / constants::MOODS_FILE_NAME))
+        if (!audio::start(game_root() / L"Mods", module_directory() / constants::MOODS_FILE_NAME))
         {
             return std::unexpected(DMK::Error{DMK::ErrorCode::Unknown, "SoundFramework::init/worker"});
         }
@@ -216,7 +237,7 @@ namespace SoundFramework
         {
             game::commands::configure(anchors);
             game::entities::configure(anchors);
-            game::speech::configure(anchors);
+            game::speech::configure(anchors, game_root() / L"Data" / L"Facials");
             game::game_clock::configure(anchors.voice_clock ? anchors.genv : 0, anchors.timer_vtable);
             DMK_TRY_VOID(game::speak_hook::install(anchors, s_hooks));
             DMK_TRY_VOID(game::save_load_hook::install(anchors, s_hooks));

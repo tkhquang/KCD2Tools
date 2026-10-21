@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -35,6 +36,7 @@
 #include <stop_token>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -57,6 +59,7 @@ namespace SoundFramework::game::speech
         using GetActorFn = void *(__fastcall *)(void *actor_system, std::uint32_t id);
         using GetSpeakManFn = void *(__fastcall *)(void *actor);
         using GetIdFn = std::uint32_t(__fastcall *)(const void *entity);
+        using GetWorldPosFn = entities::Position *(__fastcall *)(const void *entity, entities::Position *out);
         using SpeakFn = char(__fastcall *)(void *speak_man, const SpeakRequest *request);
         using StopFn = void(__fastcall *)(void *speak_man);
         using RequestCtorFn = SpeakRequest *(__fastcall *)(SpeakRequest * request);
@@ -66,6 +69,8 @@ namespace SoundFramework::game::speech
             void(__fastcall
                      *)(void *subtitles, const void *text, const void *speaker, bool flag, bool force, bool localize);
         using ClearSubtitlesFn = void(__fastcall *)(void *subtitles);
+        using GetCVarFn = void *(__fastcall *)(void *console, const char *name);
+        using GetStringFn = const char *(__fastcall *)(const void *cvar);
 
         constexpr std::uint64_t SUBTITLE_TAIL_MS = 300;
 
@@ -93,6 +98,14 @@ namespace SoundFramework::game::speech
         std::shared_ptr<const audio::LipModel> s_lip_model;
         /// [LipSync] Mode: the learned model drives the mouth when one is loaded.
         std::atomic<bool> s_lip_advanced{true};
+        /// [LipSync] DubbedVoices.
+        std::atomic<DubbedVoices> s_dubbed_voices{DubbedVoices::Auto};
+        /// Languages (lower case) with a facial animation pak in `Data/Facials`, listed once by configure().
+        std::vector<std::string> s_facial_languages;
+        /// Main-thread state: the voice language last read.
+        std::string s_voice_language;
+        /// Main-thread state: the game has no facial animation for s_voice_language.
+        bool s_voice_language_dubbed = false;
 
         /**
          * @brief Decodes each line's take and computes its mouth off the main thread: the learned model in parts, the
@@ -110,6 +123,8 @@ namespace SoundFramework::game::speech
                 bool learned = true;
                 /// Positive [LipSync] OffsetMs: the mouth runs this far ahead of the sound.
                 std::uint32_t lead_ms = 0;
+                /// One of the game's own lines: its progress is logged at debug level only.
+                bool quiet = false;
                 /// When the line started, which submit() stamps.
                 std::chrono::steady_clock::time_point submitted;
             };
@@ -126,6 +141,8 @@ namespace SoundFramework::game::speech
                 std::vector<audio::MouthPose> track;
                 /// From the line's start to this part being ready.
                 double milliseconds = 0.0;
+                /// Job::quiet.
+                bool quiet = false;
             };
 
             void start(std::shared_ptr<const audio::LipModel> model)
@@ -279,7 +296,11 @@ namespace SoundFramework::game::speech
                     const audio::DecodedAudio decoded = audio::decode_mono(line.job.voice_file);
                     if (decoded.samples.empty() || decoded.sample_rate <= 0.0f)
                     {
-                        DMK::log().warning("Speech: cannot decode {}; the mouth stays still", line.job.voice_file);
+                        DMK::log().log(
+                            line.job.quiet ? DMK::LogLevel::Debug : DMK::LogLevel::Warning,
+                            "Speech: cannot decode {}; the mouth stays still",
+                            line.job.voice_file
+                        );
                         return false;
                     }
                     if (!line.job.learned)
@@ -320,6 +341,7 @@ namespace SoundFramework::game::speech
             {
                 result.milliseconds =
                     std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - job.submitted).count();
+                result.quiet = job.quiet;
                 const std::lock_guard lock(m_mutex);
                 m_done.push_back(std::move(result));
             }
@@ -357,6 +379,14 @@ namespace SoundFramework::game::speech
             std::string subtitle_text;
             bool subtitle_is_key = false;
             bool subtitle = false;
+            /// One of the game's own lines: only its face is the framework's, never its sound.
+            bool game_line = false;
+
+            /// The level of this line's progress messages: debug for the game's own lines, info for the framework's.
+            [[nodiscard]] DMK::LogLevel log_level() const noexcept
+            {
+                return game_line ? DMK::LogLevel::Debug : DMK::LogLevel::Info;
+            }
         };
 
         /// Main-thread state.
@@ -544,7 +574,8 @@ namespace SoundFramework::game::speech
                 {
                     s_subtitle_left_ms = 0.0;
                 }
-                DMK::log().info(
+                (void)DMK::log().try_log(
+                    line.log_level(),
                     "Speech: {} {} after {} of {} ms; its mouth and subtitle stop with it",
                     line.path,
                     line.sound == 0 ? "never started" : "was cut short",
@@ -560,7 +591,12 @@ namespace SoundFramework::game::speech
          */
         void started(std::uint8_t *ctx, Watched &line, std::uint32_t sound, std::uint64_t now)
         {
-            DMK::log().info("Speech: {} started playing {} ms after it was asked", line.path, now - line.started_ms);
+            (void)DMK::log().try_log(
+                line.log_level(),
+                "Speech: {} started playing {} ms after it was asked",
+                line.path,
+                now - line.started_ms
+            );
             line.sound = sound;
             line.started_ms = now;
             if (line.ticket != 0)
@@ -658,9 +694,10 @@ namespace SoundFramework::game::speech
                 auto *const speak_man =
                     ctx == nullptr ? nullptr : static_cast<std::uint8_t *>(speak_man_of(ctx, line.entity, true));
                 // Playing: the speaker still plays the line's sound. Waiting: the line is still the speaker's current
-                // one. Anything else on the speaker is not the framework's to stop.
-                const bool holds = speak_man != nullptr && (line.sound != 0 ? playing_sound(speak_man) == line.sound
-                                                                            : current_line(speak_man) == line.path);
+                // one. Anything else on the speaker, and the game's own lines, are not the framework's to stop.
+                const bool holds =
+                    !line.game_line && speak_man != nullptr &&
+                    (line.sound != 0 ? playing_sound(speak_man) == line.sound : current_line(speak_man) == line.path);
                 if (holds)
                 {
                     reinterpret_cast<StopFn>(s_anchors.speak_stop)(speak_man);
@@ -710,8 +747,8 @@ namespace SoundFramework::game::speech
             s_subtitle_left_ms = static_cast<double>(ms + SUBTITLE_TAIL_MS);
         }
 
-        /** @brief The entity id of the actor that owns @p speak_man, or 0 when the chain does not check out. */
-        [[nodiscard]] std::uint32_t entity_of(const void *speak_man) noexcept
+        /** @brief The entity of the actor that owns @p speak_man, or nullptr when the chain does not check out. */
+        [[nodiscard]] const void *speaker_entity(const void *speak_man) noexcept
         {
             const void *const actor = *reinterpret_cast<const void *const *>(
                 static_cast<const std::uint8_t *>(speak_man) + constants::SPEAK_MAN_ACTOR
@@ -720,21 +757,148 @@ namespace SoundFramework::game::speech
                 reinterpret_cast<std::uintptr_t>(vtable_of(actor)[constants::ACTOR_GET_SPEAK_MAN_SLOT]) !=
                     s_anchors.get_speak_man)
             {
-                return 0;
+                return nullptr;
             }
             const void *const entity = *reinterpret_cast<const void *const *>(
                 static_cast<const std::uint8_t *>(actor) + constants::ACTOR_ENTITY
             );
             if (entity == nullptr || reinterpret_cast<std::uintptr_t>(vtable_of(entity)) != s_anchors.entity_vtable)
             {
-                return 0;
+                return nullptr;
             }
-            return reinterpret_cast<GetIdFn>(vtable_of(entity)[constants::ENTITY_GET_ID_SLOT])(entity);
+            return entity;
+        }
+
+        /** @brief The entity id of the actor that owns @p speak_man, or 0 when the chain does not check out. */
+        [[nodiscard]] std::uint32_t entity_of(const void *speak_man) noexcept
+        {
+            const void *const entity = speaker_entity(speak_man);
+            return entity == nullptr
+                       ? 0
+                       : reinterpret_cast<GetIdFn>(vtable_of(entity)[constants::ENTITY_GET_ID_SLOT])(entity);
+        }
+
+        /** @brief Whether @p entity stands farther from the camera than the engine animates faces. */
+        [[nodiscard]] bool beyond_facial_radius(const void *entity) noexcept
+        {
+            const std::optional<audio::WorldPosition> camera = audio::listener_position();
+            if (!camera.has_value())
+            {
+                return false;
+            }
+            entities::Position at{};
+            (void)reinterpret_cast<GetWorldPosFn>(vtable_of(entity)[constants::ENTITY_GET_WORLD_POS_SLOT])(entity, &at);
+            const float dx = at.x - camera->x;
+            const float dy = at.y - camera->y;
+            const float dz = at.z - camera->z;
+            return dx * dx + dy * dy + dz * dz >
+                   constants::FACIAL_ANIMATION_RADIUS * constants::FACIAL_ANIMATION_RADIUS;
+        }
+
+        /// @p text with its ASCII letters in lower case.
+        [[nodiscard]] std::string lowered(std::string text)
+        {
+            std::ranges::transform(
+                text,
+                text.begin(),
+                [](char c) { return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c; }
+            );
+            return text;
+        }
+
+        /** @brief The voice language in lower case, or empty when the console or its variable does not check out. */
+        [[nodiscard]] std::string voice_language()
+        {
+            if (!s_anchors.voice_language)
+            {
+                return {};
+            }
+            const auto *const genv = reinterpret_cast<const std::uint8_t *>(s_anchors.genv);
+            void *const console = *reinterpret_cast<void *const *>(genv + constants::GENV_CONSOLE);
+            if (console == nullptr || reinterpret_cast<std::uintptr_t>(vtable_of(console)) != s_anchors.console_vtable)
+            {
+                return {};
+            }
+            const void *const cvar = reinterpret_cast<GetCVarFn>(vtable_of(
+                console
+            )[constants::CONSOLE_GET_CVAR_SLOT])(console, constants::VOICE_LANGUAGE_CVAR);
+            if (cvar == nullptr || reinterpret_cast<std::uintptr_t>(vtable_of(cvar)) != s_anchors.cvar_string_vtable)
+            {
+                return {};
+            }
+            const char *const value =
+                reinterpret_cast<GetStringFn>(vtable_of(cvar)[constants::CVAR_GET_STRING_SLOT])(cvar);
+            return value == nullptr ? std::string{} : lowered(value);
+        }
+
+        /**
+         * @brief The languages (lower case) whose facial animation pak sits in @p directory: `Facials_<language>.pak`,
+         *        or split as `Facials_<language>-part<n>.pak`.
+         */
+        [[nodiscard]] std::vector<std::string> facial_languages(const std::filesystem::path &directory)
+        {
+            constexpr std::string_view prefix = "facials_";
+            std::vector<std::string> languages;
+            std::error_code error;
+            std::filesystem::directory_iterator entry(directory, error);
+            for (; !error && entry != std::filesystem::directory_iterator{}; entry.increment(error))
+            {
+                const std::string name = lowered(packs::path_text(entry->path().filename()));
+                if (!name.starts_with(prefix) || !name.ends_with(".pak"))
+                {
+                    continue;
+                }
+                const std::size_t end = name.find_first_of(".-", prefix.size());
+                std::string language = name.substr(prefix.size(), end - prefix.size());
+                if (!language.empty() && std::ranges::find(languages, language) == languages.end())
+                {
+                    languages.push_back(std::move(language));
+                }
+            }
+            return languages;
+        }
+
+        /**
+         * @brief Whether the game's lip-sync animation belongs to other recordings than the voices playing. The game
+         *        opens the voice language's facial pak, or English when there is none, and finds a line's animation by
+         *        its line id alone: a dub that reuses the line ids then plays English mouths over its own voices.
+         */
+        [[nodiscard]] bool voice_is_dubbed()
+        {
+            const DubbedVoices mode = s_dubbed_voices.load(std::memory_order_relaxed);
+            if (mode != DubbedVoices::Auto)
+            {
+                return mode == DubbedVoices::On;
+            }
+            const std::string language = voice_language();
+            if (language.empty())
+            {
+                return false;
+            }
+            if (language != s_voice_language)
+            {
+                // Without English facial animation the folder listing is not the one the game reads, so it decides
+                // nothing.
+                const auto has = [](std::string_view name) -> bool
+                { return std::ranges::find(s_facial_languages, name) != s_facial_languages.end(); };
+                s_voice_language_dubbed = has(constants::FACIAL_FALLBACK_LANGUAGE) && !has(language);
+                s_voice_language = language;
+                (void)DMK::log().try_log(
+                    DMK::LogLevel::Info,
+                    "LipSync: voice language '{}' {}",
+                    language,
+                    s_voice_language_dubbed
+                        ? "has no facial animation of its own, so the voice drives every line's mouth"
+                        : "keeps the game's lip-sync animation"
+                );
+            }
+            return s_voice_language_dubbed;
         }
 
         /**
          * @brief What follows a spoken line: the face performance (voice-driven mouth when the game found no lip-sync
-         *        animation, plus the mood) and the subtitle.
+         *        animation, or when its animation belongs to other recordings, plus the mood) and the subtitle.
+         * @param game_line One of the game's own lines: its face is watched with it, and logged at debug level only.
          */
         void follow_up(
             std::uint8_t *ctx,
@@ -746,11 +910,15 @@ namespace SoundFramework::game::speech
             const std::string &subtitle,
             bool subtitle_is_key,
             const std::vector<face::PoseWeight> &mood,
-            float mood_strength
+            float mood_strength,
+            bool game_line
         )
         {
-            // The game animates this line's mouth itself when Speak found a lip-sync animation for it.
-            const bool lip_sync = static_cast<const std::uint8_t *>(speak_man)[constants::SPEAK_MAN_HAS_LIP_SYNC] != 0;
+            // Speak found a lip-sync animation for this line. It moves the mouth unless it was made for other
+            // recordings than the one playing. Then the voice drives the mouth over it.
+            const bool animated = static_cast<const std::uint8_t *>(speak_man)[constants::SPEAK_MAN_HAS_LIP_SYNC] != 0;
+            const bool replace_mouth = animated && voice_is_dubbed();
+            const bool lip_sync = animated && !replace_mouth;
             std::uint64_t ticket = 0;
             if (id != 0 && lip_drive::active() && (!lip_sync || !mood.empty()))
             {
@@ -761,12 +929,14 @@ namespace SoundFramework::game::speech
                     .delay_ms = static_cast<std::uint32_t>(std::max(-offset, 0)),
                     .duration_ms = length.value_or(0),
                     .mood_strength = mood_strength,
+                    .replace_mouth = replace_mouth,
                 };
-                // No lip-sync animation for this line: the mouth comes from the voice itself. The worker decodes the
-                // take and computes it (the learned model, or the basic loudness-and-spectrum mouth); it joins the
-                // running line a frame or two later.
+                // No lip-sync animation for this line, or one made for other recordings: the mouth comes from the voice
+                // itself. The worker decodes the take and computes it (the learned model, or the basic
+                // loudness-and-spectrum mouth), and the result joins the running line a frame or two later.
                 const bool learned = s_lip_model != nullptr && s_lip_advanced.load(std::memory_order_relaxed);
-                performance.mouth_pending = !lip_sync && length.has_value();
+                // A game line's length comes from the worker's decode, which keeps opening the file off this thread.
+                performance.mouth_pending = !lip_sync && (length.has_value() || game_line);
                 for (const face::PoseWeight &pose : mood)
                 {
                     // The game's own lip sync owns the mouth; a mood then only touches the upper face.
@@ -775,13 +945,15 @@ namespace SoundFramework::game::speech
                         performance.mood.push_back(pose);
                     }
                 }
-                DMK::log().info(
-                    "Speech: face performance, {} ms, {} mouth, {} mood pose(s) x {:.2f}, offset {} ms",
+                (void)DMK::log().try_log(
+                    game_line ? DMK::LogLevel::Debug : DMK::LogLevel::Info,
+                    "Speech: face performance, {} ms, {} mouth{}, {} mood pose(s) x {:.2f}, offset {} ms",
                     performance.duration_ms,
                     lip_sync                     ? "the game's"
                     : !performance.mouth_pending ? "no"
                     : learned                    ? "learned"
                                                  : "basic",
+                    replace_mouth && performance.mouth_pending ? " over the game's" : "",
                     performance.mood.size(),
                     mood_strength,
                     offset
@@ -796,6 +968,7 @@ namespace SoundFramework::game::speech
                             .voice_file = voice_file,
                             .learned = learned,
                             .lead_ms = static_cast<std::uint32_t>(std::max(offset, 0)),
+                            .quiet = game_line,
                         }
                     );
                 }
@@ -819,12 +992,13 @@ namespace SoundFramework::game::speech
                     .entity = id,
                     .path = voice_file.ends_with(".ogg") ? voice_file.substr(0, voice_file.size() - 4) : voice_file,
                     .started_ms = GetTickCount64(),
-                    .length_ms = length.value_or(SUBTITLE_FALLBACK_MS),
+                    .length_ms = length.value_or(subtitle.empty() ? 0 : SUBTITLE_FALLBACK_MS),
                     .queued_behind = playing_sound(static_cast<const std::uint8_t *>(speak_man)),
                     .subtitle_speaker = speaker,
                     .subtitle_text = subtitle,
                     .subtitle_is_key = subtitle_is_key,
                     .subtitle = !subtitle.empty(),
+                    .game_line = game_line,
                 }
             );
         }
@@ -905,7 +1079,8 @@ namespace SoundFramework::game::speech
                 say.subtitle,
                 say.subtitle_is_key,
                 say.mood,
-                say.mood_strength
+                say.mood_strength,
+                false
             );
         }
 
@@ -962,10 +1137,42 @@ namespace SoundFramework::game::speech
         }
     } // namespace
 
-    void configure(const Anchors &anchors) noexcept
+    void configure(const Anchors &anchors, const std::filesystem::path &facials_directory) noexcept
     {
         s_anchors = anchors;
         s_enabled = anchors.speech;
+        if (!s_enabled)
+        {
+            return;
+        }
+        if (!anchors.voice_language)
+        {
+            (void)DMK::log().log_noexcept(
+                DMK::LogLevel::Warning,
+                "Speech: the voice language cannot be read; DubbedVoices = AUTO leaves the game's lines alone"
+            );
+            return;
+        }
+        // The facial paks are game files that do not change while the game runs, so one listing serves the session.
+        try
+        {
+            s_facial_languages = facial_languages(facials_directory);
+            if (std::ranges::find(s_facial_languages, constants::FACIAL_FALLBACK_LANGUAGE) == s_facial_languages.end())
+            {
+                DMK::log().warning(
+                    "Speech: no English facial animation in {}; DubbedVoices = AUTO leaves the game's lines alone",
+                    packs::path_text(facials_directory)
+                );
+            }
+        }
+        catch (...)
+        {
+            s_facial_languages.clear();
+            (void)DMK::log().log_noexcept(
+                DMK::LogLevel::Warning,
+                "Speech: the facial animation paks were not listed; DubbedVoices = AUTO leaves the game's lines alone"
+            );
+        }
     }
 
     bool
@@ -1117,13 +1324,7 @@ namespace SoundFramework::game::speech
         {
             return std::nullopt;
         }
-        std::string lowered(text_key);
-        std::ranges::transform(
-            lowered,
-            lowered.begin(),
-            [](char c) { return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c; }
-        );
-        const std::optional<std::string> name = audio::line_table::voice_replacement(lowered);
+        const std::optional<std::string> name = audio::line_table::voice_replacement(lowered(std::string(text_key)));
         if (!name.has_value())
         {
             return std::nullopt;
@@ -1177,14 +1378,16 @@ namespace SoundFramework::game::speech
         try
         {
             const std::uint32_t id = entity_of(speak_man);
-            if (id == 0 || std::ranges::none_of(s_watched, [&](const Watched &line) { return line.entity == id; }))
+            // Only the framework's own lines give way: a game line on the speaker is the dialog's to replace.
+            const auto ours = [&](const Watched &line) { return line.entity == id && !line.game_line; };
+            if (id == 0 || std::ranges::none_of(s_watched, ours))
             {
                 return;
             }
             const std::uint64_t now = GetTickCount64();
             for (const Watched &line : s_watched)
             {
-                if (line.entity != id)
+                if (!ours(line))
                 {
                     continue;
                 }
@@ -1201,7 +1404,7 @@ namespace SoundFramework::game::speech
                 }
                 DMK::log().info("Speech: {} gives way to a dialog line after {} ms", line.path, now - line.started_ms);
             }
-            std::erase_if(s_watched, [&](const Watched &line) { return line.entity == id; });
+            std::erase_if(s_watched, ours);
             reinterpret_cast<StopFn>(s_anchors.speak_stop)(speak_man);
         }
         catch (...)
@@ -1252,7 +1455,8 @@ namespace SoundFramework::game::speech
             swap.subtitle ? swap.text_key : std::string{},
             true,
             swap.mood,
-            swap.mood_strength
+            swap.mood_strength,
+            false
         );
     }
 
@@ -1293,6 +1497,29 @@ namespace SoundFramework::game::speech
         s_lip_offset_ms.store(std::clamp(offset_ms, -500, 500), std::memory_order_relaxed);
     }
 
+    void set_dubbed_voices(DubbedVoices mode) noexcept
+    {
+        s_dubbed_voices.store(mode, std::memory_order_relaxed);
+    }
+
+    bool drives_game_lines()
+    {
+        return s_enabled && !s_in_say && lip_drive::active() && voice_is_dubbed();
+    }
+
+    void follow_game_line(const void *speak_man, const std::string &voice_path)
+    {
+        const void *const entity = speaker_entity(speak_man);
+        if (entity == nullptr || beyond_facial_radius(entity))
+        {
+            return;
+        }
+        const std::uint32_t id = reinterpret_cast<GetIdFn>(vtable_of(entity)[constants::ENTITY_GET_ID_SLOT])(entity);
+        // The game file system resolves the path to the voice language's recording, as the game's own playback does.
+        // Opening it takes milliseconds, so its length comes with the worker's decode instead of being read here.
+        follow_up(context(), id, speak_man, voice_path + ".ogg", std::nullopt, {}, {}, false, {}, 1.0f, true);
+    }
+
     void on_frame() noexcept
     {
         try
@@ -1319,9 +1546,11 @@ namespace SoundFramework::game::speech
         {
             for (LipWorker::Result &result : s_lip_worker.take())
             {
+                const DMK::LogLevel level = result.quiet ? DMK::LogLevel::Debug : DMK::LogLevel::Info;
                 if (!result.track.empty())
                 {
-                    DMK::log().info(
+                    (void)DMK::log().try_log(
+                        level,
                         "Speech: basic mouth, {} step(s) ready {:.1f} ms after the line started",
                         result.track.size(),
                         result.milliseconds
@@ -1329,7 +1558,8 @@ namespace SoundFramework::game::speech
                     lip_drive::attach_track(result.ticket, std::move(result.track));
                     continue;
                 }
-                DMK::log().info(
+                (void)DMK::log().try_log(
+                    level,
                     "Speech: lip model, steps {} to {} of {} x {} channel(s) ready {:.1f} ms after the line started",
                     result.first_step,
                     result.first_step + result.poses.frames(),
@@ -1337,7 +1567,7 @@ namespace SoundFramework::game::speech
                     result.poses.channels,
                     result.milliseconds
                 );
-                lip_drive::attach_poses(result.ticket, result.first_step, std::move(result.poses));
+                lip_drive::attach_poses(result.ticket, result.first_step, result.total_steps, std::move(result.poses));
             }
         }
         catch (...)

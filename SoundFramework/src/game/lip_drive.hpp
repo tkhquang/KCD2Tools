@@ -1,11 +1,12 @@
 /**
  * @file game/lip_drive.hpp
- * @brief Voice-driven mouth movement for lines the game has no lip-sync animation for.
+ * @brief Voice-driven mouth movement for lines the game has no matching lip-sync animation for.
  *
  * KCD2 faces are driven by pose bones (`FA_POSE_*`): each pose bone's relative translation X is a pose weight, and the
- * game's C_JointPoseMorphPoseModifier turns those weights into face joint motion. While one of the framework's lines
- * plays, the main thread publishes the current mouth pose from the line's analysis; a hook on the modifier's
- * Execute writes them into the speaker's pose bones right before the game's own morph runs.
+ * game's C_JointPoseMorphPoseModifier turns those weights into face joint motion. While a driven line plays, the main
+ * thread publishes the current mouth pose from the line's analysis, and a hook on the modifier's Execute writes it into
+ * the speaker's pose bones right before the game's own morph runs. The game's facial clip has set its weights by then,
+ * so clearing its articulation poses there removes its syllables and keeps its expression, brows, eyes and blinks.
  */
 #ifndef SNDFW_GAME_LIP_DRIVE_HPP
 #define SNDFW_GAME_LIP_DRIVE_HPP
@@ -35,7 +36,7 @@ namespace SoundFramework::game::lip_drive
     {
         /**
          * @brief The line's mouth comes from its voice: attach_poses() or attach_track() adds it to the running line
-         *        once the worker computed it.
+         *        once the worker computed it. A line given no length holds until then.
          */
         bool mouth_pending = false;
         std::uint32_t step_ms = 20;
@@ -46,6 +47,12 @@ namespace SoundFramework::game::lip_drive
         /// Mood pose weights held for the line, already filtered to the upper face when the mouth is the game's.
         std::vector<face::PoseWeight> mood;
         float mood_strength = 1.0f;
+        /**
+         * @brief The game animates this line's mouth from another recording (a dub played over English facial
+         *        animation): its articulation poses are cleared before the line's own weights are written, and its
+         *        expression poses (corners, smile, sneer) stay.
+         */
+        bool replace_mouth = false;
     };
 
     /**
@@ -66,9 +73,10 @@ namespace SoundFramework::game::lip_drive
      * @brief Adds a part of a learned track, its rows from @p first_step on, to the running line @p ticket; dropped
      *        when that line has ended or was replaced, or when the part does not continue the rows already there.
      *        The track keeps the line's start time, so steps computed late are skipped, not delayed.
+     * @param total_steps Steps in the whole track: the line lasts at least that long.
      * @note Main thread only.
      */
-    void attach_poses(std::uint64_t ticket, std::size_t first_step, audio::PoseTrack poses);
+    void attach_poses(std::uint64_t ticket, std::size_t first_step, std::size_t total_steps, audio::PoseTrack poses);
 
     /**
      * @brief Sets the basic mouth track of the running line @p ticket; dropped when that line has ended or was

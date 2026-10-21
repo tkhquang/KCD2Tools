@@ -56,6 +56,13 @@ namespace SoundFramework::face
     [[nodiscard]] Region region_of(std::string_view canonical_name) noexcept;
 
     /**
+     * @brief The mouth poses speech moves syllable by syllable (jaw, lip rounding and pressing, the sticky lips), as
+     *        the rig spells them. The other mouth poses (corners, smile, dimples, sneer, frown) hold the line's
+     *        expression and change slowly.
+     */
+    [[nodiscard]] std::span<const std::string_view> articulation_poses() noexcept;
+
+    /**
      * @brief Parses `pose:weight, pose:weight` (weights 0 to MAX_POSE_WEIGHT).
      * @return The poses, or nothing with @p error set when an item cannot be read or names no pose of the rig.
      */

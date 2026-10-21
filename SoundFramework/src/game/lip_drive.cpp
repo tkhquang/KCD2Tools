@@ -16,6 +16,7 @@
 #include <array>
 #include <atomic>
 #include <memory>
+#include <string>
 #include <string_view>
 
 namespace SoundFramework::game::lip_drive
@@ -93,11 +94,17 @@ namespace SoundFramework::game::lip_drive
             /// Held for its sound: its clock does not run until sound_started().
             bool waiting = false;
             std::uint32_t delay_ms = 0;
+            /// Performance::replace_mouth.
+            bool replace_mouth = false;
+            /// Performance::mouth_pending until the first part of the mouth arrives.
+            bool awaiting_mouth = false;
         };
 
         struct Target
         {
             const void *character = nullptr;
+            /// Clear the articulation poses before writing this frame's weights.
+            bool replace_mouth = false;
             bool has_mouth = false;
             audio::MouthPose pose;
             /// Learned channel weights for this frame; empty without a learned track.
@@ -111,6 +118,8 @@ namespace SoundFramework::game::lip_drive
         Anchors s_anchors{};
         /// Joint CRCs per learned channel; written before the hook is armed, read-only afterwards.
         std::vector<std::vector<std::uint32_t>> s_channel_joints;
+        /// Joint CRCs of the articulation poses; written before the hook is armed, read-only afterwards.
+        std::vector<std::uint32_t> s_articulation_joints;
         ExecuteFn s_original = nullptr;
         std::atomic<std::shared_ptr<const Snapshot>> s_snapshot;
         /// Main-thread state.
@@ -179,16 +188,20 @@ namespace SoundFramework::game::lip_drive
                         reinterpret_cast<GetSkeletonFn>(vtable_of(character)[constants::CHARACTER_GET_SKELETON_SLOT])(
                             character
                         );
-                    const auto apply = [&](std::uint32_t crc, float value)
+                    const auto weight_of = [&](std::uint32_t crc) -> float *
                     {
                         const std::int16_t id = reinterpret_cast<JointIdFn>(vtable_of(
                             skeleton
                         )[constants::SKELETON_JOINT_BY_CRC_SLOT])(skeleton, crc);
-                        if (id >= 0)
+                        return id < 0 ? nullptr
+                                      : reinterpret_cast<JointTranslationFn>(vtable_of(
+                                            pose
+                                        )[constants::POSE_JOINT_TRANSLATION_SLOT])(pose, id);
+                    };
+                    const auto apply = [&](std::uint32_t crc, float value)
+                    {
+                        if (float *const weight = weight_of(crc); weight != nullptr)
                         {
-                            float *const weight = reinterpret_cast<JointTranslationFn>(vtable_of(
-                                pose
-                            )[constants::POSE_JOINT_TRANSLATION_SLOT])(pose, id);
                             *weight = std::max(*weight, value);
                         }
                     };
@@ -203,6 +216,16 @@ namespace SoundFramework::game::lip_drive
                     }
                     else if (skeleton != nullptr)
                     {
+                        if (target->replace_mouth)
+                        {
+                            for (const std::uint32_t crc : s_articulation_joints)
+                            {
+                                if (float *const weight = weight_of(crc); weight != nullptr)
+                                {
+                                    *weight = 0.0f;
+                                }
+                            }
+                        }
                         if (target->has_mouth)
                         {
                             for (const PoseBone &bone : POSE_BONES)
@@ -236,6 +259,11 @@ namespace SoundFramework::game::lip_drive
         {
             DMK::log().warning("LipDrive: the face anchors did not resolve; lines without lip sync keep a still face");
             return {};
+        }
+        s_articulation_joints.clear();
+        for (const std::string_view pose : face::articulation_poses())
+        {
+            s_articulation_joints.push_back(joint_crc(std::string("FA_POSE_").append(pose)));
         }
         DMK_TRY(
             created,
@@ -277,6 +305,8 @@ namespace SoundFramework::game::lip_drive
             .duration_ms = performance.duration_ms,
             .waiting = true,
             .delay_ms = performance.delay_ms,
+            .replace_mouth = performance.replace_mouth,
+            .awaiting_mouth = performance.mouth_pending,
         };
         for (const face::PoseWeight &pose : performance.mood)
         {
@@ -292,13 +322,16 @@ namespace SoundFramework::game::lip_drive
         return ticket;
     }
 
-    void attach_poses(std::uint64_t ticket, std::size_t first_step, audio::PoseTrack poses)
+    void attach_poses(std::uint64_t ticket, std::size_t first_step, std::size_t total_steps, audio::PoseTrack poses)
     {
         const auto line = std::ranges::find(s_lines, ticket, &Line::ticket);
         if (line == s_lines.end() || line->ended || first_step != line->poses.frames())
         {
             return;
         }
+        line->awaiting_mouth = false;
+        line->duration_ms =
+            std::max<std::uint32_t>(line->duration_ms, static_cast<std::uint32_t>(total_steps) * line->step_ms);
         if (first_step == 0)
         {
             line->poses = std::move(poses);
@@ -307,10 +340,6 @@ namespace SoundFramework::game::lip_drive
         {
             line->poses.weights.insert(line->poses.weights.end(), poses.weights.begin(), poses.weights.end());
         }
-        line->duration_ms = std::max<std::uint32_t>(
-            line->duration_ms,
-            static_cast<std::uint32_t>(line->poses.frames()) * line->step_ms
-        );
     }
 
     void attach_track(std::uint64_t ticket, std::vector<audio::MouthPose> track)
@@ -320,6 +349,7 @@ namespace SoundFramework::game::lip_drive
         {
             return;
         }
+        line->awaiting_mouth = false;
         line->duration_ms =
             std::max<std::uint32_t>(line->duration_ms, static_cast<std::uint32_t>(track.size()) * line->step_ms);
         line->track = std::move(track);
@@ -356,6 +386,7 @@ namespace SoundFramework::game::lip_drive
         line->track.clear();
         line->poses.weights.clear();
         line->ended = true;
+        line->awaiting_mouth = false;
     }
 
     bool active() noexcept
@@ -392,7 +423,9 @@ namespace SoundFramework::game::lip_drive
                         return false;
                     }
                     const auto elapsed = static_cast<std::uint64_t>(line.clock_ms);
-                    if (elapsed >= line.duration_ms + MOOD_FADE_OUT_MS)
+                    // A line whose length comes with its mouth has no length before the first part arrives. The end of
+                    // its sound (end_line) bounds it until then.
+                    if (!line.awaiting_mouth && elapsed >= line.duration_ms + MOOD_FADE_OUT_MS)
                     {
                         return true;
                     }
@@ -403,6 +436,7 @@ namespace SoundFramework::game::lip_drive
                     }
                     Target target{
                         .character = character,
+                        .replace_mouth = line.replace_mouth,
                     };
                     const std::size_t index = static_cast<std::size_t>(elapsed / line.step_ms);
                     if (index < line.track.size())

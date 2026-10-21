@@ -66,6 +66,13 @@ namespace SoundFramework::audio
     [[nodiscard]] bool request_replacement(std::string key, void *event, std::optional<fmod::Attributes3d> attributes);
 
     /**
+     * @brief Where the game's listener (its camera) was last put, in world coordinates, or nothing before the game
+     *        first set it.
+     * @note Thread safe.
+     */
+    [[nodiscard]] std::optional<WorldPosition> listener_position() noexcept;
+
+    /**
      * @brief The length of the audio file at @p game_path, opened through the game's file system (pak paths), or
      *        nothing when FMOD cannot open it.
      * @note Thread safe; opens the file header only.
