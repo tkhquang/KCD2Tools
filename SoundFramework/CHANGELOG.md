@@ -2,6 +2,13 @@
 
 All notable changes to the SoundFramework mod will be documented in this file.
 
+## [1.1.0] - Lip Sync for Voice Dubs
+
+- With a voice dub that has no mouth animation of its own, characters' lips now follow the dub's voices instead of the English animation.
+- Smiles, frowns and other expressions from the game's animation stay while the lips follow the dub.
+- Only characters close enough for their faces to move get the new lips, so busy towns stay smooth.
+- A new DubbedVoices setting turns this on automatically, always or never.
+
 ## [1.0.0] - Initial Release
 
 - Mods can add sounds through an INI in their own SoundFramework folder and play them on the game's buses, in 3D or flat.
@@ -23,4 +30,5 @@ All notable changes to the SoundFramework mod will be documented in this file.
 - Saving a pack or the settings INI applies it while playing.
 - Ships as an ASI and as a KCSE plugin.
 
+[1.1.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/SoundFramework-v1.1.0
 [1.0.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/SoundFramework-v1.0.0
