@@ -76,6 +76,7 @@ namespace TPVCamera
             Constants::C_DEFAULT_SKELETON_RTTI_NAME,
             Constants::CXCONSOLE_RTTI_NAME,
             Constants::CXCONSOLE_VARIABLE_INT_RTTI_NAME,
+            Constants::CVIEW_SYSTEM_RTTI_NAME,
         }};
 
         // A TypeIdentity is pinned, so a std::vector cannot hold one: a reallocation has to move its

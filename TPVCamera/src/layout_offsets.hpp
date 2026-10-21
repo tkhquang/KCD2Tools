@@ -56,6 +56,16 @@ namespace Constants
     // RTTI type-descriptor name of CActionGame, the self-heal anchor for CCRYACTION_ACTIONGAME_OFFSET.
     constexpr const char *CACTIONGAME_RTTI_NAME = ".?AVCActionGame@@";
     constexpr ptrdiff_t CACTIONGAME_LOCAL_ACTOR_OFFSET = 0xA40;
+
+    // Cutscene gate (game_state.cpp). A TrackView sequence flagged as a cutscene renders through its own CView, which
+    // the frustum detour cannot tell from the player's, so the camera stays in first person while one plays.
+    // CCryAction's IGameFramework::GetIViewSystem is vtable slot 29 and CViewSystem's IViewSystem::IsPlayingCutScene
+    // is slot 19. Each slot target is checked against Aob::k_frameworkGetViewSystem /
+    // Aob::k_viewSystemIsPlayingCutScene (the same on Steam 1.5.6, GOG 1.5 and Game Pass 1.4), and the two member
+    // offsets are read from those instructions rather than kept here.
+    constexpr const char *CVIEW_SYSTEM_RTTI_NAME = ".?AVCViewSystem@@";
+    constexpr std::size_t CRYACTION_VTABLE_GET_VIEW_SYSTEM_SLOT = 29;
+    constexpr std::size_t VIEW_SYSTEM_VTABLE_IS_PLAYING_CUTSCENE_SLOT = 19;
     constexpr ptrdiff_t C_PLAYER_LOOK_CONTROLLER_OFFSET = 0x238;
     // The look-controller pointee is a non-polymorphic struct with no RTTI, so the self-heal layer cannot
     // match it by type directly. C_HitDeathReactions is the RTTI-typed member at the immediately adjacent

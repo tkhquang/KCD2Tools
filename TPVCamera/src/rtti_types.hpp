@@ -123,6 +123,8 @@ namespace TPVCamera
         Console,
         /// CXConsoleVariableInt, an integer console variable, the type mod_camera_view must have.
         ConsoleVariableInt,
+        /// CViewSystem (IGameFramework::GetIViewSystem), which counts the cutscenes playing.
+        ViewSystem,
         /// Enumerator count. Not a class.
         Count,
     };

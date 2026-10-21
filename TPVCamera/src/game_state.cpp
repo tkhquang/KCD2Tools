@@ -9,12 +9,14 @@
  */
 
 #include "game_state.hpp"
+#include "aob_resolver.hpp"
 #include "config.hpp"
 #include "rtti_types.hpp"
 #include "constants.hpp"
 #include "global_state.hpp"
 #include "offset_heal.hpp"
 #include "hooks/ui_menu_hooks.hpp"
+#include "hooks/vtable_slots.hpp"
 
 #include <DetourModKit.hpp>
 
@@ -727,6 +729,125 @@ namespace TPVCamera
         }
 
         return mask;
+    }
+
+    namespace
+    {
+        /// Where the cutscene count lives: the CCryAction member holding the CViewSystem, and the count inside it.
+        struct CutsceneProbe
+        {
+            std::ptrdiff_t view_system{0};
+            std::ptrdiff_t count{0};
+        };
+
+        // Main thread only. The probe once both getters proved. Unavailable once a getter or the view system's class
+        // did not match: the code does not change while the game runs, so a retry would only repeat the miss.
+        std::optional<CutsceneProbe> s_cutscene_probe;
+        bool s_cutscene_unavailable = false;
+
+        /**
+         * @brief Reads the member offsets out of CCryAction's GetIViewSystem and CViewSystem's IsPlayingCutScene.
+         * @details Each getter must match its Aob shape at its first byte, and the member must hold a CViewSystem.
+         *          The view system is created with CCryAction, so a null member only means it is not up yet.
+         * @return The probe, or std::nullopt when the view system is not up yet or a check failed (which sets
+         *         s_cutscene_unavailable).
+         */
+        [[nodiscard]] std::optional<CutsceneProbe> resolve_cutscene_probe(uintptr_t cry_action)
+        {
+            const ModuleInfo &game = module_info();
+            const auto framework_vtable = DMK::memory::read<uintptr_t>(DMK::Address{cry_action});
+            if (!framework_vtable)
+            {
+                return std::nullopt;
+            }
+            const uintptr_t get_view_system = read_checked_vtable_slot(
+                *framework_vtable, Constants::CRYACTION_VTABLE_GET_VIEW_SYSTEM_SLOT, Aob::k_frameworkGetViewSystem,
+                Aob::k_frameworkGetViewSystem.max_match_length(), game.base, game.size);
+            if (get_view_system == 0)
+            {
+                s_cutscene_unavailable = true;
+                return std::nullopt;
+            }
+            const auto member =
+                DMK::memory::read<int32_t>(DMK::Address{get_view_system + Aob::k_frameworkGetViewSystemMember});
+            if (!member || *member <= 0)
+            {
+                s_cutscene_unavailable = true;
+                return std::nullopt;
+            }
+            const auto view_system = DMK::memory::read<uintptr_t>(DMK::Address{cry_action + *member});
+            if (!view_system || !DMK::memory::is_plausible_ptr(DMK::Address{*view_system}))
+            {
+                return std::nullopt;
+            }
+            const auto view_system_vtable = DMK::memory::read<uintptr_t>(DMK::Address{*view_system});
+            if (!view_system_vtable || !vtable_is(GameClass::ViewSystem, *view_system_vtable))
+            {
+                s_cutscene_unavailable = true;
+                return std::nullopt;
+            }
+            const uintptr_t is_playing =
+                read_checked_vtable_slot(*view_system_vtable, Constants::VIEW_SYSTEM_VTABLE_IS_PLAYING_CUTSCENE_SLOT,
+                                         Aob::k_viewSystemIsPlayingCutScene,
+                                         Aob::k_viewSystemIsPlayingCutScene.max_match_length(), game.base, game.size);
+            if (is_playing == 0)
+            {
+                s_cutscene_unavailable = true;
+                return std::nullopt;
+            }
+            const auto count =
+                DMK::memory::read<int8_t>(DMK::Address{is_playing + Aob::k_viewSystemIsPlayingCutSceneCount});
+            if (!count || *count <= 0)
+            {
+                s_cutscene_unavailable = true;
+                return std::nullopt;
+            }
+            (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                     "Cutscene: view system at CCryAction+{:#x}, cutscene count at +{:#x}", *member,
+                                     static_cast<int32_t>(*count));
+            return CutsceneProbe{*member, *count};
+        }
+    } // namespace
+
+    bool cutscene_playing(uintptr_t cry_action) noexcept
+    {
+        if (s_cutscene_unavailable || !DMK::memory::is_plausible_ptr(DMK::Address{cry_action}))
+        {
+            return false;
+        }
+        if (!s_cutscene_probe)
+        {
+            try
+            {
+                s_cutscene_probe = resolve_cutscene_probe(cry_action);
+            }
+            catch (...)
+            {
+                s_cutscene_unavailable = true;
+            }
+            if (!s_cutscene_probe)
+            {
+                if (s_cutscene_unavailable)
+                {
+                    (void)DMK::log().try_log(DMK::LogLevel::Warning,
+                                             "Cutscene: the engine's cutscene count could not be found; third person "
+                                             "stays on during cutscenes");
+                }
+                return false;
+            }
+        }
+        const auto view_system = DMK::memory::read<uintptr_t>(DMK::Address{cry_action + s_cutscene_probe->view_system});
+        if (!view_system || !DMK::memory::is_plausible_ptr(DMK::Address{*view_system}))
+        {
+            return false;
+        }
+        const auto view_system_vtable = DMK::memory::read<uintptr_t>(DMK::Address{*view_system});
+        if (!view_system_vtable || !vtable_is(GameClass::ViewSystem, *view_system_vtable))
+        {
+            return false;
+        }
+        const auto count = DMK::memory::read<uint32_t>(DMK::Address{*view_system + s_cutscene_probe->count});
+        return count && *count > 0;
     }
 
     namespace

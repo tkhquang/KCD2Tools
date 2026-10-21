@@ -633,6 +633,15 @@ namespace TPVCamera
         inline constexpr Pattern k_cvarIntGetIVal = Pattern::literal("8B 41 48 C3");
         inline constexpr Pattern k_cvarIntGetI64Val = Pattern::literal("48 63 41 48 C3");
 
+        // The cutscene gate's two getters, each matched at its first byte (Steam 1.5.6, GOG 1.5, Game Pass 1.4).
+        // CCryAction's GetIViewSystem (`mov rax, [rcx+disp32]; ret`): the disp32 at k_frameworkGetViewSystemMember is
+        // the CCryAction member holding the CViewSystem. CViewSystem's IsPlayingCutScene (`cmp dword [rcx+disp8], 0;
+        // seta al; ret`): the disp8 at k_viewSystemIsPlayingCutSceneCount is the running cutscene count.
+        inline constexpr Pattern k_frameworkGetViewSystem = Pattern::literal("48 8B 81 ?? ?? ?? ?? C3");
+        inline constexpr std::ptrdiff_t k_frameworkGetViewSystemMember = 3;
+        inline constexpr Pattern k_viewSystemIsPlayingCutScene = Pattern::literal("83 79 ?? 00 0F 97 C0 C3");
+        inline constexpr std::ptrdiff_t k_viewSystemIsPlayingCutSceneCount = 2;
+
         // Interaction ray-query builder entry
         // Direct entry hook. The function is a leaf-style Vec3 copier with no
         // standard prologue, so all anchors are body-shaped. P2 extends the
