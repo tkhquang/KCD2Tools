@@ -42,6 +42,7 @@ namespace SoundFramework::fmod
         ok = bind(studio, "FMOD_Studio_System_IsValid", out.studio_is_valid) && ok;
         ok = bind(studio, "FMOD_Studio_System_GetCoreSystem", out.studio_get_core_system) && ok;
         ok = bind(studio, "FMOD_Studio_System_GetBus", out.studio_get_bus) && ok;
+        ok = bind(studio, "FMOD_Studio_System_LookupID", out.studio_lookup_id) && ok;
         ok = bind(studio, "FMOD_Studio_Bus_LockChannelGroup", out.bus_lock_channel_group) && ok;
         ok = bind(studio, "FMOD_Studio_Bus_UnlockChannelGroup", out.bus_unlock_channel_group) && ok;
         ok = bind(studio, "FMOD_Studio_Bus_GetChannelGroup", out.bus_get_channel_group) && ok;
@@ -49,7 +50,9 @@ namespace SoundFramework::fmod
         ok = bind(studio, "FMOD_Studio_EventInstance_Get3DAttributes", out.event_get_3d_attributes) && ok;
         ok = bind(studio, "FMOD_Studio_EventInstance_SetVolume", out.event_set_volume) && ok;
         ok = bind(studio, "FMOD_Studio_EventInstance_GetPlaybackState", out.event_get_playback_state) && ok;
+        ok = bind(studio, "FMOD_Studio_EventInstance_GetUserData", out.event_get_user_data) && ok;
         ok = bind(studio, "FMOD_Studio_EventDescription_GetPath", out.description_get_path) && ok;
+        ok = bind(studio, "FMOD_Studio_EventDescription_GetID", out.description_get_id) && ok;
         ok = bind(core, "FMOD_System_CreateSound", out.create_sound) && ok;
         ok = bind(core, "FMOD_System_PlaySound", out.play_sound) && ok;
         ok = bind(core, "FMOD_System_Set3DListenerAttributes", out.set_3d_listener) && ok;

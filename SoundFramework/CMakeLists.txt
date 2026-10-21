@@ -50,6 +50,7 @@ add_library(sndfw_packs STATIC
   src/packs/ini_document.cpp
   src/packs/sound_def.cpp
   src/packs/catalog.cpp
+  src/packs/cutscene_table.cpp
   src/audio/voice_analysis.cpp
   src/audio/lip_model.cpp
   src/face/mood.cpp
@@ -106,6 +107,8 @@ set(COMMON_SOURCES
   src/fmod/parameter_hook.cpp
   src/fmod/update_hook.cpp
   src/game/console_commands.cpp
+  src/game/cutscene_voices.cpp
+  src/game/cutscene_voices.cpp
   src/game/entity_tracker.cpp
   src/game/game_clock.cpp
   src/game/lip_drive.cpp

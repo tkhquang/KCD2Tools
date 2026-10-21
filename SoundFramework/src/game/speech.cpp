@@ -358,6 +358,11 @@ namespace SoundFramework::game::speech
         };
 
         LipWorker s_lip_worker;
+        /**
+         * @brief Main-thread state: a cutscene line's first lip drive ticket, which the worker computes the mouth for,
+         *        to the tickets of its other faces, which receive a copy of each part.
+         */
+        std::unordered_map<std::uint64_t, std::vector<std::uint64_t>> s_shared_mouths;
 
         /** @brief A line the framework started, watched until its speaker stops playing it. */
         struct Watched
@@ -1489,6 +1494,7 @@ namespace SoundFramework::game::speech
         s_lip_model.reset();
         s_watched.clear();
         s_waiting.clear();
+        s_shared_mouths.clear();
         s_subtitle_watch = 0;
     }
 
@@ -1520,6 +1526,72 @@ namespace SoundFramework::game::speech
         follow_up(context(), id, speak_man, voice_path + ".ogg", std::nullopt, {}, {}, false, {}, 1.0f, true);
     }
 
+    std::uint64_t follow_cutscene_line(const std::string &voice_file, const std::vector<CutsceneFace> &faces)
+    {
+        if (!lip_drive::active())
+        {
+            return 0;
+        }
+        const int offset = s_lip_offset_ms.load(std::memory_order_relaxed);
+        std::vector<std::uint64_t> tickets;
+        for (const CutsceneFace &face : faces)
+        {
+            const std::uint64_t ticket = lip_drive::perform(
+                face.entity,
+                lip_drive::Performance{
+                    .mouth_pending = true,
+                    .step_ms = audio::lip_features::STEP_MS,
+                    .delay_ms = static_cast<std::uint32_t>(std::max(-offset, 0)),
+                    .replace_mouth = true,
+                    .follow_motion = face.follow_motion,
+                }
+            );
+            if (ticket != 0)
+            {
+                // The cutscene starts the line's sound with its event, which is now.
+                lip_drive::sound_started(ticket);
+                tickets.push_back(ticket);
+            }
+        }
+        if (tickets.empty())
+        {
+            return 0;
+        }
+        s_lip_worker.submit(
+            LipWorker::Job{
+                .ticket = tickets.front(),
+                .voice_file = voice_file,
+                .learned = s_lip_model != nullptr && s_lip_advanced.load(std::memory_order_relaxed),
+                .lead_ms = static_cast<std::uint32_t>(std::max(offset, 0)),
+                .quiet = true,
+            }
+        );
+        if (tickets.size() > 1)
+        {
+            s_shared_mouths.insert_or_assign(
+                tickets.front(),
+                std::vector<std::uint64_t>(tickets.begin() + 1, tickets.end())
+            );
+        }
+        return tickets.front();
+    }
+
+    void end_cutscene_line(std::uint64_t id)
+    {
+        lip_drive::end_line(id);
+        s_lip_worker.cancel(id);
+        const auto shared = s_shared_mouths.find(id);
+        if (shared == s_shared_mouths.end())
+        {
+            return;
+        }
+        for (const std::uint64_t ticket : shared->second)
+        {
+            lip_drive::end_line(ticket);
+        }
+        s_shared_mouths.erase(shared);
+    }
+
     void on_frame() noexcept
     {
         try
@@ -1547,6 +1619,20 @@ namespace SoundFramework::game::speech
             for (LipWorker::Result &result : s_lip_worker.take())
             {
                 const DMK::LogLevel level = result.quiet ? DMK::LogLevel::Debug : DMK::LogLevel::Info;
+                if (const auto shared = s_shared_mouths.find(result.ticket); shared != s_shared_mouths.end())
+                {
+                    for (const std::uint64_t ticket : shared->second)
+                    {
+                        if (!result.track.empty())
+                        {
+                            lip_drive::attach_track(ticket, result.track);
+                        }
+                        else
+                        {
+                            lip_drive::attach_poses(ticket, result.first_step, result.total_steps, result.poses);
+                        }
+                    }
+                }
                 if (!result.track.empty())
                 {
                     (void)DMK::log().try_log(

@@ -4,6 +4,7 @@
  */
 
 #include "packs/catalog.hpp"
+#include "packs/cutscene_table.hpp"
 #include "packs/ini_document.hpp"
 #include "packs/sound_def.hpp"
 
@@ -294,6 +295,37 @@ namespace
         fs::remove_all(root);
         CHECK(catalog_changed(load.catalog));
     }
+
+    void test_cutscene_table()
+    {
+        std::size_t rejected = 99;
+        const CutsceneTable table = parse_cutscene_table(
+            "# comment\n"
+            "cin__Henry__ABcd\tspeaker\tcin_m01_henry, cin_m01_henry_clean\r\n"
+            "cin__henry__abcd\tfaces\tcin_m02_guard\n"
+            "puni_henry__dwij\tplayer\t\n"
+            "\n"
+            "broken_row\n"
+            "no_actors\tspeaker\t\n"
+            "odd_mode\tsinger\tsomeone\n",
+            rejected
+        );
+        CHECK(rejected == 3);
+        CHECK(table.size() == 2);
+        const auto henry = table.find("cin__henry__abcd");
+        CHECK(henry != table.end() && henry->second.size() == 2);
+        if (henry != table.end() && henry->second.size() == 2)
+        {
+            CHECK(henry->second[0].mode == CutsceneMode::Speaker);
+            CHECK(henry->second[0].actors.size() == 2 && henry->second[0].actors[1] == "cin_m01_henry_clean");
+            CHECK(henry->second[1].mode == CutsceneMode::Faces && henry->second[1].actors.size() == 1);
+        }
+        const auto player = table.find("puni_henry__dwij");
+        CHECK(player != table.end() && player->second[0].mode == CutsceneMode::Player);
+        CHECK(player != table.end() && player->second[0].actors.empty());
+        CHECK(cutscene_line_id("Localization\\dialog\\trosecko\\Cin__X_H7G1.ogg") == "cin__x_h7g1");
+        CHECK(cutscene_line_id("Localization/dialog/x/setk_ptacek_Y1mG") == "setk_ptacek_y1mg");
+    }
 } // namespace
 
 int main()
@@ -305,6 +337,7 @@ int main()
     test_lines();
     test_moods();
     test_catalog();
+    test_cutscene_table();
     if (s_failures != 0)
     {
         std::printf("%d check(s) failed\n", s_failures);

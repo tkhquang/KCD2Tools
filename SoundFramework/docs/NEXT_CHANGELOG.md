@@ -1,5 +1,4 @@
-## [Title for next release]
+## Lip Sync in Cutscenes
 
-- New feature
-- Bug fix
-- Improvement
+- With a voice dub, the characters who speak in a cutscene now move their lips with the dub instead of the English animation.
+- When a cutscene line has no known speaker, the mouths the cutscene already moves follow the dub instead.

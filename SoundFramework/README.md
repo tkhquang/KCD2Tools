@@ -21,7 +21,7 @@ Questions, packs to share or ideas? Join the [KCD Modding Community](https://dis
 - **Sound replacement:** play a pack sound in place of a game sound event or on top of it, everywhere or for chosen entities, at its start or at a later moment such as a bow's release
 - **Voice lines:** NPCs speak a pack's lines through the game's own speech system, with a bottom subtitle and speaker name, a chat bubble, or both
 - **Voice replacement:** play a pack line instead of a game voice line, by exact key or by pattern
-- **Lip sync:** a pack's lines move the speaker's mouth, either with a small model that learned from the game's own animation (ADVANCED) or from the loudness of the voice (BASIC). A voice dub without mouth animation of its own gets it on every game line too
+- **Lip sync:** a pack's lines move the speaker's mouth, either with a small model that learned from the game's own animation (ADVANCED) or from the loudness of the voice (BASIC). A voice dub without mouth animation of its own gets it on every game line too, cutscenes included
 - **Moods:** facial expressions held while a line plays, with eleven defaults that packs can change or add to
 - **Live reload:** saving a pack INI or the settings INI applies it while you play
 - Diagnostics for pack authors: every problem in a pack is logged with its file and line, and debug options log the game's sound events and voice lines
@@ -54,6 +54,7 @@ Bin/Win64MasterMasterSteamPGO/
 |-- KCD2_SoundFramework.ini                (settings)
 |-- KCD2_SoundFramework_moods.ini          (default facial moods)
 |-- KCD2_SoundFramework_lipmodel.bin       (advanced lip sync model)
+|-- KCD2_SoundFramework_cutscenes.txt      (who speaks in each cutscene)
 \-- KCD2_SoundFramework.log                (created when the mod loads)
 ```
 
@@ -73,6 +74,7 @@ Mods/
             |-- KCD2_SoundFramework.ini
             |-- KCD2_SoundFramework_moods.ini
             |-- KCD2_SoundFramework_lipmodel.bin
+            |-- KCD2_SoundFramework_cutscenes.txt
             \-- KCD2_SoundFramework.log    (created when the mod loads)
 ```
 
@@ -90,7 +92,7 @@ After loading a save, open `KCD2_SoundFramework.log` beside the mod's DLL or ASI
 | `[LipSync] Enabled` | `true` | Lip movement for voice lines without the game's own lip-sync animation. Off means the face hook is not installed at all. |
 | `[LipSync] Mode` | `ADVANCED` | `ADVANCED`: a small machine-learned model moves the whole lower face (jaw, lips, mouth corners, smile lines). `BASIC`: jaw and lip shapes follow the loudness and spectrum of the voice. Advanced falls back to basic when the model file is missing. |
 | `[LipSync] OffsetMs` | `0` | Moves the mouth earlier (positive) or later (negative) than the sound. |
-| `[LipSync] DubbedVoices` | `AUTO` | Voice dubs: the game shows English mouth animation for a voice language without its own. `AUTO`: the lips then follow each line's own voice, and the animation's smiles and frowns stay. `ON`: always. `OFF`: never. |
+| `[LipSync] DubbedVoices` | `AUTO` | Voice dubs: the game shows English mouth animation for a voice language without its own. `AUTO`: the lips then follow each line's own voice, in cutscenes too, and the animation's smiles and frowns stay. `ON`: always. `OFF`: never. |
 | `[Debug] EventLog` | empty | Logs every game sound event whose path contains this text (`*` for all), and the parameters the game sets on it. |
 | `[Debug] SpeakLog` | empty | Logs every voice line the game speaks whose key or file contains this text (`*` for all). |
 
@@ -141,7 +143,7 @@ Advanced lip sync runs a 680,000-parameter convolutional network on a worker thr
 
 Advanced lip sync is machine-learned: the network was trained on Kingdom Come: Deliverance II's own voice lines and facial animation, and generates facial animation only (no audio, text or images). Set `[LipSync] Mode = BASIC` to use the mouth without machine learning.
 
-The code is MIT licensed (see [LICENSE](LICENSE)). `KCD2_SoundFramework_lipmodel.bin` is derived from Kingdom Come: Deliverance II game data owned by Warhorse Studios and PLAION. The MIT license does not cover it: use it only with KC:D 2 through this mod, and not in other games, other products or commercially.
+The code is MIT licensed (see [LICENSE](LICENSE)). `KCD2_SoundFramework_lipmodel.bin` and `KCD2_SoundFramework_cutscenes.txt` are derived from Kingdom Come: Deliverance II game data owned by Warhorse Studios and PLAION. The MIT license does not cover them: use them only with KC:D 2 through this mod, and not in other games, other products or commercially.
 
 ## Troubleshooting
 

@@ -18,6 +18,7 @@
 #include "fmod/parameter_hook.hpp"
 #include "fmod/update_hook.hpp"
 #include "game/console_commands.hpp"
+#include "game/cutscene_voices.hpp"
 #include "game/entity_tracker.hpp"
 #include "game/game_clock.hpp"
 #include "game/lip_drive.hpp"
@@ -245,6 +246,7 @@ namespace SoundFramework
             {
                 load_lip_model();
                 DMK_TRY_VOID(game::lip_drive::start(anchors, s_hooks));
+                game::cutscene_voices::configure(anchors, module_directory() / constants::CUTSCENE_TABLE_FILE_NAME);
             }
             else
             {
@@ -309,6 +311,7 @@ namespace SoundFramework
         DMK::config::disable_auto_reload();
         game::entities::clear();
         // The lip model worker is joined here, off the loader lock, before the module can unload.
+        game::cutscene_voices::shutdown();
         game::speech::shutdown();
         game::lip_drive::clear();
         // The engine joins its worker before it releases its sounds.

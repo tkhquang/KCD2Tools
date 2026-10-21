@@ -49,6 +49,7 @@ FOLDER LAYOUT (ASI build, Steam):
   |-- KCD2_SoundFramework.ini                (settings)
   |-- KCD2_SoundFramework_moods.ini          (default facial moods)
   |-- KCD2_SoundFramework_lipmodel.bin       (advanced lip sync model)
+  |-- KCD2_SoundFramework_cutscenes.txt      (who speaks in each cutscene)
   \-- KCD2_SoundFramework.log                (created when the mod loads)
 
 INSTALLATION - KCSE BUILD
@@ -75,7 +76,8 @@ SETTINGS (KCD2_SoundFramework.ini):
   or later than the sound.
   [LipSync] DubbedVoices = AUTO: with a voice dub that has no mouth animation of
   its own, the lips follow each line's own voice instead of the English
-  animation, and its smiles and frowns stay. ON always does this, OFF never.
+  animation, in cutscenes too, and its smiles and frowns stay. ON always does
+  this, OFF never.
   [Debug] EventLog and SpeakLog help mod authors find the game's sound events and
   voice lines.
 
@@ -109,10 +111,11 @@ LIP SYNC MODEL AND LICENSE:
   game's own voice lines and facial animation, turns each voice line into mouth
   movement while you play. It generates facial animation only. Set
   [LipSync] Mode = BASIC to use the mouth without machine learning.
-  The code is MIT licensed. KCD2_SoundFramework_lipmodel.bin is derived from
-  Kingdom Come: Deliverance II game data owned by Warhorse Studios and PLAION.
-  The MIT license does not cover it: use it only with KC:D 2 through this mod,
-  and not in other games, other products or commercially.
+  The code is MIT licensed. KCD2_SoundFramework_lipmodel.bin and
+  KCD2_SoundFramework_cutscenes.txt are derived from Kingdom Come: Deliverance II
+  game data owned by Warhorse Studios and PLAION. The MIT license does not cover
+  them: use them only with KC:D 2 through this mod, and not in other games, other
+  products or commercially.
 
 Full details and support:
 https://github.com/tkhquang/KCD2Tools

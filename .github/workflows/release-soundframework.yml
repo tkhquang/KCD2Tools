@@ -216,7 +216,7 @@ jobs:
 
           Advanced lip sync is machine-learned: a small neural network, trained on the game's own voice lines and facial animation, generates the mouth movement (facial animation only). Set `[LipSync] Mode = BASIC` to use the mouth without machine learning.
 
-          The code is MIT licensed. `KCD2_SoundFramework_lipmodel.bin` is derived from Kingdom Come: Deliverance II game data owned by Warhorse Studios and PLAION. The MIT license does not cover it: use it only with KC:D 2 through this mod, and not in other games, other products or commercially.
+          The code is MIT licensed. `KCD2_SoundFramework_lipmodel.bin` and `KCD2_SoundFramework_cutscenes.txt` are derived from Kingdom Come: Deliverance II game data owned by Warhorse Studios and PLAION. The MIT license does not cover them: use them only with KC:D 2 through this mod, and not in other games, other products or commercially.
 
           ### Technical Details
 
