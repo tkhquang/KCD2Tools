@@ -46,6 +46,14 @@ namespace TPVCamera
      * @note Any thread. A read clears it.
      */
     [[nodiscard]] std::uint32_t take_combat_retarget_done() noexcept;
+
+    /**
+     * @brief The EntityId of a requested actor the detour last refused because he fails the game's threat test (he is
+     *        listed but not fighting the player), 0 when none since the last call.
+     * @details The controller's own pick skips such an actor, and a lock on him ends the stance on the next update.
+     * @note Any thread. A read clears it.
+     */
+    [[nodiscard]] std::uint32_t take_combat_retarget_refused() noexcept;
 } // namespace TPVCamera
 
 #endif // TPVCAMERA_HOOKS_COMBAT_RETARGET_HPP

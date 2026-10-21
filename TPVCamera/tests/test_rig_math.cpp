@@ -2,8 +2,8 @@
  * @file test_rig_math.cpp
  * @brief core/rig/rig_math.hpp: a turned rig is the plain rig of the turned look, the turn's pitch raises the camera
  *        and tilts the look down, the look is rebuilt without roll, the arm bends only when looking up, the shoulder
- *        side passes through the look line, and the lock framing swings to the shoulder side, aims beside the
- *        opponent within the lock-on's drop angle and blends about the pivot.
+ *        side passes through the look line, the lock framing swings to the shoulder side, aims beside the opponent
+ *        within the lock-on's drop angle and blends about the pivot, and the body anchor's lean turns with the body.
  */
 
 #include "core/rig/rig_math.hpp"
@@ -27,6 +27,7 @@ namespace
     using TPVCamera::look_turn_speed;
     using TPVCamera::PivotPose;
     using TPVCamera::Quaternion;
+    using TPVCamera::rotate_lean;
     using TPVCamera::shoulder_side;
     using TPVCamera::soft_follow;
     using TPVCamera::Spring;
@@ -340,6 +341,26 @@ namespace
             last = value;
         }
         EXPECT_NEAR(soft_follow(0.3f, dead_zone), -soft_follow(-0.3f, dead_zone), 1e-7f);
+    }
+
+    TEST(RigMath, RotateLeanTurnsALeanWithTheBody)
+    {
+        // A lean along the body's forward, turned by the yaw the body turns, lies along the new forward at the same
+        // length, so a turn in place leaves nothing for the anchor to catch up.
+        constexpr float lean = 0.217f;
+        for (int from = -180; from < 180; from += 45)
+        {
+            for (int turned = -150; turned <= 150; turned += 50)
+            {
+                const float from_yaw = static_cast<float>(from) * k_deg;
+                const float to_yaw = static_cast<float>(from + turned) * k_deg;
+                float x = -std::sin(from_yaw) * lean;
+                float y = std::cos(from_yaw) * lean;
+                rotate_lean(x, y, static_cast<float>(turned) * k_deg);
+                EXPECT_NEAR(x, -std::sin(to_yaw) * lean, 1e-6f);
+                EXPECT_NEAR(y, std::cos(to_yaw) * lean, 1e-6f);
+            }
+        }
     }
 
     TEST(RigMath, HoldLookSnapTakesInATurnAsALowPass)

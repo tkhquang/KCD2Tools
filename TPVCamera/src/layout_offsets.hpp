@@ -182,6 +182,24 @@ namespace Constants
     //     UI clock's unsmoothed frame time is used instead so menus still ease.
     constexpr ptrdiff_t GENV_TIMER_OFFSET = 0x80;
     constexpr const char *CTIMER_RTTI_NAME = ".?AVCTimer@@";
+
+    // The shared camera-view console variable (camera_view_signal.cpp), which the camera publishes for other mods.
+    // gEnv's console (IConsole *, class CXConsole) is at GENV_CONSOLE_OFFSET. CXConsole slot 3 is
+    // RegisterInt(name, value, flags, help, change function) and slot 23 GetCVar(name). A CXConsoleVariableInt keeps
+    // its value at CVAR_INT_VALUE_OFFSET, which its slot 2 (GetIVal) and slot 3 (GetI64Val) read. The same on
+    // Steam 1.5.6, GOG 1.5 and Game Pass 1.4, and each slot target is checked against Aob::k_console* before use.
+    constexpr ptrdiff_t GENV_CONSOLE_OFFSET = 0xA8;
+    constexpr const char *CXCONSOLE_RTTI_NAME = ".?AVCXConsole@@";
+    constexpr const char *CXCONSOLE_VARIABLE_INT_RTTI_NAME = ".?AVCXConsoleVariableInt@@";
+    constexpr std::size_t CONSOLE_VTABLE_REGISTER_INT_SLOT = 3;
+    constexpr std::size_t CONSOLE_VTABLE_GET_CVAR_SLOT = 23;
+    constexpr std::size_t CVAR_INT_VTABLE_GET_IVAL_SLOT = 2;
+    constexpr std::size_t CVAR_INT_VTABLE_GET_I64VAL_SLOT = 3;
+    constexpr ptrdiff_t CVAR_INT_VALUE_OFFSET = 0x48;
+    constexpr const char *CAMERA_VIEW_CVAR_NAME = "mod_camera_view";
+    constexpr const char *CAMERA_VIEW_CVAR_HELP =
+        "Camera view the player sees, published by the active camera mod: 0 first person (game default), 1 third "
+        "person. Values from 2 are reserved. Read it, never write it unless you are the camera mod.";
     constexpr ptrdiff_t ITIMER_VTABLE_GET_FRAME_START_TIME_OFFSET = 0x28;
     constexpr ptrdiff_t ITIMER_VTABLE_GET_FRAME_TIME_OFFSET = 0x48;
     // ITimer::GetRealFrameTime(): the last frame's real duration, which neither the game's time scale (a perfect
@@ -1275,7 +1293,18 @@ namespace Constants
     //     the camera points at even when he stands farther off than the opponent (sub_1809D411C); when it runs out
     //     the controller re-picks an opponent and drops the lock if it finds none (sub_1809D4244).
     //   DELAYED_END: armed by the kill event (wh_cs_PlayerInputCombatDelayAfterKill, or ...WithOtherOpponent when a
-    //     threat is near); when it runs out with no live hostile opponent the controller ends the stance.
+    //     threat is near). The controller reads it unarmed as run out (sub_180731070 returns true at or below
+    //     COMBAT_TIMER_UNARMED). While it reads run out, the stance ends on the update the opponent fails the threat
+    //     test below (sub_1809D30C0, with further gates on the player's own state), and the timer is parked unarmed.
+    //     So outside the delay after a kill the stance lasts only while the opponent is a threat.
+    // The threat test (AnchorId::CombatThreat, sub_18082A334): bool(source, C_CombatActor *other), with source the
+    // object at the player's combat actor + COMBAT_PLAYER_THREAT_SOURCE_OFFSET. It compares the two actors' souls
+    // through the soul relations. The stance-end rule asks it of the opponent (sub_181418724), and the controller's
+    // pick asks it of every listed candidate and skips those that fail (sub_180686A50), so a listed hostile who is not
+    // fighting the player is never picked. A C_Human names its combat actor at HUMAN_COMBAT_ACTOR_OFFSET, the link the
+    // selector list is built through (sub_1808315BC).
+    constexpr ptrdiff_t COMBAT_PLAYER_THREAT_SOURCE_OFFSET = 0x388;
+    constexpr ptrdiff_t HUMAN_COMBAT_ACTOR_OFFSET = 0x278;
     // The controller's opponent selector (no RTTI of its own): it starts with the player's combat actor and holds the
     // combat actors the pick chooses from as a vector<C_CombatActor *> (begin, end). sub_180686A50 walks it.
     constexpr ptrdiff_t COMBAT_CONTROLLER_SELECTOR_OFFSET = 0x20;

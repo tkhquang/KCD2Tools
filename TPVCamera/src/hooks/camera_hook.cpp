@@ -37,6 +37,7 @@
 #include "core/rig/rig_stage.hpp"
 #include "core/view/view_blend.hpp"
 #include "aob_resolver.hpp"
+#include "camera_view_signal.hpp"
 #include "character_attachments.hpp"
 #include "character_pose.hpp"
 #include "combat_lock.hpp"
@@ -140,6 +141,8 @@ namespace TPVCamera
     static std::optional<Vector3> s_lock_focus;
     // The lock-on's free look is on (RigInput::lock_free_look), main thread only.
     static bool s_lock_free_look = false;
+    // The game's stance is crouched this frame (RigInput::crouched), main thread only.
+    static bool s_crouched = false;
     // The first-person <-> third-person switch's yaw latch (see core/view/view_blend.hpp), cleared when the offset
     // turns off. Main thread only (the camera detour).
     static ViewBlendLatch s_view_latch{};
@@ -1216,6 +1219,8 @@ namespace TPVCamera
             .lock_focus = s_lock_focus,
             .lock_free_look = s_lock_free_look,
             .raw_look_known = input_dispatch_hooked(),
+            .crouched = s_crouched,
+            .crouched_npc_set = crouched_set_is_npc(),
         };
         RigFrame rig{};
 #ifdef TPVCAMERA_DEV_BUILD
@@ -1870,6 +1875,7 @@ namespace TPVCamera
         // Presets are always active, so the debounced game state is always needed here (to select the
         // active preset and, when state behaviour is on, to drive the forced-view / orbit-exclude policies).
         const uint32_t raw_state = poll_game_state(c_player) | poll_indoors(cview, repeat_build);
+        s_crouched = (raw_state & state_bit(GameState::Crouch)) != 0u;
         const uint32_t state =
             debounce_game_state(raw_state, delta_time, cfg.state_exit_hold_seconds.load(std::memory_order_relaxed));
         // The game's lock-on, read once per frame. With an opponent selected the combat controller turns the player's
@@ -1973,45 +1979,80 @@ namespace TPVCamera
         }
         if (!repeat_build)
         {
-            static bool s_was_dead_held = false;
             const bool dead_held = s_combat_lock.has_opponent() && s_combat_lock.opponent_dead && s_combat_lock.stance;
-            // The lock moved on to a living opponent while it held the dead one. The controller clears the kill's
-            // end-of-stance timer only as it ends the stance, which this move skipped, so it is cleared here.
-            if (s_was_dead_held && !dead_held && s_combat_lock.has_opponent() && s_combat_lock.stance &&
-                clear_kill_end_timer(c_player))
-            {
-                (void)DMK::log().try_log(DMK::LogLevel::Debug,
-                                         "Combat lock: moved on to a living opponent; cleared the kill's "
-                                         "end-of-stance timer");
-            }
-            s_was_dead_held = dead_held;
             // From the killing blow on, the lock-on moves to the living hostile the camera points at most closely: the
             // game's own pick takes only a hostile nearer than the held opponent, and the body lies nearest. Its list
             // only holds hostiles within the camera's view, the lock reach and the body's turn limit, so any of them is
-            // one the player can see.
+            // one the player can see. One the combat update refuses (listed, but failing the game's threat test, so
+            // not fighting the player) is passed over until the dead opponent is let go.
             // The one picked stays the next opponent while he lives and stays within the lock-on's own reach, even
-            // when the camera turns off him (the finishing move swings it), until another listed one is nearer the
-            // camera's direction. The request starts at the blow, not at the game's end-of-stance timer: with other
-            // hostiles about that timer often never arms, and the game drops the dead opponent, and the stance with
-            // it, a second or two later. The game takes the new opponent as the attack under way ends. The move itself
-            // is made on the combat update's thread (request_combat_retarget), which checks again that it is still due.
+            // when the camera turns off him (the finishing move swings it), until another listed one is clearly nearer
+            // the camera's direction, so two hostiles at about the same angle do not swap while the camera swings.
+            // The request starts at the blow, not at the game's end-of-stance timer: with other hostiles about that
+            // timer often never arms, and the game drops the dead opponent, and the stance with it, a second or two
+            // later. The game takes the new opponent as the attack under way ends. The move itself is made on the
+            // combat update's thread (request_combat_retarget), which checks again that it is still due.
+            // The listed hostiles one read of the lock-on's list holds, and the refused ones kept while the dead
+            // opponent is held.
+            constexpr std::size_t k_listed_hostiles = 8;
             static CombatCandidate s_next{};
+            static std::array<std::uint32_t, k_listed_hostiles> s_refused{};
+            static std::size_t s_refused_count = 0;
+            const auto is_refused = [](std::uint32_t id) noexcept -> bool
+            {
+                const auto refused_end = s_refused.begin() + static_cast<std::ptrdiff_t>(s_refused_count);
+                return std::find(s_refused.begin(), refused_end, id) != refused_end;
+            };
+            const std::uint32_t refused = take_combat_retarget_refused();
+            if (!dead_held)
+            {
+                s_refused_count = 0;
+            }
+            else if (refused != 0 && !is_refused(refused) && s_refused_count < s_refused.size())
+            {
+                s_refused[s_refused_count++] = refused;
+                (void)DMK::log().try_log(DMK::LogLevel::Debug,
+                                         "Combat lock: the hostile in view (id {}) is not fighting you; the lock-on "
+                                         "passes him over",
+                                         refused);
+            }
+            // The refused one is dropped even when the list is full, so a request never stands on him.
+            if (s_next.id != 0 && (s_next.id == refused || is_refused(s_next.id)))
+            {
+                s_next = CombatCandidate{};
+            }
             if (dead_held && s_camera_heading.has_value())
             {
-                std::array<CombatCandidate, 8> candidates{};
+                std::array<CombatCandidate, k_listed_hostiles> candidates{};
                 const std::size_t count = read_combat_candidates(c_player, candidates);
                 const std::span<const CombatCandidate> seen(candidates.data(), count);
                 const CombatCandidate *pick = nullptr;
+                const CombatCandidate *kept = nullptr;
                 float best_gap = DirectX::XM_PI;
+                float kept_gap = DirectX::XM_PI;
                 for (const CombatCandidate &candidate : seen)
                 {
+                    if (candidate.dead || candidate.id == 0 || candidate.id == s_combat_lock.opponent_id ||
+                        is_refused(candidate.id))
+                    {
+                        continue;
+                    }
                     const float gap = std::fabs(std::remainder(candidate.heading - *s_camera_heading, DirectX::XM_2PI));
-                    if (!candidate.dead && candidate.id != 0 && candidate.id != s_combat_lock.opponent_id &&
-                        gap < best_gap)
+                    if (candidate.id == s_next.id)
+                    {
+                        kept = &candidate;
+                        kept_gap = gap;
+                    }
+                    if (gap < best_gap)
                     {
                         best_gap = gap;
                         pick = &candidate;
                     }
+                }
+                constexpr float k_next_switch_margin = 0.1745f; // rad (10 deg)
+                if (kept != nullptr && kept_gap < best_gap + k_next_switch_margin)
+                {
+                    pick = kept;
                 }
                 // The lock-on drops an opponent farther than this (sub_1809D4920).
                 constexpr float k_next_opponent_reach = 7.0f;
@@ -2062,8 +2103,8 @@ namespace TPVCamera
             {
                 (void)DMK::log().try_log(
                     DMK::LogLevel::Debug,
-                    "Combat lock: the next opponent (id {}) died or went beyond the lock-on's reach "
-                    "before it took him; the request is withdrawn",
+                    "Combat lock: the next opponent (id {}) died, went beyond the lock-on's reach or "
+                    "stopped fighting you before it took him; the request is withdrawn",
                     s_logged_next);
             }
             if (!dead_held || retarget_id == 0)
@@ -2211,6 +2252,9 @@ namespace TPVCamera
         // The offset is rendered while heading TO or holding third person, so the ease-OUT renders too.
         const bool offset_engaged = want_tpv || s_view_blend > 1e-3f;
         s_offset_active.store(offset_engaged, std::memory_order_relaxed);
+        // Other mods follow the view through mod_camera_view: third person while the camera is out of the head,
+        // through the ease back to the eye.
+        publish_camera_view(s_genv_runtime, offset_engaged);
         // A switch into third person starts with the lens at the eye, so the head stays hidden from its first frame;
         // the offset clears the hide once the lens is clear of the head. The re-assert below applies it this frame.
         const bool switch_starts = offset_engaged && !head_was_active();

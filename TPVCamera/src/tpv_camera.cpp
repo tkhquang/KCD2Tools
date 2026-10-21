@@ -11,6 +11,7 @@
 #include "tpv_camera.hpp"
 #include "aob_resolver.hpp"
 #include "camera_rules_files.hpp"
+#include "camera_view_signal.hpp"
 #include "config.hpp"
 #include "constants.hpp"
 #include "global_state.hpp"
@@ -702,6 +703,8 @@ namespace TPVCamera
                 release_zoom_binding_tokens();
                 release_shader_twin_records();
                 release_render_occlusion();
+                // Other mods stop seeing third person once the camera is gone.
+                reset_camera_view();
                 s_teardown_done = true;
                 logger.info("Shutdown: teardown complete");
             }

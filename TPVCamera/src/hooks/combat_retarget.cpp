@@ -29,6 +29,10 @@ namespace TPVCamera
         using SetOpponentFunc = void(__fastcall *)(std::uintptr_t player, std::uintptr_t entity);
         std::atomic<SetOpponentFunc> s_set_opponent{nullptr};
 
+        // The game's threat test: bool(source /*rcx*/, C_CombatActor *other /*rdx*/), see AnchorId::CombatThreat.
+        using CombatThreatFunc = std::uint8_t(__fastcall *)(std::uintptr_t source, std::uintptr_t other);
+        std::atomic<CombatThreatFunc> s_is_threat{nullptr};
+
         // The standing request, rewritten every camera frame: the actor the lock-on should move to (EntityId 0 = none)
         // and the game clock the kill's end-of-stance timer must not run out before while it stands. The detour checks
         // that the C_Human still carries the EntityId, so a pair read across a rewrite is refused, not mixed.
@@ -37,6 +41,8 @@ namespace TPVCamera
         std::atomic<std::int64_t> s_hold_end_until{0};
         // The EntityId last set as the combat target (0 = none since the last read).
         std::atomic<std::uint32_t> s_done{0};
+        // The EntityId last refused because he fails the game's threat test (0 = none since the last read).
+        std::atomic<std::uint32_t> s_refused{0};
         // The CEntity the detour last set as the combat target, 0 when none. Only the detour touches it, and the game
         // runs the combat player's update on one thread at a time. The atomic keeps a job-thread hand-over well
         // defined.
@@ -50,16 +56,22 @@ namespace TPVCamera
          *          the lock-on to it once the attack under way ends, so the kill's end-of-stance timer is held off until
          *          then. The request is served only while the target is still the dead opponent, none, or the one the
          *          detour set: any other target is the player's choice (Tab, the next/previous opponent keys) or the
-         *          game's own pick, and the detour leaves it alone. A target the detour set goes back to the dead
-         *          opponent when the request drops before the game takes it, so the stance ends as without the mod.
-         *          No-throw: every read is guarded and nothing allocates.
+         *          game's own pick, and the detour leaves it alone. The requested actor must pass the game's threat test,
+         *          as every pick of the controller's own does: the stance outlives the delay after a kill only while its
+         *          opponent passes it, so a move to a listed hostile who is not fighting the player ends the stance on
+         *          the next update. One who fails is refused (take_combat_retarget_refused) and leaves the target as it
+         *          is, so a valid one set before stays while the camera picks again. A target the detour set goes back to
+         *          the dead opponent when the request drops before the game takes it, so the stance ends as without the
+         *          mod. The threat test runs here because the controller runs it on this thread too. No-throw: every
+         *          read is guarded and nothing allocates.
          */
         std::uintptr_t __fastcall detour_combat_player_update(std::uintptr_t player, float dt) noexcept
         {
             const CombatPlayerUpdateFunc original = s_update_original.load(std::memory_order_acquire);
             const std::uintptr_t result = original != nullptr ? original(player, dt) : 0;
             const SetOpponentFunc set_opponent = s_set_opponent.load(std::memory_order_acquire);
-            if (set_opponent == nullptr)
+            const CombatThreatFunc is_threat = s_is_threat.load(std::memory_order_acquire);
+            if (set_opponent == nullptr || is_threat == nullptr)
             {
                 return result;
             }
@@ -75,10 +87,17 @@ namespace TPVCamera
             }
             if (now->next != 0)
             {
-                set_opponent(player, now->next);
-                (void)defer_kill_end_timer(s_hold_end_until.load(std::memory_order_relaxed));
-                s_target_entity.store(now->next, std::memory_order_relaxed);
-                s_done.store(id, std::memory_order_release);
+                if (now->threat_source != 0 && is_threat(now->threat_source, now->next_combat_actor) != 0)
+                {
+                    set_opponent(player, now->next);
+                    (void)defer_kill_end_timer(s_hold_end_until.load(std::memory_order_relaxed));
+                    s_target_entity.store(now->next, std::memory_order_relaxed);
+                    s_done.store(id, std::memory_order_release);
+                }
+                else
+                {
+                    s_refused.store(id, std::memory_order_release);
+                }
             }
             else if (ours != 0)
             {
@@ -96,9 +115,11 @@ namespace TPVCamera
     {
         DMK::Logger &logger = DMK::log();
         const std::uintptr_t wrapper = gated_anchor_address(Feature::CombatRetarget, AnchorId::SetCombatOpponent);
-        if (wrapper == 0)
+        const std::uintptr_t threat = gated_anchor_address(Feature::CombatRetarget, AnchorId::CombatThreat);
+        if (wrapper == 0 || threat == 0)
         {
-            logger.warning("Combat: set-opponent not found; after a kill the lock-on waits for the game to move on");
+            logger.warning("Combat: set-opponent or the threat test not found; after a kill the lock-on waits for the "
+                           "game to move on");
             return;
         }
         // Every rung ends in the wrapper's call. Its target must still be the setter that builds the combat target.
@@ -151,20 +172,22 @@ namespace TPVCamera
         }
         // Publish the trampoline and the call before enable() arms the patch, so the detour never sees a null original.
         s_set_opponent.store(reinterpret_cast<SetOpponentFunc>(wrapper), std::memory_order_release);
+        s_is_threat.store(reinterpret_cast<CombatThreatFunc>(threat), std::memory_order_release);
         s_update_original.store(result->original<CombatPlayerUpdateFunc>(), std::memory_order_release);
         const auto armed = hooks.push(std::move(*result)).enable();
         if (!armed.has_value())
         {
             s_set_opponent.store(nullptr, std::memory_order_release);
+            s_is_threat.store(nullptr, std::memory_order_release);
             logger.warning("Combat: combat-player update hook could not be armed ({}); after a kill the lock-on waits "
                            "for the game to move on",
                            armed.error().message());
             return;
         }
         logger.info("Combat: after a kill the lock-on can move to the hostile in view (C_CombatPlayer slot {} at {}, "
-                    "set-opponent at {})",
+                    "set-opponent at {}, threat test at {})",
                     Constants::COMBAT_PLAYER_VTABLE_UPDATE_SLOT, DMK::format::format_address(target),
-                    DMK::format::format_address(wrapper));
+                    DMK::format::format_address(wrapper), DMK::format::format_address(threat));
     }
 
     void request_combat_retarget(std::uintptr_t human, std::uint32_t id, std::int64_t hold_end_until) noexcept
@@ -177,5 +200,10 @@ namespace TPVCamera
     std::uint32_t take_combat_retarget_done() noexcept
     {
         return s_done.exchange(0, std::memory_order_acq_rel);
+    }
+
+    std::uint32_t take_combat_retarget_refused() noexcept
+    {
+        return s_refused.exchange(0, std::memory_order_acq_rel);
     }
 } // namespace TPVCamera

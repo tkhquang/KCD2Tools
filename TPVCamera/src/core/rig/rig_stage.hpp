@@ -170,9 +170,10 @@ namespace TPVCamera
         bool rig_body_turn_logged = false;
 
         // Body anchor: the pivot's offset from the body origin (meters), eased toward the target the upper body sets
-        // (run_rig): its lean in world x and y and its height, whose targets body_anchor_lean_target_* and
-        // body_anchor_up_target are kept while the body turns in place. body_anchor_valid cleared means the next
-        // engaged frame snaps. real_eye_height is the eye height the upper body gives (the neck joint lifted to eye
+        // (run_rig): its lean in world x and y and its height. While the body turns in place the height target is
+        // kept, and the lean (its target and both eased stages) turns with the body by the yaw it turned since
+        // body_anchor_yaw, the body yaw of the last anchor update. body_anchor_valid cleared means the next engaged
+        // frame snaps. real_eye_height is the eye height the upper body gives (the neck joint lifted to eye
         // level, or the first-person eye when the neck does not read). eye_sync_engaged says Dynamic Eye Sync moves the
         // anchor off Eye Height, and eye_sync_effective is the anchor height applied. The three reach the overlay
         // through RigReadout.
@@ -182,6 +183,10 @@ namespace TPVCamera
         float body_anchor_lean_target_y = 0.0f;
         Spring<float> body_anchor_up{};
         float body_anchor_up_target = 0.0f;
+        float body_anchor_yaw = 0.0f;
+        // Where the neck sits forward in the stance's idle (meters, body frame), the point the lean counts from, eased
+        // from stance to stance so a crouch or a stand-up does not lunge the anchor.
+        Spring<float> body_anchor_rest{};
         bool body_anchor_valid = false;
         float real_eye_height = 0.0f;
         bool eye_sync_engaged = false;
@@ -337,6 +342,11 @@ namespace TPVCamera
         // The input dispatcher hook is live, so RigState::raw_look_seen and the stick latch report the player's raw
         // look input.
         bool raw_look_known = false;
+        // The game's stance is crouched. The body anchor's lean then counts from the neck of the crouched idle.
+        bool crouched = false;
+        // The player's last crouched clip started from the NPC set, which the crouched animation hook swaps in, rather
+        // than his own (crouched_set_is_npc).
+        bool crouched_npc_set = false;
     };
 
     /** @brief The zoom keys held this build. */

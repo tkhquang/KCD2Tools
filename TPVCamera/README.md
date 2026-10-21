@@ -168,6 +168,8 @@ The offset is automatically suppressed while a menu or overlay (inventory, map, 
 open, and while the engine is already in its own built-in third-person view (such as horseback),
 so those contexts render from the untouched engine view.
 
+Other mods can follow the view through the `mod_camera_view` console variable: 1 while the camera shows your character from outside, 0 in first person. Read it every frame and never write it.
+
 ## Configuration
 
 Edit `KCD2_TPVCamera.ini`. It is grouped into:

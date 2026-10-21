@@ -96,17 +96,6 @@ namespace TPVCamera
     [[nodiscard]] bool set_combat_view_heading(std::uintptr_t c_player, float heading) noexcept;
 
     /**
-     * @brief Clears the controller's end-of-stance-after-a-kill timer.
-     * @details The kill arms it, and the controller clears it only when it ends the stance. When the lock moves to a
-     *          living opponent before that (request_combat_retarget), the expired timer stays behind and ends the stance
-     *          on the living opponent the next time the controller's other end condition holds.
-     * @param c_player The local C_Player, or 0 when not resolved.
-     * @return True when the timer was armed and is now cleared.
-     * @note Main thread only.
-     */
-    bool clear_kill_end_timer(std::uintptr_t c_player) noexcept;
-
-    /**
      * @struct CombatCandidate
      * @brief One combat actor the lock-on can pick, as the player sees it.
      */
@@ -160,6 +149,10 @@ namespace TPVCamera
         std::uintptr_t target{0};
         /// The requested actor, 0 when he no longer carries the EntityId asked for or is dead.
         std::uintptr_t next{0};
+        /// The requested actor's combat actor (his C_Human's, checked to name him back), 0 with next.
+        std::uintptr_t next_combat_actor{0};
+        /// The player's side of the game's threat test (COMBAT_PLAYER_THREAT_SOURCE_OFFSET), 0 when it did not read.
+        std::uintptr_t threat_source{0};
     };
 
     /**
@@ -177,7 +170,8 @@ namespace TPVCamera
      * @brief Keeps the end-of-stance-after-a-kill timer from running out before @p until.
      * @details The timer and the game's move of the lock-on to the new target both wait for the attack under way to
      *          end. When the timer has run out by then, the update that moves the lock-on also ends the stance on the
-     *          new opponent. Only an armed timer due earlier is moved. An unarmed one is left alone.
+     *          new opponent. The controller reads an unarmed timer as run out (sub_180731070), so an unarmed timer is
+     *          armed to @p until like one due earlier.
      * @param until The game clock (1/100000 s) the timer must not run out before.
      * @return True when the timer was moved.
      * @note Called on the thread that runs the combat player's update, right after it.

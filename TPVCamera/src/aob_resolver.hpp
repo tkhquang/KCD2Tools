@@ -608,6 +608,31 @@ namespace TPVCamera
         inline constexpr Pattern k_animNameHashBody = Pattern::literal(
             "48 89 5C 24 08 89 54 24 10 55 56 57 41 54 41 55 41 56 41 57 48 83 EC ?? 8B FA 48 8B E9 83 FA 20");
 
+        // The console slots the camera-view publisher calls (camera_view_signal.cpp), two shapes each, and the int
+        // variable's value field it writes. Every shape matches on Steam 1.5.6, GOG 1.5 and Game Pass 1.4.
+        // CXConsole's RegisterInt: its frame, the variable map (`add rcx, 0C0h`), and the flags and 32-bit value kept
+        // in r14d and r15d (`mov r14d, r9d; mov r15d, r8d`), matched at its first byte. The second shape is the new
+        // variable's value store (`mov [rbx+48h], r15d`) beside its CXConsoleVariableInt vtable store.
+        // CXConsole's GetCVar: its frame and the report of a null name (`call [rax+38h]`), matched at its first byte.
+        // The second shape is the map lookup (`lea rcx, [rsi+0C0h]; call rel32`) and the name compare
+        // (`mov rdx, [rbx+20h]; mov rcx, rdi; call [rip+disp32]`).
+        // CXConsoleVariableInt's GetIVal (`mov eax, [rcx+48h]; ret`) and GetI64Val (`movsxd rax, dword [rcx+48h];
+        // ret`) each prove the value field at CVAR_INT_VALUE_OFFSET.
+        inline constexpr Pattern k_consoleRegisterIntFrame =
+            Pattern::literal("48 89 5C 24 18 48 89 54 24 10 55 56 57 41 56 41 57 48 83 EC 30 48 8B EA 48 8B F9 48 81 "
+                             "C1 C0 00 00 00 48 8D 54 24 ?? 45 8B F1 45 8B F8 E8");
+        inline constexpr Pattern k_consoleRegisterIntStore =
+            Pattern::literal("48 8D 05 ?? ?? ?? ?? 44 89 7B 48 48 89 03");
+        inline constexpr std::size_t k_consoleRegisterIntStoreWindow = 0xD0;
+        inline constexpr Pattern k_consoleGetCVarFrame =
+            Pattern::literal("48 89 5C 24 08 48 89 74 24 18 48 89 54 24 10 57 48 83 EC 40 48 8B FA 48 8B F1 48 85 D2 "
+                             "75 ?? 48 8B 0D ?? ?? ?? ?? 48 8D 15 ?? ?? ?? ?? 48 8B 01 FF 50 38");
+        inline constexpr Pattern k_consoleGetCVarLookup = Pattern::literal(
+            "48 8D 8E C0 00 00 00 E8 ?? ?? ?? ?? 48 8B 5C 24 ?? 80 7B 19 00 75 ?? 48 8B 53 20 48 8B CF FF 15");
+        inline constexpr std::size_t k_consoleGetCVarLookupWindow = 0xD0;
+        inline constexpr Pattern k_cvarIntGetIVal = Pattern::literal("8B 41 48 C3");
+        inline constexpr Pattern k_cvarIntGetI64Val = Pattern::literal("48 63 41 48 C3");
+
         // Interaction ray-query builder entry
         // Direct entry hook. The function is a leaf-style Vec3 copier with no
         // standard prologue, so all anchors are body-shaped. P2 extends the
@@ -1214,6 +1239,24 @@ namespace TPVCamera
         inline constexpr std::size_t k_setCombatOpponentSetterTargetLoadWindow = 0x30;
         // The set-opponent wrapper's `call rel32` (E8), its byte offset from the wrapper's entry.
         inline constexpr std::size_t k_setCombatOpponentCallSite = 0x14;
+        // The combat threat test (sub_18082A334, GOG 0x18084F4D4, Game Pass 0x180753854), called, not hooked:
+        // bool(source, C_CombatActor *other), see COMBAT_PLAYER_THREAT_SOURCE_OFFSET. P1 is the prologue through both
+        // soul loads and the other soul's state call (`call [rax+140h]; cmp eax, 6`). Each soul load reads an actor
+        // (`mov rax, [rcx+8]` for the player's, rdx for the other), its C_Human (`[rax+1F8h]`) and its soul
+        // (`[rax+668h]`). P2 starts at the other actor's C_Human load and walks back 0x26. Each rung is unique and
+        // resolves to the same entry on all three builds, where the controller's pick and its stance-end rule both call
+        // this entry with `mov rcx, [rcx+388h]` as the source.
+        inline const Candidate k_combatThreatCandidates[] = {
+            Candidate::direct("CombatThreat_P1_Prologue",
+                              Pattern::literal("48 89 5C 24 ?? 57 48 83 EC 20 48 8B 41 08 48 85 C0 74 ?? 48 8B 80 F8 "
+                                               "01 00 00 48 8B B8 68 06 00 00 48 85 FF 74 ?? 48 8B 82 F8 01 00 00 48 "
+                                               "8B 98 68 06 00 00 48 85 DB 74 ?? 48 8B 03 48 8B CB FF 90 40 01 00 00 "
+                                               "83 F8 06")),
+            Candidate::direct("CombatThreat_P2_OtherSoul",
+                              Pattern::literal("48 8B 82 F8 01 00 00 48 8B 98 68 06 00 00 48 85 DB 74 ?? 48 8B 03 48 "
+                                               "8B CB FF 90 40 01 00 00 83 F8 06 0F 84"),
+                              -0x26),
+        };
         // C_CombatPlayer's per-frame update (vtable slot COMBAT_PLAYER_VTABLE_UPDATE_SLOT on all three builds;
         // sub_181002DD4, GOG 0x180FFFE24, Game Pass 0x18075B5B8), proven before it is hooked by either shape: the whole
         // body matched at its first byte (the frame, `mov rbx, rcx`, the lock-on controller load
@@ -1717,8 +1760,8 @@ namespace TPVCamera
      *          hook sits on). ResourceLookup is an address, ResourceLock and ShaderResourceContainer globals, and the
      *          three PSO builder ids call sites. VegetationGroups is a global, and LevelBrushTables an instruction site
      *          that only proves two member offsets. ClipVolumeManager is a global, and GetClipVolumeByPos,
-     *          OctreeCollectByType, EngineDeallocate and SetCombatOpponent are addresses, and CombatPickViewRead an
-     *          instruction site the mid hook sits on. Of the DEV-only ids,
+     *          OctreeCollectByType, EngineDeallocate, SetCombatOpponent and CombatThreat are addresses, and
+     *          CombatPickViewRead an instruction site the mid hook sits on. Of the DEV-only ids,
      *          HardwareShaderForName is an address and HardwareShaderLockSite an instruction site its consumer decodes;
      *          the ids from TechniqueLayout to HardwareShaderCache are instruction sites that only prove layouts.
      */
@@ -1791,6 +1834,7 @@ namespace TPVCamera
         OctreeCollectByType,      // the typed octree query's collector (the occluder scan; called, not hooked)
         EngineDeallocate,         // the engine's std::_Deallocate (frees the collector's vector; called, not hooked)
         SetCombatOpponent,        // the combat lock-on's set-opponent (the kill retarget; called, not hooked)
+        CombatThreat,             // the combat threat test (the kill retarget's candidate check; called, not hooked)
         CombatPickViewRead,       // the lock-on target pick's read of the view camera forward (a mid hook site)
 #if defined(TPVCAMERA_DEV_BUILD)
         HardwareShaderForName,  // CHWShader::mfForName (the DEV twin clone's factory)
@@ -1853,7 +1897,8 @@ namespace TPVCamera
         IndoorState,          // ClipVolumeManager, GetClipVolumeByPos: the Indoors state the `indoors` bind token reads
         OctreeSingleWalk,     // OctreeCollectByType, EngineDeallocate: one octree walk per typed occluder-scan query
                               // instead of a count and a fill (needs Occlusion)
-        CombatRetarget,       // SetCombatOpponent: after a kill the lock-on moves to the hostile the camera points at
+        CombatRetarget,       // SetCombatOpponent, CombatThreat: after a kill the lock-on moves to the hostile the
+                              // camera points at
         CombatPickForward,    // CombatPickViewRead: the lock-on's target pick goes along the opponent the game steers
                               // to, or along the look before the lock framing
 #if defined(TPVCAMERA_DEV_BUILD)

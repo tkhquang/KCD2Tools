@@ -60,6 +60,8 @@ namespace TPVCamera::ProbeRecord
             fn("body_anchor_lean_target_y", state.body_anchor_lean_target_y);
             fn("body_anchor_up", state.body_anchor_up);
             fn("body_anchor_up_target", state.body_anchor_up_target);
+            fn("body_anchor_yaw", state.body_anchor_yaw);
+            fn("body_anchor_rest", state.body_anchor_rest);
             fn("body_anchor_valid", state.body_anchor_valid);
             fn("real_eye_height", state.real_eye_height);
             fn("eye_sync_engaged", state.eye_sync_engaged);
