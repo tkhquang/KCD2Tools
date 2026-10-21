@@ -16,6 +16,7 @@
 #include "packs/sound_def.hpp"
 
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -24,11 +25,24 @@
 
 namespace SoundFramework::game::speech
 {
+    /** @brief [LipSync] DubbedVoices: when the framework animates the mouths of the game's own voice lines. */
+    enum class DubbedVoices : std::uint8_t
+    {
+        /// When the voice language has no facial animation of its own, so the game would show English mouths.
+        Auto,
+        /// Always, in place of the game's own lip-sync animation.
+        On,
+        /// Never: the game's lines keep its own animation.
+        Off,
+    };
+
     /**
-     * @brief Enables speech when its anchors resolved.
+     * @brief Enables speech when its anchors resolved, and lists the voice languages that have facial animation.
+     * @param facials_directory `<game root>/Data/Facials`, where the game looks for each voice language's facial
+     *        animation pak.
      * @note Setup/control-plane only; call before the main-thread hook is armed.
      */
-    void configure(const Anchors &anchors) noexcept;
+    void configure(const Anchors &anchors, const std::filesystem::path &facials_directory) noexcept;
 
     /**
      * @brief Makes the entity named @p entity_name speak @p voice_path and shows @p subtitle for the line's length.
@@ -87,6 +101,27 @@ namespace SoundFramework::game::speech
      * @note Thread safe; the INI and the sfw_lipsync_offset command set it.
      */
     void set_lip_offset_ms(int offset_ms) noexcept;
+
+    /**
+     * @brief Sets [LipSync] DubbedVoices for the lines that start from now on.
+     * @note Thread safe. The INI sets it, also on a live reload.
+     */
+    void set_dubbed_voices(DubbedVoices mode) noexcept;
+
+    /**
+     * @brief Whether the framework animates the mouths of the game's own voice lines now: [LipSync] DubbedVoices, and
+     *        for AUTO whether the voice language has facial animation of its own.
+     * @note Main thread only, from the Speak hook, before the game's Speak runs.
+     */
+    [[nodiscard]] bool drives_game_lines();
+
+    /**
+     * @brief After the game's Speak played its own line @p voice_path through @p speak_man: the mouth from the voice,
+     *        in place of the game's lip-sync animation. A speaker farther from the camera than the engine animates
+     *        faces keeps the game's face.
+     * @note Main thread only, from the Speak hook, when drives_game_lines() said so.
+     */
+    void follow_game_line(const void *speak_man, const std::string &voice_path);
 
     /**
      * @brief Mood @p name: its poses (a live override from sfw_mood_override, else the moods file and packs) and its

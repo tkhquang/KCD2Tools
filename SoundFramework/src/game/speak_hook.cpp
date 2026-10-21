@@ -92,6 +92,8 @@ namespace SoundFramework::game::speak_hook
                 }
             }
             std::optional<speech::Swap> swap;
+            // The game's own line whose mouth the framework drives, or empty.
+            std::string game_line;
             if (request != nullptr && speak_man != nullptr && main_thread::is_main_thread())
             {
                 // A conversation line takes the speaker over from a framework line playing or waiting on it.
@@ -109,6 +111,21 @@ namespace SoundFramework::game::speak_hook
                     (void)DMK::log().log_noexcept(
                         DMK::LogLevel::Error,
                         "Speech: the voice replacement failed; the game line plays unchanged"
+                    );
+                }
+                try
+                {
+                    if (!swap.has_value() && speech::drives_game_lines())
+                    {
+                        game_line = string_at(request, REQUEST_PATH);
+                    }
+                }
+                catch (...)
+                {
+                    game_line.clear();
+                    (void)DMK::log().log_noexcept(
+                        DMK::LogLevel::Warning,
+                        "Speech: the voice language check failed; the line keeps the game's face"
                     );
                 }
             }
@@ -132,6 +149,20 @@ namespace SoundFramework::game::speak_hook
                     (void)DMK::log().log_noexcept(
                         DMK::LogLevel::Error,
                         "Speech: the replaced line plays without its face and subtitle"
+                    );
+                }
+            }
+            if (!game_line.empty())
+            {
+                try
+                {
+                    speech::follow_game_line(speak_man, game_line);
+                }
+                catch (...)
+                {
+                    (void)DMK::log().log_noexcept(
+                        DMK::LogLevel::Warning,
+                        "Speech: a game line's mouth failed; it keeps the game's face"
                     );
                 }
             }

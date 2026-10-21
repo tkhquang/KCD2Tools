@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace SoundFramework::constants
 {
@@ -68,6 +69,12 @@ namespace SoundFramework::constants
     inline constexpr std::size_t CONSOLE_ADD_COMMAND_SLOT = 33;
     /// IConsole::RemoveCommand(const char* name).
     inline constexpr std::size_t CONSOLE_REMOVE_COMMAND_SLOT = 34;
+    /// IConsole::GetCVar(const char* name): the variable, or nullptr when none has that name (case-insensitive).
+    inline constexpr std::size_t CONSOLE_GET_CVAR_SLOT = 23;
+    /// The console's string variables, checked by vtable before their value is read.
+    inline constexpr const char *RTTI_CVAR_STRING = ".?AVCXConsoleVariableString@@";
+    /// ICVar::GetString() const: the value as text, owned by the variable.
+    inline constexpr std::size_t CVAR_GET_STRING_SLOT = 5;
     /// IConsoleCmdArgs::GetArgCount() const; argument 0 is the command name.
     inline constexpr std::size_t CMD_ARGS_COUNT_SLOT = 1;
     /// IConsoleCmdArgs::GetArg(int) const.
@@ -150,6 +157,15 @@ namespace SoundFramework::constants
      *        waits while the animation streams in) and clears it when the line has none.
      */
     inline constexpr std::uintptr_t SPEAK_MAN_HAS_LIP_SYNC = 0x91;
+    /**
+     * @brief The voice language, a string console variable. The game opens that language's voice paks and its facial
+     *        animation pak `Data/Facials/Facials_<language>*.pak`, or the English one when there is none.
+     */
+    inline constexpr const char *VOICE_LANGUAGE_CVAR = "g_languageAudio";
+    /// The language whose facial animation the game falls back to.
+    inline constexpr std::string_view FACIAL_FALLBACK_LANGUAGE = "english";
+    /// The engine animates faces only this close to the camera (ca_FacialAnimationRadius, metres).
+    inline constexpr float FACIAL_ANIMATION_RADIUS = 30.0f;
     /// The game context's UI chain to the I_UISubtitles interface: [[ctx+0x150]+0x10]+0x120.
     inline constexpr std::uintptr_t CONTEXT_UI = 0x150;
     inline constexpr std::uintptr_t UI_HUD = 0x10;

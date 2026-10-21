@@ -418,6 +418,7 @@ namespace SoundFramework
             SkeletonVtable,
             PoseDataVtable,
             TimerVtable,
+            CvarStringVtable,
             Speak,
             RequestCtor,
             StringAssign,
@@ -442,6 +443,7 @@ namespace SoundFramework
             make_vtable("SkeletonVtable", constants::RTTI_SKELETON),
             make_vtable("PoseDataVtable", constants::RTTI_POSE_DATA),
             make_vtable("TimerVtable", constants::RTTI_TIMER),
+            make_vtable("CvarStringVtable", constants::RTTI_CVAR_STRING),
             make_anchor("Speak", SPEAK, Role::Code),
             make_anchor("RequestCtor", REQUEST_CTOR, Role::Code),
             make_anchor("StringAssign", STRING_ASSIGN, Role::Code),
@@ -477,6 +479,7 @@ namespace SoundFramework
             {AnchorId::SkeletonVtable, constants::SKELETON_SLOT_COUNT},
             {AnchorId::PoseDataVtable, constants::POSE_DATA_SLOT_COUNT},
             {AnchorId::TimerVtable, constants::TIMER_GET_REAL_FRAME_TIME_SLOT + 1},
+            {AnchorId::CvarStringVtable, constants::CVAR_GET_STRING_SLOT + 1},
         };
 
         /** @brief A feature and the anchors it needs; it turns on when anchor::evaluate_gate passes over them. */
@@ -525,6 +528,11 @@ namespace SoundFramework
             AnchorId::Genv,
             AnchorId::TimerVtable,
         };
+        constexpr AnchorId VOICE_LANGUAGE_ANCHORS[] = {
+            AnchorId::Genv,
+            AnchorId::ConsoleVtable,
+            AnchorId::CvarStringVtable,
+        };
 
         const FeatureSpec FEATURES[] = {
             {"Commands", COMMAND_ANCHORS, &Anchors::commands},
@@ -534,6 +542,7 @@ namespace SoundFramework
             {"LoadStop", LOAD_STOP_ANCHORS, &Anchors::load_stop},
             {"LipDrive", LIP_DRIVE_ANCHORS, &Anchors::lip_drive},
             {"VoiceClock", VOICE_CLOCK_ANCHORS, &Anchors::voice_clock},
+            {"VoiceLanguage", VOICE_LANGUAGE_ANCHORS, &Anchors::voice_language},
         };
         constexpr std::size_t MAX_FEATURE_ANCHORS = std::size(SPEECH_ANCHORS);
 
@@ -632,6 +641,7 @@ namespace SoundFramework
             .character_vtable = value_of(AnchorId::CharacterVtable),
             .skeleton_vtable = value_of(AnchorId::SkeletonVtable),
             .pose_data_vtable = value_of(AnchorId::PoseDataVtable),
+            .cvar_string_vtable = value_of(AnchorId::CvarStringVtable),
         };
 
         for (const FeatureSpec &feature : FEATURES)

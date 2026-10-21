@@ -73,6 +73,9 @@ SETTINGS (KCD2_SoundFramework.ini):
   [LipSync] Mode = ADVANCED moves the whole lower face with a small machine-learned
   model; BASIC follows the loudness of the voice. OffsetMs moves the mouth earlier
   or later than the sound.
+  [LipSync] DubbedVoices = AUTO: with a voice dub that has no mouth animation of
+  its own, the lips follow each line's own voice instead of the English
+  animation, and its smiles and frowns stay. ON always does this, OFF never.
   [Debug] EventLog and SpeakLog help mod authors find the game's sound events and
   voice lines.
 
