@@ -71,11 +71,15 @@ jobs:
 
       - name: Determine version title
         id: determine-title
+        env:
+          # Passed via env (not inlined into the script) so a quote in a title cannot break the script.
+          VERSION_TITLE_INPUT: ${{ inputs.version_title }}
+          SUGGESTED_TITLE: ${{ steps.read-changelog.outputs.SUGGESTED_TITLE }}
         run: |
           # Use the input title if provided, otherwise use the suggested title from the changelog
-          $titleToUse = "${{ inputs.version_title }}"
+          $titleToUse = $env:VERSION_TITLE_INPUT
           if ([string]::IsNullOrEmpty($titleToUse)) {
-            $titleToUse = "${{ steps.read-changelog.outputs.SUGGESTED_TITLE }}"
+            $titleToUse = $env:SUGGESTED_TITLE
             echo "Using title from changelog: $titleToUse"
           } else {
             echo "Using provided title: $titleToUse"
@@ -88,14 +92,17 @@ jobs:
 
       - name: Bump version and update changelog
         id: bump
+        env:
+          # Passed via env (not inlined into the script) so a quote in the changelog or title cannot break the script.
+          CHANGELOG_LINES: ${{ steps.read-changelog.outputs.CHANGELOG }}
+          VERSION_TITLE: ${{ steps.determine-title.outputs.TITLE }}
         run: |
           # Create a temporary file for the changelog to avoid command line escaping issues
           # Replace %0A with actual newlines using PowerShell's backtick escape
-          $changelogContent = "${{ steps.read-changelog.outputs.CHANGELOG }}" -replace '%0A', "`n"
+          $changelogContent = $env:CHANGELOG_LINES -replace '%0A', "`n"
           Set-Content -Path "temp_changelog.txt" -Value $changelogContent
 
-          # Ensure the title passed doesn't have unwanted characters
-          $safeTitle = "${{ steps.determine-title.outputs.TITLE }}"
+          $safeTitle = $env:VERSION_TITLE
 
           # Run the version updater script with changelog from file
           echo "Running Python script with title: $safeTitle" # Debugging line
@@ -222,9 +229,11 @@ jobs:
         env:
           # Passed via env (not inlined into the script) so free-text input cannot inject PowerShell.
           NEXUS_DESC_INPUT: ${{ inputs.nexus_description }}
+          CHANGELOG_LINES: ${{ steps.read-changelog.outputs.CHANGELOG }}
+          VERSION_TITLE: ${{ steps.determine-title.outputs.TITLE }}
         run: |
           # Write the changelog to a file first to avoid any issues with special characters
-          "${{ steps.read-changelog.outputs.CHANGELOG }}" -replace '%0A', "`n" | Out-File -FilePath "changelog_content.txt" -Encoding utf8
+          $env:CHANGELOG_LINES -replace '%0A', "`n" | Out-File -FilePath "changelog_content.txt" -Encoding utf8
 
           # Read the changelog from file
           $changelog = Get-Content -Path "changelog_content.txt" -Raw
@@ -292,7 +301,7 @@ jobs:
           '@
 
           # Format the release body with the values
-          $releaseBody = $releaseBody -f $env:VERSION_TAG, "${{ steps.determine-title.outputs.TITLE }}", $changelog, "${{ github.repository }}"
+          $releaseBody = $releaseBody -f $env:VERSION_TAG, $env:VERSION_TITLE, $changelog, "${{ github.repository }}"
 
           # Add pre-release notice if applicable
           if ('${{ inputs.prerelease }}' -eq 'true') {
