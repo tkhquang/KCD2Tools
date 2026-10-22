@@ -36,6 +36,8 @@ namespace SoundFramework::packs
             BusAlias{"music", "bus:/music"},
         };
 
+        constexpr std::string_view EVENT_PREFIX = "event:/";
+
         [[nodiscard]] std::optional<float> parse_float(std::string_view text) noexcept
         {
             float value = 0.0f;
@@ -80,6 +82,12 @@ namespace SoundFramework::packs
                 [](char c) { return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c; }
             );
             return out;
+        }
+
+        /** @brief True when @p text is a game event path: `event:/` and at least one more character. */
+        [[nodiscard]] bool is_event_path(std::string_view text) noexcept
+        {
+            return text.size() > EVENT_PREFIX.size() && text.starts_with(EVENT_PREFIX);
         }
 
         /** @brief Splits a comma-separated list into trimmed, non-empty items. */
@@ -176,6 +184,18 @@ namespace SoundFramework::packs
                     sound.files.push_back(relative.is_absolute() ? relative : (dir / relative).lexically_normal());
                 }
             }
+            else if (iequals(key, "Events") || iequals(key, "Event"))
+            {
+                for (const std::string_view item : split_list(entry.value))
+                {
+                    if (!is_event_path(item))
+                    {
+                        reader.fatal(entry.line, std::format("Events item '{}' is not an event:/ path", item));
+                        return;
+                    }
+                    sound.events.emplace_back(item);
+                }
+            }
             else if (iequals(key, "Bus"))
             {
                 std::optional<std::string> path = bus_path(entry.value);
@@ -248,7 +268,7 @@ namespace SoundFramework::packs
             {
                 for (const std::string_view item : split_list(entry.value))
                 {
-                    if (!item.starts_with("event:/") || item.size() <= 7)
+                    if (!is_event_path(item))
                     {
                         reader.fatal(entry.line, std::format("Replaces item '{}' is not an event:/ path", item));
                         return;
@@ -590,9 +610,13 @@ namespace SoundFramework::packs
             {
                 read_entry(reader, entry, sound, dir);
             }
-            if (sound.files.empty())
+            if (sound.files.empty() && sound.events.empty())
             {
-                reader.fatal(section.line, "no Files");
+                reader.fatal(section.line, "no Files or Events");
+            }
+            if (sound.files.empty() && !sound.events.empty() && (sound.loop || sound.stream))
+            {
+                reader.problem(section.line, "Loop and Stream apply to Files only; Events play as the game made them");
             }
             if (!sound.replaces_for.empty() && sound.replaces.empty())
             {

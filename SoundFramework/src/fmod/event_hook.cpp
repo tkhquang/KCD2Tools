@@ -15,6 +15,8 @@
 
 #include <windows.h>
 
+#include <atomic>
+
 namespace SoundFramework::fmod
 {
     namespace
@@ -23,13 +25,32 @@ namespace SoundFramework::fmod
 
         StartFn s_original = nullptr;
 
+        /**
+         * @brief The instance start_own_event() is starting, null otherwise.
+         * @details FMOD_Studio_EventInstance_Start is a bare `jmp` into the hooked C++ export, so a framework start
+         *          runs the detour synchronously on the storing thread. Relaxed order is enough: no other thread can
+         *          start this instance, so a read on any other thread never matches, whichever value it sees.
+         */
+        std::atomic<void *> s_own_start{nullptr};
+
         Result __fastcall start_detour(void *instance) noexcept
         {
-            game::cutscene_voices::on_event_start(instance);
-            audio::replacements::on_event_start(instance);
+            if (instance != s_own_start.load(std::memory_order_relaxed))
+            {
+                game::cutscene_voices::on_event_start(instance);
+                audio::replacements::on_event_start(instance);
+            }
             return s_original(instance);
         }
     } // namespace
+
+    Result start_own_event(void *instance) noexcept
+    {
+        s_own_start.store(instance, std::memory_order_relaxed);
+        const Result started = api().event_start(instance);
+        s_own_start.store(nullptr, std::memory_order_relaxed);
+        return started;
+    }
 
     DMK::Result<void> install_event_hook(DMK::hook::HookStack &hooks)
     {

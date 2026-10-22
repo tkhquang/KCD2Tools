@@ -1,6 +1,6 @@
 /**
  * @file audio/engine.cpp
- * @brief The playback worker: requests in, FMOD channels out.
+ * @brief The playback worker: requests in, FMOD channels and game event instances out.
  *
  * Every FMOD object the engine creates belongs to the worker: requests are queued under a mutex and drained by the
  * worker, which alone touches the sound cache, the bus locks and the instance list. FMOD's API is thread safe, so the
@@ -11,6 +11,7 @@
 #include "audio/engine.hpp"
 #include "audio/line_table.hpp"
 #include "audio/replacements.hpp"
+#include "fmod/event_hook.hpp"
 #include "packs/catalog.hpp"
 
 #include <DetourModKit.hpp>
@@ -45,6 +46,8 @@ namespace SoundFramework::audio
         constexpr std::uint64_t PACK_POLL_MS = 1000;
         /// How long a play may wait for the game's audio (system or bus) before it is dropped.
         constexpr std::uint64_t PENDING_LIMIT_MS = 2000;
+        /// How long the game's bank count must hold still before the event variants are looked up and loaded again.
+        constexpr std::uint64_t BANK_SETTLE_MS = 1000;
         /// Requests beyond this many unhandled ones are dropped, so a runaway script cannot grow the queue.
         constexpr std::size_t QUEUE_LIMIT = 256;
 
@@ -87,11 +90,15 @@ namespace SoundFramework::audio
         struct Instance
         {
             std::string key;
+            /// The channel of a file variant; null for an event variant.
             void *channel = nullptr;
+            /// The game event instance of an event variant, already released so FMOD frees it when it stops.
+            void *own_event = nullptr;
             /// A stream plays its own Sound object, released when the instance ends.
             void *stream = nullptr;
             /// The game event this instance replaces and follows, until the event stops.
             void *follow = nullptr;
+            /// The instance does not end by itself, so a replacement ends with the game event it follows.
             bool loop = false;
         };
 
@@ -113,6 +120,12 @@ namespace SoundFramework::audio
             std::unordered_map<std::string, BusEntry> buses;
             /// Loaded samples by "<mode>|<path>"; the same file opened with another mode is another sample.
             std::unordered_map<std::string, void *> samples;
+            /// Descriptions of the catalog's event variants by path, with their sample data loaded; null when missing.
+            std::unordered_map<std::string, void *> descriptions;
+            /// The game's bank count at the last check; -1 before the catalog attaches.
+            int bank_count = -1;
+            /// When to look the event variants up and load them again; 0 for no pending pass.
+            std::uint64_t reload_events_ms = 0;
             std::deque<Instance> instances;
             std::unordered_map<std::string, History> history;
             std::vector<Request> pending;
@@ -184,17 +197,29 @@ namespace SoundFramework::audio
             );
         }
 
-        /** @brief Stops every instance and releases every sample and stream; bus locks stay. */
+        void stop_instance(Instance &instance) noexcept
+        {
+            const fmod::Api &api = fmod::api();
+            if (instance.own_event != nullptr)
+            {
+                (void)api.event_stop(instance.own_event, fmod::STOP_IMMEDIATE);
+                return;
+            }
+            (void)api.channel_stop(instance.channel);
+            if (instance.stream != nullptr)
+            {
+                (void)api.sound_release(instance.stream);
+                instance.stream = nullptr;
+            }
+        }
+
+        /** @brief Stops every instance and releases every sample, stream and event sample load; bus locks stay. */
         void release_sounds() noexcept
         {
             const fmod::Api &api = fmod::api();
             for (Instance &instance : s_state.instances)
             {
-                (void)api.channel_stop(instance.channel);
-                if (instance.stream != nullptr)
-                {
-                    (void)api.sound_release(instance.stream);
-                }
+                stop_instance(instance);
             }
             s_state.instances.clear();
             // Releasing a sample stops every channel still playing it.
@@ -203,6 +228,16 @@ namespace SoundFramework::audio
                 (void)api.sound_release(sound);
             }
             s_state.samples.clear();
+            for (auto &[path, description] : s_state.descriptions)
+            {
+                if (description != nullptr)
+                {
+                    (void)api.description_unload_sample_data(description);
+                }
+            }
+            s_state.descriptions.clear();
+            s_state.bank_count = -1;
+            s_state.reload_events_ms = 0;
         }
 
         void release_buses() noexcept
@@ -255,13 +290,88 @@ namespace SoundFramework::audio
             return entry;
         }
 
-        /** @brief Locks every bus the catalog uses, so their groups are ready before the first play. */
-        void attach_catalog_buses()
+        /** @brief Looks up the description of @p path and loads its sample data; null when no loaded bank holds it. */
+        [[nodiscard]] void *load_event(const std::string &path) noexcept
         {
+            const fmod::Api &api = fmod::api();
+            void *description = nullptr;
+            if (api.studio_get_event(s_state.system, path.c_str(), &description) != fmod::OK || description == nullptr)
+            {
+                return nullptr;
+            }
+            (void)api.description_load_sample_data(description);
+            return description;
+        }
+
+        /**
+         * @brief Locks every bus the catalog uses and loads every event variant, so the first play of a sound starts at
+         *        once instead of after its loading.
+         */
+        void attach_catalog()
+        {
+            bool missing = false;
             for (const auto &[key, sound] : s_state.catalog.sounds)
             {
-                (void)bus_entry(sound.bus);
+                if (!sound.files.empty())
+                {
+                    (void)bus_entry(sound.bus);
+                }
+                for (const std::string &path : sound.events)
+                {
+                    const auto [entry, added] = s_state.descriptions.try_emplace(path, nullptr);
+                    if (added)
+                    {
+                        entry->second = load_event(path);
+                        missing = missing || entry->second == nullptr;
+                    }
+                }
             }
+            (void)fmod::api().studio_get_bank_count(s_state.system, &s_state.bank_count);
+            // The game can still be loading its banks, so a missing event waits for the settled pass to report it.
+            s_state.reload_events_ms = missing ? now_ms() + BANK_SETTLE_MS : 0;
+        }
+
+        /**
+         * @brief Looks every event variant up and loads it again once the game's bank count has held still after a
+         *        change, and reports each event that no loaded bank holds.
+         * @details A sample data load requested before the bank with the event's audio is in reports success but stays
+         *          empty, and the event then plays silent after the bank arrives. The game loads its banks after the
+         *          framework first sees its Studio system, and a bank unload leaves its descriptions stale, so each
+         *          pass unloads the old description and looks the path up again.
+         */
+        void track_banks()
+        {
+            const fmod::Api &api = fmod::api();
+            int count = 0;
+            if (s_state.descriptions.empty() || api.studio_get_bank_count(s_state.system, &count) != fmod::OK)
+            {
+                return;
+            }
+            const std::uint64_t now = now_ms();
+            if (count != s_state.bank_count)
+            {
+                s_state.bank_count = count;
+                s_state.reload_events_ms = now + BANK_SETTLE_MS;
+                return;
+            }
+            if (s_state.reload_events_ms == 0 || now < s_state.reload_events_ms)
+            {
+                return;
+            }
+            s_state.reload_events_ms = 0;
+            for (auto &[path, description] : s_state.descriptions)
+            {
+                if (description != nullptr)
+                {
+                    (void)api.description_unload_sample_data(description);
+                }
+                description = load_event(path);
+                if (description == nullptr)
+                {
+                    DMK::log().warning("Engine: game event {} is in none of the game's loaded banks", path);
+                }
+            }
+            DMK::log().debug("Engine: the game has {} bank(s); event audio loaded again", count);
         }
 
         void load_packs()
@@ -275,7 +385,7 @@ namespace SoundFramework::audio
             s_state.next_poll_ms = now_ms() + PACK_POLL_MS;
             if (s_state.core != nullptr)
             {
-                attach_catalog_buses();
+                attach_catalog();
             }
         }
 
@@ -305,7 +415,7 @@ namespace SoundFramework::audio
                 s_state.core = nullptr;
                 return false;
             }
-            attach_catalog_buses();
+            attach_catalog();
             return true;
         }
 
@@ -350,10 +460,10 @@ namespace SoundFramework::audio
             return sound;
         }
 
-        /** @brief Picks a variant at random, never the previous one when there is a choice. */
+        /** @brief Picks a variant (files, then events) at random, never the previous one when there is a choice. */
         [[nodiscard]] std::size_t pick_variant(const SoundDef &sound, History &history) noexcept
         {
-            const std::size_t count = sound.files.size();
+            const std::size_t count = sound.files.size() + sound.events.size();
             if (count <= 1)
             {
                 return 0;
@@ -364,17 +474,6 @@ namespace SoundFramework::audio
                 pick = (pick + 1 + std::uniform_int_distribution<std::size_t>(0, count - 2)(s_state.random)) % count;
             }
             return pick;
-        }
-
-        void stop_instance(Instance &instance) noexcept
-        {
-            const fmod::Api &api = fmod::api();
-            (void)api.channel_stop(instance.channel);
-            if (instance.stream != nullptr)
-            {
-                (void)api.sound_release(instance.stream);
-                instance.stream = nullptr;
-            }
         }
 
         /**
@@ -394,12 +493,33 @@ namespace SoundFramework::audio
             Attributes3d attributes{};
             if (api.event_get_3d_attributes(instance.follow, &attributes) == fmod::OK)
             {
-                (void)api.channel_set_3d_attributes(instance.channel, &attributes.position, &attributes.velocity);
+                if (instance.own_event != nullptr)
+                {
+                    (void)api.event_set_3d_attributes(instance.own_event, &attributes);
+                }
+                else
+                {
+                    (void)api.channel_set_3d_attributes(instance.channel, &attributes.position, &attributes.velocity);
+                }
             }
             return true;
         }
 
-        /** @brief Drops instances whose channel ended or was stolen, releasing their streams. */
+        /** @brief True while @p instance still sounds: its channel plays, or its event has not stopped. */
+        [[nodiscard]] bool still_playing(const Instance &instance) noexcept
+        {
+            const fmod::Api &api = fmod::api();
+            if (instance.own_event != nullptr)
+            {
+                int state = fmod::PLAYBACK_STOPPED;
+                return api.event_get_playback_state(instance.own_event, &state) == fmod::OK &&
+                       state != fmod::PLAYBACK_STOPPED;
+            }
+            int playing = 0;
+            return api.channel_is_playing(instance.channel, &playing) == fmod::OK && playing != 0;
+        }
+
+        /** @brief Drops instances that ended or were stolen, releasing their streams. */
         void prune_instances() noexcept
         {
             const fmod::Api &api = fmod::api();
@@ -407,8 +527,7 @@ namespace SoundFramework::audio
                 s_state.instances,
                 [&](Instance &instance)
                 {
-                    int playing = 0;
-                    if (api.channel_is_playing(instance.channel, &playing) == fmod::OK && playing != 0)
+                    if (still_playing(instance))
                     {
                         if (instance.follow == nullptr || follow_event(instance))
                         {
@@ -433,6 +552,132 @@ namespace SoundFramework::audio
             Retry,
         };
 
+        /** @brief Where a play of @p sound goes: the request's position, the replaced event's, or the listener. */
+        [[nodiscard]] Attributes3d
+        placement(const SoundDef &sound, const Request &request, const Attributes3d &listener)
+        {
+            Attributes3d where = listener;
+            where.velocity = Vector{0.0f, 0.0f, 0.0f};
+            if (sound.space != packs::Space::Positioned)
+            {
+                return where;
+            }
+            if (request.event_attributes.has_value())
+            {
+                where.position = request.event_attributes->position;
+                where.velocity = request.event_attributes->velocity;
+            }
+            else if (request.at.has_value())
+            {
+                where.position = fmod::from_world(request.at->x, request.at->y, request.at->z);
+            }
+            return where;
+        }
+
+        /** @brief Stops the oldest instance of @p key when @p sound is at its instance limit, so a new one fits. */
+        void make_room(const SoundDef &sound, const std::string &key) noexcept
+        {
+            const auto same = [&](const Instance &instance) noexcept { return instance.key == key; };
+            if (std::ranges::count_if(s_state.instances, same) >= sound.max_instances)
+            {
+                // MaxInstances is at least 1, so an instance of this key exists here.
+                const auto oldest = std::ranges::find_if(s_state.instances, same);
+                stop_instance(*oldest);
+                s_state.instances.erase(oldest);
+            }
+        }
+
+        /** @brief Starts @p file on a channel of @p group, the sound's bus; false when it cannot play. */
+        [[nodiscard]] bool play_file(
+            const SoundDef &sound,
+            const std::filesystem::path &file,
+            void *group,
+            const Attributes3d &where,
+            float volume,
+            float pitch,
+            Instance &out
+        )
+        {
+            const std::uint32_t mode = mode_of(sound);
+            void *stream = sound.stream ? open_sound(file, mode) : nullptr;
+            void *source = sound.stream ? stream : sample_for(file, mode);
+            if (source == nullptr)
+            {
+                return false;
+            }
+            make_room(sound, out.key);
+            const fmod::Api &api = fmod::api();
+            void *channel = nullptr;
+            const fmod::Result played = api.play_sound(s_state.core, source, group, 1, &channel);
+            if (played != fmod::OK || channel == nullptr)
+            {
+                DMK::log().error("Engine: playSound({}) -> FMOD_RESULT {}", sound.name, played);
+                if (stream != nullptr)
+                {
+                    (void)api.sound_release(stream);
+                }
+                return false;
+            }
+            (void)api.channel_set_volume(channel, volume);
+            (void)api.channel_set_pitch(channel, pitch);
+            if (sound.space == packs::Space::Positioned)
+            {
+                (void)api.channel_set_3d_attributes(channel, &where.position, &where.velocity);
+                (void)api.channel_set_3d_min_max(channel, sound.min_distance, sound.max_distance);
+            }
+            (void)api.channel_set_paused(channel, 0);
+            out.channel = channel;
+            out.stream = stream;
+            out.loop = sound.loop;
+            return true;
+        }
+
+        /**
+         * @brief Starts a new instance of the game event @p path; false when no loaded bank holds it or FMOD refuses
+         *        it.
+         */
+        [[nodiscard]] bool play_event(
+            const SoundDef &sound,
+            const std::string &path,
+            const Attributes3d &where,
+            float volume,
+            float pitch,
+            Instance &out
+        )
+        {
+            const auto found = s_state.descriptions.find(path);
+            if (found == s_state.descriptions.end() || found->second == nullptr)
+            {
+                return false;
+            }
+            void *description = found->second;
+            make_room(sound, out.key);
+            const fmod::Api &api = fmod::api();
+            void *instance = nullptr;
+            const fmod::Result created = api.description_create_instance(description, &instance);
+            if (created != fmod::OK || instance == nullptr)
+            {
+                DMK::log().error("Engine: [{}] cannot create {} (FMOD_RESULT {})", sound.name, path, created);
+                return false;
+            }
+            (void)api.event_set_volume(instance, volume);
+            (void)api.event_set_pitch(instance, pitch);
+            (void)api.event_set_3d_attributes(instance, &where);
+            const fmod::Result started = fmod::start_own_event(instance);
+            // FMOD frees a released instance once it stops, and its handle stays valid until then.
+            (void)api.event_release(instance);
+            if (started != fmod::OK)
+            {
+                DMK::log().error("Engine: [{}] cannot start {} (FMOD_RESULT {})", sound.name, path, started);
+                return false;
+            }
+            out.own_event = instance;
+            // An event FMOD does not mark one-shot counts as a loop, so a replacement ends with its game event.
+            int oneshot = 0;
+            out.loop = api.description_is_oneshot(description, &oneshot) != fmod::OK || oneshot == 0;
+            return true;
+        }
+
         [[nodiscard]] PlayOutcome play(const Request &request, const Attributes3d &listener)
         {
             const std::string key = request.event != nullptr ? request.name : packs::sound_key(request.name);
@@ -450,15 +695,6 @@ namespace SoundFramework::audio
             {
                 return PlayOutcome::Retry;
             }
-            const BusEntry &bus = bus_entry(sound.bus);
-            if (bus.failed)
-            {
-                return PlayOutcome::Done;
-            }
-            if (bus.group == nullptr)
-            {
-                return PlayOutcome::Retry;
-            }
 
             History &history = s_state.history[key];
             const std::uint64_t now = now_ms();
@@ -469,75 +705,47 @@ namespace SoundFramework::audio
             }
 
             const std::size_t variant = pick_variant(sound, history);
-            const std::uint32_t mode = mode_of(sound);
-            void *stream = sound.stream ? open_sound(sound.files[variant], mode) : nullptr;
-            void *source = sound.stream ? stream : sample_for(sound.files[variant], mode);
-            if (source == nullptr)
+            const bool file = variant < sound.files.size();
+            void *group = nullptr;
+            if (file)
             {
-                return PlayOutcome::Done;
-            }
-
-            // Beyond the instance limit the oldest instance of this sound gives way.
-            const auto same = [&](const Instance &instance) { return instance.key == key; };
-            if (std::ranges::count_if(s_state.instances, same) >= sound.max_instances)
-            {
-                const auto oldest = std::ranges::find_if(s_state.instances, same);
-                stop_instance(*oldest);
-                s_state.instances.erase(oldest);
-            }
-
-            const fmod::Api &api = fmod::api();
-            void *channel = nullptr;
-            const fmod::Result played = api.play_sound(s_state.core, source, bus.group, 1, &channel);
-            if (played != fmod::OK || channel == nullptr)
-            {
-                DMK::log().error("Engine: playSound({}) -> FMOD_RESULT {}", sound.name, played);
-                if (stream != nullptr)
+                const BusEntry &bus = bus_entry(sound.bus);
+                if (bus.failed)
                 {
-                    (void)api.sound_release(stream);
+                    return PlayOutcome::Done;
                 }
-                return PlayOutcome::Done;
+                if (bus.group == nullptr)
+                {
+                    return PlayOutcome::Retry;
+                }
+                group = bus.group;
             }
+
             const float volume = sound.volume * (1.0f - sound.volume_variation * random01());
             const float pitch = sound.pitch * (1.0f + sound.pitch_variation * (2.0f * random01() - 1.0f));
-            (void)api.channel_set_volume(channel, volume);
-            (void)api.channel_set_pitch(channel, pitch);
-            Vector where = listener.position;
-            Vector velocity{0.0f, 0.0f, 0.0f};
-            if (sound.space == packs::Space::Positioned)
+            const Attributes3d where = placement(sound, request, listener);
+            Instance instance{
+                .key = key,
+                .follow = sound.space == packs::Space::Positioned ? request.event : nullptr,
+            };
+            const bool started =
+                file ? play_file(sound, sound.files[variant], group, where, volume, pitch, instance)
+                     : play_event(sound, sound.events[variant - sound.files.size()], where, volume, pitch, instance);
+            if (!started)
             {
-                if (request.event_attributes.has_value())
-                {
-                    where = request.event_attributes->position;
-                    velocity = request.event_attributes->velocity;
-                }
-                else if (request.at.has_value())
-                {
-                    where = fmod::from_world(request.at->x, request.at->y, request.at->z);
-                }
-                (void)api.channel_set_3d_attributes(channel, &where, &velocity);
-                (void)api.channel_set_3d_min_max(channel, sound.min_distance, sound.max_distance);
+                return PlayOutcome::Done;
             }
-            (void)api.channel_set_paused(channel, 0);
 
             history.last_variant = variant;
             history.last_play_ms = now;
-            s_state.instances.push_back(
-                Instance{
-                    .key = key,
-                    .channel = channel,
-                    .stream = stream,
-                    .follow = sound.space == packs::Space::Positioned ? request.event : nullptr,
-                    .loop = sound.loop,
-                }
-            );
+            s_state.instances.push_back(std::move(instance));
             DMK::log().debug(
                 "Engine: {} variant {} at {:.1f},{:.1f},{:.1f} (FMOD space) volume {:.2f} pitch {:.2f}",
                 sound.name,
                 variant,
-                where.x,
-                where.y,
-                where.z,
+                where.position.x,
+                where.position.y,
+                where.position.z,
                 volume,
                 pitch
             );
@@ -593,9 +801,10 @@ namespace SoundFramework::audio
             for (const SoundDef *sound : sounds)
             {
                 DMK::log().info(
-                    "Catalog: {} ({} file(s), {}, {}{}{}) from {}",
+                    "Catalog: {} ({} file(s), {} event(s), {}, {}{}{}) from {}",
                     sound->name,
                     sound->files.size(),
+                    sound->events.size(),
                     sound->bus,
                     sound->space == packs::Space::Positioned ? "3d" : "2d",
                     sound->loop ? ", loop" : "",
@@ -670,6 +879,7 @@ namespace SoundFramework::audio
             }
             if (s_state.core != nullptr)
             {
+                track_banks();
                 prune_instances();
                 if (!s_state.announced)
                 {

@@ -6,6 +6,7 @@
  * @code
  * [mymod_bell]
  * Files = bell_1.ogg, bell_2.ogg   ; relative to this INI, one picked at random per play
+ * Events = event:/ui/hud/quest_started   ; optional: game sound events played as further variants
  * Bus = world                      ; alias (see bus_path) or a raw FMOD path such as bus:/dieg/w_obj/obj
  * Space = 3d                       ; 3d (positioned) or 2d
  * Volume = 0.8
@@ -38,9 +39,17 @@ namespace SoundFramework::packs
     struct SoundDef
     {
         std::string name;
-        /// Absolute paths of the variants; each play picks one, never the same one twice in a row.
+        /**
+         * @brief Absolute paths of the file variants. Each play picks one variant of files and events together, never
+         *        the same one twice in a row.
+         */
         std::vector<std::filesystem::path> files;
-        /// FMOD bus path whose channel group the sound plays into.
+        /**
+         * @brief Game event paths played as further variants: the game's own event with this sound's volume, pitch,
+         *        variations, position and limits. It keeps its own bus, distances and looping.
+         */
+        std::vector<std::string> events;
+        /// FMOD bus path whose channel group the file variants play into.
         std::string bus;
         Space space = Space::Positioned;
         float volume = 1.0f;

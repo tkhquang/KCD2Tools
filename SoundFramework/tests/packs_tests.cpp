@@ -135,6 +135,27 @@ namespace
         CHECK(mentions(parsed.problems, "[orphankeep] KeepOriginal without Replaces"));
     }
 
+    void test_events()
+    {
+        const PackParse parsed = parse_pack(
+            "[tick]\nEvents = event:/ui/skiptime/ui_skiptime_turn\nPitch = 0.85\n"
+            "[mixed]\nFiles = a.ogg\nEvent = event:/ui/x, event:/ui/y\n"
+            "[looped]\nEvents = event:/ui/x\nLoop = true\n"
+            "[mixedloop]\nFiles = a.ogg\nEvents = event:/ui/x\nLoop = true\n"
+            "[notevent]\nEvents = ui/skiptime\n"
+            "[bareprefix]\nEvents = event:/\n",
+            fs::path("C:/Mods/m/SoundFramework/p.ini")
+        );
+        CHECK(parsed.sounds.size() == 4); // tick, mixed, looped (Loop with Events only warns), mixedloop
+        CHECK(parsed.sounds[0].files.empty() && parsed.sounds[0].events.size() == 1);
+        CHECK(parsed.sounds[0].events[0] == "event:/ui/skiptime/ui_skiptime_turn" && parsed.sounds[0].pitch == 0.85f);
+        CHECK(parsed.sounds[1].files.size() == 1 && parsed.sounds[1].events.size() == 2);
+        CHECK(mentions(parsed.problems, "[looped] Loop and Stream apply to Files only"));
+        CHECK(!mentions(parsed.problems, "[mixedloop]"));
+        CHECK(mentions(parsed.problems, "Events item 'ui/skiptime' is not an event:/ path"));
+        CHECK(mentions(parsed.problems, "Events item 'event:/' is not an event:/ path"));
+    }
+
     void test_replaces_voice()
     {
         const PackParse parsed = parse_pack(
@@ -340,6 +361,7 @@ int main()
     test_ini_reader();
     test_pack_values();
     test_play_at_and_keep_original();
+    test_events();
     test_replaces_voice();
     test_lines();
     test_moods();

@@ -48,7 +48,8 @@ MaxDistance = 60
 
 | Key | Default | Meaning |
 |---|---|---|
-| `Files` (or `File`) | required | Comma-separated audio files, relative to the INI. WAV, OGG, MP3 and FLAC all work. |
+| `Files` (or `File`) | required, or `Events` | Comma-separated audio files, relative to the INI. WAV, OGG, MP3 and FLAC all work. |
+| `Events` (or `Event`) | | Comma-separated game sound events played as further variants (see below). |
 | `Bus` | `world` | The mixer bus, which decides the volume slider and whether the sound pauses with the game. An alias below, or a raw FMOD path starting with `bus:/`. |
 | `Space` | `3d` | `3d` plays at a position in the world; `2d` plays flat, like interface sounds. |
 | `Volume` | `1` | 0 to 4. |
@@ -80,6 +81,20 @@ Bus aliases:
 | `music` | `bus:/music` | The soundtrack, under the music slider. |
 
 The `dieg` buses pause with the game and sit under the Sound volume slider.
+
+### Playing the game's own sounds
+
+`Events` plays the game's sound events as the sound's variants, so a pack can reuse any game sound, pitched or louder, without shipping audio. A sound can mix files and events, and each play picks one of them. Volume, pitch, their variations, `Space`, `MaxInstances` and `Cooldown` apply to events as to files. An event keeps its own bus, distances and looping, so `Bus`, `MinDistance`, `MaxDistance`, `Loop` and `Stream` affect only files:
+
+```ini
+[my_mod_tick]
+Events = event:/ui/skiptime/ui_skiptime_turn   ; the clock tick of skipping time
+Space = 2d
+Pitch = 0.85                                   ; lower
+Volume = 4
+```
+
+Find event paths with the `EventLog` debug option below. The framework loads each event's audio when it reads the pack, so the first play starts at once. The log warns about a path that none of the game's loaded banks holds.
 
 ### Replacing the game's sounds
 
