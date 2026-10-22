@@ -50,6 +50,9 @@ namespace SoundFramework::fmod
     // FMOD_STUDIO_PLAYBACK_STATE.
     inline constexpr int PLAYBACK_STOPPED = 2;
 
+    // FMOD_STUDIO_STOP_MODE.
+    inline constexpr int STOP_IMMEDIATE = 1;
+
     // FMOD_MODE bits.
     inline constexpr std::uint32_t MODE_LOOP_OFF = 0x00000001;
     inline constexpr std::uint32_t MODE_LOOP_NORMAL = 0x00000002;
@@ -98,16 +101,27 @@ namespace SoundFramework::fmod
         Result(__stdcall *studio_get_core_system)(void *system, void **core) = nullptr;
         Result(__stdcall *studio_get_bus)(void *system, const char *path, void **bus) = nullptr;
         Result(__stdcall *studio_lookup_id)(void *system, const char *path, Guid *id) = nullptr;
+        Result(__stdcall *studio_get_event)(void *system, const char *path, void **description) = nullptr;
+        Result(__stdcall *studio_get_bank_count)(void *system, int *count) = nullptr;
         Result(__stdcall *bus_lock_channel_group)(void *bus) = nullptr;
         Result(__stdcall *bus_unlock_channel_group)(void *bus) = nullptr;
         Result(__stdcall *bus_get_channel_group)(void *bus, void **group) = nullptr;
         Result(__stdcall *event_get_description)(void *instance, void **description) = nullptr;
         Result(__stdcall *event_get_3d_attributes)(void *instance, Attributes3d *attributes) = nullptr;
+        Result(__stdcall *event_set_3d_attributes)(void *instance, const Attributes3d *attributes) = nullptr;
         Result(__stdcall *event_set_volume)(void *instance, float volume) = nullptr;
+        Result(__stdcall *event_set_pitch)(void *instance, float pitch) = nullptr;
         Result(__stdcall *event_get_playback_state)(void *instance, int *state) = nullptr;
         Result(__stdcall *event_get_user_data)(void *instance, void **user_data) = nullptr;
+        Result(__stdcall *event_start)(void *instance) = nullptr;
+        Result(__stdcall *event_stop)(void *instance, int mode) = nullptr;
+        Result(__stdcall *event_release)(void *instance) = nullptr;
         Result(__stdcall *description_get_path)(void *description, char *path, int size, int *retrieved) = nullptr;
         Result(__stdcall *description_get_id)(void *description, Guid *id) = nullptr;
+        Result(__stdcall *description_create_instance)(void *description, void **instance) = nullptr;
+        Result(__stdcall *description_is_oneshot)(void *description, int *oneshot) = nullptr;
+        Result(__stdcall *description_load_sample_data)(void *description) = nullptr;
+        Result(__stdcall *description_unload_sample_data)(void *description) = nullptr;
         // fmod.dll
         Result(__stdcall *create_sound)(void *core, const char *name, std::uint32_t mode, void *info, void **sound) =
             nullptr;

@@ -17,7 +17,7 @@ Questions, packs to share or ideas? Join the [KCD Modding Community](https://dis
 
 ## Features
 
-- **Sounds:** play files from a pack on the game's buses (world, voice, music and others), in 3D or flat, with volume and pitch variation, loops, cooldowns and instance limits
+- **Sounds:** play files from a pack on the game's buses (world, voice, music and others), or the game's own sound events at a new pitch and volume, in 3D or flat, with volume and pitch variation, loops, cooldowns and instance limits
 - **Sound replacement:** play a pack sound in place of a game sound event or on top of it, everywhere or for chosen entities, at its start or at a later moment such as a bow's release
 - **Voice lines:** NPCs speak a pack's lines through the game's own speech system, with a bottom subtitle and speaker name, a chat bubble, or both
 - **Voice replacement:** play a pack line instead of a game voice line, by exact key or by pattern

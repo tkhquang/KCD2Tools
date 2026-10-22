@@ -191,7 +191,7 @@ namespace SoundFramework::packs
                 for (SoundDef &sound : parsed.sounds)
                 {
                     keep_existing_files(sound, load.problems);
-                    if (sound.files.empty())
+                    if (sound.files.empty() && sound.events.empty())
                     {
                         load.problems.push_back(
                             std::format("{}: [{}] skipped: none of its files exist", sound.origin, sound.name)
