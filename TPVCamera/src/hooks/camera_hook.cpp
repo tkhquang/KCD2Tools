@@ -99,7 +99,7 @@ namespace TPVCamera
     using FrustumBuildFunc = uintptr_t(__fastcall *)(uintptr_t camera);
 
     // Where the occluder fade aims the hip sightline: this far above the feet when the body is known, else this far
-    // below the eye. The head and a chest point between the two complete the three sightlines.
+    // below the eye. The head and a chest point between the two complete the spine sightlines (fade_sightlines()).
     constexpr float k_fade_hip_height = 0.9f;
     constexpr float k_fade_hip_drop = 0.75f;
     // The camera collision's and the occluder fade's carry-over between frames (see camera/collision.hpp). Main thread
@@ -1379,6 +1379,8 @@ namespace TPVCamera
             .head = rig.anchor_base,
             .hip = rig.body_valid ? rig.anchor_origin + world_up * k_fade_hip_height
                                   : rig.anchor_base - world_up * k_fade_hip_drop,
+            .fade_body_margin = std::clamp(cfg.occluder_fade_body_margin.load(std::memory_order_relaxed), 0.0f, 1.0f),
+            .fade_body_width = std::clamp(cfg.occluder_fade_body_width.load(std::memory_order_relaxed), 0.0f, 1.0f),
             .delta_time = delta_time,
             .fade_on = fade_on,
             .wall_class_changed = wall_class_changed,

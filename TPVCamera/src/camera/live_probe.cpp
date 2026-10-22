@@ -45,10 +45,10 @@ namespace TPVCamera
         return TPVCamera::spans_tube(node, tube);
     }
 
-    int LiveProbe::occluders_on_sightlines(const Sightline *lines, int n_lines, std::span<void *const> skip,
-                                           SightlineOccluder *out, int cap)
+    int LiveProbe::occluders_on_sightlines(const Sightline *lines, int n_lines, float end_margin,
+                                           std::span<void *const> skip, SightlineOccluder *out, int cap)
     {
-        return TPVCamera::occluders_on_sightlines(lines, n_lines, skip, out, cap);
+        return TPVCamera::occluders_on_sightlines(lines, n_lines, end_margin, skip, out, cap);
     }
 
     void LiveProbe::prefetch_meshes(const Sightline *lines, int n_lines)

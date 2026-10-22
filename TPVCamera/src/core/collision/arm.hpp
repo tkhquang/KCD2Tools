@@ -13,11 +13,11 @@
  *          NPCs never stop the camera. The follow distance is carried in CollisionState::arm. With nothing in the way
  *          it follows the desired distance on the same frame, so a zoom stays on the view axis.
  *
- *          The fade keeps the head, the chest and the hips visible: the props whose mesh crosses a sightline from the
- *          camera to those points fade, along with the ones the arm steps past. A tree, a bush or a grass patch never
- *          fades whole for hiding the character (the tree see-through opens a window in it instead); only a prop or a
- *          bush the camera is buried in fades, and it starts at once. A building corner that hides part of the
- *          character is left as it is.
+ *          The fade keeps the head, the chest, the hips and both sides of the chest visible: the props whose mesh
+ *          crosses a sightline from the camera to those points (fade_sightlines()) fade, along with the ones the arm
+ *          steps past. A tree, a bush or a grass patch never fades whole for hiding the character (the tree
+ *          see-through opens a window in it instead); only a prop or a bush the camera is buried in fades, and it
+ *          starts at once. A building corner that hides part of the character is left as it is.
  *
  *          Engine-free (no Windows or DetourModKit header): the world is asked through a WorldProbe, the trace lines
  *          go through a CollisionTrace, and the INI and preset values come in as CollisionParams, so a recorded frame
@@ -168,6 +168,10 @@ namespace TPVCamera
         // The fade's sightline targets: the head and the hips. The chest lies halfway between them.
         Vector3 head{};
         Vector3 hip{};
+        /// OccluderFadeBodyMargin: the meters at the character's end of each sightline where a crossing does not count.
+        float fade_body_margin = 0.0f;
+        /// OccluderFadeBodyWidth: the side sightlines' distance left and right of the chest (fade_sightlines()).
+        float fade_body_width = 0.0f;
         float delta_time = 0.0f;
         bool fade_on = false;            // UseOccluderFade with the dissolve hook available
         bool wall_class_changed = false; // advance_fence_classification() changed a class this frame
@@ -259,6 +263,19 @@ namespace TPVCamera
     [[nodiscard]] float resolve_shoulder_collision(CollisionState &state, const ShoulderInput &in,
                                                    const CollisionParams &params, WorldProbe &probe,
                                                    CollisionTrace &trace);
+
+    /**
+     * @brief Builds the fade's sightlines from @p from to the character.
+     * @details The lines end at the head, at the chest halfway between @p head and @p hip, and at the hips, then at a
+     *          point @p body_width left and right of the chest across the view. That offset lies in the ground plane,
+     *          so a prop that hides only a shoulder or a side still crosses a line at any camera pitch. The side lines
+     *          are left out when @p body_width is 0, or when @p from is straight above or below the chest and the view
+     *          has no horizontal direction.
+     * @return The number of lines written to @p out: 3 without the side lines, else
+     *         Constants::OCCLUDER_FADE_SIGHTLINES.
+     */
+    [[nodiscard]] int fade_sightlines(const Vector3 &from, const Vector3 &head, const Vector3 &hip, float body_width,
+                                      std::span<Sightline, Constants::OCCLUDER_FADE_SIGHTLINES> out) noexcept;
 
     /**
      * @brief Runs the camera collision along the arm and refreshes the fade set.

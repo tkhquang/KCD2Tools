@@ -34,6 +34,12 @@ namespace TPVCamera
         constexpr int k_walk_trace_max = 8;
         // The most probe lines classify_probe_hit() tests a structure's drawn mesh on: the lens's nine rays.
         constexpr std::size_t k_probe_lines_max = 9;
+        /// The fade's sightlines down the character's middle: the head, the chest and the hips.
+        constexpr int k_fade_spine_sightlines = 3;
+        /// Below this horizontal length (meters) the view to the chest has no direction to put the side lines across.
+        constexpr float k_fade_side_min_across = 1e-4f;
+        static_assert(Constants::OCCLUDER_FADE_SIGHTLINES == k_fade_spine_sightlines + 2,
+                      "fade_sightlines() writes the spine lines, then one side line each way");
 
         /** @brief How one drain of the collision hold left it. */
         enum class HoldDrain : std::uint8_t
@@ -80,10 +86,10 @@ namespace TPVCamera
         }
 
         /**
-         * @brief Adds the props on a sightline from @p from to the head, the chest and the hips, and the props and
-         *        bushes @p from is buried in, to the fade set.
+         * @brief Adds the props on the fade's sightlines from @p from (fade_sightlines()), and the props and bushes
+         *        @p from is buried in, to the fade set.
          * @details The sightline set is re-cast only when it is older than k_fade_sightline_period or @p from moved
-         *          k_fade_sightline_move since it was cast; otherwise the cached set is added again.
+         *          k_fade_sightline_move since it was cast. Otherwise the cached set is added again.
          */
         void add_sightline_nodes(CollisionState &state, const Vector3 &from, const CollisionInput &in,
                                  WorldProbe &probe)
@@ -93,8 +99,8 @@ namespace TPVCamera
             {
                 state.sight_age = 0.0f;
                 state.sight_cam = from;
-                const Vector3 chest = (in.head + in.hip) * 0.5f;
-                const Sightline lines[3] = {{from, in.head}, {from, chest}, {from, in.hip}};
+                std::array<Sightline, Constants::OCCLUDER_FADE_SIGHTLINES> lines{};
+                const int n_lines = fade_sightlines(from, in.head, in.hip, in.fade_body_width, lines);
                 // The props the arm found the camera inside already fade at once; their meshes are not read again.
                 std::array<void *, Constants::OCCLUDER_FADE_MAX_NODES> inside{};
                 std::size_t n_inside = 0;
@@ -106,9 +112,9 @@ namespace TPVCamera
                         inside[n_inside++] = e.node;
                     }
                 }
-                state.sight_count =
-                    probe.occluders_on_sightlines(lines, 3, std::span<void *const>(inside.data(), n_inside),
-                                                  state.sight_nodes.data(), Constants::OCCLUDER_FADE_MAX_NODES);
+                state.sight_count = probe.occluders_on_sightlines(
+                    lines.data(), n_lines, in.fade_body_margin, std::span<void *const>(inside.data(), n_inside),
+                    state.sight_nodes.data(), Constants::OCCLUDER_FADE_MAX_NODES);
             }
             for (int i = 0; i < state.sight_count; ++i)
             {
@@ -555,6 +561,28 @@ namespace TPVCamera
                            stop.has_value() ? stop->cls : Rules::Behaviour::Collide, lateral);
         }
     } // namespace
+
+    int fade_sightlines(const Vector3 &from, const Vector3 &head, const Vector3 &hip, float body_width,
+                        std::span<Sightline, Constants::OCCLUDER_FADE_SIGHTLINES> out) noexcept
+    {
+        const Vector3 chest = (head + hip) * 0.5f;
+        out[0] = {from, head};
+        out[1] = {from, chest};
+        out[2] = {from, hip};
+        // The view's horizontal direction to the chest turned a quarter turn about world up: across the view in the
+        // ground plane, whatever the camera pitch.
+        const Vector3 toward = chest - from;
+        const Vector3 across{-toward.y, toward.x, 0.0f};
+        const float across_length = across.magnitude();
+        if (!(body_width > 0.0f) || across_length < k_fade_side_min_across)
+        {
+            return k_fade_spine_sightlines;
+        }
+        const Vector3 side = across * (body_width / across_length);
+        out[3] = {from, chest + side};
+        out[4] = {from, chest - side};
+        return Constants::OCCLUDER_FADE_SIGHTLINES;
+    }
 
     ProbeVerdict classify_probe_hit(WorldProbe &probe, QueryLedger::Tag tag, const RayHit &hit, float along,
                                     std::span<const Vector3> line_starts, const Vector3 &dir, void **node,

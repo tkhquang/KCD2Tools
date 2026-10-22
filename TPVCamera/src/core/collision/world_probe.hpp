@@ -55,8 +55,11 @@ namespace TPVCamera
         /** @brief spans_tube(): whether @p node draws across the five-line tube @p tube. */
         [[nodiscard]] virtual bool spans_tube(void *node, const Sightline *tube) = 0;
 
-        /** @brief occluders_on_sightlines(): the props crossing @p lines, and those the camera is buried in. */
-        [[nodiscard]] virtual int occluders_on_sightlines(const Sightline *lines, int n_lines,
+        /**
+         * @brief occluders_on_sightlines(): the props crossing @p lines, and those the camera is buried in. Crossings
+         *        within @p end_margin meters of a line's end (the character) do not count.
+         */
+        [[nodiscard]] virtual int occluders_on_sightlines(const Sightline *lines, int n_lines, float end_margin,
                                                           std::span<void *const> skip, SightlineOccluder *out,
                                                           int cap) = 0;
 

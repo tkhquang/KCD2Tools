@@ -203,17 +203,19 @@ namespace TPVCamera
      *          trees_in_window), so a leaf on a sightline never fades a whole plant. A prop is tested only when a line
      *          passes through its world box; then each line is moved into the mesh's local space and tested against
      *          its triangles (the root render mesh, or each sub-mesh of a compound statobj). Crossings within
-     *          OCCLUDER_SIGHTLINE_END_MARGIN of a line's end (the character) do not count. A crossed prop is collected
-     *          only where it is wide: a tube of 0.15 m half-width around the crossed line must meet it both across and
-     *          up and down, so a post or a rail thinner than the tube stays. A prop brush whose mesh cannot be read
+     *          @p end_margin of a line's end (the character) do not count. A crossed prop is collected only where it is
+     *          wide: a tube of 0.15 m half-width around the crossed line must meet it both across and up and down, so a
+     *          post or a rail thinner than the tube stays. A prop brush whose mesh cannot be read
      *          counts on its box alone; an entity counts only on an exact crossing, and not at all when its box comes
      *          within 0.6 m of a line's end (what the character carries or stands at). A prop or a bush (a plant
      *          outside the trees folder) placed as a brush or vegetation that the camera is buried in is collected
      *          too, marked buried, whether or not it hides the character: its box holds the camera and its mesh meets
      *          at least five of six 2 m probes along the world axes. What only touches the lens is left to the near
      *          clip plane, so a branch at the lens never fades a whole tree. Main thread only.
-     * @param lines Up to four sightlines, each from the camera.
+     * @param lines The sightlines, each from the camera. Only the first Constants::OCCLUDER_FADE_SIGHTLINES are read.
      * @param n_lines Count of @p lines.
+     * @param end_margin Meters at each line's character end where a crossing does not count (OccluderFadeBodyMargin):
+     *        whatever the character holds, wears or stands in is not between him and the camera.
      * @param skip Nodes the caller already fades at once because the camera is inside their physics. Their meshes are
      *        not read: from inside, every sightline and probe meets nearly every triangle, and the answer would not
      *        change how they fade.
@@ -221,8 +223,8 @@ namespace TPVCamera
      * @param cap Size of @p out.
      * @return The number of nodes written.
      */
-    [[nodiscard]] int occluders_on_sightlines(const Sightline *lines, int n_lines, std::span<void *const> skip,
-                                              SightlineOccluder *out, int cap) noexcept;
+    [[nodiscard]] int occluders_on_sightlines(const Sightline *lines, int n_lines, float end_margin,
+                                              std::span<void *const> skip, SightlineOccluder *out, int cap) noexcept;
 
     /**
      * @brief Collects the scanned trees, bushes and grass patches whose world box meets the solid between the quads

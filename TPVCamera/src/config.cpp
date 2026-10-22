@@ -176,10 +176,13 @@ namespace TPVCamera
         collision.bind<float>("CollisionPullInSeconds", "Collision Pull In Seconds", s.collision_pull_in_seconds,
                               0.12f);
         collision.bind<bool>("UseOccluderFade", "Use Occluder Fade", s.use_occluder_fade, true);
-        collision.bind<float>("OccluderFadeMinOpacity", "Occluder Fade Min Opacity", s.occluder_fade_min_opacity, 0.2f);
+        collision.bind<float>("OccluderFadeMinOpacity", "Occluder Fade Min Opacity", s.occluder_fade_min_opacity, 0.3f);
+        collision.bind<float>("OccluderFadeBodyWidth", "Occluder Fade Body Width", s.occluder_fade_body_width, 0.25f);
+        collision.bind<float>("OccluderFadeBodyMargin", "Occluder Fade Body Margin", s.occluder_fade_body_margin,
+                              0.15f);
         collision.bind<bool>("UseTreeSeeThrough", "Use Tree See Through", s.use_tree_see_through, true);
         collision.bind<float>("TreeSeeThroughMinOpacity", "Tree See Through Min Opacity",
-                              s.tree_see_through_min_opacity, 0.2f);
+                              s.tree_see_through_min_opacity, 0.3f);
         collision.bind<float>("TreeSeeThroughSize", "Tree See Through Size", s.tree_see_through_size, 1.0f);
         collision.bind<float>("TreeSeeThroughStartHeight", "Tree See Through Start Height",
                               s.tree_see_through_start_height, 0.5f);
@@ -188,9 +191,9 @@ namespace TPVCamera
         collision.bind<bool>("UseLensCut", "Use Lens Cut", s.use_lens_cut, true);
         collision.bind<float>("HeadClearance", "Head Clearance", s.head_clearance, 0.35f);
         collision.bind<bool>("CloseUpFade", "Close Up Fade", s.close_up_fade, true);
-        collision.bind<float>("CloseUpFadeMinOpacity", "Close Up Fade Min Opacity", s.close_up_fade_min_opacity, 0.25f);
+        collision.bind<float>("CloseUpFadeMinOpacity", "Close Up Fade Min Opacity", s.close_up_fade_min_opacity, 0.3f);
         collision.bind<bool>("NpcLensFade", "NPC Lens Fade", s.npc_lens_fade, false);
-        collision.bind<float>("NpcLensFadeMinOpacity", "NPC Lens Fade Min Opacity", s.npc_lens_fade_min_opacity, 0.25f);
+        collision.bind<float>("NpcLensFadeMinOpacity", "NPC Lens Fade Min Opacity", s.npc_lens_fade_min_opacity, 0.3f);
 
         // State-driven camera policy. The *State values are comma-separated GameState token lists
         // (Menu, Overlay, Combat, Mount, Dialogue, Minigame and each minigame's own token, see the INI), parsed into
@@ -201,7 +204,7 @@ namespace TPVCamera
         state_behavior.bind<bool>("EnableStateBehavior", "Enable State Behavior", s.enable_state_behavior, true);
         state_behavior.bind_parsed(
             "ForcedFPVState", "Forced FPV State", s.forced_fpv_mask, parse_state_mask,
-            "Cart,Dice,Reading,Alchemy,Blacksmithing,ForgeBuilder,Sharpening,StoneThrowing,BattleArchery");
+            "Aiming,Cart,Dice,Reading,Alchemy,Blacksmithing,ForgeBuilder,Sharpening,StoneThrowing,BattleArchery");
         // The defaults match the shipped INI, so a missing key behaves like the file users get.
         state_behavior.bind_parsed("ForcedTPVState", "Forced TPV State", s.forced_tpv_mask, parse_state_mask, "Mount");
         state_behavior.bind_parsed("OrbitExcludeState", "Orbit Exclude State", s.orbit_exclude_mask, parse_state_mask,

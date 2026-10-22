@@ -36,7 +36,7 @@
 namespace TPVCamera::ProbeRecord
 {
     inline constexpr std::uint32_t k_magic = 0x52565054u; // "TPVR"
-    inline constexpr std::uint32_t k_version = 4;
+    inline constexpr std::uint32_t k_version = 5;
 
     /** @brief The bytes of the rig's carry-over in a recording (core/rig/rig_record.cpp). */
     [[nodiscard]] std::uint32_t rig_carry_bytes() noexcept;
@@ -174,8 +174,9 @@ namespace TPVCamera::ProbeRecord
         [[nodiscard]] float structure_on_arm(QueryLedger::Tag tag, const Sightline *lines, int n_lines, int min_lines,
                                              float max_fraction, void **node_out, bool trace) override;
         [[nodiscard]] bool spans_tube(void *node, const Sightline *tube) override;
-        [[nodiscard]] int occluders_on_sightlines(const Sightline *lines, int n_lines, std::span<void *const> skip,
-                                                  SightlineOccluder *out, int cap) override;
+        [[nodiscard]] int occluders_on_sightlines(const Sightline *lines, int n_lines, float end_margin,
+                                                  std::span<void *const> skip, SightlineOccluder *out,
+                                                  int cap) override;
         void prefetch_meshes(const Sightline *lines, int n_lines) override;
         [[nodiscard]] bool stopping_node_near(const float *box, float pad) override;
         [[nodiscard]] std::uint64_t now_ms() override;
@@ -209,8 +210,9 @@ namespace TPVCamera::ProbeRecord
         [[nodiscard]] float structure_on_arm(QueryLedger::Tag tag, const Sightline *lines, int n_lines, int min_lines,
                                              float max_fraction, void **node_out, bool trace) override;
         [[nodiscard]] bool spans_tube(void *node, const Sightline *tube) override;
-        [[nodiscard]] int occluders_on_sightlines(const Sightline *lines, int n_lines, std::span<void *const> skip,
-                                                  SightlineOccluder *out, int cap) override;
+        [[nodiscard]] int occluders_on_sightlines(const Sightline *lines, int n_lines, float end_margin,
+                                                  std::span<void *const> skip, SightlineOccluder *out,
+                                                  int cap) override;
         void prefetch_meshes(const Sightline *lines, int n_lines) override;
         [[nodiscard]] bool stopping_node_near(const float *box, float pad) override;
         [[nodiscard]] std::uint64_t now_ms() override;

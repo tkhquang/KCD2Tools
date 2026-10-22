@@ -109,12 +109,14 @@
 #     objects/manmade/structures/municipal/law_and_order/            objects/manmade/ = collide mesh
 #     objects/manmade/structures/industrial/hay/                     objects/manmade/ = collide mesh
 #     objects/manmade/vehicles/wagons/                               objects/manmade/vehicles/ = fade
+#     objects/manmade/common_furniture/shelves/                      objects/manmade/common_furniture/ = fade
 #     objects/manmade/structures/scafolding/                         objects/manmade/ = collide mesh
 #     objects/manmade/structures/logistical/fences/                  objects/manmade/ = collide mesh
 #     objects/manmade/structures/logistical/gate/                    objects/manmade/ = collide mesh
 #     objects/manmade/structures/living/tents/                       objects/manmade/ = collide mesh
 #     objects/manmade/structures/logistical/grandstands/             objects/manmade/ = collide mesh
 #     objects/manmade/task_specific_props/metal_industry/mining/     objects/manmade/task_specific_props/ = fade
+#     objects/manmade/task_specific_props/metal_industry/silver/     objects/manmade/task_specific_props/ = fade
 #     objects/manmade/task_specific_props/wood_industry/loggingcamp/ objects/manmade/task_specific_props/ = fade
 #     objects/manmade/task_specific_props/household/firewood/        objects/manmade/task_specific_props/ = fade
 #     objects/manmade/task_specific_props/construction/              objects/manmade/task_specific_props/ = fade
@@ -227,10 +229,52 @@ objects/natural/special/m01_fake_terrain/   = collide  # a far terrain mesh file
 # ---- Furniture, decorations, lamps, tools, ladders -----------------------------------------------------------------
 
 objects/manmade/common_furniture/           = fade
+objects/manmade/common_furniture/platforms/ = collide mesh  # plank decks, also stood upright as plank walls (sheds)
 objects/manmade/common_decorations/         = fade     # (ground_deco/ is ground, below)
 objects/manmade/common_illumination/        = fade
 objects/manmade/common_tools/               = fade
 objects/manmade/common_fixtures/ladders/    = fade     # other fixtures (doors, windows, chimneys, stairs) collide
+
+# objects/manmade/common_furniture/shelves/: shelves and bookshelves taller than a person (1.8 m or more) stand
+# against room walls, so they stop the camera like the wall behind them. Lower and wall-hung shelves fade. Every
+# model has its own line, and a model not listed here gets objects/manmade/common_furniture/ = fade.
+objects/manmade/common_furniture/shelves/bookshelf_fancy_a.cgf          = collide mesh  # bookshelf, 2.70x0.90x2.91 m
+objects/manmade/common_furniture/shelves/bookshelf_fancy_b.cgf          = collide mesh  # bookshelf, 2.70x1.34x2.91 m
+objects/manmade/common_furniture/shelves/bookshelf_fancy_c.cgf          = collide mesh  # bookshelf, 3.90x1.13x2.91 m
+objects/manmade/common_furniture/shelves/bookshelf_new.cgf              = collide mesh  # bookshelf, 2.58x0.70x2.38 m
+objects/manmade/common_furniture/shelves/bookshelf_new_closed.cgf       = collide mesh  # bookshelf, 2.58x0.66x2.38 m
+objects/manmade/common_furniture/shelves/bookshelf_rustic_a.cgf         = collide mesh  # bookshelf, 2.06x0.67x2.52 m
+objects/manmade/common_furniture/shelves/shelf_fancy_a.cgf              = fade          # shelf, 1.24x0.34x0.99 m
+objects/manmade/common_furniture/shelves/shelf_fancy_b.cgf              = fade          # shelf, 1.24x0.34x1.75 m
+objects/manmade/common_furniture/shelves/shelf_fancy_d.cgf              = collide mesh  # shelf, 1.63x0.72x2.50 m
+objects/manmade/common_furniture/shelves/shelf_fancy_e.cgf              = fade          # shelf, 1.31x0.38x1.62 m
+objects/manmade/common_furniture/shelves/shelf_fancy_f.cgf              = collide mesh  # shelf, 1.47x0.32x2.86 m
+objects/manmade/common_furniture/shelves/shelf_fancy_g.cgf              = collide mesh  # shelf, 2.26x0.56x3.03 m
+objects/manmade/common_furniture/shelves/shelf_royal_a.cgf              = fade          # shelf, 1.07x0.47x1.30 m
+objects/manmade/common_furniture/shelves/shelf_royal_b.cgf              = collide mesh  # shelf, 0.64x0.34x2.00 m
+objects/manmade/common_furniture/shelves/shelf_rustic_a.cgf             = collide mesh  # shelf, 2.06x0.55x2.65 m
+objects/manmade/common_furniture/shelves/shelf_rustic_a2.cgf            = collide mesh  # shelf, 2.06x0.55x2.65 m
+objects/manmade/common_furniture/shelves/shelf_rustic_b.cgf             = collide mesh  # shelf, 1.15x0.52x1.84 m
+objects/manmade/common_furniture/shelves/shelf_rustic_c.cgf             = collide mesh  # shelf, 2.06x0.73x2.64 m
+objects/manmade/common_furniture/shelves/shelf_rustic_c2.cgf            = collide mesh  # shelf, 2.06x0.69x2.64 m
+objects/manmade/common_furniture/shelves/shelf_rustic_c3.cgf            = collide mesh  # shelf, 2.06x0.73x2.64 m
+objects/manmade/common_furniture/shelves/shelf_rustic_d.cgf             = collide mesh  # shelf, 2.21x0.29x2.20 m
+objects/manmade/common_furniture/shelves/shelf_rustic_e.cgf             = collide mesh  # shelf, 1.55x0.29x2.20 m
+objects/manmade/common_furniture/shelves/shelf_rustic_f.cgf             = collide mesh  # shelf, 1.49x0.36x1.91 m
+objects/manmade/common_furniture/shelves/shelf_rustic_g.cgf             = fade          # shelf, 1.01x0.52x0.96 m
+objects/manmade/common_furniture/shelves/shelf_shabby_a.cgf             = collide mesh  # shelf, 2.04x0.47x1.95 m
+objects/manmade/common_furniture/shelves/shelf_shabby_b.cgf             = collide mesh  # shelf, 2.01x0.54x1.89 m
+objects/manmade/common_furniture/shelves/shelf_shabby_c.cgf             = collide mesh  # shelf, 2.88x1.29x2.03 m
+objects/manmade/common_furniture/shelves/shelf_shabby_d.cgf             = collide mesh  # shelf, 2.70x1.02x2.13 m
+objects/manmade/common_furniture/shelves/shelf_shabby_e.cgf             = collide mesh  # shelf, 2.66x1.02x2.08 m
+objects/manmade/common_furniture/shelves/shelf_shabby_full_a.cgf        = collide mesh  # shelf, 2.01x0.61x1.98 m
+objects/manmade/common_furniture/shelves/shelf_wall_corner_rustic_a.cgf = fade          # wall shelf, 1.44x0.23x1.02 m
+objects/manmade/common_furniture/shelves/shelf_wall_corner_rustic_b.cgf = fade          # wall shelf, 1.02x0.19x0.86 m
+objects/manmade/common_furniture/shelves/shelf_wall_fancy_c.cgf         = fade          # wall shelf, 1.20x0.20x0.25 m
+objects/manmade/common_furniture/shelves/shelf_wall_rustic_a.cgf        = fade          # wall shelf, 1.09x0.32x1.07 m
+objects/manmade/common_furniture/shelves/shelf_wall_rustic_b.cgf        = fade          # wall shelf, 1.53x0.42x1.54 m
+objects/manmade/common_furniture/shelves/shelf_wall_rustic_d.cgf        = fade          # wall shelf, 1.09x0.20x0.28 m
+objects/manmade/common_furniture/shelves/shelf_wall_rustic_f.cgf        = fade          # wall shelf, 0.97x0.31x0.38 m
 
 
 # ---- Ground: stones, ground decoration, water decoration -----------------------------------------------------------
@@ -246,10 +290,11 @@ objects/manmade/common_decorations/ground_deco/     = collide   # floor stones, 
 
 
 # ---- Wagons and carts ----------------------------------------------------------------------------------------------
-# Open carts and wagons fade. The covered wagons, the noble coach and the wagons loaded high with hay stop the camera
-# like a wall where they stand as level scenery (only=brush). The same bodies on a drivable cart (an entity) fade
-# through the vehicles/ line. To make them all fade too, write objects/manmade/vehicles/wagons/ = fade in
-# KCD2_TPVCamera_rules_User.txt; for one of them, its model's line, as in
+# Open carts fade. The covered wagons, the noble coach and the wagons loaded high with hay stop the camera like a wall
+# where they stand as level scenery (only=brush). The open wagons and wrecks are measured in game (if-wall): sides
+# solid at the upper body stop the camera, ladder racks and low sides fade. The same bodies on a drivable cart (an
+# entity) fade through the vehicles/ line. To make them all fade too, write objects/manmade/vehicles/wagons/ = fade
+# in KCD2_TPVCamera_rules_User.txt; for one of them, its model's line, as in
 # objects/manmade/vehicles/wagons/wagon_c_hay.cgf = fade. To make the bodies on drivable carts stop the camera too,
 # write the model's line there with = collide mesh and no only=: they then stop fading, and the camera may stop at
 # their drawn body.
@@ -258,87 +303,91 @@ objects/manmade/vehicles/                   = fade     # carts, barrows, rafts, 
 
 # objects/manmade/vehicles/wagons/: covered and hay-laden wagons and the noble coach stand among open wagons, axles
 # and wheels. Every model has its own line; a model not listed here gets objects/manmade/vehicles/ = fade.
-objects/manmade/vehicles/wagons/broken_wagon_axle_a.cgf         = fade                     # axle, 1.65x4.67x0.26 m
-objects/manmade/vehicles/wagons/broken_wagon_seat.cgf           = fade                     # broken wagon part, 1.55x1.33x0.46 m
-objects/manmade/vehicles/wagons/broken_wagon_side_a.cgf         = fade                     # broken wagon part, 1.46x4.56x0.30 m
-objects/manmade/vehicles/wagons/broken_wagon_side_b.cgf         = fade                     # broken wagon part, 1.33x4.59x0.18 m
-objects/manmade/vehicles/wagons/carriage_noble01.cgf            = collide mesh only=brush  # noble coach, 6.83x2.01x3.27 m
-objects/manmade/vehicles/wagons/wagon_a.cgf                     = fade                     # open wagon, 1.94x4.63x1.81 m
-objects/manmade/vehicles/wagons/wagon_a_axel.cgf                = fade                     # axle, 0.24x3.62x0.53 m
-objects/manmade/vehicles/wagons/wagon_a_body.cgf                = fade                     # open wagon body, 1.67x3.65x1.30 m
-objects/manmade/vehicles/wagons/wagon_a_covered.cgf             = collide mesh only=brush  # covered wagon, 2.20x4.75x2.62 m
-objects/manmade/vehicles/wagons/wagon_a_covered_axel.cgf        = fade                     # axle, 0.21x3.21x0.44 m
-objects/manmade/vehicles/wagons/wagon_a_covered_body.cgf        = collide mesh only=brush  # covered wagon body, 1.77x3.65x2.38 m
-objects/manmade/vehicles/wagons/wagon_b.cdf                     = fade                     # wagon character (drivable cart)
-objects/manmade/vehicles/wagons/wagon_b.cgf                     = fade                     # open wagon, 1.87x4.11x1.82 m
-objects/manmade/vehicles/wagons/wagon_b_axel.cgf                = fade                     # axle, 1.65x4.58x1.10 m
-objects/manmade/vehicles/wagons/wagon_b_axel_lowered.cgf        = fade                     # axle, 1.65x4.65x0.70 m
-objects/manmade/vehicles/wagons/wagon_b_bench.cdf               = fade                     # wagon character (drivable cart)
-objects/manmade/vehicles/wagons/wagon_b_bench.cgf               = fade                     # open wagon, 1.87x4.11x1.82 m
-objects/manmade/vehicles/wagons/wagon_b_bench_axel.cgf          = fade                     # axle, 0.21x3.22x0.39 m
-objects/manmade/vehicles/wagons/wagon_b_bench_noshaft.cdf       = fade                     # wagon character (drivable cart)
-objects/manmade/vehicles/wagons/wagon_b_bench_only.cgf          = fade                     # wagon bench, 1.32x2.27x0.09 m
-objects/manmade/vehicles/wagons/wagon_b_body.cgf                = fade                     # open wagon body, 1.72x3.91x1.42 m
-objects/manmade/vehicles/wagons/wagon_b_body_empty.cgf          = fade                     # open wagon body, 1.72x3.91x1.42 m
-objects/manmade/vehicles/wagons/wagon_b_broken.cgf              = fade                     # broken open wagon, 2.93x7.56x2.42 m
-objects/manmade/vehicles/wagons/wagon_b_broken_cover.cgf        = collide mesh only=brush  # covered wagon body, broken, 1.66x3.50x1.53 m
-objects/manmade/vehicles/wagons/wagon_b_covered.cgf             = collide mesh only=brush  # covered wagon, 1.99x4.11x2.92 m
-objects/manmade/vehicles/wagons/wagon_b_covered_axel.cgf        = fade                     # axle, 0.21x3.22x0.39 m
-objects/manmade/vehicles/wagons/wagon_b_covered_body.cgf        = collide mesh only=brush  # covered wagon body, 1.91x3.91x2.52 m
-objects/manmade/vehicles/wagons/wagon_b_covered_wheel_left.cgf  = fade                     # wheel, 0.35x1.21x1.21 m
-objects/manmade/vehicles/wagons/wagon_b_covered_wheel_right.cgf = fade                     # wheel, 0.35x1.21x1.21 m
-objects/manmade/vehicles/wagons/wagon_b_wheel_left.cgf          = fade                     # wheel, 0.35x1.21x1.21 m
-objects/manmade/vehicles/wagons/wagon_b_wheel_right.cgf         = fade                     # wheel, 0.35x1.21x1.21 m
-objects/manmade/vehicles/wagons/wagon_c.cgf                     = fade                     # open wagon, 2.02x4.74x1.96 m
-objects/manmade/vehicles/wagons/wagon_c_axel.cgf                = fade                     # axle, 0.12x3.05x0.56 m
-objects/manmade/vehicles/wagons/wagon_c_body.cgf                = fade                     # open wagon body, 1.78x4.17x1.44 m
-objects/manmade/vehicles/wagons/wagon_c_broken.cgf              = fade                     # broken open wagon, 3.98x6.53x3.14 m
-objects/manmade/vehicles/wagons/wagon_c_covered_body.cgf        = collide mesh only=brush  # covered wagon body, 1.81x4.18x2.40 m
-objects/manmade/vehicles/wagons/wagon_c_hay.cgf                 = collide mesh only=brush  # wagon loaded high with hay, 2.71x5.14x3.70 m
-objects/manmade/vehicles/wagons/wagon_c_hay_axel.cgf            = fade                     # axle, 0.97x4.51x0.73 m
-objects/manmade/vehicles/wagons/wagon_c_no_wheel.cgf            = fade                     # open wagon without a wheel, 2.02x4.74x1.96 m
-objects/manmade/vehicles/wagons/wagon_collision_triangle.cgf    = fade                     # collision helper, 0.16x0.25x0.02 m
-objects/manmade/vehicles/wagons/wagon_hay_big.cgf               = collide mesh only=brush  # wagon loaded high with hay, 2.48x3.62x3.24 m
-objects/manmade/vehicles/wagons/wagon_hay_medium.cgf            = collide mesh only=brush  # wagon loaded high with hay, 2.06x3.58x2.55 m
-objects/manmade/vehicles/wagons/wagon_hay_small.cgf             = fade                     # wagon with low hay, 1.49x3.86x1.54 m
-objects/manmade/vehicles/wagons/wagon_kcd2.chr                  = fade                     # wagon character (drivable cart)
-objects/manmade/vehicles/wagons/wagon_wheel_polygonal_left.cgf  = fade                     # wheel, 0.35x1.21x1.21 m
-objects/manmade/vehicles/wagons/wagon_wheel_polygonal_right.cgf = fade                     # wheel, 0.35x1.21x1.21 m
+objects/manmade/vehicles/wagons/broken_wagon_axle_a.cgf         = fade                                  # axle, 1.65x4.67x0.26 m
+objects/manmade/vehicles/wagons/broken_wagon_seat.cgf           = fade                                  # broken wagon part, 1.55x1.33x0.46 m
+objects/manmade/vehicles/wagons/broken_wagon_side_a.cgf         = fade                                  # broken wagon part, 1.46x4.56x0.30 m
+objects/manmade/vehicles/wagons/broken_wagon_side_b.cgf         = fade                                  # broken wagon part, 1.33x4.59x0.18 m
+objects/manmade/vehicles/wagons/carriage_noble01.cgf            = collide mesh only=brush               # noble coach, 6.83x2.01x3.27 m
+objects/manmade/vehicles/wagons/wagon_a.cgf                     = fade if-wall=collide mesh only=brush  # open wagon, 1.94x4.63x1.81 m
+objects/manmade/vehicles/wagons/wagon_a_axel.cgf                = fade                                  # axle, 0.24x3.62x0.53 m
+objects/manmade/vehicles/wagons/wagon_a_body.cgf                = fade if-wall=collide mesh only=brush  # open wagon body, 1.67x3.65x1.30 m
+objects/manmade/vehicles/wagons/wagon_a_covered.cgf             = collide mesh only=brush               # covered wagon, 2.20x4.75x2.62 m
+objects/manmade/vehicles/wagons/wagon_a_covered_axel.cgf        = fade                                  # axle, 0.21x3.21x0.44 m
+objects/manmade/vehicles/wagons/wagon_a_covered_body.cgf        = collide mesh only=brush               # covered wagon body, 1.77x3.65x2.38 m
+objects/manmade/vehicles/wagons/wagon_b.cdf                     = fade                                  # wagon character (drivable cart)
+objects/manmade/vehicles/wagons/wagon_b.cgf                     = fade if-wall=collide mesh only=brush  # open wagon, 1.87x4.11x1.82 m
+objects/manmade/vehicles/wagons/wagon_b_axel.cgf                = fade                                  # axle, 1.65x4.58x1.10 m
+objects/manmade/vehicles/wagons/wagon_b_axel_lowered.cgf        = fade                                  # axle, 1.65x4.65x0.70 m
+objects/manmade/vehicles/wagons/wagon_b_bench.cdf               = fade                                  # wagon character (drivable cart)
+objects/manmade/vehicles/wagons/wagon_b_bench.cgf               = fade if-wall=collide mesh only=brush  # open wagon, 1.87x4.11x1.82 m
+objects/manmade/vehicles/wagons/wagon_b_bench_axel.cgf          = fade                                  # axle, 0.21x3.22x0.39 m
+objects/manmade/vehicles/wagons/wagon_b_bench_noshaft.cdf       = fade                                  # wagon character (drivable cart)
+objects/manmade/vehicles/wagons/wagon_b_bench_only.cgf          = fade                                  # wagon bench, 1.32x2.27x0.09 m
+objects/manmade/vehicles/wagons/wagon_b_body.cgf                = fade if-wall=collide mesh only=brush  # open wagon body, 1.72x3.91x1.42 m
+objects/manmade/vehicles/wagons/wagon_b_body_empty.cgf          = fade if-wall=collide mesh only=brush  # open wagon body, 1.72x3.91x1.42 m
+objects/manmade/vehicles/wagons/wagon_b_broken.cgf              = fade if-wall=collide mesh only=brush  # broken open wagon, 2.93x7.56x2.42 m
+objects/manmade/vehicles/wagons/wagon_b_broken_cover.cgf        = collide mesh only=brush               # covered wagon body, broken, 1.66x3.50x1.53 m
+objects/manmade/vehicles/wagons/wagon_b_covered.cgf             = collide mesh only=brush               # covered wagon, 1.99x4.11x2.92 m
+objects/manmade/vehicles/wagons/wagon_b_covered_axel.cgf        = fade                                  # axle, 0.21x3.22x0.39 m
+objects/manmade/vehicles/wagons/wagon_b_covered_body.cgf        = collide mesh only=brush               # covered wagon body, 1.91x3.91x2.52 m
+objects/manmade/vehicles/wagons/wagon_b_covered_wheel_left.cgf  = fade                                  # wheel, 0.35x1.21x1.21 m
+objects/manmade/vehicles/wagons/wagon_b_covered_wheel_right.cgf = fade                                  # wheel, 0.35x1.21x1.21 m
+objects/manmade/vehicles/wagons/wagon_b_wheel_left.cgf          = fade                                  # wheel, 0.35x1.21x1.21 m
+objects/manmade/vehicles/wagons/wagon_b_wheel_right.cgf         = fade                                  # wheel, 0.35x1.21x1.21 m
+objects/manmade/vehicles/wagons/wagon_c.cgf                     = fade if-wall=collide mesh only=brush  # open wagon, 2.02x4.74x1.96 m
+objects/manmade/vehicles/wagons/wagon_c_axel.cgf                = fade                                  # axle, 0.12x3.05x0.56 m
+objects/manmade/vehicles/wagons/wagon_c_body.cgf                = fade if-wall=collide mesh only=brush  # open wagon body, 1.78x4.17x1.44 m
+objects/manmade/vehicles/wagons/wagon_c_broken.cgf              = fade if-wall=collide mesh only=brush  # broken open wagon, 3.98x6.53x3.14 m
+objects/manmade/vehicles/wagons/wagon_c_covered_body.cgf        = collide mesh only=brush               # covered wagon body, 1.81x4.18x2.40 m
+objects/manmade/vehicles/wagons/wagon_c_hay.cgf                 = collide mesh only=brush               # wagon loaded high with hay, 2.71x5.14x3.70 m
+objects/manmade/vehicles/wagons/wagon_c_hay_axel.cgf            = fade                                  # axle, 0.97x4.51x0.73 m
+objects/manmade/vehicles/wagons/wagon_c_no_wheel.cgf            = fade if-wall=collide mesh only=brush  # open wagon without a wheel, 2.02x4.74x1.96 m
+objects/manmade/vehicles/wagons/wagon_collision_triangle.cgf    = fade                                  # collision helper, 0.16x0.25x0.02 m
+objects/manmade/vehicles/wagons/wagon_hay_big.cgf               = collide mesh only=brush               # wagon loaded high with hay, 2.48x3.62x3.24 m
+objects/manmade/vehicles/wagons/wagon_hay_medium.cgf            = collide mesh only=brush               # wagon loaded high with hay, 2.06x3.58x2.55 m
+objects/manmade/vehicles/wagons/wagon_hay_small.cgf             = fade if-wall=collide mesh only=brush  # wagon with low hay, 1.49x3.86x1.54 m
+objects/manmade/vehicles/wagons/wagon_kcd2.chr                  = fade                                  # wagon character (drivable cart)
+objects/manmade/vehicles/wagons/wagon_wheel_polygonal_left.cgf  = fade                                  # wheel, 0.35x1.21x1.21 m
+objects/manmade/vehicles/wagons/wagon_wheel_polygonal_right.cgf = fade                                  # wheel, 0.35x1.21x1.21 m
 
 
 # ---- Haystacks and hay ---------------------------------------------------------------------------------------------
-# The broad haystacks and the hay barrack stacked as high as a person stop the camera, and so do the barrack roofs
-# (like a tent canopy). Drying poles and frames, sheaves and low piles fade. The straw decals are ground.
+# The broad haystacks, the poles and frames stacked with hay to head height and the hay barrack stacked as high as a
+# person stop the camera, and so do the barrack roofs (like a tent canopy) and the hay piles, a solid mass like the
+# ground whatever size they are placed at. The bare poles and frames and the ones with low hay are measured in game
+# (if-wall): hay solid at the upper body stops the camera, the rest fades. The measurement probes the model's whole
+# width, so a rounded haystack or mound reads as open: the tall ones and the piles are named. Sheaves fade. The straw
+# decals are ground.
 
 # objects/manmade/structures/industrial/hay/: broad haystacks and hay-barrack roofs stand among drying poles, sheaves,
 # low piles and straw decals. Every model has its own line; a model not listed here gets objects/manmade/ = collide
 # mesh.
-objects/manmade/structures/industrial/hay/decal_straw_a.cgf        = collide       # straw decal on the ground, 2.03x1.94x0.00 m
-objects/manmade/structures/industrial/hay/decal_straw_a_burned.cgf = collide       # straw decal on the ground, 2.03x1.94x0.00 m
-objects/manmade/structures/industrial/hay/hay_barrack_a.cgf        = collide mesh  # pole barrack stacked with hay, 2.76x2.75x5.61 m
-objects/manmade/structures/industrial/hay/hay_barrack_b.cgf        = fade          # pole barrack with low hay, 2.56x2.48x4.07 m
-objects/manmade/structures/industrial/hay/hay_barrack_roof_a.cgf   = collide mesh  # thatch roof on four poles, 5.42x5.25x5.25 m
-objects/manmade/structures/industrial/hay/hay_barrack_roof_b.cgf   = collide mesh  # thatch roof, 2.90x3.10x1.22 m
-objects/manmade/structures/industrial/hay/hay_feeder_a.cgf         = fade          # hay rack, 3.26x0.90x1.92 m
-objects/manmade/structures/industrial/hay/hay_pile_a.cgf           = fade          # low hay pile, 4.05x4.18x0.96 m
-objects/manmade/structures/industrial/hay/hay_pile_b.cgf           = fade          # low hay pile, 3.81x3.79x1.16 m
-objects/manmade/structures/industrial/hay/hay_pile_b_half.cgf      = fade          # low hay pile, 3.87x3.00x1.27 m
-objects/manmade/structures/industrial/hay/hay_sheaf_a.cgf          = fade          # hay sheaf, 0.67x0.76x1.40 m
-objects/manmade/structures/industrial/hay/hay_sheaf_b.cgf          = fade          # hay sheaf, 0.86x0.77x1.54 m
-objects/manmade/structures/industrial/hay/hay_small_pile_a.cgf     = fade          # loose hay on the ground, 1.11x1.07x0.27 m
-objects/manmade/structures/industrial/hay/hay_small_pile_b.cgf     = fade          # loose hay on the ground, 0.88x0.82x0.11 m
-objects/manmade/structures/industrial/hay/hay_small_pile_c.cgf     = fade          # loose hay on the ground, 0.88x0.82x0.11 m
-objects/manmade/structures/industrial/hay/hay_stand_aa.cgf         = fade          # bare drying pole, 1.00x0.98x3.17 m
-objects/manmade/structures/industrial/hay/hay_stand_ab.cgf         = fade          # drying pole, low hay, 1.44x1.50x2.99 m
-objects/manmade/structures/industrial/hay/hay_stand_ac.cgf         = fade          # drying pole, hay cone to head height, 2.00x2.12x2.98 m
-objects/manmade/structures/industrial/hay/hay_stand_ad.cgf         = collide mesh  # broad haystack, 2.75x2.80x3.41 m
-objects/manmade/structures/industrial/hay/hay_stand_ba.cgf         = fade          # bare drying frame, 2.61x2.24x2.87 m
-objects/manmade/structures/industrial/hay/hay_stand_bb.cgf         = fade          # drying frame, hay to head height, 2.62x2.33x2.87 m
-objects/manmade/structures/industrial/hay/hay_stand_bb_green.cgf   = fade          # drying frame, hay to head height, 2.62x2.33x2.87 m
-objects/manmade/structures/industrial/hay/hay_stand_bc.cgf         = collide mesh  # broad haystack, 2.97x2.69x2.87 m
-objects/manmade/structures/industrial/hay/hay_stand_ca.cgf         = fade          # bare drying frame, 2.42x2.47x2.95 m
-objects/manmade/structures/industrial/hay/hay_stand_cb.cgf         = fade          # drying frame, low hay, 2.83x3.07x2.95 m
-objects/manmade/structures/industrial/hay/hay_stand_cc.cgf         = collide mesh  # broad haystack, 2.60x2.86x2.95 m
+objects/manmade/structures/industrial/hay/decal_straw_a.cgf        = collide                    # straw decal on the ground, 2.03x1.94x0.00 m
+objects/manmade/structures/industrial/hay/decal_straw_a_burned.cgf = collide                    # straw decal on the ground, 2.03x1.94x0.00 m
+objects/manmade/structures/industrial/hay/hay_barrack_a.cgf        = collide mesh               # pole barrack stacked with hay, 2.76x2.75x5.61 m
+objects/manmade/structures/industrial/hay/hay_barrack_b.cgf        = fade                       # pole barrack with low hay, 2.56x2.48x4.07 m
+objects/manmade/structures/industrial/hay/hay_barrack_roof_a.cgf   = collide mesh               # thatch roof on four poles, 5.42x5.25x5.25 m
+objects/manmade/structures/industrial/hay/hay_barrack_roof_b.cgf   = collide mesh               # thatch roof, 2.90x3.10x1.22 m
+objects/manmade/structures/industrial/hay/hay_feeder_a.cgf         = fade                       # hay rack, 3.26x0.90x1.92 m
+objects/manmade/structures/industrial/hay/hay_pile_a.cgf           = collide mesh               # hay pile, 4.05x4.18x0.96 m
+objects/manmade/structures/industrial/hay/hay_pile_b.cgf           = collide mesh               # hay pile, 3.81x3.79x1.16 m
+objects/manmade/structures/industrial/hay/hay_pile_b_half.cgf      = collide mesh               # hay pile, 3.87x3.00x1.27 m
+objects/manmade/structures/industrial/hay/hay_sheaf_a.cgf          = fade                       # hay sheaf, 0.67x0.76x1.40 m
+objects/manmade/structures/industrial/hay/hay_sheaf_b.cgf          = fade                       # hay sheaf, 0.86x0.77x1.54 m
+objects/manmade/structures/industrial/hay/hay_small_pile_a.cgf     = fade                       # loose hay on the ground, 1.11x1.07x0.27 m
+objects/manmade/structures/industrial/hay/hay_small_pile_b.cgf     = fade                       # loose hay on the ground, 0.88x0.82x0.11 m
+objects/manmade/structures/industrial/hay/hay_small_pile_c.cgf     = fade                       # loose hay on the ground, 0.88x0.82x0.11 m
+objects/manmade/structures/industrial/hay/hay_stand_aa.cgf         = fade if-wall=collide mesh  # bare drying pole, 1.00x0.98x3.17 m
+objects/manmade/structures/industrial/hay/hay_stand_ab.cgf         = fade if-wall=collide mesh  # drying pole, low hay, 1.44x1.50x2.99 m
+objects/manmade/structures/industrial/hay/hay_stand_ac.cgf         = collide mesh               # drying pole, hay cone to head height, 2.00x2.12x2.98 m
+objects/manmade/structures/industrial/hay/hay_stand_ad.cgf         = collide mesh               # broad haystack, 2.75x2.80x3.41 m
+objects/manmade/structures/industrial/hay/hay_stand_ba.cgf         = fade if-wall=collide mesh  # bare drying frame, 2.61x2.24x2.87 m
+objects/manmade/structures/industrial/hay/hay_stand_bb.cgf         = collide mesh               # drying frame, hay to head height, 2.62x2.33x2.87 m
+objects/manmade/structures/industrial/hay/hay_stand_bb_green.cgf   = collide mesh               # drying frame, hay to head height, 2.62x2.33x2.87 m
+objects/manmade/structures/industrial/hay/hay_stand_bc.cgf         = collide mesh               # broad haystack, 2.97x2.69x2.87 m
+objects/manmade/structures/industrial/hay/hay_stand_ca.cgf         = fade if-wall=collide mesh  # bare drying frame, 2.42x2.47x2.95 m
+objects/manmade/structures/industrial/hay/hay_stand_cb.cgf         = fade if-wall=collide mesh  # drying frame, low hay, 2.83x3.07x2.95 m
+objects/manmade/structures/industrial/hay/hay_stand_cc.cgf         = collide mesh               # broad haystack, 2.60x2.86x2.95 m
 
 
 # ---- Fences, gates and barriers ------------------------------------------------------------------------------------
@@ -815,6 +864,24 @@ objects/manmade/task_specific_props/metal_industry/mining/opened_shed_b.cgf     
 objects/manmade/task_specific_props/metal_industry/mining/pick.cgf                    = fade          # pick, 0.08x0.48x1.01 m
 objects/manmade/task_specific_props/metal_industry/mining/water_bucket.cgf            = fade          # bucket, 0.48x0.47x0.52 m
 objects/manmade/task_specific_props/metal_industry/mining/water_bucket_handledown.cgf = fade          # bucket, 0.48x0.47x0.39 m
+
+# objects/manmade/task_specific_props/metal_industry/silver/: the plank deck, walked on and stood upright as the
+# dig's retaining walls, lies among the minting tools and silver. Every model has its own line; a model not listed
+# here gets objects/manmade/task_specific_props/ = fade.
+objects/manmade/task_specific_props/metal_industry/silver/barchan.cgf              = fade          # tool, 1.12x0.22x0.11 m
+objects/manmade/task_specific_props/metal_industry/silver/coining_tool.cgf         = fade          # coining tool, 0.08x0.09x0.09 m
+objects/manmade/task_specific_props/metal_industry/silver/coins_blank.cgf          = fade          # coin blanks, 0.14x0.19x0.02 m
+objects/manmade/task_specific_props/metal_industry/silver/coins_blank_single.cgf   = fade          # coin blank, 0.03x0.03x0.00 m
+objects/manmade/task_specific_props/metal_industry/silver/minting_stump.cgf        = fade          # minting stump, 0.86x1.44x0.65 m
+objects/manmade/task_specific_props/metal_industry/silver/silver_cake_multiply.cgf = fade          # silver cakes, 0.56x1.28x0.28 m
+objects/manmade/task_specific_props/metal_industry/silver/silver_cake_single.cgf   = fade          # silver cake, 0.30x0.30x0.11 m
+objects/manmade/task_specific_props/metal_industry/silver/silver_ore.cgf           = fade          # ore heap, 2.34x3.38x0.65 m
+objects/manmade/task_specific_props/metal_industry/silver/silver_ore_platform.cgf  = collide mesh  # plank deck, 2.86x3.73x0.16 m
+objects/manmade/task_specific_props/metal_industry/silver/silver_rod_pile.cgf      = fade          # silver rods, 0.63x0.64x0.16 m
+objects/manmade/task_specific_props/metal_industry/silver/silver_rod_single.cgf    = fade          # silver rod, 0.05x0.60x0.05 m
+objects/manmade/task_specific_props/metal_industry/silver/silver_sheet.cgf         = fade          # silver sheet, 0.30x0.04x0.00 m
+objects/manmade/task_specific_props/metal_industry/silver/smelting_hoe.cgf         = fade          # smelting hoe, 0.15x0.23x1.42 m
+objects/manmade/task_specific_props/metal_industry/silver/smelting_hook.cgf        = fade          # smelting hook, 0.04x0.16x1.41 m
 
 # objects/manmade/task_specific_props/wood_industry/loggingcamp/: the lumberjack's beech, its stumps and branch debris
 # (plants) lie among a tied log pile taller than a person, lower log piles and logs. Every model has its own line; a
