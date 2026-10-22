@@ -1,3 +1,5 @@
-## Game Sounds in Packs
+## [Title for next release]
 
-- Packs can now play the game's own sounds at their own volume, pitch and position, without shipping any audio files.
+- New feature
+- Bug fix
+- Improvement
