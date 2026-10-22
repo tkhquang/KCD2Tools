@@ -32,8 +32,9 @@ namespace TPVCamera
         [[nodiscard]] float structure_on_arm(QueryLedger::Tag tag, const Sightline *lines, int n_lines, int min_lines,
                                              float max_fraction, void **node_out, bool trace) override;
         [[nodiscard]] bool spans_tube(void *node, const Sightline *tube) override;
-        [[nodiscard]] int occluders_on_sightlines(const Sightline *lines, int n_lines, std::span<void *const> skip,
-                                                  SightlineOccluder *out, int cap) override;
+        [[nodiscard]] int occluders_on_sightlines(const Sightline *lines, int n_lines, float end_margin,
+                                                  std::span<void *const> skip, SightlineOccluder *out,
+                                                  int cap) override;
         void prefetch_meshes(const Sightline *lines, int n_lines) override;
         [[nodiscard]] bool stopping_node_near(const float *box, float pad) override;
         [[nodiscard]] std::uint64_t now_ms() override;

@@ -60,14 +60,18 @@ namespace TPVCamera
         // How much of a faded object always stays: 0 (it can almost vanish) .. 1 (stays solid). A prop or a bush the
         // camera is buried in, or a prop whose physics the camera is inside, starts fading at once but keeps this
         // too; what only touches the lens is cut by the near clip plane (use_lens_cut).
-        std::atomic<float> occluder_fade_min_opacity{0.2f};
+        std::atomic<float> occluder_fade_min_opacity{0.3f};
+        /// How far left and right of the chest the fade's side sightlines end, 0 .. 1 m (fade_sightlines()).
+        std::atomic<float> occluder_fade_body_width{0.25f};
+        /// The meters at the character's end of each fade sightline that do not count, 0 .. 1: what he holds or wears.
+        std::atomic<float> occluder_fade_body_margin{0.15f};
         // Tree see-through (see hooks/shader_twins.hpp): the trees, bushes and grass between the camera and the
         // character open a dithered window around the character, only where they stand nearer than him. The rest of
         // the plant and its shadow stay. Independent of the occluder fade. Off = trees and bushes stay solid (the
         // leaves right at the lens are still cut while use_lens_cut is on).
         std::atomic<bool> use_tree_see_through{true};
         // How much of the plants in the window always stays: 0 (fully open, with a dithered rim) .. 1 (stays solid).
-        std::atomic<float> tree_see_through_min_opacity{0.2f};
+        std::atomic<float> tree_see_through_min_opacity{0.3f};
         // The window's size relative to the character: 0.5 .. 2.
         std::atomic<float> tree_see_through_size{1.0f};
         // Where the window starts, as a share of the character's height above his feet: 0 (his feet) .. 1 (the top of
@@ -92,12 +96,12 @@ namespace TPVCamera
         // character fade hook; without it the first-person switch stays.
         std::atomic<bool> close_up_fade{true};
         // How much of the character always stays in the close-up fade: 0 (he can vanish) .. 1 (he stays solid).
-        std::atomic<float> close_up_fade_min_opacity{0.25f};
+        std::atomic<float> close_up_fade_min_opacity{0.3f};
         // People and animals whose drawn parts come within 1.2 m of the lens in the view dither out with what they
         // carry, fully from 0.45 m in, where the lens near plane would otherwise cut them open
         // (camera/npc_lens_fade.hpp); NpcLensFadeMinOpacity of them always stays.
         std::atomic<bool> npc_lens_fade{false};
-        std::atomic<float> npc_lens_fade_min_opacity{0.25f};
+        std::atomic<float> npc_lens_fade_min_opacity{0.3f};
 
         // State-driven camera policy (see game_state.hpp). Each mask is a GameState bit set parsed
         // from a comma-separated INI token list, read on the per-frame detour and the input thread.

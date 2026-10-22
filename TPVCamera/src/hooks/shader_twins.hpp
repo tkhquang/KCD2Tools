@@ -105,8 +105,8 @@ namespace TPVCamera
         // open: 0 (off) to 1. A pixel nearer to the lens than near_full (view depth, metres) goes, one beyond
         // near_clear stays, and in between it fades out in the dither.
         float near_strength = 0.0f;
-        float near_full = 0.6f;
-        float near_clear = 1.2f;
+        float near_full = 1.0f;
+        float near_clear = 2.0f;
     };
 
     /**

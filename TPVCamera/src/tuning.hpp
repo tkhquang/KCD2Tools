@@ -46,6 +46,8 @@ namespace Constants
     // The occluder fade and its scan (hooks/occluder_fade.cpp, render_occlusion.cpp).
     // Nodes faded at once. The detour scans this many entries per matching call, so it stays small.
     constexpr int OCCLUDER_FADE_MAX_NODES = 32;
+    /// The fade's sightlines from the camera: the head, the chest, the hips and either side of the chest.
+    constexpr int OCCLUDER_FADE_SIGHTLINES = 5;
     // Fade timing. A node must hide the character for the delay before it starts to fade, so an object that crosses a
     // sightline for an instant (a post the camera swings past) never blinks; then it fades in, is held while it
     // flickers on and off the sightline, and fades back out. An object at the lens skips the delay.
@@ -80,9 +82,6 @@ namespace Constants
     // How often a reused scan reads its entities' boxes and states again (milliseconds): a door that starts to swing or
     // a cart that rolls on is followed within this, and the frames in between keep what the last read found.
     constexpr std::uint64_t OCCLUDER_ENTITY_REFRESH_MS = 50;
-    // A sightline does not count crossings within this many meters of the character end: whatever Henry holds,
-    // wears or stands in is not between him and the camera.
-    constexpr float OCCLUDER_SIGHTLINE_END_MARGIN = 0.35f;
     // Cap on the triangles tested per scan, so a dense scene cannot stall a frame.
     constexpr int OCCLUDER_TRIANGLE_BUDGET = 400000;
     // Render meshes whose triangle-run boxes and positions the occluder tests keep, and the bytes those copies may take

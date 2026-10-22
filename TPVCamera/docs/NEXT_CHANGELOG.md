@@ -1,7 +1,7 @@
 ## Fading Obstacles, See-Through Trees, Camera Rules and Combat Lock-On
 
 - Added the close-up fade: with no room behind Henry, he fades out with his gear, eyes, hair and beard instead of the view jumping to first person (CloseUpFade, CloseUpFadeMinOpacity).
-- Added the occluder fade: posts, fences, open carts, lamps, furniture and hanging decorations between the camera and Henry fade out instead of pulling the camera in (UseOccluderFade, OccluderFadeMinOpacity).
+- Added the occluder fade: posts, fences, open carts, lamps, furniture and hanging decorations between the camera and Henry fade out instead of pulling the camera in (UseOccluderFade, OccluderFadeMinOpacity, OccluderFadeBodyWidth, OccluderFadeBodyMargin).
 - Added the tree see-through: trees, bushes and tall grass in front of Henry open a dithered window around him, from his hips up (UseTreeSeeThrough and the TreeSeeThrough options).
 - Added camera rules: choose by folder or by model which objects stop the camera, fade, open in the window or are left alone, other mods' models included, in KCD2_TPVCamera_rules_User.txt or a mod's own rules file, applied while the game runs.
 - Added UseBeamGate (off by default): an obstacle that matches nothing drawn, such as an invisible collision box, stops the camera only when the whole collision probe is blocked, so a thin one with open space beside it no longer pulls the camera in.
@@ -20,8 +20,8 @@
 - Added the mod_camera_view console variable: 1 while the camera shows Henry from outside, 0 in first person, so other mods (such as animations meant for third person only) can follow the view.
 - Changed the camera to follow Henry's upper body during his own animations (praying, eating, sitting down, standing up, bending): it lowers and leans with him smoothly instead of staying put until his head drops far and then dropping in one go, ignores head bob and nods, and stays put after he turns in place, standing or crouched.
 - Changed Eye Height 0 (COMBAT, AIMING, SITTING, KNEEL, LYING, CART) to follow Henry's upper body instead of his bobbing first-person eye, so switching between those presets and the others no longer moves the camera in one jump, and Henry's turn-in-place animations now play with it too.
-- Changed the camera to keep its distance and pass through bushes and tree trunks, while buildings, walls, tall fences, platforms, covered wagons, big haystacks, rocks and the ground still stop it.
-- Changed leaves and prop corners right at the lens to be cut away instead of filling the view (UseLensCut, on by default).
+- Changed the camera to keep its distance and pass through bushes and tree trunks, while buildings, walls, tall fences, plank decks and plank walls, high-sided wagons, tall shelves, haystacks, rocks and the ground still stop it.
+- Changed leaves, bare tent beams and prop corners near the lens to thin away instead of filling the view (UseLensCut, on by default).
 - Changed the shaders behind the fades and the window to be prepared at loading screens and pauses, never while you play.
 - Changed the camera to cost less each frame in busy towns, and to spread its look at the objects around it over several frames, so it no longer adds an occasional hitch of 1 to 2 ms.
 - Changed the shaders to be prepared only while UseTreeSeeThrough, UseLensCut or CloseUpFade is on: with UseOccluderFade off too and CollisionPullInSeconds at 0, the camera behaves as in 2.0.0, with this version's fixes, and costs about what it did.
@@ -35,7 +35,6 @@
 - Changed the combat lock-on in third person to move to the next enemy your camera points at after a kill, only one who is fighting you, instead of ending the fight stance while other enemies are near.
 - Changed free-look to come back the moment your opponent dies, and the camera with free-look off to stay put instead of following the finishing animation.
 - Changed the overlay's Save button to light up for every unsaved change, UI Scale and Compact precision included.
-- Changed aiming to stay in third person by default (Aiming is no longer in ForcedFPVState).
 - Changed COMBAT to look down at Henry a little from straight behind him (Follow Pitch 5, Offset Right 0) and to frame a locked enemy wider (Lock Framing Angle 30); press Reset to factory on COMBAT to get it in an existing setup.
 - Changed the overlay to keep the whole panel on screen: the preset settings scroll in their own box, which you can make taller or shorter by dragging its bottom edge, and the Overlay settings come first.
 - Removed UseCoverageCollision, CoverageThreshold, CameraProbeSize and UseRenderOcclusion, which the fade replaces.
@@ -55,3 +54,4 @@
 - Fixed Henry and the camera jiggling when you turn and press a movement key during a stealth kill.
 - Fixed the camera sinking to Henry's feet and looking up (or rising over his head) in a fight after a drop off a raised spot: while the lock-on holds an enemy, the camera's height and tilt now come from where the enemy stands.
 - Fixed the overlay showing an ImGui "conflicting ID" error when hovering a preset that is in a cycle group.
+- Fixed cutscenes playing in third person: the view now switches to first person as soon as a cutscene starts.

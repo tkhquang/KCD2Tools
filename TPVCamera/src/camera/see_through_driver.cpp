@@ -60,9 +60,9 @@ namespace TPVCamera
         // right in front of the lens thins away while the rest of it stays. A frame is listed while its box comes
         // within k_near_cut_list_reach of the camera, farther than the cut reaches, so it is swapped before a beam of
         // it gets there; at most k_near_cut_max_frames are.
-        constexpr float k_near_cut_full = 0.6f;
-        constexpr float k_near_cut_clear = 1.2f;
-        constexpr float k_near_cut_list_reach = 2.0f;
+        constexpr float k_near_cut_full = 1.0f;
+        constexpr float k_near_cut_clear = 2.0f;
+        constexpr float k_near_cut_list_reach = 3.0f;
         constexpr int k_near_cut_max_frames = 8;
 
         // The tree see-through on the main thread (the camera detour): how far the window is open (0 shut .. 1 open),

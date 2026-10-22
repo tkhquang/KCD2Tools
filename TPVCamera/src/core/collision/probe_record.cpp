@@ -225,12 +225,13 @@ namespace TPVCamera::ProbeRecord
         return spans;
     }
 
-    int RecordingProbe::occluders_on_sightlines(const Sightline *lines, int n_lines, std::span<void *const> skip,
-                                                SightlineOccluder *out, int cap)
+    int RecordingProbe::occluders_on_sightlines(const Sightline *lines, int n_lines, float end_margin,
+                                                std::span<void *const> skip, SightlineOccluder *out, int cap)
     {
-        const int count = m_inner.occluders_on_sightlines(lines, n_lines, skip, out, cap);
+        const int count = m_inner.occluders_on_sightlines(lines, n_lines, end_margin, skip, out, cap);
         m_out.put(Call::OccludersOnSightlines);
         put_lines(m_out, lines, n_lines);
+        m_out.put(end_margin);
         m_out.put(static_cast<int>(skip.size()));
         for (void *const node : skip)
         {
@@ -404,12 +405,13 @@ namespace TPVCamera::ProbeRecord
         return spans != 0;
     }
 
-    int ReplayProbe::occluders_on_sightlines(const Sightline *lines, int n_lines, std::span<void *const> skip,
-                                             SightlineOccluder *out, int cap)
+    int ReplayProbe::occluders_on_sightlines(const Sightline *lines, int n_lines, float end_margin,
+                                             std::span<void *const> skip, SightlineOccluder *out, int cap)
     {
         if (!expect(Call::OccludersOnSightlines) || !expect_value(n_lines, "sightline count") ||
             (n_lines > 0 &&
              !expect_bytes(lines, sizeof(Sightline) * static_cast<std::size_t>(n_lines), "sightlines")) ||
+            !expect_value(end_margin, "sightline end margin") ||
             !expect_value(static_cast<int>(skip.size()), "sightline skip count"))
         {
             return 0;

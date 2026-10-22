@@ -1861,9 +1861,10 @@ namespace TPVCamera
         return true;
     }
 
-    // Lines one mesh test takes at once: the three sightlines, the camera arm's centre and four offsets, the six
+    // Lines one mesh test takes at once: the fade's sightlines, the camera arm's centre and four offsets, the six
     // envelope probes, or the nine rays across the near end of the view.
     static constexpr int k_max_lines = 9;
+    static_assert(Constants::OCCLUDER_FADE_SIGHTLINES <= k_max_lines, "a mesh test takes every fade sightline at once");
 
     /** @brief A sightline in a mesh's local space: origin, full-length direction, and the last counted fraction. */
     struct LocalLine
@@ -3175,8 +3176,8 @@ namespace TPVCamera
      * @brief The scan pass of occluders_on_sightlines. Each node is read under its own SEH frame, so a fault in one
      *        (a mesh streaming out between the reads) skips that node only.
      */
-    static int sightline_nodes(const Sightline *lines, int n_lines, std::span<void *const> skip, SightlineOccluder *out,
-                               int cap) noexcept
+    static int sightline_nodes(const Sightline *lines, int n_lines, float end_margin, std::span<void *const> skip,
+                               SightlineOccluder *out, int cap) noexcept
     {
         const auto skipped = [skip](void *node) { return std::find(skip.begin(), skip.end(), node) != skip.end(); };
         int n = 0;
@@ -3222,8 +3223,8 @@ namespace TPVCamera
             bool fades = false;
             for (int l = 0; l < n_lines && !fades; ++l)
             {
-                const int r = node_crosses_guarded(QueryLedger::Tag::Sightline, s.node, &lines[l], 1,
-                                                   Constants::OCCLUDER_SIGHTLINE_END_MARGIN, budget);
+                const int r =
+                    node_crosses_guarded(QueryLedger::Tag::Sightline, s.node, &lines[l], 1, end_margin, budget);
                 if (r < 0)
                 {
                     fades = r == -1 && !s.entity;
@@ -3233,8 +3234,7 @@ namespace TPVCamera
                 {
                     Sightline tube[5];
                     tube_around(lines[l], k_thin_half_width, tube);
-                    fades = tube_spanned(QueryLedger::Tag::Sightline, s.node, tube,
-                                         Constants::OCCLUDER_SIGHTLINE_END_MARGIN, budget);
+                    fades = tube_spanned(QueryLedger::Tag::Sightline, s.node, tube, end_margin, budget);
                 }
             }
             if (fades)
@@ -3359,7 +3359,7 @@ namespace TPVCamera
                                  n_near == 0 ? std::string{"nothing"} : text);
     }
 
-    int occluders_on_sightlines(const Sightline *lines, int n_lines, std::span<void *const> skip,
+    int occluders_on_sightlines(const Sightline *lines, int n_lines, float end_margin, std::span<void *const> skip,
                                 SightlineOccluder *out, int cap) noexcept
     {
         DMK_PROFILE_SCOPE("render.occluder_sightlines");
@@ -3367,7 +3367,8 @@ namespace TPVCamera
         {
             return 0;
         }
-        const int n = sightline_nodes(lines, std::min(n_lines, 4), skip, out, cap);
+        const int n =
+            sightline_nodes(lines, std::min(n_lines, Constants::OCCLUDER_FADE_SIGHTLINES), end_margin, skip, out, cap);
         try
         {
             log_nodes_at_camera(lines[0].from, 0.4f, out, n);
