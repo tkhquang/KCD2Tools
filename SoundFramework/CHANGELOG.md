@@ -2,6 +2,10 @@
 
 All notable changes to the SoundFramework mod will be documented in this file.
 
+## [1.2.0] - Game Sounds in Packs
+
+- Packs can now play the game's own sounds at their own volume, pitch and position, without shipping any audio files.
+
 ## [1.1.1] - Lip Sync in Cutscenes
 
 - With a voice dub, the characters who speak in a cutscene now move their lips with the dub instead of the English animation.
@@ -35,6 +39,7 @@ All notable changes to the SoundFramework mod will be documented in this file.
 - Saving a pack or the settings INI applies it while playing.
 - Ships as an ASI and as a KCSE plugin.
 
+[1.2.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/SoundFramework-v1.2.0
 [1.1.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/SoundFramework-v1.1.1
 [1.1.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/SoundFramework-v1.1.0
 [1.0.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/SoundFramework-v1.0.0
