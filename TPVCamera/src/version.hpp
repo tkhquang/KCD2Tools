@@ -13,7 +13,7 @@
 //                           VERSION DEFINITION                               //
 //            >>> MODIFY ONLY THESE VALUES WHEN UPDATING VERSION <<<          //
 // ========================================================================== //
-#define VERSION_MAJOR 2
+#define VERSION_MAJOR 3
 #define VERSION_MINOR 0
 #define VERSION_PATCH 0
 // ========================================================================== //
