@@ -1,0 +1,146 @@
+{
+  "texture_scale": 1.0,
+  "layers": {
+    "back_common": {
+      "file": "back_common.dds",
+      "w": 556,
+      "h": 312,
+      "x": -305.5,
+      "y": -256.5
+    },
+    "front_common_1": {
+      "file": "front_common_1.dds",
+      "w": 612,
+      "h": 636,
+      "x": -319.0,
+      "y": -451.0
+    },
+    "front_common_2": {
+      "file": "front_common_2.dds",
+      "w": 612,
+      "h": 636,
+      "x": -319.0,
+      "y": -451.0
+    },
+    "front_common_3": {
+      "file": "front_common_3.dds",
+      "w": 612,
+      "h": 636,
+      "x": -319.0,
+      "y": -451.0
+    },
+    "front_common_4": {
+      "file": "front_common_4.dds",
+      "w": 612,
+      "h": 636,
+      "x": -319.0,
+      "y": -451.0
+    },
+    "front_common_5": {
+      "file": "front_common_5.dds",
+      "w": 612,
+      "h": 652,
+      "x": -319.0,
+      "y": -466.0
+    },
+    "gear_common": {
+      "file": "gear_common.dds",
+      "w": 108,
+      "h": 108,
+      "x": -53.92,
+      "y": -53.53
+    },
+    "pick": {
+      "file": "pick.dds",
+      "w": 516,
+      "h": 40,
+      "x": -506.58,
+      "y": -5.42
+    },
+    "pin": {
+      "file": "pin.dds",
+      "w": 44,
+      "h": 164,
+      "x": -22.0,
+      "y": -158.0
+    },
+    "spring": {
+      "file": "spring.dds",
+      "w": 44,
+      "h": 92,
+      "x": -21.99,
+      "y": -5.99
+    },
+    "back_fancy": {
+      "file": "back_fancy.dds",
+      "w": 556,
+      "h": 312,
+      "x": -305.5,
+      "y": -256.5
+    },
+    "front_fancy_1": {
+      "file": "front_fancy_1.dds",
+      "w": 612,
+      "h": 636,
+      "x": -319.0,
+      "y": -451.0
+    },
+    "front_fancy_2": {
+      "file": "front_fancy_2.dds",
+      "w": 612,
+      "h": 636,
+      "x": -319.0,
+      "y": -451.0
+    },
+    "front_fancy_3": {
+      "file": "front_fancy_3.dds",
+      "w": 612,
+      "h": 636,
+      "x": -319.0,
+      "y": -451.0
+    },
+    "front_fancy_4": {
+      "file": "front_fancy_4.dds",
+      "w": 612,
+      "h": 636,
+      "x": -319.0,
+      "y": -451.0
+    },
+    "front_fancy_5": {
+      "file": "front_fancy_5.dds",
+      "w": 612,
+      "h": 652,
+      "x": -319.0,
+      "y": -466.0
+    },
+    "gear_fancy": {
+      "file": "gear_fancy.dds",
+      "w": 108,
+      "h": 108,
+      "x": -53.92,
+      "y": -53.53
+    }
+  },
+  "chambers_x": [
+    -156.0,
+    -78.0,
+    0.0,
+    78.0,
+    156.0
+  ],
+  "chamber_top": -215.0,
+  "pin_rest_tip": 17.0,
+  "pin_travel": 80.0,
+  "pick_tip_y": 17.0,
+  "keyway_entry_x": -305.0,
+  "gears": [
+    [
+      -60.0,
+      112.0
+    ],
+    [
+      60.0,
+      112.0
+    ]
+  ]
+}

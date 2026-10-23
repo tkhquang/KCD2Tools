@@ -1,0 +1,16 @@
+<Table>
+<Row><Cell>ui_oblivion_lockpicking_header</Cell><Cell>Goupilles bloquées : %1 sur %2</Cell><Cell>Goupilles bloquées : %1 sur %2</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_1</Cell><Cell>Très facile</Cell><Cell>Très facile</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_2</Cell><Cell>Facile</Cell><Cell>Facile</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_3</Cell><Cell>Moyen</Cell><Cell>Moyen</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_4</Cell><Cell>Difficile</Cell><Cell>Difficile</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_5</Cell><Cell>Très difficile</Cell><Cell>Très difficile</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_move</Cell><Cell>Déplacer le crochet</Cell><Cell>Déplacer le crochet</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_push</Cell><Cell>Pousser</Cell><Cell>Pousser</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_set</Cell><Cell>Bloquer</Cell><Cell>Bloquer</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_up</Cell><Cell>vers le haut</Cell><Cell>vers le haut</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_or</Cell><Cell>ou</Cell><Cell>ou</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0200</Cell><Cell>Glissez le crochet {$moveleft; $moveright;|$xi_movex;} sous une goupille et &lt;strong&gt;poussez-la vers le haut&lt;/strong&gt; {$moveforward;|$xi_movey;}. La plupart jaillissent et retombent aussitôt, mais certaines &lt;strong&gt;montent lentement et s'arrêtent en haut&lt;/strong&gt;.</Cell><Cell>Glissez le crochet {$moveleft; $moveright;|$xi_movex;} sous une goupille et &lt;strong&gt;poussez-la vers le haut&lt;/strong&gt; {$moveforward;|$xi_movey;}. La plupart jaillissent et retombent aussitôt, mais certaines &lt;strong&gt;montent lentement et s'arrêtent en haut&lt;/strong&gt;.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0300</Cell><Cell>&lt;strong&gt;Bloquez la goupille&lt;/strong&gt; avec {$jump;|$use;} quand elle est &lt;strong&gt;en haut&lt;/strong&gt;. Une goupille lente émet un clic plus tardif et plus grave qu'une rapide. &lt;strong&gt;Maintenez la poussée&lt;/strong&gt; {$moveforward;|$xi_movey;} et la goupille continue de rebondir à sa vitesse.</Cell><Cell>&lt;strong&gt;Bloquez la goupille&lt;/strong&gt; avec {$jump;|$use;} quand elle est &lt;strong&gt;en haut&lt;/strong&gt;. Une goupille lente émet un clic plus tardif et plus grave qu'une rapide. &lt;strong&gt;Maintenez la poussée&lt;/strong&gt; {$moveforward;|$xi_movey;} et la goupille continue de rebondir à sa vitesse.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0400</Cell><Cell>Bloquez toutes les goupilles &lt;strong&gt;pour ouvrir la serrure&lt;/strong&gt;.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;Attention : bloquer une goupille qui monte encore ou qui retombe déjà risque de briser votre crochet !&lt;/label&gt;</Cell><Cell>Bloquez toutes les goupilles &lt;strong&gt;pour ouvrir la serrure&lt;/strong&gt;.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;Attention : bloquer une goupille qui monte encore ou qui retombe déjà risque de briser votre crochet !&lt;/label&gt;</Cell></Row>
+</Table>

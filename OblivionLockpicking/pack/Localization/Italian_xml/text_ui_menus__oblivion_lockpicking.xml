@@ -1,0 +1,16 @@
+<Table>
+<Row><Cell>ui_oblivion_lockpicking_header</Cell><Cell>Perni bloccati: %1 di %2</Cell><Cell>Perni bloccati: %1 di %2</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_1</Cell><Cell>Molto facile</Cell><Cell>Molto facile</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_2</Cell><Cell>Facile</Cell><Cell>Facile</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_3</Cell><Cell>Medio</Cell><Cell>Medio</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_4</Cell><Cell>Difficile</Cell><Cell>Difficile</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_5</Cell><Cell>Molto difficile</Cell><Cell>Molto difficile</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_move</Cell><Cell>Muovi il grimaldello</Cell><Cell>Muovi il grimaldello</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_push</Cell><Cell>Spingi</Cell><Cell>Spingi</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_set</Cell><Cell>Blocca</Cell><Cell>Blocca</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_up</Cell><Cell>su</Cell><Cell>su</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_or</Cell><Cell>o</Cell><Cell>o</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0200</Cell><Cell>Muovi il grimaldello {$moveleft; $moveright;|$xi_movex;} sotto un perno e &lt;strong&gt;spingilo su&lt;/strong&gt; {$moveforward;|$xi_movey;}. Quasi tutti i perni scattano su e ricadono subito, ma alcuni &lt;strong&gt;salgono piano e si fermano in cima&lt;/strong&gt;.</Cell><Cell>Muovi il grimaldello {$moveleft; $moveright;|$xi_movex;} sotto un perno e &lt;strong&gt;spingilo su&lt;/strong&gt; {$moveforward;|$xi_movey;}. Quasi tutti i perni scattano su e ricadono subito, ma alcuni &lt;strong&gt;salgono piano e si fermano in cima&lt;/strong&gt;.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0300</Cell><Cell>&lt;strong&gt;Blocca il perno&lt;/strong&gt; con {$jump;|$use;} mentre è &lt;strong&gt;in cima&lt;/strong&gt;. Un perno lento scatta più tardi e con un suono più grave di uno veloce. &lt;strong&gt;Continua a spingere&lt;/strong&gt; {$moveforward;|$xi_movey;} e il perno rimbalzerà sempre alla sua velocità.</Cell><Cell>&lt;strong&gt;Blocca il perno&lt;/strong&gt; con {$jump;|$use;} mentre è &lt;strong&gt;in cima&lt;/strong&gt;. Un perno lento scatta più tardi e con un suono più grave di uno veloce. &lt;strong&gt;Continua a spingere&lt;/strong&gt; {$moveforward;|$xi_movey;} e il perno rimbalzerà sempre alla sua velocità.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0400</Cell><Cell>Blocca tutti i perni &lt;strong&gt;per aprire la serratura&lt;/strong&gt;.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;Ma fa' attenzione: se blocchi un perno mentre sta ancora salendo o sta già ricadendo, puoi rompere il grimaldello!&lt;/label&gt;</Cell><Cell>Blocca tutti i perni &lt;strong&gt;per aprire la serratura&lt;/strong&gt;.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;Ma fa' attenzione: se blocchi un perno mentre sta ancora salendo o sta già ricadendo, puoi rompere il grimaldello!&lt;/label&gt;</Cell></Row>
+</Table>

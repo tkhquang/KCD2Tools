@@ -1,0 +1,79 @@
+[size=5]Foreword[/size]
+My shaky hands never got along with the vanilla lockpicking, so I set out to replace it. I have to confess I spent more than a year on this mod and on [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3860]Sound Framework[/url], which I built for it.
+
+[b]Oblivion-Style Lockpicking - Tumbler Lock[/b] replaces the lockpicking minigame with a tumbler lock in the style of [i]The Elder Scrolls IV: Oblivion[/i]. The mechanics are recreated from observing how Oblivion's lockpicking plays. It is not a port and uses no Oblivion code, art or sound: the lock art is made for this mod, and the sounds are the game's own.
+
+[size=5]How It Works[/size]
+[list]
+[*]A lock has one to five tumblers, more on harder locks.[/*]
+[*]Push a tumbler up with the pick. It rises at one of three speeds, pauses at the top, then falls back.[/*]
+[*]Set it while it pauses. A set at any other moment is a wrong set: the game rolls whether the pick breaks, and the controls pause for a moment.[/*]
+[*]A wrong set keeps some of your set tumblers, more with a higher Thievery level. Set them all and the lock opens.[/*]
+[*]Thievery, perks and buffs slow the tumblers down. Experience, noise, crime and broken picks stay the game's own.[/*]
+[/list]
+[spoiler]
+[list]
+[*]The lock is 15th-century Gothic ironwork, rusty on common locks and gilt on fancy ones, and richer on harder locks. The pick is shaped like the game's lockpick.[/*]
+[*]Every push, click, fall and set has its own sound through Sound Framework.[/*]
+[*]Keyboard, mouse and controller, with Oblivion Remastered's controls by default and every key rebindable. All texts are in the game's 16 languages.[/*]
+[*]Settings apply while the game runs, and Enabled=false brings the vanilla minigame back.[/*]
+[/list]
+[/spoiler]
+
+[size=5]Requirements[/size]
+[list]
+[*]Kingdom Come: Deliverance II 1.5.6 on Steam. The GOG and Game Pass builds pass the same signature checks.[/*]
+[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332]Kingdom Come Script Extender (KCSE)[/url] for the KCSE build, or an ASI loader for the ASI build[/*]
+[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3860]Sound Framework[/url][/*]
+[/list]
+
+[size=5]Installation[/size]
+The Files tab has two builds. [b]Install one of them, not both.[/b]
+
+[b]KCSE build:[/b] install [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332]KCSE[/url], then install the (KCSE) archive with your mod manager, or extract it into <KC:D 2 folder>/Mods/.
+
+[b]ASI build[/b]
+[spoiler]
+1. Without an ASI loader, extract one [b]x64[/b] [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases]Ultimate ASI Loader[/url] DLL beside WHGame.dll in Bin/Win64MasterMasterSteamPGO/. Other stores use their own Bin/Win64MasterMaster... folder. Use [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/dinput8-x64.zip]dinput8-x64.zip[/url], or [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/version-x64.zip]version-x64.zip[/url] when another mod already uses dinput8.dll. KCSE also loads ASI files, so KCSE users skip this step.
+2. Extract the (ASI) archive into the game folder, so its Bin and Mods folders merge with the game's. Without Mods/oblivion_lockpicking/, the game keeps its vanilla lockpicking.
+3. On Linux or Steam Deck, add [b]WINEDLLOVERRIDES="dinput8=n,b" %command%[/b] to the game's Steam launch options (version=n,b for the version loader).
+[/spoiler]
+
+Recommended: [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/654]FPS FIX (Memory Leak)[/url] and [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3462]Map Close Crash Bugfix[/url], which fix crashes in the game's own memory handling that a UI-heavy mod can also run into.
+
+[size=5]Controls[/size]
+[list]
+[*][b]Move the pick:[/b] A / D or the mouse, or the left stick[/*]
+[*][b]Push the tumbler:[/b] W or move the mouse up, or push the left stick up[/*]
+[*][b]Set the tumbler at the top:[/b] Space or left click, or A / Cross[/*]
+[/list]
+Hold the push to keep a tumbler bouncing. KCD2_OblivionLockpicking.ini documents every setting, and [Controls] changes any key.
+
+[size=5]Troubleshooting[/size]
+Set LogLevel=DEBUG in the INI, reproduce the problem, and [url=https://github.com/tkhquang/KCD2Tools/issues]report it[/url] with KCD2_OblivionLockpicking.log, your INI, and your game and mod versions. The log is beside the ASI, or in Mods/oblivion_lockpicking/KCSE/Plugins/ for the KCSE build (with MO2, in its overwrite folder).
+
+[b]Known limitations[/b]
+[spoiler]
+[list]
+[*]The help screen's key icons show the game's default movement, jump and use keys, not your own bindings.[/*]
+[*]PlayStation button names are not tested on a real controller.[/*]
+[/list]
+[/spoiler]
+
+[size=5]Credits[/size]
+[spoiler]
+[list]
+[*][url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url]: the modding framework[/*]
+[*][url=https://github.com/ThirteenAG/Ultimate-ASI-Loader]Ultimate ASI Loader[/url] by ThirteenAG[/*]
+[*][url=https://github.com/cursey/safetyhook]SafetyHook[/url] by cursey, and [url=https://github.com/zyantific/zydis]Zydis[/url] / [url=https://github.com/zyantific/zycore-c]Zycore[/url] by zyantific[/*]
+[*][url=https://github.com/brofield/simpleini]SimpleIni[/url] by Brodie Thiesfield[/*]
+[*][url=https://polyhaven.com]Poly Haven[/url]: the CC0 textures Rusty Metal 04 and Rust Coarse 01 and the Studio Small 09 HDRI used to render the lock[/*]
+[*][url=https://github.com/jindrapetrik/jpexs-decompiler]JPEXS FFDec[/url]: the movie compiler[/*]
+[*][url=https://github.com/Caseter/KCD2-Blender-Toolkit]KCD2 Blender Toolkit[/url] by Caseter and Lune[/*]
+[*]Bethesda Game Studios: the lockpicking design of The Elder Scrolls IV: Oblivion, which inspired this mod[/*]
+[*]Warhorse Studios: Kingdom Come: Deliverance II[/*]
+[/list]
+This mod is not affiliated with or endorsed by Bethesda Softworks or Warhorse Studios.
+[/spoiler]
+
+All my Kingdom Come: Deliverance II mods and tools are in this [url=https://github.com/tkhquang/KCD2Tools]GitHub repository[/url].

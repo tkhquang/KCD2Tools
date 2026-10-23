@@ -1,0 +1,16 @@
+<Table>
+<Row><Cell>ui_oblivion_lockpicking_header</Cell><Cell>Đã cố định %1/%2 chốt</Cell><Cell>Đã cố định %1/%2 chốt</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_1</Cell><Cell>Rất dễ</Cell><Cell>Rất dễ</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_2</Cell><Cell>Dễ</Cell><Cell>Dễ</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_3</Cell><Cell>Trung bình</Cell><Cell>Trung bình</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_4</Cell><Cell>Khó</Cell><Cell>Khó</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_5</Cell><Cell>Rất khó</Cell><Cell>Rất khó</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_move</Cell><Cell>Di chuyển bộ mở khóa</Cell><Cell>Di chuyển bộ mở khóa</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_push</Cell><Cell>Đẩy</Cell><Cell>Đẩy</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_set</Cell><Cell>Cố định</Cell><Cell>Cố định</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_up</Cell><Cell>lên</Cell><Cell>lên</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_or</Cell><Cell>hoặc</Cell><Cell>hoặc</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0200</Cell><Cell>Đưa bộ mở khóa {$moveleft; $moveright;|$xi_movex;} xuống dưới một chốt và &lt;strong&gt;đẩy nó lên&lt;/strong&gt; {$moveforward;|$xi_movey;}. Phần lớn chốt bật lên rồi rơi ngay, nhưng một số &lt;strong&gt;nâng lên chậm và khựng lại ở đỉnh&lt;/strong&gt;.</Cell><Cell>Đưa bộ mở khóa {$moveleft; $moveright;|$xi_movex;} xuống dưới một chốt và &lt;strong&gt;đẩy nó lên&lt;/strong&gt; {$moveforward;|$xi_movey;}. Phần lớn chốt bật lên rồi rơi ngay, nhưng một số &lt;strong&gt;nâng lên chậm và khựng lại ở đỉnh&lt;/strong&gt;.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0300</Cell><Cell>&lt;strong&gt;Cố định chốt&lt;/strong&gt; với {$jump;|$use;} khi nó đang &lt;strong&gt;ở đỉnh&lt;/strong&gt;. Chốt chậm kêu muộn hơn và trầm hơn chốt nhanh. &lt;strong&gt;Tiếp tục đẩy&lt;/strong&gt; {$moveforward;|$xi_movey;} thì chốt sẽ cứ nảy lên với tốc độ vốn có.</Cell><Cell>&lt;strong&gt;Cố định chốt&lt;/strong&gt; với {$jump;|$use;} khi nó đang &lt;strong&gt;ở đỉnh&lt;/strong&gt;. Chốt chậm kêu muộn hơn và trầm hơn chốt nhanh. &lt;strong&gt;Tiếp tục đẩy&lt;/strong&gt; {$moveforward;|$xi_movey;} thì chốt sẽ cứ nảy lên với tốc độ vốn có.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0400</Cell><Cell>Cố định tất cả các chốt &lt;strong&gt;để mở khóa&lt;/strong&gt;.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;Nhưng hãy cẩn thận: Cố định chốt khi nó vẫn đang nâng lên hoặc đã rơi xuống có thể làm gãy bộ mở khóa!&lt;/label&gt;</Cell><Cell>Cố định tất cả các chốt &lt;strong&gt;để mở khóa&lt;/strong&gt;.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;Nhưng hãy cẩn thận: Cố định chốt khi nó vẫn đang nâng lên hoặc đã rơi xuống có thể làm gãy bộ mở khóa!&lt;/label&gt;</Cell></Row>
+</Table>

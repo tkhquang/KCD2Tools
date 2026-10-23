@@ -1,0 +1,16 @@
+<Table>
+<Row><Cell>ui_oblivion_lockpicking_header</Cell><Cell>Зафіксовано штифтів: %1 з %2</Cell><Cell>Зафіксовано штифтів: %1 з %2</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_1</Cell><Cell>Дуже легко</Cell><Cell>Дуже легко</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_2</Cell><Cell>Легко</Cell><Cell>Легко</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_3</Cell><Cell>Середньо</Cell><Cell>Середньо</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_4</Cell><Cell>Важко</Cell><Cell>Важко</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_5</Cell><Cell>Дуже важко</Cell><Cell>Дуже важко</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_move</Cell><Cell>Рухати відмичку</Cell><Cell>Рухати відмичку</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_push</Cell><Cell>Штовхнути</Cell><Cell>Штовхнути</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_set</Cell><Cell>Зафіксувати</Cell><Cell>Зафіксувати</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_up</Cell><Cell>вгору</Cell><Cell>вгору</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_or</Cell><Cell>або</Cell><Cell>або</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0200</Cell><Cell>Підведіть відмичку {$moveleft; $moveright;|$xi_movex;} під штифт і &lt;strong&gt;штовхніть його вгору&lt;/strong&gt; {$moveforward;|$xi_movey;}. Більшість штифтів підскакує й одразу падає, але деякі &lt;strong&gt;піднімаються повільно й завмирають угорі&lt;/strong&gt;.</Cell><Cell>Підведіть відмичку {$moveleft; $moveright;|$xi_movex;} під штифт і &lt;strong&gt;штовхніть його вгору&lt;/strong&gt; {$moveforward;|$xi_movey;}. Більшість штифтів підскакує й одразу падає, але деякі &lt;strong&gt;піднімаються повільно й завмирають угорі&lt;/strong&gt;.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0300</Cell><Cell>&lt;strong&gt;Зафіксуйте штифт&lt;/strong&gt; за допомогою {$jump;|$use;}, поки він &lt;strong&gt;угорі&lt;/strong&gt;. Повільний штифт клацає пізніше й на тон нижче за швидкий. &lt;strong&gt;Продовжуйте штовхати&lt;/strong&gt; {$moveforward;|$xi_movey;}, і штифт підстрибуватиме зі своєю швидкістю.</Cell><Cell>&lt;strong&gt;Зафіксуйте штифт&lt;/strong&gt; за допомогою {$jump;|$use;}, поки він &lt;strong&gt;угорі&lt;/strong&gt;. Повільний штифт клацає пізніше й на тон нижче за швидкий. &lt;strong&gt;Продовжуйте штовхати&lt;/strong&gt; {$moveforward;|$xi_movey;}, і штифт підстрибуватиме зі своєю швидкістю.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0400</Cell><Cell>Зафіксуйте всі штифти, &lt;strong&gt;щоб відімкнути замок&lt;/strong&gt;.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;Але будьте обережні: якщо фіксувати штифт, поки він ще піднімається або вже падає, відмичка може зламатися!&lt;/label&gt;</Cell><Cell>Зафіксуйте всі штифти, &lt;strong&gt;щоб відімкнути замок&lt;/strong&gt;.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;Але будьте обережні: якщо фіксувати штифт, поки він ще піднімається або вже падає, відмичка може зламатися!&lt;/label&gt;</Cell></Row>
+</Table>

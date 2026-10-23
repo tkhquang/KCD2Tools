@@ -1,0 +1,16 @@
+<Table>
+<Row><Cell>ui_oblivion_lockpicking_header</Cell><Cell>Tumblers set %1 of %2</Cell><Cell>Tumblers set %1 of %2</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_1</Cell><Cell>Very Easy</Cell><Cell>Very Easy</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_2</Cell><Cell>Easy</Cell><Cell>Easy</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_3</Cell><Cell>Medium</Cell><Cell>Medium</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_4</Cell><Cell>Hard</Cell><Cell>Hard</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_5</Cell><Cell>Very Hard</Cell><Cell>Very Hard</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_move</Cell><Cell>Move the pick</Cell><Cell>Move the pick</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_push</Cell><Cell>Push</Cell><Cell>Push</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_set</Cell><Cell>Set</Cell><Cell>Set</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_up</Cell><Cell>up</Cell><Cell>up</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_or</Cell><Cell>or</Cell><Cell>or</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0200</Cell><Cell>Move the pick {$moveleft; $moveright;|$xi_movex;} under a tumbler and &lt;strong&gt;push it up&lt;/strong&gt; {$moveforward;|$xi_movey;}. Most tumblers spring up and drop at once, but some &lt;strong&gt;rise slowly and pause at the top&lt;/strong&gt;.</Cell><Cell>Move the pick {$moveleft; $moveright;|$xi_movex;} under a tumbler and &lt;strong&gt;push it up&lt;/strong&gt; {$moveforward;|$xi_movey;}. Most tumblers spring up and drop at once, but some &lt;strong&gt;rise slowly and pause at the top&lt;/strong&gt;.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0300</Cell><Cell>&lt;strong&gt;Set the tumbler&lt;/strong&gt; with {$jump;|$use;} while it is &lt;strong&gt;at the top&lt;/strong&gt;. A slow tumbler clicks later and lower than a fast one. &lt;strong&gt;Hold the push&lt;/strong&gt; {$moveforward;|$xi_movey;} and it keeps bouncing at its speed.</Cell><Cell>&lt;strong&gt;Set the tumbler&lt;/strong&gt; with {$jump;|$use;} while it is &lt;strong&gt;at the top&lt;/strong&gt;. A slow tumbler clicks later and lower than a fast one. &lt;strong&gt;Hold the push&lt;/strong&gt; {$moveforward;|$xi_movey;} and it keeps bouncing at its speed.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0400</Cell><Cell>Set every tumbler &lt;strong&gt;to open the lock&lt;/strong&gt;.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;But be careful: setting a tumbler while it is still rising or already falling can break your lockpick!&lt;/label&gt;</Cell><Cell>Set every tumbler &lt;strong&gt;to open the lock&lt;/strong&gt;.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;But be careful: setting a tumbler while it is still rising or already falling can break your lockpick!&lt;/label&gt;</Cell></Row>
+</Table>

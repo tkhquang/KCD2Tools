@@ -1,0 +1,16 @@
+<Table>
+<Row><Cell>ui_oblivion_lockpicking_header</Cell><Cell>已固定弹子：%1/%2</Cell><Cell>已固定弹子：%1/%2</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_1</Cell><Cell>极易</Cell><Cell>极易</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_2</Cell><Cell>容易</Cell><Cell>容易</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_3</Cell><Cell>中等</Cell><Cell>中等</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_4</Cell><Cell>困难</Cell><Cell>困难</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_5</Cell><Cell>极难</Cell><Cell>极难</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_move</Cell><Cell>移动开锁器</Cell><Cell>移动开锁器</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_push</Cell><Cell>推动</Cell><Cell>推动</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_set</Cell><Cell>固定</Cell><Cell>固定</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_up</Cell><Cell>向上</Cell><Cell>向上</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_or</Cell><Cell>或</Cell><Cell>或</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0200</Cell><Cell>用{$moveleft; $moveright;|$xi_movex;}将开锁器移到弹子下方，再用{$moveforward;|$xi_movey;}&lt;strong&gt;向上推&lt;/strong&gt;。多数弹子弹起即落，但有些&lt;strong&gt;会缓缓上升并在顶端停留&lt;/strong&gt;。</Cell><Cell>用{$moveleft; $moveright;|$xi_movex;}将开锁器移到弹子下方，再用{$moveforward;|$xi_movey;}&lt;strong&gt;向上推&lt;/strong&gt;。多数弹子弹起即落，但有些&lt;strong&gt;会缓缓上升并在顶端停留&lt;/strong&gt;。</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0300</Cell><Cell>在弹子&lt;strong&gt;位于顶端&lt;/strong&gt;时用{$jump;|$use;}&lt;strong&gt;固定弹子&lt;/strong&gt;。慢速弹子的咔嗒声比快速弹子更晚、更低沉。&lt;strong&gt;持续推动&lt;/strong&gt;{$moveforward;|$xi_movey;}，弹子会以原有速度不断弹跳。</Cell><Cell>在弹子&lt;strong&gt;位于顶端&lt;/strong&gt;时用{$jump;|$use;}&lt;strong&gt;固定弹子&lt;/strong&gt;。慢速弹子的咔嗒声比快速弹子更晚、更低沉。&lt;strong&gt;持续推动&lt;/strong&gt;{$moveforward;|$xi_movey;}，弹子会以原有速度不断弹跳。</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0400</Cell><Cell>固定所有弹子&lt;strong&gt;即可开锁&lt;/strong&gt;。&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;但是小心：在弹子仍在上升或已经下落时固定它，可能会导致开锁器损毁！&lt;/label&gt;</Cell><Cell>固定所有弹子&lt;strong&gt;即可开锁&lt;/strong&gt;。&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;但是小心：在弹子仍在上升或已经下落时固定它，可能会导致开锁器损毁！&lt;/label&gt;</Cell></Row>
+</Table>

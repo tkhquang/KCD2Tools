@@ -1,0 +1,397 @@
+name: Oblivion-Style Lockpicking - Tumbler Lock - Version Bump and Release
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_part:
+        description: "Version part to bump"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      version_title:
+        description: "Version title (defaults to the heading in NEXT_CHANGELOG.md)"
+        required: false
+        type: string
+      nexus_description:
+        description: "Nexus file note (appended after the install-steps line; truncated to fit 255 chars total)"
+        required: false
+        type: string
+      prerelease:
+        description: "Is this a pre-release?"
+        required: false
+        default: false
+        type: boolean
+
+# Releases share the same version header and tag namespace across branches.
+concurrency:
+  group: release-oblivion-lockpicking
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  bump-and-release:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check release branch and initialize dependencies
+        run: |
+          if ($env:GITHUB_REF_TYPE -ne 'branch') {
+            throw 'Run this workflow on a branch, not a tag.'
+          }
+          # Fetch only this mod's dependency tree. Other mods and CryEngine are not needed.
+          git submodule update --init --recursive -- OblivionLockpicking/external/DetourModKit
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to initialize OblivionLockpicking submodules.' }
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+
+      # kcd-pak-action runs python3 from bash, and a Windows Python install can provide only python.exe.
+      - name: Expose python3 for kcd-pak-action
+        run: |
+          $python = (Get-Command python).Source
+          $python3 = Join-Path (Split-Path $python) 'python3.exe'
+          if (-not (Test-Path $python3)) { Copy-Item $python $python3 }
+
+      - name: Read changelog and determine title
+        id: read-changelog
+        env:
+          TITLE_INPUT: ${{ inputs.version_title }}
+        run: |
+          $content = Get-Content -LiteralPath 'OblivionLockpicking/docs/NEXT_CHANGELOG.md' -Raw -Encoding utf8
+          $lines = $content -split "`r?`n"
+          if ($lines[0] -notmatch '^##\s+(.+)$') {
+            throw 'NEXT_CHANGELOG.md must start with ## followed by a release title.'
+          }
+          $suggestedTitle = $matches[1].Trim()
+          if ($suggestedTitle -eq '[Title for next release]') {
+            throw 'Replace the NEXT_CHANGELOG.md template with release notes before publishing.'
+          }
+          $title = ([string]$env:TITLE_INPUT).Trim()
+          if ([string]::IsNullOrWhiteSpace($title)) { $title = $suggestedTitle }
+          if ($title -match '[\r\n]') { throw 'The release title must be a single line.' }
+          $changelog = ($lines | Select-Object -Skip 1) -join "`n"
+          if ([string]::IsNullOrWhiteSpace($changelog)) { throw 'The changelog must not be empty.' }
+          $notesPath = Join-Path $env:RUNNER_TEMP 'oblivion-lockpicking-changelog.txt'
+          Set-Content -LiteralPath $notesPath -Value $changelog.Trim() -Encoding utf8
+          "TITLE=$title" >> $env:GITHUB_OUTPUT
+          "NOTES_PATH=$notesPath" >> $env:GITHUB_OUTPUT
+
+      - name: Bump version and update changelog
+        env:
+          VERSION_PART: ${{ inputs.version_part }}
+          RELEASE_TITLE: ${{ steps.read-changelog.outputs.TITLE }}
+          NOTES_PATH: ${{ steps.read-changelog.outputs.NOTES_PATH }}
+        run: |
+          python OblivionLockpicking/scripts/version_updater.py bump $env:VERSION_PART --title $env:RELEASE_TITLE --changelog-file $env:NOTES_PATH
+          if ($LASTEXITCODE -ne 0) { throw 'Version update failed.' }
+
+          $header = Get-Content "OblivionLockpicking\src\version.hpp" -Raw
+          $major = [regex]::Match($header, '#define\s+VERSION_MAJOR\s+(\d+)').Groups[1].Value
+          $minor = [regex]::Match($header, '#define\s+VERSION_MINOR\s+(\d+)').Groups[1].Value
+          $patch = [regex]::Match($header, '#define\s+VERSION_PATCH\s+(\d+)').Groups[1].Value
+          $version = "$major.$minor.$patch"
+          # The pak mod's manifest carries the same version, and the updater bumps both.
+          $manifest = Get-Content 'OblivionLockpicking/pack/mod.manifest' -Raw
+          $manifestVersion = [regex]::Match($manifest, '<version>\s*(\d+\.\d+\.\d+)\s*</version>').Groups[1].Value
+          if ($manifestVersion -ne $version) { throw "mod.manifest version '$manifestVersion' does not match version.hpp $version." }
+          $tag = "OblivionLockpicking-v$version"
+          git show-ref --verify --quiet "refs/tags/$tag"
+          if ($LASTEXITCODE -eq 0) { throw "Tag $tag already exists. Choose a different version bump." }
+          if ($LASTEXITCODE -ne 1) { throw 'Failed to check existing release tags.' }
+          "NEW_VERSION=$version" >> $env:GITHUB_ENV
+          "VERSION_TAG=v$version" >> $env:GITHUB_ENV
+          "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+          "ARTIFACT_NAME=KCD2_OblivionLockpicking_v$version.zip" >> $env:GITHUB_ENV
+          "KCSE_ARTIFACT_NAME=KCD2_OblivionLockpicking_KCSE_v$version.zip" >> $env:GITHUB_ENV
+          # show-ref returns 1 for the expected missing tag, which is not a step failure.
+          exit 0
+
+      - name: Build ASI, KCSE plugin and tests
+        working-directory: OblivionLockpicking
+        run: |
+          cmake --preset msvc-release
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed.' }
+          cmake --build --preset msvc-release --parallel --target KCD2_OblivionLockpicking-ASI KCD2_OblivionLockpicking-KCSE oblivion_lp_tests oblivion_lp_bindings_tests
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
+          foreach ($artifact in 'build\release-msvc\KCD2_OblivionLockpicking.asi', 'build\release-msvc\KCSE\KCD2_OblivionLockpicking.dll') {
+            if (-not (Test-Path $artifact)) {
+              Write-Error "$artifact was not produced"
+              exit 1
+            }
+          }
+
+      - name: Run unit tests
+        working-directory: OblivionLockpicking
+        run: |
+          ctest --test-dir build\release-msvc -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Unit tests failed.' }
+
+      # Data/ and Localization/<Lang>/ become paks, and the manifest stays loose. The .gfx movie and .dds textures are
+      # committed prebuilt and packed as they are.
+      - name: Build paks
+        id: pak
+        uses: tkhquang/kcd-pak-action@v1
+        with:
+          mod-dir: OblivionLockpicking/pack
+          out-dir: OblivionLockpicking/dist
+
+      # Two archives. ASI build, extracted into the game folder: the ASI and its runtime files go beside WHGame.dll,
+      # the pak mod into Mods/<modid>/. KCSE build: the same pak mod folder with the plugin DLL and its runtime files
+      # in KCSE/Plugins/, a regular Mods entry that mod managers install. kcd-pak-action packs only Data/ and
+      # Localization/, so the pack INI, which Sound Framework reads from disk, is copied loose beside the paks.
+      - name: Assemble release archives
+        env:
+          DEPLOY_DIR: ${{ steps.pak.outputs.deploy-dir }}
+        run: |
+          $package = "OblivionLockpicking\package"
+          $binDir = Join-Path $package 'Bin\Win64MasterMasterSteamPGO'
+          $modsDir = Join-Path $package 'Mods'
+          $modDir = Join-Path $modsDir 'oblivion_lockpicking'
+          New-Item -ItemType Directory -Force -Path $binDir, $modsDir | Out-Null
+          Copy-Item "OblivionLockpicking\build\release-msvc\KCD2_OblivionLockpicking.asi" $binDir
+          Copy-Item "OblivionLockpicking\build\template\*" $binDir -Recurse
+          Copy-Item "OblivionLockpicking\LICENSE" (Join-Path $binDir 'KCD2_OblivionLockpicking_License.txt')
+          Copy-Item $env:DEPLOY_DIR $modsDir -Recurse
+          Copy-Item "OblivionLockpicking\pack\SoundFramework" $modDir -Recurse
+          $required = @(
+            'Bin/Win64MasterMasterSteamPGO/KCD2_OblivionLockpicking.asi',
+            'Bin/Win64MasterMasterSteamPGO/KCD2_OblivionLockpicking.ini',
+            'Mods/oblivion_lockpicking/mod.manifest',
+            'Mods/oblivion_lockpicking/Data/oblivion_lockpicking.pak',
+            'Mods/oblivion_lockpicking/Localization/English_xml.pak',
+            'Mods/oblivion_lockpicking/SoundFramework/KCD2_OblivionLockpicking_sounds.ini'
+          )
+          foreach ($file in $required) {
+            if (-not (Test-Path (Join-Path $package $file))) { throw "$file is missing from the package" }
+          }
+          Compress-Archive -Path "$package\*" -DestinationPath $env:ARTIFACT_NAME -Force
+          Get-ChildItem -Recurse $package | Select-Object FullName, Length | Format-Table -AutoSize | Out-String -Width 200
+
+          $kcsePackage = "OblivionLockpicking\package_kcse"
+          $kcseModDir = Join-Path $kcsePackage 'oblivion_lockpicking'
+          $pluginDir = Join-Path $kcseModDir 'KCSE\Plugins'
+          New-Item -ItemType Directory -Force -Path $kcsePackage | Out-Null
+          Copy-Item $env:DEPLOY_DIR $kcsePackage -Recurse
+          Copy-Item "OblivionLockpicking\pack\SoundFramework" $kcseModDir -Recurse
+          New-Item -ItemType Directory -Force -Path $pluginDir | Out-Null
+          Copy-Item "OblivionLockpicking\build\release-msvc\KCSE\KCD2_OblivionLockpicking.dll" $pluginDir
+          Copy-Item "OblivionLockpicking\build\template\*" $pluginDir -Recurse
+          Copy-Item "OblivionLockpicking\LICENSE" (Join-Path $pluginDir 'KCD2_OblivionLockpicking_License.txt')
+          $kcseRequired = @(
+            'oblivion_lockpicking/mod.manifest',
+            'oblivion_lockpicking/Data/oblivion_lockpicking.pak',
+            'oblivion_lockpicking/Localization/English_xml.pak',
+            'oblivion_lockpicking/SoundFramework/KCD2_OblivionLockpicking_sounds.ini',
+            'oblivion_lockpicking/KCSE/Plugins/KCD2_OblivionLockpicking.dll',
+            'oblivion_lockpicking/KCSE/Plugins/KCD2_OblivionLockpicking.ini'
+          )
+          foreach ($file in $kcseRequired) {
+            if (-not (Test-Path (Join-Path $kcsePackage $file))) { throw "$file is missing from the KCSE package" }
+          }
+          Compress-Archive -Path $kcseModDir -DestinationPath $env:KCSE_ARTIFACT_NAME -Force
+          Get-ChildItem -Recurse $kcsePackage | Select-Object FullName, Length | Format-Table -AutoSize | Out-String -Width 200
+
+      - name: Prepare release body and Nexus metadata
+        id: prepare-release
+        env:
+          RELEASE_TITLE: ${{ steps.read-changelog.outputs.TITLE }}
+          NOTES_PATH: ${{ steps.read-changelog.outputs.NOTES_PATH }}
+          NEXUS_DESC_INPUT: ${{ inputs.nexus_description }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          $changelog = Get-Content -LiteralPath $env:NOTES_PATH -Raw -Encoding utf8
+          $releaseBody = @'
+          # Kingdom Come: Deliverance II - Oblivion-Style Lockpicking - Tumbler Lock
+
+          ## Release {0} - {1}
+
+          Replaces the lockpicking minigame with an Oblivion-style tumbler lock, recreated from observing how the original plays, with no Oblivion code, art or sound: push each tumbler up with the pick and set it while it pauses at the top.
+
+          ## Changelog
+
+          {2}
+
+          ### Installation
+
+          The mod comes in two builds. **Install one of them, not both.**
+
+          **KCSE build** (`{5}`), installable with a mod manager: install [Kingdom Come Script Extender](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332), and [Sound Framework](https://github.com/{3}/tree/main/SoundFramework), then install the archive with your mod manager, or extract it into `<game>/Mods/`. Everything lands in `Mods/oblivion_lockpicking/`. The plugin and its INI are in `Mods/oblivion_lockpicking/KCSE/Plugins/`.
+
+          **ASI build** (`{4}`):
+
+          1. Install one **x64** variant of [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases) if you do not already have a working ASI loader. Extract its DLL beside `WHGame.dll` in `<game>/Bin/Win64MasterMasterSteamPGO/` (Steam). Other stores use their own `Bin/Win64MasterMaster...` folder. Choose an unused DLL name:
+             - [dinput8.dll](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/dinput8-x64.zip) - usual choice if unused
+             - [version.dll](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/version-x64.zip) - alternative when `dinput8.dll` is already used
+             - [winmm.dll](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/winmm-x64.zip) - another alternative
+
+             KCSE also loads `.asi` files beside its `dinput8.dll`, so KCSE users need no separate loader.
+          2. Extract this archive into the game folder, the one that holds `Bin` and `Mods`. The ASI and its INI land beside `WHGame.dll` in `Bin/Win64MasterMasterSteamPGO/`, and the data mod lands in `Mods/oblivion_lockpicking/`. On other stores, move the `KCD2_OblivionLockpicking` files from `Bin/Win64MasterMasterSteamPGO/` into your store's `Bin/Win64MasterMaster...` folder.
+          3. Install [Sound Framework](https://github.com/{3}/tree/main/SoundFramework) for the lock's sounds.
+          4. Load a save and pick a lock. A and D (or the mouse) move the pick, W (or the mouse moving up) pushes a tumbler, and Space (or left click) sets it while it is all the way up.
+
+          The ASI loader is not bundled. Back up your customized INI before updating, then reapply your settings to the supplied INI.
+
+          Edit `KCD2_OblivionLockpicking.ini` and save it, and the changes apply while you play. `Enabled=false` gives the vanilla minigame back. Check `KCD2_OblivionLockpicking.log` beside the ASI (ASI build) or in `KCSE/Plugins/` (KCSE build) if the mod does not load.
+
+          See the [README](https://github.com/{3}/blob/main/OblivionLockpicking/README.md) for controls, settings and troubleshooting.
+
+          ### Technical Details
+
+          Oblivion-Style Lockpicking - Tumbler Lock is built on [DetourModKit (DMK)](https://github.com/tkhquang/DetourModKit), a full-featured C++23 framework for Windows game modding. It provides:
+
+          - Function hooking via [SafetyHook](https://github.com/cursey/safetyhook) and vtable hooking
+          - AOB (Array of Bytes) pattern scanning and memory access utilities
+          - Keyboard, mouse and XInput controller bindings
+          - INI configuration with live reload
+          - Thread-safe logging and runtime diagnostics
+          - Mod lifecycle management and hot-reload support
+          '@
+          $releaseBody = $releaseBody -f $env:VERSION_TAG, $env:RELEASE_TITLE, $changelog.Trim(), $env:GITHUB_REPOSITORY, $env:ARTIFACT_NAME, $env:KCSE_ARTIFACT_NAME
+          if ($env:PRERELEASE -eq 'true') {
+            $releaseBody = "## PRE-RELEASE VERSION`n`nThis build is for testing and can contain bugs or incomplete features.`n`n" + $releaseBody
+          }
+          $bodyPath = Join-Path $env:RUNNER_TEMP 'oblivion-lockpicking-release-body.md'
+          Set-Content -LiteralPath $bodyPath -Value $releaseBody -Encoding utf8
+          "RELEASE_BODY_PATH=$bodyPath" >> $env:GITHUB_OUTPUT
+
+          # Nexus accepts a 255-character file note, BBCode tags included, and a plain bullet-list changelog. Each
+          # file opens with its own build and requirement line, and the optional note fills what is left.
+          $asiLead = 'ASI build: needs an [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases]ASI loader[/url]. Extract it into the game folder by hand. Install this or the KCSE build, not both. See the description for installation steps.'
+          $kcseLead = 'KCSE build: needs [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332]KCSE[/url]. Installs with a mod manager, or into Mods. Install this or the ASI build, not both. See the description for installation steps.'
+          $note = ($env:NEXUS_DESC_INPUT -replace "`r`n", "`n").Trim()
+          function Format-FileNote([string]$lead) {
+            if ($note -eq '') { return $lead }
+            $remaining = 255 - $lead.Length - 2
+            if ($remaining -le 0) { return $lead }
+            return "$lead`n`n" + $note.Substring(0, [Math]::Min($note.Length, $remaining))
+          }
+          $nexusChangelog = (($changelog -split "`r?`n") |
+            ForEach-Object { ($_.Trim() -replace '^[-*+]\s+', '') } |
+            Where-Object { $_ -ne '' }) -join "`n"
+          $delimiter = "NEXUS_$([guid]::NewGuid().ToString('N'))"
+          "NEXUS_DESCRIPTION<<$delimiter" >> $env:GITHUB_OUTPUT
+          (Format-FileNote $asiLead) >> $env:GITHUB_OUTPUT
+          $delimiter >> $env:GITHUB_OUTPUT
+          "NEXUS_KCSE_DESCRIPTION<<$delimiter" >> $env:GITHUB_OUTPUT
+          (Format-FileNote $kcseLead) >> $env:GITHUB_OUTPUT
+          $delimiter >> $env:GITHUB_OUTPUT
+          "NEXUS_CHANGELOG<<$delimiter" >> $env:GITHUB_OUTPUT
+          $nexusChangelog >> $env:GITHUB_OUTPUT
+          $delimiter >> $env:GITHUB_OUTPUT
+
+      - name: Commit version changes and create release tag
+        env:
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          git config --local user.email 'github-actions[bot]@users.noreply.github.com'
+          git config --local user.name 'github-actions[bot]'
+          git add -- OblivionLockpicking/src/version.hpp OblivionLockpicking/pack/mod.manifest OblivionLockpicking/CHANGELOG.md
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to stage version changes.' }
+          git commit -m "Bump OblivionLockpicking version to $env:NEW_VERSION"
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to commit version changes.' }
+          git tag -a $env:RELEASE_TAG -m "Release $env:VERSION_TAG"
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to create release tag.' }
+
+          # The tag always contains the source used to build the archive. Pre-releases keep
+          # the bump on the tag only, leaving the selected branch and pending notes untouched.
+          if ($env:PRERELEASE -eq 'true') {
+            git push origin "refs/tags/$env:RELEASE_TAG"
+          } else {
+            git push --atomic origin "HEAD:refs/heads/$env:GITHUB_REF_NAME" "refs/tags/$env:RELEASE_TAG"
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to push release changes.' }
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: |
+            ${{ env.ARTIFACT_NAME }}
+            ${{ env.KCSE_ARTIFACT_NAME }}
+          name: KCD2 OblivionLockpicking ${{ env.VERSION_TAG }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          body_path: ${{ steps.prepare-release.outputs.RELEASE_BODY_PATH }}
+          draft: false
+          prerelease: ${{ inputs.prerelease }}
+
+      # The account API key is shared, and the file and v3 mod IDs identify this mod.
+      # Leave the file ID unset to skip Nexus publishing. mod_id is required only for changelogs.
+      # The archive is extracted into the game folder by hand, so mod manager downloads stay off.
+      - name: Publish to Nexus Mods
+        if: ${{ !inputs.prerelease && vars.NEXUSMODS_OBLIVIONLOCKPICKING_FILE_ID != '' }}
+        uses: Nexus-Mods/upload-action@c96019556046053aa26044b44396cd38929daf23 # v1.0.0-beta.10
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_id: ${{ vars.NEXUSMODS_OBLIVIONLOCKPICKING_FILE_ID }}
+          filename: ${{ env.ARTIFACT_NAME }}
+          version: ${{ env.NEW_VERSION }}
+          display_name: (ASI) Oblivion-Style Lockpicking - Tumbler Lock
+          description: ${{ steps.prepare-release.outputs.NEXUS_DESCRIPTION }}
+          category: main
+          archive_existing_version: false
+          primary_mod_manager_download: false
+          allow_mod_manager_download: false
+          show_requirements_pop_up: true
+          update_mod_version: true
+          mod_id: ${{ vars.NEXUSMODS_OBLIVIONLOCKPICKING_MOD_ID }}
+          changelog: ${{ vars.NEXUSMODS_OBLIVIONLOCKPICKING_MOD_ID != '' && steps.prepare-release.outputs.NEXUS_CHANGELOG || '' }}
+
+      # The KCSE archive is a regular Mods folder entry, so mod managers can install it.
+      - name: Publish KCSE build to Nexus Mods
+        if: ${{ !inputs.prerelease && vars.NEXUSMODS_OBLIVIONLOCKPICKING_KCSE_FILE_ID != '' }}
+        uses: Nexus-Mods/upload-action@c96019556046053aa26044b44396cd38929daf23 # v1.0.0-beta.10
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_id: ${{ vars.NEXUSMODS_OBLIVIONLOCKPICKING_KCSE_FILE_ID }}
+          filename: ${{ env.KCSE_ARTIFACT_NAME }}
+          version: ${{ env.NEW_VERSION }}
+          display_name: (KCSE) Oblivion-Style Lockpicking - Tumbler Lock
+          description: ${{ steps.prepare-release.outputs.NEXUS_KCSE_DESCRIPTION }}
+          category: main
+          archive_existing_version: false
+          primary_mod_manager_download: true
+          allow_mod_manager_download: true
+          show_requirements_pop_up: true
+          update_mod_version: false
+
+      - name: Archive NEXT_CHANGELOG.md
+        if: ${{ !inputs.prerelease && success() }}
+        run: |
+          git pull --ff-only origin $env:GITHUB_REF_NAME
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to update the release branch before archiving.' }
+          $archiveDir = 'OblivionLockpicking/docs/archive'
+          $notesPath = 'OblivionLockpicking/docs/NEXT_CHANGELOG.md'
+          $archivePath = "$archiveDir/CHANGELOG_$env:VERSION_TAG.md"
+          New-Item -ItemType Directory -Path $archiveDir -Force | Out-Null
+          Move-Item -LiteralPath $notesPath -Destination $archivePath
+          $template = @'
+          ## [Title for next release]
+
+          - New feature
+          - Bug fix
+          - Improvement
+          '@
+          Set-Content -LiteralPath $notesPath -Value $template -Encoding utf8
+          git add -- $notesPath $archivePath
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to stage the archived changelog.' }
+          git commit -m "Chore: Archive OblivionLockpicking changelog for $env:VERSION_TAG and prepare for next release"
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to commit the archived changelog.' }
+          git push origin "HEAD:refs/heads/$env:GITHUB_REF_NAME"
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to push the archived changelog.' }

@@ -1,0 +1,16 @@
+<Table>
+<Row><Cell>ui_oblivion_lockpicking_header</Cell><Cell>Pinos travados: %1 de %2</Cell><Cell>Pinos travados: %1 de %2</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_1</Cell><Cell>Muito fácil</Cell><Cell>Muito fácil</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_2</Cell><Cell>Fácil</Cell><Cell>Fácil</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_3</Cell><Cell>Médio</Cell><Cell>Médio</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_4</Cell><Cell>Difícil</Cell><Cell>Difícil</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_5</Cell><Cell>Muito difícil</Cell><Cell>Muito difícil</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_move</Cell><Cell>Mover a gazua</Cell><Cell>Mover a gazua</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_push</Cell><Cell>Empurrar</Cell><Cell>Empurrar</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_set</Cell><Cell>Travar</Cell><Cell>Travar</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_up</Cell><Cell>para cima</Cell><Cell>para cima</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_or</Cell><Cell>ou</Cell><Cell>ou</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0200</Cell><Cell>Posicione a gazua {$moveleft; $moveright;|$xi_movex;} sob um pino e &lt;strong&gt;empurre-o para cima&lt;/strong&gt; {$moveforward;|$xi_movey;}. A maioria dos pinos salta e cai na hora, mas alguns &lt;strong&gt;sobem devagar e param no topo&lt;/strong&gt;.</Cell><Cell>Posicione a gazua {$moveleft; $moveright;|$xi_movex;} sob um pino e &lt;strong&gt;empurre-o para cima&lt;/strong&gt; {$moveforward;|$xi_movey;}. A maioria dos pinos salta e cai na hora, mas alguns &lt;strong&gt;sobem devagar e param no topo&lt;/strong&gt;.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0300</Cell><Cell>&lt;strong&gt;Trave o pino&lt;/strong&gt; com {$jump;|$use;} enquanto estiver &lt;strong&gt;no topo&lt;/strong&gt;. Um pino lento estala mais tarde e soa mais grave que um rápido. &lt;strong&gt;Continue empurrando&lt;/strong&gt; {$moveforward;|$xi_movey;} e o pino segue quicando na sua velocidade.</Cell><Cell>&lt;strong&gt;Trave o pino&lt;/strong&gt; com {$jump;|$use;} enquanto estiver &lt;strong&gt;no topo&lt;/strong&gt;. Um pino lento estala mais tarde e soa mais grave que um rápido. &lt;strong&gt;Continue empurrando&lt;/strong&gt; {$moveforward;|$xi_movey;} e o pino segue quicando na sua velocidade.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0400</Cell><Cell>Trave todos os pinos &lt;strong&gt;para abrir a fechadura&lt;/strong&gt;.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;Mas tome cuidado: travar um pino enquanto ele ainda sobe ou já está caindo pode quebrar a sua gazua!&lt;/label&gt;</Cell><Cell>Trave todos os pinos &lt;strong&gt;para abrir a fechadura&lt;/strong&gt;.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;Mas tome cuidado: travar um pino enquanto ele ainda sobe ou já está caindo pode quebrar a sua gazua!&lt;/label&gt;</Cell></Row>
+</Table>

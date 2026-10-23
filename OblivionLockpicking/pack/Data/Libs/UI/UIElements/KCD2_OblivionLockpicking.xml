@@ -1,0 +1,23 @@
+<UIElements name="KCD2_OblivionLockpicking">
+
+  <!-- The tumbler lock view. The element takes no input. The mod's C++ drives the movie through its player's
+       update() on every frame of a lock. Layer 10, the vanilla lockpicking view's layer.
+       force_no_unload keeps the movie loaded while the game hides the element (wh_ui_ApseUnloadMode unloads hidden
+       elements by default), so a hidden moment never means loading the movie and its textures again. -->
+  <UIElement name="KCD2_OblivionLockpicking" mouseevents="0" keyevents="0" cursor="0" controller_input="0" force_no_unload="1">
+
+    <GFx file="KCD2_OblivionLockpicking.gfx" layer="10">
+      <Constraints>
+        <Align mode="dynamic" valign="center" halign="center" scale="1" max="0" />
+      </Constraints>
+    </GFx>
+
+    <functions>
+    </functions>
+
+    <events>
+    </events>
+
+  </UIElement>
+
+</UIElements>

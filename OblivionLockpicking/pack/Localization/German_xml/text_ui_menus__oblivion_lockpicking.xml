@@ -1,0 +1,16 @@
+<Table>
+<Row><Cell>ui_oblivion_lockpicking_header</Cell><Cell>Zuhaltungen fixiert: %1 von %2</Cell><Cell>Zuhaltungen fixiert: %1 von %2</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_1</Cell><Cell>Sehr leicht</Cell><Cell>Sehr leicht</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_2</Cell><Cell>Leicht</Cell><Cell>Leicht</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_3</Cell><Cell>Mittel</Cell><Cell>Mittel</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_4</Cell><Cell>Schwer</Cell><Cell>Schwer</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_5</Cell><Cell>Sehr schwer</Cell><Cell>Sehr schwer</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_move</Cell><Cell>Dietrich bewegen</Cell><Cell>Dietrich bewegen</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_push</Cell><Cell>Drücken</Cell><Cell>Drücken</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_set</Cell><Cell>Fixieren</Cell><Cell>Fixieren</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_up</Cell><Cell>nach oben</Cell><Cell>nach oben</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_or</Cell><Cell>oder</Cell><Cell>oder</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0200</Cell><Cell>Bewege den Dietrich {$moveleft; $moveright;|$xi_movex;} unter eine Zuhaltung und &lt;strong&gt;drücke sie hoch&lt;/strong&gt; {$moveforward;|$xi_movey;}. Die meisten Zuhaltungen schnellen hoch und fallen sofort wieder, doch manche &lt;strong&gt;steigen langsam und verharren oben&lt;/strong&gt;.</Cell><Cell>Bewege den Dietrich {$moveleft; $moveright;|$xi_movex;} unter eine Zuhaltung und &lt;strong&gt;drücke sie hoch&lt;/strong&gt; {$moveforward;|$xi_movey;}. Die meisten Zuhaltungen schnellen hoch und fallen sofort wieder, doch manche &lt;strong&gt;steigen langsam und verharren oben&lt;/strong&gt;.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0300</Cell><Cell>&lt;strong&gt;Fixiere die Zuhaltung&lt;/strong&gt; mit {$jump;|$use;}, solange sie &lt;strong&gt;oben&lt;/strong&gt; ist. Eine langsame Zuhaltung klickt später und tiefer als eine schnelle. &lt;strong&gt;Halte gedrückt&lt;/strong&gt; {$moveforward;|$xi_movey;}, dann springt die Zuhaltung in ihrem Tempo immer wieder hoch.</Cell><Cell>&lt;strong&gt;Fixiere die Zuhaltung&lt;/strong&gt; mit {$jump;|$use;}, solange sie &lt;strong&gt;oben&lt;/strong&gt; ist. Eine langsame Zuhaltung klickt später und tiefer als eine schnelle. &lt;strong&gt;Halte gedrückt&lt;/strong&gt; {$moveforward;|$xi_movey;}, dann springt die Zuhaltung in ihrem Tempo immer wieder hoch.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0400</Cell><Cell>Fixiere alle Zuhaltungen, &lt;strong&gt;um das Schloss zu öffnen&lt;/strong&gt;.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;Aber pass auf: Fixierst du eine Zuhaltung, während sie noch steigt oder schon fällt, kann dein Dietrich brechen!&lt;/label&gt;</Cell><Cell>Fixiere alle Zuhaltungen, &lt;strong&gt;um das Schloss zu öffnen&lt;/strong&gt;.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;Aber pass auf: Fixierst du eine Zuhaltung, während sie noch steigt oder schon fällt, kann dein Dietrich brechen!&lt;/label&gt;</Cell></Row>
+</Table>
