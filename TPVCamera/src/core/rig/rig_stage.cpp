@@ -20,9 +20,6 @@ namespace TPVCamera
 {
     namespace
     {
-        // A move armed by the game's own move input (see the re-arm guard) also ends once that input has stayed idle
-        // this long, which covers the game's few frames of lag behind the keys.
-        constexpr float k_orbit_move_game_stop_delay = 0.1f; // seconds
         // Eases the look pitch toward level per second while orbiting (OrbitLevelAim).
         constexpr float k_orbit_aim_level_speed = 8.0f;
 
@@ -1317,7 +1314,18 @@ namespace TPVCamera
         if (orbit_held && body_valid && move_signal.has_value())
         {
             bool moving = state.orbit_moving;
-            const float move_magnitude = *move_signal;
+            const std::optional<float> game_move = port.game_move(c_player);
+            // The latch is reset as free-look turns off, an excluded state starts or the view leaves third person, so a
+            // key or stick held through that reads 0 there: the run would keep the look's line instead of turning with
+            // the camera. The game's own move input stands in for it (step_game_move_stand_in()). It runs before the
+            // re-arm guard below, which arms on this frame's first idle reading.
+            const GameMoveStandInStep stand_in = step_game_move_stand_in(
+                state.orbit_move_stand_in, state.orbit_move_armed, *move_signal, game_move, delta_time);
+            if (stand_in.started)
+            {
+                port.event(RigEvent::MoveStandInStarted, game_move.value_or(0.0f), *move_signal, 0.0f, 0);
+            }
+            const float move_magnitude = stand_in.magnitude;
             // Re-arm guard: a genuine release (magnitude below the stop threshold) must be observed since orbit
             // engaged before a move-start is honored. A stranded latch (a held-move release swallowed on a
             // combat action-map swap, see player_onaction_reset) reads > 0 with the keys up; without this guard
@@ -1327,7 +1335,6 @@ namespace TPVCamera
             // game's own move input shows it too, so that also arms the move. A stranded latch has the keys up and
             // the game's input at 0, so the guard still holds it. A move armed that way also ends when the game's
             // input goes idle, as another key's slot can still be stranded and hold the latch up.
-            const std::optional<float> game_move = port.game_move(c_player);
             if (move_magnitude < k_move_input_stop)
             {
                 state.orbit_move_armed = true;
@@ -1391,12 +1398,12 @@ namespace TPVCamera
             }
             else if (moving && state.orbit_move_armed_by_game)
             {
-                // Armed by the game's own input: it ends once that input has stayed idle, even while another latch
-                // slot is stranded. Disarmed rather than reset, so a stranded slot stays held off by the guard and a
-                // key still held re-arms through the game's input on the next frame.
+                // Armed by the game's own input: it ends once that input has stayed idle for k_game_move_stop_delay,
+                // even while another latch slot is stranded. Disarmed rather than reset, so a stranded slot stays held
+                // off by the guard and a key still held re-arms through the game's input on the next frame.
                 state.orbit_move_game_idle =
                     (game_move && *game_move < k_move_input_stop) ? state.orbit_move_game_idle + delta_time : 0.0f;
-                if (state.orbit_move_game_idle >= k_orbit_move_game_stop_delay)
+                if (state.orbit_move_game_idle >= k_game_move_stop_delay)
                 {
                     moving = false;
                     state.orbit_move_armed = false;
@@ -1412,6 +1419,7 @@ namespace TPVCamera
             state.orbit_moving = false;
             state.orbit_move_armed = false; // re-armed by a release, or by a held move the game's input shows
             state.orbit_move_armed_by_game = false;
+            state.orbit_move_stand_in = {};
         }
 
         // Capture the heading on move-start: the eye-look yaw plus the orbit applied this frame, the yaw the

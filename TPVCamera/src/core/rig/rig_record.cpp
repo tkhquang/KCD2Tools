@@ -52,6 +52,9 @@ namespace TPVCamera::ProbeRecord
             fn("orbit_move_armed", state.orbit_move_armed);
             fn("orbit_move_armed_by_game", state.orbit_move_armed_by_game);
             fn("orbit_move_game_idle", state.orbit_move_game_idle);
+            // Member by member: the struct's padding bytes would make a bitwise comparison of the whole differ.
+            fn("orbit_move_stand_in.active", state.orbit_move_stand_in.active);
+            fn("orbit_move_stand_in.idle_seconds", state.orbit_move_stand_in.idle_seconds);
             fn("rig_stale_move_logged", state.rig_stale_move_logged);
             fn("rig_body_turn_logged", state.rig_body_turn_logged);
             fn("body_anchor_lean_x", state.body_anchor_lean_x);

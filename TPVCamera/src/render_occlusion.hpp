@@ -205,13 +205,13 @@ namespace TPVCamera
      *          its triangles (the root render mesh, or each sub-mesh of a compound statobj). Crossings within
      *          @p end_margin of a line's end (the character) do not count. A crossed prop is collected only where it is
      *          wide: a tube of 0.15 m half-width around the crossed line must meet it both across and up and down, so a
-     *          post or a rail thinner than the tube stays. A prop brush whose mesh cannot be read
-     *          counts on its box alone; an entity counts only on an exact crossing, and not at all when its box comes
-     *          within 0.6 m of a line's end (what the character carries or stands at). A prop or a bush (a plant
-     *          outside the trees folder) placed as a brush or vegetation that the camera is buried in is collected
-     *          too, marked buried, whether or not it hides the character: its box holds the camera and its mesh meets
-     *          at least five of six 2 m probes along the world axes. What only touches the lens is left to the near
-     *          clip plane, so a branch at the lens never fades a whole tree. Main thread only.
+     *          post or a rail thinner than the tube stays. A prop brush whose mesh cannot be read counts on its box alone;
+     *          an entity counts only on an exact crossing, and not at all when its box comes within 0.6 m of a line's
+     *          end (what the character carries or stands at). A prop or a bush (a plant outside the trees folder)
+     *          placed as a brush or vegetation that the camera is buried in is collected too, marked buried, whether or
+     *          not it hides the character: its box holds the camera and its mesh meets at least five of six 2 m probes
+     *          along the world axes. What only touches the lens is left to the near clip plane, so a branch at the lens
+     *          never fades a whole tree. Main thread only.
      * @param lines The sightlines, each from the camera. Only the first Constants::OCCLUDER_FADE_SIGHTLINES are read.
      * @param n_lines Count of @p lines.
      * @param end_margin Meters at each line's character end where a crossing does not count (OccluderFadeBodyMargin):

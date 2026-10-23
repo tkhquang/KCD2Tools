@@ -14,6 +14,7 @@
 #define TPVCAMERA_CORE_RIG_RIG_STAGE_HPP
 
 #include "core/blend/blend.hpp"
+#include "core/input/move_input.hpp"
 #include "core/math/vec.hpp"
 
 #include <cstdint>
@@ -158,12 +159,15 @@ namespace TPVCamera
         // stranded input latch (a held-move release swallowed on a combat action-map swap) cannot re-trip the
         // body-turn with the keys released. Cleared when orbit disengages, so re-engaging needs an observed release or
         // a held key the game's own move input shows. orbit_move_armed_by_game is set when that game input armed it:
-        // such a move also ends once that input has stayed idle for orbit_move_game_idle seconds, since another latch
-        // slot can still be stranded. Pairs with player_onaction_reset() (which drops the stale latch outright on the
-        // suspend/disengage edges).
+        // such a move also ends once that input has stayed idle for k_game_move_stop_delay (counted in
+        // orbit_move_game_idle), since another latch slot can still be stranded. Pairs with player_onaction_reset()
+        // (which drops the stale latch outright on the suspend/disengage edges).
         bool orbit_move_armed = false;
         bool orbit_move_armed_by_game = false;
         float orbit_move_game_idle = 0.0f;
+        // The reverse of a stranded latch: a key or stick held through player_onaction_reset() reads 0 in the latch, so
+        // the game's own move input stands in for it (step_game_move_stand_in()).
+        GameMoveStandIn orbit_move_stand_in{};
 
         // The rig's trace latches, so a suppressed stale move re-trip and the body-turn edges are traced once each.
         bool rig_stale_move_logged = false;
@@ -397,6 +401,7 @@ namespace TPVCamera
         HandoffTimeout,      // a: heading gap (degrees), b: seconds
         HandoffWriteFailed,  //
         MoveArmedByGame,     // a: magnitude
+        MoveStandInStarted,  // a: the game's move input, b: the latch
         MoveStart,           // a: magnitude, b: continuous align (0 or 1), mask: game state
         MoveStaleSuppressed, // a: magnitude
         MoveStop,            // a: magnitude

@@ -27,6 +27,7 @@ add_executable(tpvcamera_tests
   test_ease.cpp
   test_fade_sightlines.cpp
   test_fence_coverage.cpp
+  test_move_input.cpp
   test_preset_filter.cpp
   test_rig_math.cpp
   test_state_policy.cpp

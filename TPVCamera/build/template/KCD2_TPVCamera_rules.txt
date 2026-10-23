@@ -230,10 +230,10 @@ objects/natural/special/m01_fake_terrain/   = collide  # a far terrain mesh file
 
 objects/manmade/common_furniture/           = fade
 objects/manmade/common_furniture/platforms/ = collide mesh  # plank decks, also stood upright as plank walls (sheds)
-objects/manmade/common_decorations/         = fade     # (ground_deco/ is ground, below)
+objects/manmade/common_decorations/         = fade          # (ground_deco/ is ground, below)
 objects/manmade/common_illumination/        = fade
 objects/manmade/common_tools/               = fade
-objects/manmade/common_fixtures/ladders/    = fade     # other fixtures (doors, windows, chimneys, stairs) collide
+objects/manmade/common_fixtures/ladders/    = fade          # other fixtures (doors, windows, chimneys, stairs) collide
 
 # objects/manmade/common_furniture/shelves/: shelves and bookshelves taller than a person (1.8 m or more) stand
 # against room walls, so they stop the camera like the wall behind them. Lower and wall-hung shelves fade. Every

@@ -267,14 +267,16 @@ namespace TPVCamera
     /**
      * @brief Builds the fade's sightlines from @p from to the character.
      * @details The lines end at the head, at the chest halfway between @p head and @p hip, and at the hips, then at a
-     *          point @p body_width left and right of the chest across the view. That offset lies in the ground plane,
-     *          so a prop that hides only a shoulder or a side still crosses a line at any camera pitch. The side lines
-     *          are left out when @p body_width is 0, or when @p from is straight above or below the chest and the view
-     *          has no horizontal direction.
+     *          point @p body_width left and right of the chest across the view. That offset lies in the ground plane
+     *          (perpendicular to @p world_up), so a prop that hides only a shoulder or a side still crosses a line at
+     *          any camera pitch. The side lines are left out when @p body_width is 0, or when @p from is straight above
+     *          or below the chest and the view has no horizontal direction.
+     * @param world_up The unit up axis.
      * @return The number of lines written to @p out: 3 without the side lines, else
      *         Constants::OCCLUDER_FADE_SIGHTLINES.
      */
-    [[nodiscard]] int fade_sightlines(const Vector3 &from, const Vector3 &head, const Vector3 &hip, float body_width,
+    [[nodiscard]] int fade_sightlines(const Vector3 &from, const Vector3 &head, const Vector3 &hip,
+                                      const Vector3 &world_up, float body_width,
                                       std::span<Sightline, Constants::OCCLUDER_FADE_SIGHTLINES> out) noexcept;
 
     /**
