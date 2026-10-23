@@ -3,6 +3,8 @@ My shaky hands never got along with the vanilla lockpicking, so I set out to rep
 
 [b]Oblivion-Style Lockpicking - Tumbler Lock[/b] replaces the lockpicking minigame with a tumbler lock in the style of [i]The Elder Scrolls IV: Oblivion[/i]. The mechanics are recreated from observing how Oblivion's lockpicking plays. It is not a port and uses no Oblivion code, art or sound: the lock art is made for this mod, and the sounds are the game's own.
 
+[youtube]dSIp7Ti-nFA[/youtube]
+
 [size=5]How It Works[/size]
 [list]
 [*]A lock has one to five tumblers, more on harder locks.[/*]
@@ -28,15 +30,53 @@ My shaky hands never got along with the vanilla lockpicking, so I set out to rep
 [/list]
 
 [size=5]Installation[/size]
-The Files tab has two builds. [b]Install one of them, not both.[/b]
+1. Install [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3860]Sound Framework[/url] first, as its page describes. Either of its builds works with either build of this mod.
+2. The Files tab has two builds of this mod. [b]Install one of them, not both.[/b]
 
-[b]KCSE build:[/b] install [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332]KCSE[/url], then install the (KCSE) archive with your mod manager, or extract it into <KC:D 2 folder>/Mods/.
+[b]KCSE build:[/b] install [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332]KCSE[/url], then install the (KCSE) archive with your mod manager, or extract it into <KC:D 2 folder>/Mods/:
+[code]
+Mods/
+\-- oblivion_lockpicking/
+    |-- mod.manifest
+    |-- Data/
+    |   \-- oblivion_lockpicking.pak               (the lock's art and movie)
+    |-- Localization/
+    |   \-- English_xml.pak, French_xml.pak, ...   (texts, one pak per language)
+    |-- SoundFramework/
+    |   \-- KCD2_OblivionLockpicking_sounds.ini    (the lock's sounds, read by Sound Framework)
+    \-- KCSE/
+        \-- Plugins/
+            |-- KCD2_OblivionLockpicking.dll       (this mod)
+            |-- KCD2_OblivionLockpicking.ini       (settings)
+            |-- KCD2_OblivionLockpicking_License.txt
+            \-- KCD2_OblivionLockpicking.log       (created when the mod loads)
+[/code]
 
 [b]ASI build[/b]
 [spoiler]
 1. Without an ASI loader, extract one [b]x64[/b] [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases]Ultimate ASI Loader[/url] DLL beside WHGame.dll in Bin/Win64MasterMasterSteamPGO/. Other stores use their own Bin/Win64MasterMaster... folder. Use [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/dinput8-x64.zip]dinput8-x64.zip[/url], or [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/version-x64.zip]version-x64.zip[/url] when another mod already uses dinput8.dll. KCSE also loads ASI files, so KCSE users skip this step.
 2. Extract the (ASI) archive into the game folder, so its Bin and Mods folders merge with the game's. Without Mods/oblivion_lockpicking/, the game keeps its vanilla lockpicking.
 3. On Linux or Steam Deck, add [b]WINEDLLOVERRIDES="dinput8=n,b" %command%[/b] to the game's Steam launch options (version=n,b for the version loader).
+[code]
+<KC:D 2 folder>/
+|-- Bin/
+|   \-- Win64MasterMasterSteamPGO/
+|       |-- WHGame.dll                             (game file, already present)
+|       |-- dinput8.dll                            (ASI loader)
+|       |-- KCD2_OblivionLockpicking.asi           (this mod)
+|       |-- KCD2_OblivionLockpicking.ini           (settings)
+|       |-- KCD2_OblivionLockpicking_License.txt
+|       \-- KCD2_OblivionLockpicking.log           (created when the mod loads)
+\-- Mods/
+    \-- oblivion_lockpicking/
+        |-- mod.manifest
+        |-- Data/
+        |   \-- oblivion_lockpicking.pak           (the lock's art and movie)
+        |-- Localization/
+        |   \-- English_xml.pak, French_xml.pak, ... (texts, one pak per language)
+        \-- SoundFramework/
+            \-- KCD2_OblivionLockpicking_sounds.ini (the lock's sounds, read by Sound Framework)
+[/code]
 [/spoiler]
 
 Recommended: [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/654]FPS FIX (Memory Leak)[/url] and [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3462]Map Close Crash Bugfix[/url], which fix crashes in the game's own memory handling that a UI-heavy mod can also run into.
