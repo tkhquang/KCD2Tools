@@ -173,6 +173,13 @@ function build():Void
 	pickPart(slide, "mc_Tip", 2, {xMin: -BREAK_AT, yMin: pick.y - 1, xMax: pick.x + pick.w + 1,
 		yMax: pick.y + pick.h + 1});
 	holder(lock, "mc_Front", 50, 0, 0, "front_common_1");
+	// A gear's shadow is a layer of its own that turns with the gear about the shadow's centre, so it stays where the
+	// light throws it.
+	var shadow:Array = LAYOUT.layers.gear_shadow.centre;
+	load(holder(lock, "mc_GearShadowL", 58, LAYOUT.gears[0][0] + shadow[0], LAYOUT.gears[0][1] + shadow[1],
+		"gear_shadow"), "gear_shadow");
+	load(holder(lock, "mc_GearShadowR", 59, LAYOUT.gears[1][0] + shadow[0], LAYOUT.gears[1][1] + shadow[1],
+		"gear_shadow"), "gear_shadow");
 	holder(lock, "mc_GearL", 60, LAYOUT.gears[0][0], LAYOUT.gears[0][1], "gear_common");
 	holder(lock, "mc_GearR", 61, LAYOUT.gears[1][0], LAYOUT.gears[1][1], "gear_common");
 	// The label clip (a symbol of the movie) holds a field "t" in the game's own font. Sized to its text, it is
@@ -357,11 +364,21 @@ function placeIcon(row:MovieClip, depth:Number, x:Number, icon:String):Number
 	return x + width * ICON_HEIGHT / BUTTON_HEIGHT + ITEM_GAP;
 }
 
+// Turns the left gear to angle degrees and the right one the other way, each with its shadow.
+function turnGears(angle:Number):Void
+{
+	var lock:MovieClip = view.mc_Lock;
+	lock.mc_GearL._rotation = lock.mc_GearShadowL._rotation = angle;
+	lock.mc_GearR._rotation = lock.mc_GearShadowR._rotation = -angle;
+}
+
 // Called by the mod at the start of every lock and after every show of the element. A hidden element runs no frames,
 // so the movie cannot see a lock end by itself. The next update() reads the header texts again and mends the pick.
+// The gears go back to rest, the only angle their light is drawn for.
 function begin():Void
 {
 	view.mc_Lock._visible = false;
+	turnGears(0);
 }
 
 // pick: pick position in tumbler units, 0 for the leftmost.
@@ -410,8 +427,7 @@ function update(pick:Number, kick:Number, h0:Number, h1:Number, h2:Number, h3:Nu
 	lock.mc_Footer_Bar._visible = lock.mc_Controls._visible = showFooter != 0;
 	if (opening != 0)
 	{
-		lock.mc_GearL._rotation += 6;
-		lock.mc_GearR._rotation -= 6;
+		turnGears(lock.mc_GearL._rotation + 6);
 	}
 }
 

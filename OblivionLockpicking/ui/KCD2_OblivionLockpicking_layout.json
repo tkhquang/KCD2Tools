@@ -45,10 +45,10 @@
     },
     "gear_common": {
       "file": "gear_common.dds",
-      "w": 108,
-      "h": 108,
-      "x": -53.92,
-      "y": -53.53
+      "w": 76,
+      "h": 76,
+      "x": -37.92,
+      "y": -37.53
     },
     "pick": {
       "file": "pick.dds",
@@ -70,6 +70,17 @@
       "h": 92,
       "x": -21.99,
       "y": -5.99
+    },
+    "gear_shadow": {
+      "file": "gear_shadow.dds",
+      "w": 164,
+      "h": 164,
+      "x": -87.84,
+      "y": -89.36,
+      "centre": [
+        5.92,
+        7.83
+      ]
     },
     "back_fancy": {
       "file": "back_fancy.dds",
@@ -115,10 +126,10 @@
     },
     "gear_fancy": {
       "file": "gear_fancy.dds",
-      "w": 108,
-      "h": 108,
-      "x": -53.92,
-      "y": -53.53
+      "w": 76,
+      "h": 76,
+      "x": -37.92,
+      "y": -37.53
     }
   },
   "chambers_x": [
