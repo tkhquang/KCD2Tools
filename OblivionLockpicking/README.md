@@ -4,6 +4,8 @@ My shaky hands never got along with the vanilla lockpicking, so I set out to rep
 
 This mod replaces the lockpicking minigame with a tumbler lock in the style of The Elder Scrolls IV: Oblivion. The mechanics are recreated from observing how Oblivion's lockpicking plays. It is not a port and uses no Oblivion code, art or sound: the lock art is made for this mod, and the sounds are the game's own.
 
+[![Showcase video on YouTube](https://img.youtube.com/vi/dSIp7Ti-nFA/maxresdefault.jpg)](https://youtu.be/dSIp7Ti-nFA)
+
 > [!NOTE]
 > This mod is in early development. [Troubleshooting](#troubleshooting) explains how to report a problem.
 
@@ -33,9 +35,28 @@ This mod replaces the lockpicking minigame with a tumbler lock in the style of T
 
 ## Installation
 
-Install **one** of the two builds, not both.
+1. Install [Sound Framework](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3860) first, as its page describes. Either of its builds works with either build of this mod.
+2. Install **one** of this mod's two builds, not both.
 
-**KCSE build:** install KCSE, then install `KCD2_OblivionLockpicking_KCSE_v*.zip` with your mod manager, or extract it into `<KC:D 2 folder>/Mods/`.
+**KCSE build:** install KCSE, then install `KCD2_OblivionLockpicking_KCSE_v*.zip` with your mod manager, or extract it into `<KC:D 2 folder>/Mods/`:
+
+```
+Mods/
+\-- oblivion_lockpicking/
+    |-- mod.manifest
+    |-- Data/
+    |   \-- oblivion_lockpicking.pak               (the lock's art and movie)
+    |-- Localization/
+    |   \-- English_xml.pak, French_xml.pak, ...   (texts, one pak per language)
+    |-- SoundFramework/
+    |   \-- KCD2_OblivionLockpicking_sounds.ini    (the lock's sounds, read by Sound Framework)
+    \-- KCSE/
+        \-- Plugins/
+            |-- KCD2_OblivionLockpicking.dll       (this mod)
+            |-- KCD2_OblivionLockpicking.ini       (settings)
+            |-- KCD2_OblivionLockpicking_License.txt
+            \-- KCD2_OblivionLockpicking.log       (created when the mod loads)
+```
 
 <details>
 <summary>ASI build</summary>
@@ -43,6 +64,27 @@ Install **one** of the two builds, not both.
 1. Without an ASI loader, extract one **x64** [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases) DLL beside `WHGame.dll` in `Bin/Win64MasterMasterSteamPGO/`. Other stores use their own `Bin/Win64MasterMaster...` folder. Use [dinput8-x64.zip](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/dinput8-x64.zip), or [version-x64.zip](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/version-x64.zip) when another mod already uses `dinput8.dll`. KCSE also loads ASI files, so KCSE users skip this step.
 2. Extract `KCD2_OblivionLockpicking_v*.zip` into the game folder, so its `Bin` and `Mods` folders merge with the game's. Without `Mods/oblivion_lockpicking/`, the game keeps its vanilla lockpicking.
 3. On Linux or Steam Deck, add `WINEDLLOVERRIDES="dinput8=n,b" %command%` to the game's Steam launch options (`version=n,b` for the version loader).
+
+```
+<KC:D 2 folder>/
+|-- Bin/
+|   \-- Win64MasterMasterSteamPGO/
+|       |-- WHGame.dll                             (game file, already present)
+|       |-- dinput8.dll                            (ASI loader)
+|       |-- KCD2_OblivionLockpicking.asi           (this mod)
+|       |-- KCD2_OblivionLockpicking.ini           (settings)
+|       |-- KCD2_OblivionLockpicking_License.txt
+|       \-- KCD2_OblivionLockpicking.log           (created when the mod loads)
+\-- Mods/
+    \-- oblivion_lockpicking/
+        |-- mod.manifest
+        |-- Data/
+        |   \-- oblivion_lockpicking.pak           (the lock's art and movie)
+        |-- Localization/
+        |   \-- English_xml.pak, French_xml.pak, ... (texts, one pak per language)
+        \-- SoundFramework/
+            \-- KCD2_OblivionLockpicking_sounds.ini (the lock's sounds, read by Sound Framework)
+```
 
 </details>
 

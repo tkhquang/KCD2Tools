@@ -342,7 +342,7 @@ jobs:
           file_id: ${{ vars.NEXUSMODS_OBLIVIONLOCKPICKING_FILE_ID }}
           filename: ${{ env.ARTIFACT_NAME }}
           version: ${{ env.NEW_VERSION }}
-          display_name: (ASI) Oblivion-Style Lockpicking - Tumbler Lock
+          display_name: (ASI) Oblivion-Style Lockpicking
           description: ${{ steps.prepare-release.outputs.NEXUS_DESCRIPTION }}
           category: main
           archive_existing_version: false
@@ -362,7 +362,7 @@ jobs:
           file_id: ${{ vars.NEXUSMODS_OBLIVIONLOCKPICKING_KCSE_FILE_ID }}
           filename: ${{ env.KCSE_ARTIFACT_NAME }}
           version: ${{ env.NEW_VERSION }}
-          display_name: (KCSE) Oblivion-Style Lockpicking - Tumbler Lock
+          display_name: (KCSE) Oblivion-Style Lockpicking
           description: ${{ steps.prepare-release.outputs.NEXUS_KCSE_DESCRIPTION }}
           category: main
           archive_existing_version: false
