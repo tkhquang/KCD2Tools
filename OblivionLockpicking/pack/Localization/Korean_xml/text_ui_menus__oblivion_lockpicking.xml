@@ -1,0 +1,16 @@
+<Table>
+<Row><Cell>ui_oblivion_lockpicking_header</Cell><Cell>고정한 핀: %1/%2</Cell><Cell>고정한 핀: %1/%2</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_1</Cell><Cell>매우 쉬움</Cell><Cell>매우 쉬움</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_2</Cell><Cell>쉬움</Cell><Cell>쉬움</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_3</Cell><Cell>보통</Cell><Cell>보통</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_4</Cell><Cell>어려움</Cell><Cell>어려움</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_5</Cell><Cell>매우 어려움</Cell><Cell>매우 어려움</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_move</Cell><Cell>락픽 이동</Cell><Cell>락픽 이동</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_push</Cell><Cell>밀기</Cell><Cell>밀기</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_set</Cell><Cell>고정</Cell><Cell>고정</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_up</Cell><Cell>위로</Cell><Cell>위로</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_or</Cell><Cell>또는</Cell><Cell>또는</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0200</Cell><Cell>{$moveleft; $moveright;|$xi_movex;}(으)로 락픽을 핀 밑에 두고 {$moveforward;|$xi_movey;}(으)로 &lt;strong&gt;밀어 올리세요&lt;/strong&gt;. 핀은 대부분 튀어 올랐다 곧장 떨어지지만, 일부는 &lt;strong&gt;천천히 올라가 꼭대기에서 멈춥니다&lt;/strong&gt;.</Cell><Cell>{$moveleft; $moveright;|$xi_movex;}(으)로 락픽을 핀 밑에 두고 {$moveforward;|$xi_movey;}(으)로 &lt;strong&gt;밀어 올리세요&lt;/strong&gt;. 핀은 대부분 튀어 올랐다 곧장 떨어지지만, 일부는 &lt;strong&gt;천천히 올라가 꼭대기에서 멈춥니다&lt;/strong&gt;.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0300</Cell><Cell>핀이 &lt;strong&gt;꼭대기에 있을 때&lt;/strong&gt; {$jump;|$use;}(으)로 &lt;strong&gt;고정하십시오&lt;/strong&gt;. 느린 핀은 빠른 핀보다 늦고 낮게 딸깍거립니다. {$moveforward;|$xi_movey;}(으)로 &lt;strong&gt;계속 밀어 올리면&lt;/strong&gt; 핀이 원래 속도로 거듭 튀어 오릅니다.</Cell><Cell>핀이 &lt;strong&gt;꼭대기에 있을 때&lt;/strong&gt; {$jump;|$use;}(으)로 &lt;strong&gt;고정하십시오&lt;/strong&gt;. 느린 핀은 빠른 핀보다 늦고 낮게 딸깍거립니다. {$moveforward;|$xi_movey;}(으)로 &lt;strong&gt;계속 밀어 올리면&lt;/strong&gt; 핀이 원래 속도로 거듭 튀어 오릅니다.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0400</Cell><Cell>&lt;strong&gt;자물쇠를 열려면&lt;/strong&gt; 모든 핀을 고정하십시오.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;단, 주의하십시오. 아직 올라가는 중이거나 이미 떨어지는 중인 핀을 고정하면 락픽이 부러질 수 있습니다!&lt;/label&gt;</Cell><Cell>&lt;strong&gt;자물쇠를 열려면&lt;/strong&gt; 모든 핀을 고정하십시오.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;단, 주의하십시오. 아직 올라가는 중이거나 이미 떨어지는 중인 핀을 고정하면 락픽이 부러질 수 있습니다!&lt;/label&gt;</Cell></Row>
+</Table>

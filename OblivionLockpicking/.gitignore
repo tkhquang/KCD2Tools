@@ -1,0 +1,12 @@
+# Build trees are local; only the shipped templates are tracked.
+build/*
+!build/template/
+
+# Python bytecode from the helper scripts.
+__pycache__/
+*.pyc
+
+# Local art and movie tools (headless Blender renders, texconv packing, the FFDec movie build); kept out of the repo.
+art/lock_art.py
+scripts/build_art.py
+scripts/build_gfx.py

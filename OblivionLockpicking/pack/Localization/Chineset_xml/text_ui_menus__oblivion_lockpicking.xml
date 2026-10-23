@@ -1,0 +1,16 @@
+<Table>
+<Row><Cell>ui_oblivion_lockpicking_header</Cell><Cell>已固定彈子：%1/%2</Cell><Cell>已固定彈子：%1/%2</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_1</Cell><Cell>非常簡單</Cell><Cell>非常簡單</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_2</Cell><Cell>簡單</Cell><Cell>簡單</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_3</Cell><Cell>普通</Cell><Cell>普通</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_4</Cell><Cell>困難</Cell><Cell>困難</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_5</Cell><Cell>非常困難</Cell><Cell>非常困難</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_move</Cell><Cell>移動開鎖器</Cell><Cell>移動開鎖器</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_push</Cell><Cell>推動</Cell><Cell>推動</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_set</Cell><Cell>固定</Cell><Cell>固定</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_up</Cell><Cell>向上</Cell><Cell>向上</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_or</Cell><Cell>或</Cell><Cell>或</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0200</Cell><Cell>用{$moveleft; $moveright;|$xi_movex;}將開鎖器移到彈子下方，再用{$moveforward;|$xi_movey;}&lt;strong&gt;往上推&lt;/strong&gt;。多數彈子彈起後會立刻落下，但有些&lt;strong&gt;會緩緩上升並在頂端停留&lt;/strong&gt;。</Cell><Cell>用{$moveleft; $moveright;|$xi_movex;}將開鎖器移到彈子下方，再用{$moveforward;|$xi_movey;}&lt;strong&gt;往上推&lt;/strong&gt;。多數彈子彈起後會立刻落下，但有些&lt;strong&gt;會緩緩上升並在頂端停留&lt;/strong&gt;。</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0300</Cell><Cell>在彈子&lt;strong&gt;位於頂端&lt;/strong&gt;時用{$jump;|$use;}&lt;strong&gt;固定彈子&lt;/strong&gt;。慢速彈子的喀嚓聲比快速彈子更晚、更低沉。&lt;strong&gt;持續推動&lt;/strong&gt;{$moveforward;|$xi_movey;}，彈子就會以原本的速度不斷彈跳。</Cell><Cell>在彈子&lt;strong&gt;位於頂端&lt;/strong&gt;時用{$jump;|$use;}&lt;strong&gt;固定彈子&lt;/strong&gt;。慢速彈子的喀嚓聲比快速彈子更晚、更低沉。&lt;strong&gt;持續推動&lt;/strong&gt;{$moveforward;|$xi_movey;}，彈子就會以原本的速度不斷彈跳。</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0400</Cell><Cell>固定所有彈子&lt;strong&gt;就能成功開鎖&lt;/strong&gt;。&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;注意：若在彈子仍在上升或已經下落時固定它，可能會導致開鎖器斷裂！&lt;/label&gt;</Cell><Cell>固定所有彈子&lt;strong&gt;就能成功開鎖&lt;/strong&gt;。&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;注意：若在彈子仍在上升或已經下落時固定它，可能會導致開鎖器斷裂！&lt;/label&gt;</Cell></Row>
+</Table>

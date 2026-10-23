@@ -1,0 +1,16 @@
+<Table>
+<Row><Cell>ui_oblivion_lockpicking_header</Cell><Cell>Zajištěná stavítka: %1 z %2</Cell><Cell>Zajištěná stavítka: %1 z %2</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_1</Cell><Cell>Velmi snadné</Cell><Cell>Velmi snadné</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_2</Cell><Cell>Snadné</Cell><Cell>Snadné</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_3</Cell><Cell>Středně těžké</Cell><Cell>Středně těžké</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_4</Cell><Cell>Těžké</Cell><Cell>Těžké</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_5</Cell><Cell>Velmi těžké</Cell><Cell>Velmi těžké</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_move</Cell><Cell>Pohybovat paklíčem</Cell><Cell>Pohybovat paklíčem</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_push</Cell><Cell>Tlačit</Cell><Cell>Tlačit</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_set</Cell><Cell>Zajistit</Cell><Cell>Zajistit</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_up</Cell><Cell>nahoru</Cell><Cell>nahoru</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_or</Cell><Cell>nebo</Cell><Cell>nebo</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0200</Cell><Cell>Posuň paklíč {$moveleft; $moveright;|$xi_movex;} pod stavítko a &lt;strong&gt;zatlač ho nahoru&lt;/strong&gt; {$moveforward;|$xi_movey;}. Většina stavítek vyskočí a hned spadne, ale některá &lt;strong&gt;stoupají pomalu a nahoře se zastaví&lt;/strong&gt;.</Cell><Cell>Posuň paklíč {$moveleft; $moveright;|$xi_movex;} pod stavítko a &lt;strong&gt;zatlač ho nahoru&lt;/strong&gt; {$moveforward;|$xi_movey;}. Většina stavítek vyskočí a hned spadne, ale některá &lt;strong&gt;stoupají pomalu a nahoře se zastaví&lt;/strong&gt;.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0300</Cell><Cell>&lt;strong&gt;Zajisti stavítko&lt;/strong&gt; pomocí {$jump;|$use;}, dokud je &lt;strong&gt;nahoře&lt;/strong&gt;. Pomalé stavítko cvakne později a hlouběji než rychlé. &lt;strong&gt;Tlač dál&lt;/strong&gt; {$moveforward;|$xi_movey;} a stavítko bude stále poskakovat svou rychlostí.</Cell><Cell>&lt;strong&gt;Zajisti stavítko&lt;/strong&gt; pomocí {$jump;|$use;}, dokud je &lt;strong&gt;nahoře&lt;/strong&gt;. Pomalé stavítko cvakne později a hlouběji než rychlé. &lt;strong&gt;Tlač dál&lt;/strong&gt; {$moveforward;|$xi_movey;} a stavítko bude stále poskakovat svou rychlostí.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0400</Cell><Cell>Zajisti všechna stavítka &lt;strong&gt;a zámek se otevře&lt;/strong&gt;.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;Pozor: Zajištění stavítka, které ještě stoupá nebo už padá, může paklíč zlomit!&lt;/label&gt;</Cell><Cell>Zajisti všechna stavítka &lt;strong&gt;a zámek se otevře&lt;/strong&gt;.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;Pozor: Zajištění stavítka, které ještě stoupá nebo už padá, může paklíč zlomit!&lt;/label&gt;</Cell></Row>
+</Table>

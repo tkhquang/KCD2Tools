@@ -1,0 +1,16 @@
+<Table>
+<Row><Cell>ui_oblivion_lockpicking_header</Cell><Cell>Pistones fijados: %1 de %2</Cell><Cell>Pistones fijados: %1 de %2</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_1</Cell><Cell>Muy fácil</Cell><Cell>Muy fácil</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_2</Cell><Cell>Fácil</Cell><Cell>Fácil</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_3</Cell><Cell>Intermedio</Cell><Cell>Intermedio</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_4</Cell><Cell>Difícil</Cell><Cell>Difícil</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_5</Cell><Cell>Muy difícil</Cell><Cell>Muy difícil</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_move</Cell><Cell>Mover la ganzúa</Cell><Cell>Mover la ganzúa</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_push</Cell><Cell>Empujar</Cell><Cell>Empujar</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_set</Cell><Cell>Fijar</Cell><Cell>Fijar</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_up</Cell><Cell>hacia arriba</Cell><Cell>hacia arriba</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_or</Cell><Cell>o</Cell><Cell>o</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0200</Cell><Cell>Debo mover la ganzúa {$moveleft; $moveright;|$xi_movex;} bajo un pistón y &lt;strong&gt;empujarlo hacia arriba&lt;/strong&gt; {$moveforward;|$xi_movey;}. Casi todos saltan y caen enseguida, pero algunos &lt;strong&gt;suben despacio y se detienen arriba&lt;/strong&gt;.</Cell><Cell>Debo mover la ganzúa {$moveleft; $moveright;|$xi_movex;} bajo un pistón y &lt;strong&gt;empujarlo hacia arriba&lt;/strong&gt; {$moveforward;|$xi_movey;}. Casi todos saltan y caen enseguida, pero algunos &lt;strong&gt;suben despacio y se detienen arriba&lt;/strong&gt;.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0300</Cell><Cell>Tendré que &lt;strong&gt;fijar el pistón&lt;/strong&gt; con {$jump;|$use;} cuando esté &lt;strong&gt;arriba&lt;/strong&gt;. Un pistón lento suena más tarde y más grave que uno rápido. Si &lt;strong&gt;sigo empujando&lt;/strong&gt; {$moveforward;|$xi_movey;}, el pistón rebotará una y otra vez a su velocidad.</Cell><Cell>Tendré que &lt;strong&gt;fijar el pistón&lt;/strong&gt; con {$jump;|$use;} cuando esté &lt;strong&gt;arriba&lt;/strong&gt;. Un pistón lento suena más tarde y más grave que uno rápido. Si &lt;strong&gt;sigo empujando&lt;/strong&gt; {$moveforward;|$xi_movey;}, el pistón rebotará una y otra vez a su velocidad.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0400</Cell><Cell>Hay que fijar todos los pistones &lt;strong&gt;para abrir la cerradura&lt;/strong&gt;.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;Pero mucho cuidado: ¡fijar un pistón mientras aún sube o ya está cayendo puede romper la ganzúa!&lt;/label&gt;</Cell><Cell>Hay que fijar todos los pistones &lt;strong&gt;para abrir la cerradura&lt;/strong&gt;.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;Pero mucho cuidado: ¡fijar un pistón mientras aún sube o ya está cayendo puede romper la ganzúa!&lt;/label&gt;</Cell></Row>
+</Table>

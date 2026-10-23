@@ -1,0 +1,16 @@
+<Table>
+<Row><Cell>ui_oblivion_lockpicking_header</Cell><Cell>Zablokowane zapadki: %1 z %2</Cell><Cell>Zablokowane zapadki: %1 z %2</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_1</Cell><Cell>Bardzo łatwe</Cell><Cell>Bardzo łatwe</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_2</Cell><Cell>Łatwe</Cell><Cell>Łatwe</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_3</Cell><Cell>Średnie</Cell><Cell>Średnie</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_4</Cell><Cell>Trudne</Cell><Cell>Trudne</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_5</Cell><Cell>Bardzo trudne</Cell><Cell>Bardzo trudne</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_move</Cell><Cell>Przesuń wytrych</Cell><Cell>Przesuń wytrych</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_push</Cell><Cell>Pchnij</Cell><Cell>Pchnij</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_set</Cell><Cell>Zablokuj</Cell><Cell>Zablokuj</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_up</Cell><Cell>w górę</Cell><Cell>w górę</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_or</Cell><Cell>lub</Cell><Cell>lub</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0200</Cell><Cell>Przesuń wytrych {$moveleft; $moveright;|$xi_movex;} pod zapadkę i &lt;strong&gt;pchnij ją w górę&lt;/strong&gt; {$moveforward;|$xi_movey;}. Większość zapadek podskakuje i od razu opada, ale niektóre &lt;strong&gt;unoszą się powoli i zatrzymują na górze&lt;/strong&gt;.</Cell><Cell>Przesuń wytrych {$moveleft; $moveright;|$xi_movex;} pod zapadkę i &lt;strong&gt;pchnij ją w górę&lt;/strong&gt; {$moveforward;|$xi_movey;}. Większość zapadek podskakuje i od razu opada, ale niektóre &lt;strong&gt;unoszą się powoli i zatrzymują na górze&lt;/strong&gt;.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0300</Cell><Cell>&lt;strong&gt;Zablokuj zapadkę&lt;/strong&gt; przy użyciu {$jump;|$use;}, gdy jest &lt;strong&gt;na górze&lt;/strong&gt;. Wolna zapadka klika później i niższym tonem niż szybka. &lt;strong&gt;Pchaj dalej&lt;/strong&gt; {$moveforward;|$xi_movey;}, a zapadka będzie podskakiwać w swoim tempie.</Cell><Cell>&lt;strong&gt;Zablokuj zapadkę&lt;/strong&gt; przy użyciu {$jump;|$use;}, gdy jest &lt;strong&gt;na górze&lt;/strong&gt;. Wolna zapadka klika później i niższym tonem niż szybka. &lt;strong&gt;Pchaj dalej&lt;/strong&gt; {$moveforward;|$xi_movey;}, a zapadka będzie podskakiwać w swoim tempie.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0400</Cell><Cell>Zablokuj wszystkie zapadki, &lt;strong&gt;aby otworzyć zamek&lt;/strong&gt;.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;Uważaj jednak: zablokowanie zapadki, która wciąż się unosi lub już opada, może złamać wytrych!&lt;/label&gt;</Cell><Cell>Zablokuj wszystkie zapadki, &lt;strong&gt;aby otworzyć zamek&lt;/strong&gt;.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;Uważaj jednak: zablokowanie zapadki, która wciąż się unosi lub już opada, może złamać wytrych!&lt;/label&gt;</Cell></Row>
+</Table>

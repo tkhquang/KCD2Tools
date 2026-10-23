@@ -1,0 +1,16 @@
+<Table>
+<Row><Cell>ui_oblivion_lockpicking_header</Cell><Cell>Sabitlenen pimler: %1 / %2</Cell><Cell>Sabitlenen pimler: %1 / %2</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_1</Cell><Cell>Çok kolay</Cell><Cell>Çok kolay</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_2</Cell><Cell>Kolay</Cell><Cell>Kolay</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_3</Cell><Cell>Orta</Cell><Cell>Orta</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_4</Cell><Cell>Zor</Cell><Cell>Zor</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_5</Cell><Cell>Çok zor</Cell><Cell>Çok zor</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_move</Cell><Cell>Maymuncuğu kaydır</Cell><Cell>Maymuncuğu kaydır</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_push</Cell><Cell>İttir</Cell><Cell>İttir</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_set</Cell><Cell>Sabitle</Cell><Cell>Sabitle</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_up</Cell><Cell>yukarı</Cell><Cell>yukarı</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_or</Cell><Cell>veya</Cell><Cell>veya</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0200</Cell><Cell>Maymuncuğu {$moveleft; $moveright;|$xi_movex;} ile bir pimin altına getir ve {$moveforward;|$xi_movey;} ile &lt;strong&gt;yukarı ittir&lt;/strong&gt;. Pimlerin çoğu fırlayıp hemen düşer, ama bazıları &lt;strong&gt;yavaşça yükselip tepede bekler&lt;/strong&gt;.</Cell><Cell>Maymuncuğu {$moveleft; $moveright;|$xi_movex;} ile bir pimin altına getir ve {$moveforward;|$xi_movey;} ile &lt;strong&gt;yukarı ittir&lt;/strong&gt;. Pimlerin çoğu fırlayıp hemen düşer, ama bazıları &lt;strong&gt;yavaşça yükselip tepede bekler&lt;/strong&gt;.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0300</Cell><Cell>Pim &lt;strong&gt;tepedeyken&lt;/strong&gt; {$jump;|$use;} ile &lt;strong&gt;pimi sabitle&lt;/strong&gt;. Yavaş bir pim, hızlı bir pime göre daha geç ve daha kalın bir tık sesi çıkarır. {$moveforward;|$xi_movey;} ile &lt;strong&gt;ittirmeye devam edersen&lt;/strong&gt;, pim kendi hızında sekip durur.</Cell><Cell>Pim &lt;strong&gt;tepedeyken&lt;/strong&gt; {$jump;|$use;} ile &lt;strong&gt;pimi sabitle&lt;/strong&gt;. Yavaş bir pim, hızlı bir pime göre daha geç ve daha kalın bir tık sesi çıkarır. {$moveforward;|$xi_movey;} ile &lt;strong&gt;ittirmeye devam edersen&lt;/strong&gt;, pim kendi hızında sekip durur.</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0400</Cell><Cell>&lt;strong&gt;Kilidi açmak için&lt;/strong&gt; tüm pimleri sabitle.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;Ama dikkat et: Bir pimi hâlâ yükselirken ya da düşmeye başlamışken sabitlemek maymuncuğunu kırabilir!&lt;/label&gt;</Cell><Cell>&lt;strong&gt;Kilidi açmak için&lt;/strong&gt; tüm pimleri sabitle.&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;Ama dikkat et: Bir pimi hâlâ yükselirken ya da düşmeye başlamışken sabitlemek maymuncuğunu kırabilir!&lt;/label&gt;</Cell></Row>
+</Table>

@@ -1,0 +1,16 @@
+<Table>
+<Row><Cell>ui_oblivion_lockpicking_header</Cell><Cell>固定したピン：%1/%2</Cell><Cell>固定したピン：%1/%2</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_1</Cell><Cell>とても簡単</Cell><Cell>とても簡単</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_2</Cell><Cell>簡単</Cell><Cell>簡単</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_3</Cell><Cell>普通</Cell><Cell>普通</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_4</Cell><Cell>難しい</Cell><Cell>難しい</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_difficulty_5</Cell><Cell>とても難しい</Cell><Cell>とても難しい</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_move</Cell><Cell>ロックピックを動かす</Cell><Cell>ロックピックを動かす</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_push</Cell><Cell>押す</Cell><Cell>押す</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_set</Cell><Cell>固定する</Cell><Cell>固定する</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_up</Cell><Cell>上方向</Cell><Cell>上方向</Cell></Row>
+<Row><Cell>ui_oblivion_lockpicking_hint_or</Cell><Cell>または</Cell><Cell>または</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0200</Cell><Cell>{$moveleft; $moveright;|$xi_movex;}でロックピックをピンの下へ動かし、{$moveforward;|$xi_movey;}で&lt;strong&gt;押し上げよう&lt;/strong&gt;。大半のピンは跳ね上がってすぐ落ちるが、&lt;strong&gt;ゆっくり上がって頂点で止まる&lt;/strong&gt;ピンもある</Cell><Cell>{$moveleft; $moveright;|$xi_movex;}でロックピックをピンの下へ動かし、{$moveforward;|$xi_movey;}で&lt;strong&gt;押し上げよう&lt;/strong&gt;。大半のピンは跳ね上がってすぐ落ちるが、&lt;strong&gt;ゆっくり上がって頂点で止まる&lt;/strong&gt;ピンもある</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0300</Cell><Cell>ピンが&lt;strong&gt;頂点にある&lt;/strong&gt;間に{$jump;|$use;}で&lt;strong&gt;ピンを固定する&lt;/strong&gt;。遅いピンは速いピンより遅れて低い音で鳴る。{$moveforward;|$xi_movey;}で&lt;strong&gt;押し上げ続ける&lt;/strong&gt;と、ピンはその速さのまま跳ね続ける</Cell><Cell>ピンが&lt;strong&gt;頂点にある&lt;/strong&gt;間に{$jump;|$use;}で&lt;strong&gt;ピンを固定する&lt;/strong&gt;。遅いピンは速いピンより遅れて低い音で鳴る。{$moveforward;|$xi_movey;}で&lt;strong&gt;押し上げ続ける&lt;/strong&gt;と、ピンはその速さのまま跳ね続ける</Cell></Row>
+<Row><Cell>ui_helpoverlay_lockpick_s0400</Cell><Cell>すべてのピンを固定して&lt;strong&gt;錠前を開けよう&lt;/strong&gt;&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;ただし、注意すること：上昇中や落下中のピンを固定すると、ロックピックが壊れることがある！&lt;/label&gt;</Cell><Cell>すべてのピンを固定して&lt;strong&gt;錠前を開けよう&lt;/strong&gt;&lt;br/&gt;&amp;nbsp;&lt;br/&gt;&lt;label&gt;ただし、注意すること：上昇中や落下中のピンを固定すると、ロックピックが壊れることがある！&lt;/label&gt;</Cell></Row>
+</Table>
