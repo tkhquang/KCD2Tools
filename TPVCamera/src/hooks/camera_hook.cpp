@@ -1079,6 +1079,12 @@ namespace TPVCamera
                                              "input agrees); armed",
                                              a);
                     return;
+                case RigEvent::MoveStandInStarted:
+                    (void)DMK::log().try_log(DMK::LogLevel::Trace,
+                                             "Orbit: move held as orbit engaged (the game's own move input {:.2f}, the "
+                                             "latch {:.2f}); the game's input stands in for the latch until it is idle",
+                                             a, b);
+                    return;
                 case RigEvent::MoveStart:
                     // Diagnostic: what tripped the body-turn. A magnitude near 1.0 with a movement key/stick is genuine
                     // locomotion; a smaller or unexpected value while the player is only free-looking points at
@@ -2327,6 +2333,7 @@ namespace TPVCamera
                 // held in first person does not spam the reset/log every frame.
                 s_rig.orbit_move_armed = false;
                 s_rig.orbit_move_armed_by_game = false;
+                s_rig.orbit_move_stand_in = {};
                 const float stranded = player_onaction_reset();
                 if (stranded > k_move_input_stop)
                 {

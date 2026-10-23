@@ -100,7 +100,7 @@ namespace TPVCamera
                 state.sight_age = 0.0f;
                 state.sight_cam = from;
                 std::array<Sightline, Constants::OCCLUDER_FADE_SIGHTLINES> lines{};
-                const int n_lines = fade_sightlines(from, in.head, in.hip, in.fade_body_width, lines);
+                const int n_lines = fade_sightlines(from, in.head, in.hip, in.world_up, in.fade_body_width, lines);
                 // The props the arm found the camera inside already fade at once; their meshes are not read again.
                 std::array<void *, Constants::OCCLUDER_FADE_MAX_NODES> inside{};
                 std::size_t n_inside = 0;
@@ -562,17 +562,16 @@ namespace TPVCamera
         }
     } // namespace
 
-    int fade_sightlines(const Vector3 &from, const Vector3 &head, const Vector3 &hip, float body_width,
-                        std::span<Sightline, Constants::OCCLUDER_FADE_SIGHTLINES> out) noexcept
+    int fade_sightlines(const Vector3 &from, const Vector3 &head, const Vector3 &hip, const Vector3 &world_up,
+                        float body_width, std::span<Sightline, Constants::OCCLUDER_FADE_SIGHTLINES> out) noexcept
     {
         const Vector3 chest = (head + hip) * 0.5f;
         out[0] = {from, head};
         out[1] = {from, chest};
         out[2] = {from, hip};
-        // The view's horizontal direction to the chest turned a quarter turn about world up: across the view in the
-        // ground plane, whatever the camera pitch.
-        const Vector3 toward = chest - from;
-        const Vector3 across{-toward.y, toward.x, 0.0f};
+        // The view's direction to the chest crossed with world up is level and across the view, whatever the camera
+        // pitch. Its length is that direction's horizontal length, 0 for a camera straight above or below the chest.
+        const Vector3 across = (chest - from).cross(world_up);
         const float across_length = across.magnitude();
         if (!(body_width > 0.0f) || across_length < k_fade_side_min_across)
         {

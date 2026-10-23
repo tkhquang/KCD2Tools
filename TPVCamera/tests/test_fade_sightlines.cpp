@@ -24,6 +24,7 @@ namespace
     const Vector3 k_head{0.0f, 0.0f, 1.7f};
     const Vector3 k_hip{0.0f, 0.0f, 0.9f};
     const Vector3 k_chest{0.0f, 0.0f, 1.3f};
+    const Vector3 k_up{0.0f, 0.0f, 1.0f};
 
     /** @brief Expects @p actual to equal @p expected on every axis. */
     void expect_near(const Vector3 &actual, const Vector3 &expected)
@@ -38,7 +39,7 @@ TEST(FadeSightlines, SpineLinesRunFromTheCameraToHeadChestAndHips)
 {
     const Vector3 camera{0.0f, -3.5f, 2.0f};
     Lines lines{};
-    ASSERT_EQ(fade_sightlines(camera, k_head, k_hip, 0.25f, lines), Constants::OCCLUDER_FADE_SIGHTLINES);
+    ASSERT_EQ(fade_sightlines(camera, k_head, k_hip, k_up, 0.25f, lines), Constants::OCCLUDER_FADE_SIGHTLINES);
     for (const Sightline &line : lines)
     {
         expect_near(line.from, camera);
@@ -53,7 +54,7 @@ TEST(FadeSightlines, SideLinesEndAcrossTheViewAtTheBodyWidth)
     // The camera looks along +y, down at the chest: the side points lie on the x axis through the chest.
     const Vector3 camera{0.0f, -3.5f, 2.0f};
     Lines lines{};
-    ASSERT_EQ(fade_sightlines(camera, k_head, k_hip, 0.25f, lines), Constants::OCCLUDER_FADE_SIGHTLINES);
+    ASSERT_EQ(fade_sightlines(camera, k_head, k_hip, k_up, 0.25f, lines), Constants::OCCLUDER_FADE_SIGHTLINES);
     EXPECT_NEAR(std::fabs(lines[3].to.x), 0.25f, k_tolerance);
     expect_near(lines[3].to, Vector3{lines[3].to.x, 0.0f, 1.3f});
     expect_near(lines[4].to, Vector3{-lines[3].to.x, 0.0f, 1.3f});
@@ -63,7 +64,7 @@ TEST(FadeSightlines, SideOffsetStaysLevelAndPerpendicularToTheView)
 {
     const Vector3 camera{2.0f, -1.0f, 3.5f};
     Lines lines{};
-    ASSERT_EQ(fade_sightlines(camera, k_head, k_hip, 0.4f, lines), Constants::OCCLUDER_FADE_SIGHTLINES);
+    ASSERT_EQ(fade_sightlines(camera, k_head, k_hip, k_up, 0.4f, lines), Constants::OCCLUDER_FADE_SIGHTLINES);
     const Vector3 offset = lines[3].to - k_chest;
     const Vector3 toward = k_chest - camera;
     EXPECT_NEAR(offset.z, 0.0f, k_tolerance);
@@ -72,14 +73,28 @@ TEST(FadeSightlines, SideOffsetStaysLevelAndPerpendicularToTheView)
     expect_near(lines[4].to - k_chest, offset * -1.0f);
 }
 
+TEST(FadeSightlines, SideOffsetLiesInThePlaneOfTheGivenUpAxis)
+{
+    // With +x as up, the camera looks along +y at the chest: the side points lie along z through the chest.
+    const Vector3 camera{1.3f, -3.5f, 0.0f};
+    const Vector3 head{1.7f, 0.0f, 0.0f};
+    const Vector3 hip{0.9f, 0.0f, 0.0f};
+    Lines lines{};
+    ASSERT_EQ(fade_sightlines(camera, head, hip, Vector3{1.0f, 0.0f, 0.0f}, 0.25f, lines),
+              Constants::OCCLUDER_FADE_SIGHTLINES);
+    EXPECT_NEAR(std::fabs(lines[3].to.z), 0.25f, k_tolerance);
+    expect_near(lines[3].to, Vector3{1.3f, 0.0f, lines[3].to.z});
+    expect_near(lines[4].to, Vector3{1.3f, 0.0f, -lines[3].to.z});
+}
+
 TEST(FadeSightlines, ZeroBodyWidthLeavesOnlyTheSpineLines)
 {
     Lines lines{};
-    EXPECT_EQ(fade_sightlines(Vector3{0.0f, -3.5f, 2.0f}, k_head, k_hip, 0.0f, lines), 3);
+    EXPECT_EQ(fade_sightlines(Vector3{0.0f, -3.5f, 2.0f}, k_head, k_hip, k_up, 0.0f, lines), 3);
 }
 
 TEST(FadeSightlines, CameraStraightAboveTheChestLeavesOnlyTheSpineLines)
 {
     Lines lines{};
-    EXPECT_EQ(fade_sightlines(Vector3{0.0f, 0.0f, 4.0f}, k_head, k_hip, 0.25f, lines), 3);
+    EXPECT_EQ(fade_sightlines(Vector3{0.0f, 0.0f, 4.0f}, k_head, k_hip, k_up, 0.25f, lines), 3);
 }
