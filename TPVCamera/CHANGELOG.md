@@ -2,6 +2,10 @@
 
 All notable changes to the TPVCamera mod will be documented in this file.
 
+## [3.0.1] - Free-Look Running Fix
+
+- Fixed running with free-look on staying locked in one direction instead of turning with the camera after switching back to third person or leaving combat with a movement key or the stick held.
+
 ## [3.0.0] - Fading Obstacles, See-Through Trees, Camera Rules and Combat Lock-On
 
 - Added the close-up fade: with no room behind Henry, he fades out with his gear, eyes, hair and beard instead of the view jumping to first person (CloseUpFade, CloseUpFadeMinOpacity).
@@ -167,6 +171,7 @@ All notable changes to the TPVCamera mod will be documented in this file.
 - Third person stays out of every minigame (lockpicking, reading, alchemy, pickpocketing, and more), and you can give any minigame its own framing
 - Configurable hotkeys, with most changes applying while you play
 
+[3.0.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v3.0.1
 [3.0.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v3.0.0
 [2.0.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v2.0.0
 [1.5.2]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v1.5.2
