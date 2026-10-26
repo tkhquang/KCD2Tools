@@ -2,6 +2,11 @@
 
 All notable changes to the TPVCamera mod will be documented in this file.
 
+## [3.0.2] - Focused Look Fix
+
+- Fixed Henry spinning during the focused look (Left Alt, or LB on a controller), with free-look on or off, so the focus now settles and completes its action.
+- Added the Focus situation to the state lists in the INI.
+
 ## [3.0.1] - Free-Look Running Fix
 
 - Fixed running with free-look on staying locked in one direction instead of turning with the camera after switching back to third person or leaving combat with a movement key or the stick held.
@@ -171,6 +176,7 @@ All notable changes to the TPVCamera mod will be documented in this file.
 - Third person stays out of every minigame (lockpicking, reading, alchemy, pickpocketing, and more), and you can give any minigame its own framing
 - Configurable hotkeys, with most changes applying while you play
 
+[3.0.2]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v3.0.2
 [3.0.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v3.0.1
 [3.0.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v3.0.0
 [2.0.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v2.0.0
