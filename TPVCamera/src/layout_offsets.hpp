@@ -1382,6 +1382,14 @@ namespace Constants
     constexpr ptrdiff_t PLAYER_INPUT_MOVE_Y_OFFSET = 0x5C;
     constexpr const char *C_PLAYER_INPUT_RTTI_NAME = ".?AVC_PlayerInput@entitymodule@wh@@";
 
+    // The focused look (the focus key turns the view onto what the player looks at, with a slight zoom). C_Player holds
+    // its controller through a pointer whose offset, and the offset of the controller's flags word (uint32), come from
+    // game code (AnchorId::FocusController, AnchorId::FocusFlags). The focus start sets FOCUSED_LOOK_FLAG_ACTIVE (its
+    // `or eax, 2`), and the focus stop clears it. While it is set the game turns the look every frame by part of the
+    // angle between the rendered camera's forward and the target, measured from the rendered camera, so the focus
+    // settles only where that camera follows the look.
+    constexpr std::uint32_t FOCUSED_LOOK_FLAG_ACTIVE = 0x2;
+
     // The aim flag is the shoot request: crossbow prepare raises it at once, so it is also set through the whole
     // reload (spanning a bolt) before the weapon comes up. The running shooting sequence tells the phases apart:
     // C_Player -> C_ActionActor (C_PLAYER_ACTION_ACTOR_OFFSET) -> its component map (ACTION_ACTOR_COMPONENT_MAP_OFFSET,

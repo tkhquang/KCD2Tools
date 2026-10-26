@@ -351,6 +351,9 @@ namespace TPVCamera
         // The player's last crouched clip started from the NPC set, which the crouched animation hook swaps in, rather
         // than his own (crouched_set_is_npc).
         bool crouched_npc_set = false;
+        // The game's focused look turns the view (GameState::Focus). It turns the look by the rendered camera, so the
+        // basis takes the look as it is: no look snap hold and no AimBasisSmoothing.
+        bool focused_look = false;
     };
 
     /** @brief The zoom keys held this build. */

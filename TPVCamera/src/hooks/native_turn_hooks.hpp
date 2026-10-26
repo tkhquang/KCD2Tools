@@ -23,7 +23,8 @@ namespace TPVCamera
      * @details The detour reports third person to the locomotion action while all of these hold:
      *          - the third-person view is engaged, including its ease-out, so the body follows the look again only
      *            once the view is back at the eye;
-     *          - the setting is on and no NativeTurnExcludeState state is active;
+     *          - the setting is on, and neither a NativeTurnExcludeState state nor the focused look is active (the focus
+     *            turns the body after the view itself);
      *          - the view is not on the first-person eye (@p eye_anchored: the head fallback). There the body follows
      *            the look as in first person, because the eye sits on the head bone, which swings with a turn, and a
      *            body free of the look with no turns stays behind while the player looks around.

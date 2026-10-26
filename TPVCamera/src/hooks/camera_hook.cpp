@@ -143,6 +143,8 @@ namespace TPVCamera
     static bool s_lock_free_look = false;
     // The game's stance is crouched this frame (RigInput::crouched), main thread only.
     static bool s_crouched = false;
+    // The game's focused look turns the view this frame (RigInput::focused_look), main thread only.
+    static bool s_focused_look = false;
     // The first-person <-> third-person switch's yaw latch (see core/view/view_blend.hpp), cleared when the offset
     // turns off. Main thread only (the camera detour).
     static ViewBlendLatch s_view_latch{};
@@ -223,16 +225,22 @@ namespace TPVCamera
     }
 
     // Situations in which the game sets which way the character faces, so the aim hand-off leaves the facing alone:
-    // riding a horse or a cart, sitting, lying or kneeling, a conversation, and the minigames that put the character at
-    // a lock, a table, an anvil and the like. The throwing and shooting minigames are aimed by the player.
+    // riding a horse or a cart, sitting, lying or kneeling, a conversation, the focused look, and the minigames that
+    // put the character at a lock, a table, an anvil and the like. The throwing and shooting minigames are aimed by the
+    // player.
     constexpr uint32_t k_game_held_facing_states =
         state_bit(GameState::Mount) | state_bit(GameState::Cart) | state_bit(GameState::Lying) |
         state_bit(GameState::Sitting) | state_bit(GameState::Kneel) | state_bit(GameState::Dialogue) |
-        state_bit(GameState::MinigameSharpening) | state_bit(GameState::MinigameReading) |
+        state_bit(GameState::Focus) | state_bit(GameState::MinigameSharpening) | state_bit(GameState::MinigameReading) |
         state_bit(GameState::MinigameAlchemy) | state_bit(GameState::MinigameHerbGathering) |
         state_bit(GameState::MinigameLockpicking) | state_bit(GameState::MinigameHoleDigging) |
         state_bit(GameState::MinigameDice) | state_bit(GameState::MinigamePickpocketing) |
         state_bit(GameState::MinigameBlacksmithing) | state_bit(GameState::MinigameForgeBuilder);
+
+    // Situations in which the game steers the view from the rendered camera, so free-look is held off for them whatever
+    // the state behavior: the focused look turns the look by part of the angle between that camera and its target every
+    // frame, and a free-look camera that does not turn with the look never closes it.
+    constexpr uint32_t k_game_steered_view_states = state_bit(GameState::Focus);
 
     // Situations the player aims: a drawn bow or crossbow, and the throwing and shooting minigames. What starts there
     // (a shot, a throw) leaves along the look, so the aim hand-off keeps turning the look to the camera direction in
@@ -1240,6 +1248,7 @@ namespace TPVCamera
             .raw_look_known = input_dispatch_hooked(),
             .crouched = s_crouched,
             .crouched_npc_set = crouched_set_is_npc(),
+            .focused_look = s_focused_look,
         };
         RigFrame rig{};
 #ifdef TPVCAMERA_DEV_BUILD
@@ -1905,6 +1914,15 @@ namespace TPVCamera
         // active preset and, when state behaviour is on, to drive the forced-view / orbit-exclude policies).
         const uint32_t raw_state = poll_game_state(c_player) | poll_indoors(cview, repeat_build);
         s_crouched = (raw_state & state_bit(GameState::Crouch)) != 0u;
+        // The rig takes the raw focus: the camera must follow the look from the focus's first frame to its last.
+        const bool focused_look = (raw_state & state_bit(GameState::Focus)) != 0u;
+        if (focused_look != s_focused_look)
+        {
+            (void)DMK::log().try_log(DMK::LogLevel::Debug, "Camera: {}",
+                                     focused_look ? "the focused look turns the view, and the camera follows the look"
+                                                  : "the focused look ended");
+        }
+        s_focused_look = focused_look;
         const uint32_t state =
             debounce_game_state(raw_state, delta_time, cfg.state_exit_hold_seconds.load(std::memory_order_relaxed));
         // The game's lock-on, read once per frame. With an opponent selected the combat controller turns the player's
@@ -2152,25 +2170,22 @@ namespace TPVCamera
         const bool facing_held = ((state | raw_state) & k_game_held_facing_states) != 0u;
         s_aim_handoff_requested = false;
         s_aim_handoff_heading.reset();
-        if (policy.edge_rules())
+        // Both policies act on state-change edges, not every frame, so the player keeps manual control while a state
+        // lasts. The forced-view policy writes controls.applying on entry and restores it on exit. The orbit-exclude
+        // policy suspends free-look on entry and restores it on exit. The views the game steers from the rendered
+        // camera go through the same suspension with or without the state behavior.
+        const bool edge_rules = policy.edge_rules();
+        if (edge_rules)
         {
-            // Both policies are edge-triggered (they act on state-change edges, not every frame) so the
-            // player keeps manual control while a state lasts. The forced-view policy writes controls.applying
-            // on entry and restores it on exit; the orbit-exclude policy suspends free-look on entry and
-            // restores it on exit.
             apply_forced_view_policy(controls, state, policy);
-            const bool suspended = apply_orbit_exclude_policy(controls, policy_state, policy.orbit_exclude());
-            // Without the opponent's position there is no heading to hand to, and the camera's would fight the steer.
-            s_aim_handoff_requested = suspended && !facing_held && (!lock_steers || s_combat_lock.geometry);
-            if (s_aim_handoff_requested && lock_steers)
-            {
-                s_aim_handoff_heading = s_combat_lock.opponent_heading;
-            }
         }
-        else
+        const uint32_t orbit_exclude = (edge_rules ? policy.orbit_exclude() : 0u) | k_game_steered_view_states;
+        const bool suspended = apply_orbit_exclude_policy(controls, policy_state, orbit_exclude);
+        // Without the opponent's position there is no heading to hand to, and the camera's would fight the steer.
+        s_aim_handoff_requested = suspended && !facing_held && (!lock_steers || s_combat_lock.geometry);
+        if (s_aim_handoff_requested && lock_steers)
         {
-            // No policy restores free-look while state behavior is off, so nothing stays suspended.
-            s_orbit_suspended = false;
+            s_aim_handoff_heading = s_combat_lock.opponent_heading;
         }
         // The kill release's own free-look turned off this frame hands the look off as the policy's suspension does.
         if (kill_orbit_ended && !facing_held && (!lock_steers || s_combat_lock.geometry))

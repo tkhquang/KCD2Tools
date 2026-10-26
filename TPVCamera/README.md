@@ -418,7 +418,8 @@ See the full list at the [Supported Input Names](https://github.com/tkhquang/Det
 - Free-look orbit is a raw proof-of-concept. It is fine for swinging the camera around to
   look at the front of Henry, but it is rough for normal gameplay.
 - Free-look orbit conflicts with the game's own camera control on horseback and in combat, so
-  it is auto-disabled in those situations.
+  it is auto-disabled in those situations. It also pauses during the focused look (Left Alt,
+  or LB on a controller).
 - The first-person body rig can still look slightly off from behind in some animations.
 - Faded objects use the engine's dither, so a large faded cart or ladder wagon shows a fine screen-door pattern rather than smooth transparency.
 - The plant window, the cut of tent frames at the lens and the fade of your character's eyes, hair and beard use copies of the game's shaders, prepared at the loading screen or the next pause (the Esc menu, or a menu screen while the game is paused). A plant first seen during play keeps its normal look until then, and a close-up before the character's copies are ready hides the head, as in first person. Loading may take longer.
