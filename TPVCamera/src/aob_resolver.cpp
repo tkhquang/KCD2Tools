@@ -197,6 +197,8 @@ namespace TPVCamera
         // A member offset inside a game object, for a uint8 field and for an int32 or float field.
         constexpr ScalarRange k_byte_field_range{1, 0x4000, 1};
         constexpr ScalarRange k_dword_field_range{4, 0x4000, 4};
+        // A pointer member's offset inside a game object.
+        constexpr ScalarRange k_pointer_field_range{8, 0x4000, 8};
         // An SGameObjectEvent id. C_Player::HandleEvent compares it as `cmp dword [rsi+8], imm8`, whose sign-extended
         // immediate only encodes 0..0x7F as a positive id.
         constexpr ScalarRange k_event_id_range{1, 0x7F, 1};
@@ -351,6 +353,22 @@ namespace TPVCamera
                                                          OperandKind::MemoryDisplacement, 0, k_vtable_offset_range);
         const Anchor *const k_pak_close_slot_votes[] = {&k_pak_close_slot_bin, &k_pak_close_slot_ext};
 
+        // The focused look: C_Player's controller pointer and the controller's flags word, each read at two code sites
+        // that must decode the same offset.
+        const Anchor k_focus_controller_update =
+            code_operand("FocusController.Update", Aob::k_focusControllerUpdateCandidates,
+                         OperandKind::MemoryDisplacement, 1, k_pointer_field_range);
+        const Anchor k_focus_controller_enabled =
+            code_operand("FocusController.EnabledTest", Aob::k_focusControllerEnabledCandidates,
+                         OperandKind::MemoryDisplacement, 1, k_pointer_field_range);
+        const Anchor *const k_focus_controller_votes[] = {&k_focus_controller_update, &k_focus_controller_enabled};
+
+        const Anchor k_focus_flags_enabled = code_operand("FocusFlags.EnabledTest", Aob::k_focusFlagsEnabledCandidates,
+                                                          OperandKind::MemoryDisplacement, 0, k_dword_field_range);
+        const Anchor k_focus_flags_start = code_operand("FocusFlags.Start", Aob::k_focusFlagsStartCandidates,
+                                                        OperandKind::MemoryDisplacement, 1, k_dword_field_range);
+        const Anchor *const k_focus_flags_votes[] = {&k_focus_flags_enabled, &k_focus_flags_start};
+
         // The registry, indexed by AnchorId. The enumerator order IS this order.
         const Anchor k_anchors[] = {
             root_quorum("GlobalContextPtr", k_context_vote_ptrs),
@@ -425,6 +443,8 @@ namespace TPVCamera
             code_ladder("SetCombatOpponent", Aob::k_setCombatOpponentCandidates, Role::Entry),
             code_ladder("CombatThreat", Aob::k_combatThreatCandidates, Role::Entry),
             code_ladder("CombatPickViewRead", Aob::k_combatPickViewReadCandidates, Role::Site),
+            quorum("FocusController", k_focus_controller_votes, 0, k_pointer_field_range),
+            quorum("FocusFlags", k_focus_flags_votes, 0, k_dword_field_range),
 #if defined(TPVCAMERA_DEV_BUILD)
             code_ladder("HardwareShaderForName", Aob::k_hardwareShaderForNameCandidates, Role::Entry),
             code_ladder("HardwareShaderLockSite", Aob::k_hardwareShaderLockSiteCandidates, Role::Site),
@@ -504,6 +524,7 @@ namespace TPVCamera
         constexpr AnchorId k_octree_single_walk_anchors[] = {AnchorId::OctreeCollectByType, AnchorId::EngineDeallocate};
         constexpr AnchorId k_combat_retarget_anchors[] = {AnchorId::SetCombatOpponent, AnchorId::CombatThreat};
         constexpr AnchorId k_combat_pick_forward_anchors[] = {AnchorId::CombatPickViewRead};
+        constexpr AnchorId k_focused_look_anchors[] = {AnchorId::FocusController, AnchorId::FocusFlags};
 #if defined(TPVCAMERA_DEV_BUILD)
         // The DEV twin clone's dry-run reads CShader, SShaderTechnique, CBaseResource and CHWShader_D3D fields only
         // where every one of their layouts is proven, HW shader token maps only under the factory's own lock, and
@@ -556,6 +577,7 @@ namespace TPVCamera
             {"OctreeSingleWalk", k_octree_single_walk_anchors},
             {"CombatRetarget", k_combat_retarget_anchors},
             {"CombatPickForward", k_combat_pick_forward_anchors},
+            {"FocusedLook", k_focused_look_anchors},
 #if defined(TPVCAMERA_DEV_BUILD)
             {"TwinCloneDryRun", k_twin_clone_dry_run_anchors},
 #endif

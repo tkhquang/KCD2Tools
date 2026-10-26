@@ -372,6 +372,35 @@ namespace TPVCamera
         }
 
         /**
+         * @brief Reads the active flag of the player's focused-look controller, or false on any failure.
+         * @details Both offsets come from game code and are read only after Feature::FocusedLook passed its gate. The
+         *          controller carries no RTTI, so the walk's pointer screen is its only layout check: a controller link
+         *          outside user space, or a flag that does not read, counts as no focus.
+         */
+        [[nodiscard]] bool poll_focused_look(uintptr_t c_player) noexcept
+        {
+            const std::optional<std::int64_t> controller_offset =
+                gated_anchor_value(Feature::FocusedLook, AnchorId::FocusController);
+            const std::optional<std::int64_t> flags_offset =
+                gated_anchor_value(Feature::FocusedLook, AnchorId::FocusFlags);
+            if (!controller_offset || !flags_offset)
+            {
+                return false;
+            }
+            const std::array<std::ptrdiff_t, 2> flags_chain{
+                static_cast<std::ptrdiff_t>(*controller_offset),
+                static_cast<std::ptrdiff_t>(*flags_offset),
+            };
+            const auto flags_address = DMK::memory::walk(DMK::Address{c_player}, flags_chain);
+            if (!flags_address)
+            {
+                return false;
+            }
+            const auto flags = DMK::memory::read<uint32_t>(*flags_address);
+            return flags && (*flags & Constants::FOCUSED_LOOK_FLAG_ACTIVE) != 0;
+        }
+
+        /**
          * @brief Reads the player's missile-weapon aim flag, validated by RTTI, or false on any failure.
          * @details The C_MissileWeaponPlayerController is embedded in C_Player at a fixed offset (it is
          *          constructed inside the C_Player constructor and is player-only, being the input
@@ -553,6 +582,10 @@ namespace TPVCamera
             {
                 return state_bit(GameState::Cart);
             }
+            if (token_equals(token, "focus"))
+            {
+                return state_bit(GameState::Focus);
+            }
             // Per-minigame child tokens (lockpicking, dice, reading, ...). Each resolves to its child bit; the
             // umbrella "minigame" token above matches ANY minigame. poll_active_minigame sets both bits, so a
             // child token reacts only to that minigame while "minigame" reacts to all of them.
@@ -695,6 +728,10 @@ namespace TPVCamera
             if (poll_missile_aiming(c_player))
             {
                 mask |= state_bit(GameState::Aiming);
+            }
+            if (poll_focused_look(c_player))
+            {
+                mask |= state_bit(GameState::Focus);
             }
             // Every body-posture state comes from the player's current STANCE enum (wh::entitymodule::
             // E_StanceCategory at C_ActorModel+0x80, read once): undefined=0, standing=1, lying=2, sitting=3,

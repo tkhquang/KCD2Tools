@@ -368,8 +368,10 @@ namespace TPVCamera
         // Nothing is held while the combat lock-on has an opponent: its free look turns the view through the combat
         // input, not the look controller's, so the split would take the player's mouse turn for the game's. A frame
         // whose raw look input reached the controller as no turn is skipped for the same reason. Free-look, the aim
-        // hand-off and a basis snap (the mod turned the look, or the view just engaged) hold nothing either. Only the
-        // basis takes the hold. Everything that steers by the look reads the look as it is.
+        // hand-off and a basis snap (the mod turned the look, or the view just engaged) hold nothing either. Nor does
+        // the focused look: it turns the look every frame by part of the angle between the rendered camera and its
+        // target, so a camera held off the look keeps that angle and the look spins on. Only the basis takes the hold.
+        // Everything that steers by the look reads the look as it is.
         Quaternion basis_look = look_rotation;
         if (look_valid)
         {
@@ -402,7 +404,7 @@ namespace TPVCamera
                 const bool input_elsewhere = in.raw_look_known && state.raw_look_idle <= k_look_input_hold &&
                                              own_heading == 0.0f && own_pitch == 0.0f;
                 const bool allowed = !in.orbit_active && !in.aim_handoff_requested && !state.aim_handoff_active &&
-                                     !in.lock_focus.has_value() && !input_elsewhere &&
+                                     !in.lock_focus.has_value() && !in.focused_look && !input_elsewhere &&
                                      !is_look_clamp(game_heading, game_pitch, own_heading, own_pitch);
                 const bool player_still = move_signal.has_value() && *move_signal <= k_move_input_stop &&
                                           state.look_input_idle > k_look_input_hold;
@@ -443,8 +445,9 @@ namespace TPVCamera
         // Low-pass the basis quaternion toward the target: the leveled look orientation when StableAimBasis resolved
         // it, else the raw eye quat. Snaps on the first engaged frame (basis_quat_valid false) so the camera does not
         // swing in from a stale orientation across a first-person gap. AimBasisSmoothing 0 disables the filter
-        // (the target is used directly).
-        const float basis_smoothing = std::clamp(params.aim_basis_smoothing, 0.0f, 1.0f);
+        // (the target is used directly), and so does the focused look, which turns the look by the rendered camera: a
+        // basis that trails the look makes it overshoot and swing back before it settles.
+        const float basis_smoothing = in.focused_look ? 0.0f : std::clamp(params.aim_basis_smoothing, 0.0f, 1.0f);
         if (look_valid || basis_smoothing > 1e-4f)
         {
             basis_overridden = true;

@@ -97,10 +97,17 @@ namespace TPVCamera
          *          state lists cannot name it.
          */
         Indoors = 1u << 25,
+        /**
+         * @brief The game's focused look turns the view onto what the player looks at (the focus key, LB on a
+         *        controller): the focus controller's active flag (Constants::FOCUSED_LOOK_FLAG_ACTIVE).
+         * @details The focus turns the look by the rendered camera, so while it runs the camera follows the look 1:1,
+         *          and free-look and the native turn stay off whatever the state lists say.
+         */
+        Focus = 1u << 26,
     };
 
     /// Number of defined GameState bits; sizes the debounce timer array.
-    inline constexpr uint32_t k_game_state_bit_count = 26;
+    inline constexpr uint32_t k_game_state_bit_count = 27;
 
     /// Returns the raw bit value of a GameState flag.
     [[nodiscard]] constexpr uint32_t state_bit(GameState state) noexcept
@@ -154,7 +161,7 @@ namespace TPVCamera
      * @brief Parses a comma-separated state-token list into a GameState bit mask.
      * @details Tokens are case-insensitive and surrounding whitespace is ignored. Recognized tokens:
      *          Menu, Overlay, Combat, Mount, Dialogue, Aiming, Crouch (alias Stealth), Lying, Sitting,
-     *          Kneel, Cart; Minigame (matches ANY minigame); and the per-minigame tokens Sharpening,
+     *          Kneel, Cart, Focus; Minigame (matches ANY minigame); and the per-minigame tokens Sharpening,
      *          Reading, Alchemy, HerbGathering, Lockpicking, HoleDigging, Dice, Pickpocketing,
      *          StoneThrowing, BattleArchery, Distract, Blacksmithing, ForgeBuilder. An empty list yields
      *          0; an unrecognized token is logged at WARNING level and skipped.
@@ -170,8 +177,8 @@ namespace TPVCamera
      *          RTTI, cached so the steady state is a single pointer compare); the minigame umbrella and its
      *          per-minigame child from the C_MinigameManager (so first-person minigames such as lockpicking
      *          are detected, not just the dice camera); mount and crouch/stealth from the player's
-     *          C_ActorModel STANCE enum (mounted = 5, crouch = 6). Every
-     *          engine read is SEH-guarded, so a failed read omits that bit rather than faulting. Intended
+     *          C_ActorModel STANCE enum (mounted = 5, crouch = 6), and the focused look from its controller's
+     *          flags. Every engine read is SEH-guarded, so a failed read omits that bit rather than faulting. Intended
      *          to be called once per frame
      *          from the camera detour (the game's main thread); the camera classification cache is a plain
      *          static and is therefore not safe to call concurrently.

@@ -634,7 +634,11 @@ namespace TPVCamera
         } const update_scope;
         const LiveSettings &cfg = settings();
         const bool enabled = cfg.native_turn_animation.load(std::memory_order_relaxed);
-        const bool excluded = (state & state_policy().native_turn_exclude()) != 0;
+        // The focused look turns the body itself after the view (its align modes write the entity rotation), as in
+        // first person, where the body follows the look. With the action's LockBodyTurn reference held, the body update
+        // and that write fight, and the body spins in place. So the feature is off while the focus runs, listed or not.
+        constexpr uint32_t k_game_turned_body_states = state_bit(GameState::Focus);
+        const bool excluded = (state & (state_policy().native_turn_exclude() | k_game_turned_body_states)) != 0;
         const bool releasing = s_native_turn_release_requested.load(std::memory_order_seq_cst);
 
         // Without a resolved player there is no one to send the event to, so switching off would leave the action's

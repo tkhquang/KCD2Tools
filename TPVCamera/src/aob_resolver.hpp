@@ -1294,6 +1294,57 @@ namespace TPVCamera
                                                "44 0F 10 88 0C 01 00 00")),
         };
 
+        // The focused look (the focus key turns the view onto what the player looks at, with a slight zoom) is read
+        // through two scalars. Each is a quorum of two code sites in different functions that must decode the same
+        // value: FocusController, the C_Player member that points at the focus controller (0xCF0), and FocusFlags, the
+        // controller's uint32 flags word (0x40). Every rung matches once and decodes that value on Steam 1.5.6, GOG 1.5
+        // and Game Pass 1.4.
+        // FocusController.Update: the player update hands the controller to the focus update (sub_181F22770 at
+        // 0x181F22784, GOG 0x181F14BD4, Game Pass 0x181FB1F04). `mov rbx, rcx`, `mov rcx, [rcx]` (the C_Player) and
+        // `movss xmm1, [rax]` (the frame time) lead to `mov rcx, [rcx+0CF0h]`, the call of the focus update, the call
+        // of the global context getter and `test rax, rax`, `jz`, `cmp qword [rax+100h], 0`. P1 is the loads through
+        // the controller load and the first call. P2 is the controller load through the context check.
+        inline const Candidate k_focusControllerUpdateCandidates[] = {
+            Candidate::direct("FocusControllerUpdate_P1_LoadsThroughCall",
+                              Pattern::literal("48 8B D9 48 8B 09 F3 0F 10 08 | 48 8B 89 ?? ?? ?? ?? E8")),
+            Candidate::direct("FocusControllerUpdate_P2_CallThroughContextCheck",
+                              Pattern::literal("| 48 8B 89 ?? ?? ?? ?? E8 ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 85 C0 74 ?? 48 "
+                                               "83 B8 ?? ?? ?? ?? 00")),
+        };
+        // FocusController.EnabledTest: a player-side check that tests the controller's enabled bit (sub_18082E544 at
+        // 0x18082E569, GOG 0x1808536A9, Game Pass 0x1807577D9). It loads the C_Player from its owner with
+        // `mov rax, [rcx+18h]`, sets `xor bpl, bpl`, `mov bl, 1` and `mov rdi, rcx`, then loads the controller with
+        // `mov rsi, [rax+0CF0h]` and tests `test [rsi+40h], bl`. Past the `jnz`, it calls a helper and moves its result
+        // with `mov r14d, eax`, `test eax, eax`, `jnz`, and a zero result restores rbx and rbp from the stack. P1 is
+        // the prologue's loads through the controller load. P2 is the controller load through those restores.
+        inline const Candidate k_focusControllerEnabledCandidates[] = {
+            Candidate::direct("FocusControllerEnabled_P1_PrologueThroughLoad",
+                              Pattern::literal("48 8B 41 18 40 32 ED B3 01 48 8B F9 | 48 8B B0 ?? ?? ?? ?? 84 5E")),
+            Candidate::direct(
+                "FocusControllerEnabled_P2_LoadThroughRestores",
+                Pattern::literal("| 48 8B B0 ?? ?? ?? ?? 84 5E ?? 75 ?? E8 ?? ?? ?? ?? 44 8B F0 85 C0 75 ?? "
+                                 "48 8B 5C 24 ?? 48 8B 6C 24 ??")),
+        };
+        // FocusFlags.EnabledTest: the same check's `test [rsi+40h], bl` on the controller it loaded (0x18082E570, GOG
+        // 0x1808536B0, Game Pass 0x1807577E0). P1 is `mov bl, 1` and the controller load through the test and its
+        // `jnz`. P2 is the test through the helper call and `test eax, eax`.
+        inline const Candidate k_focusFlagsEnabledCandidates[] = {
+            Candidate::direct("FocusFlagsEnabled_P1_LoadThroughTest",
+                              Pattern::literal("B3 01 48 8B F9 48 8B B0 ?? ?? ?? ?? | 84 5E ?? 75")),
+            Candidate::direct("FocusFlagsEnabled_P2_TestThroughCall",
+                              Pattern::literal("| 84 5E ?? 75 ?? E8 ?? ?? ?? ?? 44 8B F0 85 C0")),
+        };
+        // FocusFlags.Start: the focus start's read-modify-write of the flags (sub_1808B9DB8 at 0x1808B9DD4, GOG
+        // 0x1808DEB14, Game Pass 0x180CD07B8): `mov eax, [rcx+40h]`, `and eax, 0FFFFFFEFh`, `or eax, 2` (the active
+        // bit, Constants::FOCUSED_LOOK_FLAG_ACTIVE) and `mov [rcx+40h], eax`. P1 is the read through the store. P2 is
+        // the prologue's `mov rdi, rcx` and its xmm7 and xmm8 spills through the masks.
+        inline const Candidate k_focusFlagsStartCandidates[] = {
+            Candidate::direct("FocusFlagsStart_P1_ReadThroughStore",
+                              Pattern::literal("| 8B 41 ?? 83 E0 EF 83 C8 02 89 41")),
+            Candidate::direct("FocusFlagsStart_P2_SpillsThroughMasks",
+                              Pattern::literal("48 8B F9 0F 29 78 ?? 44 0F 29 40 ?? | 8B 41 ?? 83 E0 EF 83 C8 02")),
+        };
+
         // Loading-only shader preparation: fail-closed entry anchors, with no gameplay-creation fallback.
         // CSystem::SetSystemGlobalState(this, int state) (sub_1809B315C; GOG 0x1809D7B7C, Game Pass 0x18091263C), a
         // direct entry hook. States 1..9 cover level preparation, and the closure runs before the transition out of
@@ -1770,7 +1821,8 @@ namespace TPVCamera
      *          three PSO builder ids call sites. VegetationGroups is a global, and LevelBrushTables an instruction site
      *          that only proves two member offsets. ClipVolumeManager is a global, and GetClipVolumeByPos,
      *          OctreeCollectByType, EngineDeallocate, SetCombatOpponent and CombatThreat are addresses, and
-     *          CombatPickViewRead an instruction site the mid hook sits on. Of the DEV-only ids,
+     *          CombatPickViewRead an instruction site the mid hook sits on. FocusController and FocusFlags are scalars
+     *          decoded from game code. Of the DEV-only ids,
      *          HardwareShaderForName is an address and HardwareShaderLockSite an instruction site its consumer decodes;
      *          the ids from TechniqueLayout to HardwareShaderCache are instruction sites that only prove layouts.
      */
@@ -1845,6 +1897,8 @@ namespace TPVCamera
         SetCombatOpponent,        // the combat lock-on's set-opponent (the kill retarget; called, not hooked)
         CombatThreat,             // the combat threat test (the kill retarget's candidate check; called, not hooked)
         CombatPickViewRead,       // the lock-on target pick's read of the view camera forward (a mid hook site)
+        FocusController,          // C_Player's focused-look controller pointer offset (quorum: update, enabled test)
+        FocusFlags,               // the focused-look controller's flags offset (quorum: enabled test, focus start)
 #if defined(TPVCAMERA_DEV_BUILD)
         HardwareShaderForName,  // CHWShader::mfForName (the DEV twin clone's factory)
         HardwareShaderLockSite, // the HW shader factory's SRWLOCK lea (an instruction site the consumer decodes)
@@ -1910,6 +1964,7 @@ namespace TPVCamera
                               // camera points at
         CombatPickForward,    // CombatPickViewRead: the lock-on's target pick goes along the opponent the game steers
                               // to, or along the look before the lock framing
+        FocusedLook,          // FocusController, FocusFlags: the Focus state of the game's focused look
 #if defined(TPVCAMERA_DEV_BUILD)
         TwinCloneDryRun, // the layout proofs (TechniqueLayout to HardwareShaderCache), the HW shader factory and
                          // its lock, ResourceLookup: the twin clone's read-only dry-run (needs ShaderTwins)
