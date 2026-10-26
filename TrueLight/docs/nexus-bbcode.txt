@@ -1,0 +1,58 @@
+[size=5]Foreword[/size]
+The game doesn't light the scene from the torch in Henry's hand. It uses an invisible light just above his head, made for first person: its shadows only fall in a cone in front of the camera, and Henry casts none. In third person or photo mode that shows as shadows with straight edges, and weapon shadows floating with no body.
+
+[b]True Light[/b] switches that light off and lights the scene from the flame, with shadows in every direction, Henry's included.
+
+[size=5]What to Expect[/size]
+[list]
+[*][b]Torch or lantern in hand:[/b] light from the flame, shadows in every direction, Henry's included. It follows the flame through any animation, animation mods too.[/*]
+[*][b]Crouching, mounting, dismounting:[/b] the game hides the torch model. The light stays on from just above Henry's head, with full shadows, and moves back to the flame once the torch is raised again.[/*]
+[*][b]Torch put away, dialogues, cutscenes:[/b] no torch light, as in the game.[/*]
+[*]NPC torches and every other light are untouched. No measurable frame-rate cost.[/*]
+[/list]
+
+[size=5]Installation[/size]
+Install with your mod manager, or extract into your [b]Mods[/b] folder:
+[code]
+Mods/
+\-- true_light/
+    |-- mod.manifest
+    |-- mod.cfg              (settings)
+    \-- Data/
+        \-- true_light.pak
+[/code]
+[b]kcd.log[/b] shows a [TrueLight] loaded line once it runs. To uninstall, delete Mods/true_light.
+
+[size=5]Settings[/size]
+[b]Mods/true_light/mod.cfg[/b], read when a save loads. 1 = real torch light, 0 = the game's own.
+[list]
+[*][b]true_light_third_person[/b] (default 1): third person (TPVCamera or any camera mod)[/*]
+[*][b]true_light_photo_mode[/b] (default 1): photo mode[/*]
+[*][b]true_light_first_person[/b] (default 0): first person[/*]
+[/list]
+The same names work as console commands. [b]true_light_reload[/b] reads the file again.
+
+[b]Lights from other mods[/b]
+Torches and lanterns from mods (class Lamp) are built in. Add another mod's handheld light with:
+[code]
+true_light_held_light <class | name:prefix> [helper] [state]
+[/code]
+[b]name:[/b] matches the start of the entity name instead of the class, [b]helper[/b] is the flame helper on the model, and [b]state[/b] is a script state it must be in to count as lit; - skips one. Without a value the command lists the lights. The item must get the game's torch light when held, as torches and lanterns do.
+
+[size=5]Compatibility[/size]
+[list]
+[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3263]TPVCamera[/url]: recommended, not required. Its view signal also counts its close-up shots as third person.[/*]
+[*]Other camera mods: detected from the camera's distance to Henry's head.[/*]
+[/list]
+
+[size=5]Known Limitations[/size]
+[list]
+[*]In first person (off by default) the torch arm can shadow the view.[/*]
+[/list]
+
+[size=5]Credits[/size]
+[list]
+[*]Warhorse Studios - Kingdom Come: Deliverance II[/*]
+[/list]
+
+All my Kingdom Come: Deliverance II mods and tools can be found in this [url=https://github.com/tkhquang/KCD2Tools]GitHub repository[/url]. Feel free to contribute or suggest improvements!
