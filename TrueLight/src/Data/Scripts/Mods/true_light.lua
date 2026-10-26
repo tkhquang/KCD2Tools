@@ -4,7 +4,7 @@
 -- script mutes it and lights the scene from the flame instead.
 
 TrueLight = TrueLight or {}
-TrueLight.Version = "0.0.0"
+TrueLight.Version = "1.0.0"
 
 local LOG_TAG = "[TrueLight] "
 local CFG_PATH = "mods/true_light/mod.cfg"
