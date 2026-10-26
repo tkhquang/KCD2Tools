@@ -1,6 +1,5 @@
-## Initial Release
+## [Title for next release]
 
-- Henry's torch lights the scene from its flame, with shadows in every direction, his own included, through any animation.
-- Lanterns from mods too; other mods' handheld lights can be added in `mod.cfg`.
-- Crouching and mounting keep the light on, from just above Henry's head.
-- Third person, photo mode and first person can each be turned on or off in `mod.cfg`. Works with TPVCamera or any camera mod.
+- New feature
+- Bug fix
+- Improvement
