@@ -1,3 +1,5 @@
-## D-pad Controls
+## [Title for next release]
 
-- Controller: the D-pad now moves the pick (left / right) and pushes the tumbler (up) by default.
+- New feature
+- Bug fix
+- Improvement
