@@ -29,8 +29,10 @@ namespace SoundFramework::constants
     inline constexpr const wchar_t *MOODS_FILE_NAME = L"KCD2_SoundFramework_moods.ini";
     /// The learned lip model ([LipSync] Mode = ADVANCED), beside the framework module.
     inline constexpr const wchar_t *LIP_MODEL_FILE_NAME = L"KCD2_SoundFramework_lipmodel.bin";
-    /// The cutscene speaker table (packs/cutscene_table.hpp): a copy beside the framework module overrides the built-in
-    /// one.
+    /**
+     * @brief The cutscene speaker table (packs/cutscene_table.hpp): a copy beside the framework module overrides the
+     *        built-in one.
+     */
     inline constexpr const wchar_t *CUTSCENE_TABLE_FILE_NAME = L"KCD2_SoundFramework_cutscenes.txt";
     /// The RCDATA resource holding the built-in cutscene speaker table (CMakeLists.txt, embed_cutscene_table).
     inline constexpr const wchar_t *CUTSCENE_TABLE_RESOURCE = L"CUTSCENE_TABLE";
@@ -86,6 +88,16 @@ namespace SoundFramework::constants
     inline constexpr std::size_t CMD_ARGS_GET_SLOT = 2;
     /// ISystem::Update(int flags, int pause_mode), once per frame on the main thread.
     inline constexpr std::size_t SYSTEM_UPDATE_SLOT = 5;
+    /**
+     * @brief How long no frame may reach the CSystem::Update hook while another patch opens the function before the
+     *        watchdog hooks it again on top.
+     * @details A level load also stops the frames for longer than this, but leaves the framework's own patch in place.
+     */
+    inline constexpr std::chrono::milliseconds SYSTEM_UPDATE_STALL{3000};
+    /// How often the watchdog checks the CSystem::Update hook.
+    inline constexpr std::chrono::milliseconds SYSTEM_UPDATE_CHECK_INTERVAL{500};
+    /// How many times the watchdog may hook CSystem::Update again in one generation.
+    inline constexpr std::size_t SYSTEM_UPDATE_MAX_REHOOKS = 3;
     inline constexpr const char *RTTI_ENTITY_SYSTEM = ".?AVCEntitySystem@@";
     inline constexpr const char *RTTI_ENTITY = ".?AVCEntity@@";
     inline constexpr std::size_t ENTITY_SYSTEM_SLOT_COUNT = 98;
