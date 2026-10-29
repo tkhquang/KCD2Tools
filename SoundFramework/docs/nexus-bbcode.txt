@@ -153,6 +153,7 @@ Please list Sound Framework as a requirement on your mod page. Share your packs 
 [*]Set LogLevel = DEBUG under [Settings], save the INI and reproduce the problem.[/*]
 [*]Check KCD2_SoundFramework.log beside the mod. Pack problems are listed with their file and line.[/*]
 [*]If a mod's sounds don't play, check that the mod has a SoundFramework folder with its INI and that the log lists the pack.[/*]
+[*]A log warning that another mod wrote over the CSystem::Update hook needs no action: the framework hooks it again by itself.[/*]
 [/list]
 Please [url=https://github.com/tkhquang/KCD2Tools/issues]report issues[/url] with the log, INI, game/mod versions and reproduction steps.
 

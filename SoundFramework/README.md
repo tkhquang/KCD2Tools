@@ -148,6 +148,7 @@ The code is MIT licensed (see [LICENSE](LICENSE)). `KCD2_SoundFramework_lipmodel
 - Set `LogLevel = DEBUG` under `[Settings]`, save the INI and reproduce the problem.
 - Check `KCD2_SoundFramework.log` beside the mod. Pack problems are listed with their file and line.
 - If a mod's sounds don't play, check that the mod has a `SoundFramework` folder with its INI and that the log lists the pack.
+- A log warning that another mod wrote over the `CSystem::Update` hook needs no action: the framework hooks it again by itself.
 - Include the log, INI, game/mod versions and reproduction steps in your report.
 
 ## Building from Source

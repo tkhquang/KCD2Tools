@@ -292,6 +292,8 @@ namespace SoundFramework
             );
             return ShutdownResult{};
         }
+        // The watchdog pushes onto the stack, so it stops before the stack retires.
+        game::main_thread::stop();
         const DMK::hook::HookRetirement retirement = s_hooks.retire(constants::HOOK_RETIREMENT_DEADLINE);
         if (retirement.outcome != DMK::hook::RetirementOutcome::Retired || retirement.pinned != 0)
         {
