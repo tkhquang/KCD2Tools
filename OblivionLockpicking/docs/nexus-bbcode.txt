@@ -83,8 +83,8 @@ Recommended: [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/654]FPS
 
 [size=5]Controls[/size]
 [list]
-[*][b]Move the pick:[/b] A / D or the mouse, or the left stick[/*]
-[*][b]Push the tumbler:[/b] W or move the mouse up, or push the left stick up[/*]
+[*][b]Move the pick:[/b] A / D or the mouse, or the left stick or D-pad left / right[/*]
+[*][b]Push the tumbler:[/b] W or move the mouse up, or push the left stick up or D-pad up[/*]
 [*][b]Set the tumbler at the top:[/b] Space or left click, or A / Cross[/*]
 [/list]
 Hold the push to keep a tumbler bouncing. KCD2_OblivionLockpicking.ini documents every setting, and [Controls] changes any key.
