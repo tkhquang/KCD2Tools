@@ -2,6 +2,10 @@
 
 All notable changes to the OblivionLockpicking mod will be documented in this file.
 
+## [1.1.0] - D-pad Controls
+
+- Controller: the D-pad now moves the pick (left / right) and pushes the tumbler (up) by default.
+
 ## [1.0.0] - Initial Release
 
 - Lockpicking plays like Oblivion's tumbler lock, recreated for KCD2: push each tumbler up and set it while it pauses at the top.
@@ -16,4 +20,5 @@ All notable changes to the OblivionLockpicking mod will be documented in this fi
 - Sounds for every push, click and fall through Sound Framework.
 - Settings apply while the game runs, and the vanilla minigame can be turned back on.
 
+[1.1.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/OblivionLockpicking-v1.1.0
 [1.0.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/OblivionLockpicking-v1.0.0

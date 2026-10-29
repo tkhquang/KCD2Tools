@@ -10,7 +10,7 @@
 #define OBLIVIONLP_VERSION_HPP
 
 #define VERSION_MAJOR 1
-#define VERSION_MINOR 0
+#define VERSION_MINOR 1
 #define VERSION_PATCH 0
 
 /// Stringification helpers for the version macros.
