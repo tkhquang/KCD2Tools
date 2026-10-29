@@ -29,7 +29,7 @@ This mod replaces the lockpicking minigame with a tumbler lock in the style of T
 
 ## Requirements
 
-- Kingdom Come: Deliverance II 1.5.6 on Steam. The GOG and Game Pass builds pass the same signature checks.
+- Kingdom Come: Deliverance II 1.5.6 on Steam.
 - [Kingdom Come Script Extender (KCSE)](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332) for the KCSE build, or an ASI loader for the ASI build
 - [Sound Framework](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3860)
 

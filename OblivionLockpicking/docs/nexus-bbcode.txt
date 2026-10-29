@@ -12,6 +12,7 @@ My shaky hands never got along with the vanilla lockpicking, so I set out to rep
 [*]Set it while it pauses. A set at any other moment is a wrong set: the game rolls whether the pick breaks, and the controls pause for a moment.[/*]
 [*]A wrong set keeps some of your set tumblers, more with a higher Thievery level. Set them all and the lock opens.[/*]
 [*]Thievery, perks and buffs slow the tumblers down. Experience, noise, crime and broken picks stay the game's own.[/*]
+[*][url=https://github.com/tkhquang/KCD2Tools]Open source[/url], built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url][/*]
 [/list]
 [spoiler]
 [list]
@@ -24,7 +25,7 @@ My shaky hands never got along with the vanilla lockpicking, so I set out to rep
 
 [size=5]Requirements[/size]
 [list]
-[*]Kingdom Come: Deliverance II 1.5.6 on Steam. The GOG and Game Pass builds pass the same signature checks.[/*]
+[*]Kingdom Come: Deliverance II 1.5.6 on Steam.[/*]
 [*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332]Kingdom Come Script Extender (KCSE)[/url] for the KCSE build, or an ASI loader for the ASI build[/*]
 [*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3860]Sound Framework[/url][/*]
 [/list]
@@ -101,9 +102,9 @@ Set LogLevel=DEBUG in the INI, reproduce the problem, and [url=https://github.co
 [/spoiler]
 
 [size=5]Credits[/size]
+Built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url].
 [spoiler]
 [list]
-[*][url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url]: the modding framework[/*]
 [*][url=https://github.com/ThirteenAG/Ultimate-ASI-Loader]Ultimate ASI Loader[/url] by ThirteenAG[/*]
 [*][url=https://github.com/cursey/safetyhook]SafetyHook[/url] by cursey, and [url=https://github.com/zyantific/zydis]Zydis[/url] / [url=https://github.com/zyantific/zycore-c]Zycore[/url] by zyantific[/*]
 [*][url=https://github.com/brofield/simpleini]SimpleIni[/url] by Brodie Thiesfield[/*]
