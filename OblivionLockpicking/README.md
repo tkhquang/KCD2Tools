@@ -94,8 +94,8 @@ Recommended: [FPS FIX (Memory Leak)](https://www.nexusmods.com/kingdomcomedelive
 
 | Action | Keyboard and mouse | Controller |
 | --- | --- | --- |
-| Move the pick | `A` / `D`, or the mouse | Left stick |
-| Push the tumbler | `W`, or move the mouse up | Left stick up |
+| Move the pick | `A` / `D`, or the mouse | Left stick, or D-pad left / right |
+| Push the tumbler | `W`, or move the mouse up | Left stick up, or D-pad up |
 | Set the tumbler at the top | `Space` or left click | `A` / `Cross` |
 
 Hold the push to keep a tumbler bouncing. `KCD2_OblivionLockpicking.ini` documents every setting, and `[Controls]` changes any key.

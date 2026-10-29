@@ -18,12 +18,12 @@ namespace OblivionLockpicking
 {
     namespace
     {
-        // Oblivion Remastered's layout. A and D move, W pushes and Space sets. A controller's left stick moves and
-        // pushes, and A (Cross) sets. The mouse moves and pushes as in the original Oblivion, and its left click sets.
-        constexpr std::string_view DEFAULT_MOVE_LEFT_KEYS = "a";
-        constexpr std::string_view DEFAULT_MOVE_RIGHT_KEYS = "d";
+        // Oblivion Remastered's layout. A and D move, W pushes and Space sets. A controller's left stick or D-pad moves
+        // and pushes, and A (Cross) sets. The mouse moves and pushes as in the original Oblivion, and left click sets.
+        constexpr std::string_view DEFAULT_MOVE_LEFT_KEYS = "a, xi_dpad_left";
+        constexpr std::string_view DEFAULT_MOVE_RIGHT_KEYS = "d, xi_dpad_right";
         constexpr std::string_view DEFAULT_SET_KEYS = "space, mouse1, xi_a";
-        constexpr std::string_view DEFAULT_PUSH_KEYS = "w";
+        constexpr std::string_view DEFAULT_PUSH_KEYS = "w, xi_dpad_up";
         constexpr controls::PadStick DEFAULT_PAD_STICK = controls::PadStick::Left;
         constexpr KeepOnFail DEFAULT_KEEP_ON_FAIL = KeepOnFail::Thievery;
 
