@@ -79,7 +79,8 @@ SETTINGS (KCD2_SoundFramework.ini):
   this, OFF never.
   [Volume] DialogueVoices, BarkVoices and CutsceneVoices set how loud
   conversations, barks and cutscene lines play (1 = unchanged, 0.5 = half,
-  0 = silent, up to 4), mods' lines included.
+  0 = silent, up to 4), mods' lines included. Pre-rendered cutscenes are
+  videos with their own sound and are not affected.
   [Debug] EventLog and SpeakLog help mod authors find the game's sound events and
   voice lines.
 

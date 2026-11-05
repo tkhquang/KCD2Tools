@@ -94,7 +94,7 @@ After loading a save, open `KCD2_SoundFramework.log` beside the mod's DLL or ASI
 | `[LipSync] DubbedVoices` | `AUTO` | Voice dubs: the game shows English mouth animation for a voice language without its own. `AUTO`: the lips then follow each line's own voice, in cutscenes too, and the animation's smiles and frowns stay. `ON`: always. `OFF`: never. |
 | `[Volume] DialogueVoices` | `1.0` | Volume of conversation lines, on top of the game's sliders: `0` silent, `0.5` half, up to `4` (louder can clip). |
 | `[Volume] BarkVoices` | `1.0` | Volume of barks: what people call out or mutter around you, shouts, and Henry's thoughts. |
-| `[Volume] CutsceneVoices` | `1.0` | Volume of lines spoken in cutscenes. |
+| `[Volume] CutsceneVoices` | `1.0` | Volume of lines spoken in in-engine cutscenes. Pre-rendered cutscenes are videos with their own sound and are not affected. |
 | `[Debug] EventLog` | empty | Logs every game sound event whose path contains this text (`*` for all), and the parameters the game sets on it. |
 | `[Debug] SpeakLog` | empty | Logs every voice line the game speaks whose key or file contains this text (`*` for all). |
 
