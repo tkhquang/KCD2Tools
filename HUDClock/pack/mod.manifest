@@ -5,7 +5,7 @@
     <modid>hud_clock</modid>
     <description>Shows the game time on the HUD, as a clock or as Henry would name the hour.</description>
     <author>tkhquang</author>
-    <version>0.1.0</version>
+    <version>1.0.0</version>
     <created_on>2026-10-26</created_on>
     <modifies_level>false</modifies_level>
   </info>
