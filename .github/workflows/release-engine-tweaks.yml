@@ -1,0 +1,373 @@
+name: Engine Tweaks - Version Bump and Release
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_part:
+        description: "Version part to bump"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      version_title:
+        description: "Version title (defaults to the heading in NEXT_CHANGELOG.md)"
+        required: false
+        type: string
+      nexus_description:
+        description: "Nexus file note (appended after the install-steps line; truncated to fit 255 chars total)"
+        required: false
+        type: string
+      prerelease:
+        description: "Is this a pre-release?"
+        required: false
+        default: false
+        type: boolean
+
+# Releases share the same version header and tag namespace across branches.
+concurrency:
+  group: release-engine-tweaks
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  bump-and-release:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check release branch and initialize dependencies
+        run: |
+          if ($env:GITHUB_REF_TYPE -ne 'branch') {
+            throw 'Run this workflow on a branch, not a tag.'
+          }
+          # Fetch only this mod's dependency tree. Other mods and CryEngine are not needed.
+          git submodule update --init --recursive -- EngineTweaks/external/DetourModKit
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to initialize EngineTweaks submodules.' }
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+
+      # kcd-pak-action runs python3 from bash, and a Windows Python install can provide only python.exe.
+      - name: Expose python3 for kcd-pak-action
+        run: |
+          $python = (Get-Command python).Source
+          $python3 = Join-Path (Split-Path $python) 'python3.exe'
+          if (-not (Test-Path $python3)) { Copy-Item $python $python3 }
+
+      - name: Read changelog and determine title
+        id: read-changelog
+        env:
+          TITLE_INPUT: ${{ inputs.version_title }}
+        run: |
+          $content = Get-Content -LiteralPath 'EngineTweaks/docs/NEXT_CHANGELOG.md' -Raw -Encoding utf8
+          $lines = $content -split "`r?`n"
+          if ($lines[0] -notmatch '^##\s+(.+)$') {
+            throw 'NEXT_CHANGELOG.md must start with ## followed by a release title.'
+          }
+          $suggestedTitle = $matches[1].Trim()
+          if ($suggestedTitle -eq '[Title for next release]') {
+            throw 'Replace the NEXT_CHANGELOG.md template with release notes before publishing.'
+          }
+          $title = ([string]$env:TITLE_INPUT).Trim()
+          if ([string]::IsNullOrWhiteSpace($title)) { $title = $suggestedTitle }
+          if ($title -match '[\r\n]') { throw 'The release title must be a single line.' }
+          $changelog = ($lines | Select-Object -Skip 1) -join "`n"
+          if ([string]::IsNullOrWhiteSpace($changelog)) { throw 'The changelog must not be empty.' }
+          $notesPath = Join-Path $env:RUNNER_TEMP 'engine-tweaks-changelog.txt'
+          Set-Content -LiteralPath $notesPath -Value $changelog.Trim() -Encoding utf8
+          "TITLE=$title" >> $env:GITHUB_OUTPUT
+          "NOTES_PATH=$notesPath" >> $env:GITHUB_OUTPUT
+
+      - name: Bump version and update changelog
+        env:
+          VERSION_PART: ${{ inputs.version_part }}
+          RELEASE_TITLE: ${{ steps.read-changelog.outputs.TITLE }}
+          NOTES_PATH: ${{ steps.read-changelog.outputs.NOTES_PATH }}
+        run: |
+          python EngineTweaks/scripts/version_updater.py bump $env:VERSION_PART --title $env:RELEASE_TITLE --changelog-file $env:NOTES_PATH
+          if ($LASTEXITCODE -ne 0) { throw 'Version update failed.' }
+
+          $header = Get-Content "EngineTweaks\src\version.hpp" -Raw
+          $major = [regex]::Match($header, '#define\s+VERSION_MAJOR\s+(\d+)').Groups[1].Value
+          $minor = [regex]::Match($header, '#define\s+VERSION_MINOR\s+(\d+)').Groups[1].Value
+          $patch = [regex]::Match($header, '#define\s+VERSION_PATCH\s+(\d+)').Groups[1].Value
+          $version = "$major.$minor.$patch"
+          # The pak mod's manifest carries the same version, and the updater bumps both.
+          $manifest = Get-Content 'EngineTweaks/pack/mod.manifest' -Raw
+          $manifestVersion = [regex]::Match($manifest, '<version>\s*(\d+\.\d+\.\d+)\s*</version>').Groups[1].Value
+          if ($manifestVersion -ne $version) { throw "mod.manifest version '$manifestVersion' does not match version.hpp $version." }
+          $tag = "EngineTweaks-v$version"
+          git show-ref --verify --quiet "refs/tags/$tag"
+          if ($LASTEXITCODE -eq 0) { throw "Tag $tag already exists. Choose a different version bump." }
+          if ($LASTEXITCODE -ne 1) { throw 'Failed to check existing release tags.' }
+          "NEW_VERSION=$version" >> $env:GITHUB_ENV
+          "VERSION_TAG=v$version" >> $env:GITHUB_ENV
+          "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+          "ARTIFACT_NAME=KCD2_EngineTweaks_v$version.zip" >> $env:GITHUB_ENV
+          "ASI_ARTIFACT_NAME=KCD2_EngineTweaks_ASI_v$version.zip" >> $env:GITHUB_ENV
+          # show-ref returns 1 for the expected missing tag, which is not a step failure.
+          exit 0
+
+      - name: Build ASI, KCSE plugin and tests
+        working-directory: EngineTweaks
+        run: |
+          cmake --preset msvc-release
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed.' }
+          cmake --build --preset msvc-release --parallel --target KCD2_EngineTweaks-ASI KCD2_EngineTweaks-KCSE engine_tweaks_tests
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
+          foreach ($artifact in 'build\release-msvc\KCD2_EngineTweaks.asi', 'build\release-msvc\KCSE\KCD2_EngineTweaks.dll') {
+            if (-not (Test-Path $artifact)) {
+              Write-Error "$artifact was not produced"
+              exit 1
+            }
+          }
+
+      - name: Run unit tests
+        working-directory: EngineTweaks
+        run: |
+          ctest --test-dir build\release-msvc -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Unit tests failed.' }
+
+      # Data/ becomes the pak, and the manifest stays loose. The item list movies are committed prebuilt and packed as
+      # they are.
+      - name: Build paks
+        id: pak
+        uses: tkhquang/kcd-pak-action@v1
+        with:
+          mod-dir: EngineTweaks/pack
+          out-dir: EngineTweaks/dist
+
+      # Two archives. Main: the pak mod folder with the KCSE plugin and its INI in KCSE/Plugins/, a regular Mods entry
+      # that mod managers install. ASI add-on, for players without KCSE: the ASI and its own INI, extracted into the
+      # game folder beside WHGame.dll. Mod managers deploy into Mods only, so the add-on stays a manual step. A player
+      # with both runs one copy, because the second load fails the mod's per-process instance mutex.
+      - name: Assemble release archives
+        env:
+          DEPLOY_DIR: ${{ steps.pak.outputs.deploy-dir }}
+        run: |
+          $package = "EngineTweaks\package"
+          $modDir = Join-Path $package 'engine_tweaks'
+          $pluginDir = Join-Path $modDir 'KCSE\Plugins'
+          New-Item -ItemType Directory -Force -Path $package | Out-Null
+          Copy-Item $env:DEPLOY_DIR $package -Recurse
+          New-Item -ItemType Directory -Force -Path $pluginDir | Out-Null
+          Copy-Item "EngineTweaks\build\release-msvc\KCSE\KCD2_EngineTweaks.dll" $pluginDir
+          Copy-Item "EngineTweaks\build\template\*" $pluginDir -Recurse
+          Copy-Item "EngineTweaks\LICENSE" (Join-Path $pluginDir 'KCD2_EngineTweaks_License.txt')
+          $required = @(
+            'engine_tweaks/mod.manifest',
+            'engine_tweaks/Data/engine_tweaks.pak',
+            'engine_tweaks/KCSE/Plugins/KCD2_EngineTweaks.dll',
+            'engine_tweaks/KCSE/Plugins/KCD2_EngineTweaks.ini'
+          )
+          foreach ($file in $required) {
+            if (-not (Test-Path (Join-Path $package $file))) { throw "$file is missing from the main package" }
+          }
+          Compress-Archive -Path $modDir -DestinationPath $env:ARTIFACT_NAME -Force
+          Get-ChildItem -Recurse $package | Select-Object FullName, Length | Format-Table -AutoSize | Out-String -Width 200
+
+          $asiPackage = "EngineTweaks\package_asi"
+          $binDir = Join-Path $asiPackage 'Bin\Win64MasterMasterSteamPGO'
+          New-Item -ItemType Directory -Force -Path $binDir | Out-Null
+          Copy-Item "EngineTweaks\build\release-msvc\KCD2_EngineTweaks.asi" $binDir
+          Copy-Item "EngineTweaks\build\template\*" $binDir -Recurse
+          Copy-Item "EngineTweaks\LICENSE" (Join-Path $binDir 'KCD2_EngineTweaks_License.txt')
+          $asiRequired = @(
+            'Bin/Win64MasterMasterSteamPGO/KCD2_EngineTweaks.asi',
+            'Bin/Win64MasterMasterSteamPGO/KCD2_EngineTweaks.ini'
+          )
+          foreach ($file in $asiRequired) {
+            if (-not (Test-Path (Join-Path $asiPackage $file))) { throw "$file is missing from the ASI add-on" }
+          }
+          Compress-Archive -Path "$asiPackage\*" -DestinationPath $env:ASI_ARTIFACT_NAME -Force
+          Get-ChildItem -Recurse $asiPackage | Select-Object FullName, Length | Format-Table -AutoSize | Out-String -Width 200
+
+      - name: Prepare release body and Nexus metadata
+        id: prepare-release
+        env:
+          RELEASE_TITLE: ${{ steps.read-changelog.outputs.TITLE }}
+          NOTES_PATH: ${{ steps.read-changelog.outputs.NOTES_PATH }}
+          NEXUS_DESC_INPUT: ${{ inputs.nexus_description }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          $changelog = Get-Content -LiteralPath $env:NOTES_PATH -Raw -Encoding utf8
+          $releaseBody = @'
+          # Kingdom Come: Deliverance II - Engine Tweaks (More Performance)
+
+          ## Release {0} - {1}
+
+          > [!WARNING]
+          > I tested this mod on my own saves, but the game is huge and no test covers all of it. Use it at your own risk.
+
+          Removes engine freezes that grow with the number of items Henry carries: looking at a bed, opening or closing the inventory, a loot or trade screen, the map or the journal, and transferring all items to or from a container.
+
+          ## Changelog
+
+          {2}
+
+          ### Installation
+
+          1. Install `{4}` with your mod manager, or extract it into `<game>/Mods/`. With [KCSE](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332), that is all.
+          2. Without KCSE, also extract `{5}` into the game folder, and put an x64 [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases) `dinput8.dll` beside `WHGame.dll`.
+
+          The KCSE plugin reads `Mods/engine_tweaks/KCSE/Plugins/KCD2_EngineTweaks.ini`, and the ASI reads the `KCD2_EngineTweaks.ini` beside it. Changes apply while you play. With both installed, only one copy runs. Back up your INI before updating.
+
+          See the [README](https://github.com/{3}/blob/main/EngineTweaks/README.md) for settings and troubleshooting.
+
+          ### Technical Details
+
+          Engine Tweaks is built on [DetourModKit (DMK)](https://github.com/tkhquang/DetourModKit), a full-featured C++23 framework for Windows game modding. It provides:
+
+          - Function hooking via [SafetyHook](https://github.com/cursey/safetyhook) and vtable hooking
+          - AOB (Array of Bytes) pattern scanning and memory access utilities
+          - INI configuration with live reload
+          - Thread-safe logging and runtime diagnostics
+          - Mod lifecycle management and hot-reload support
+          '@
+          $releaseBody = $releaseBody -f $env:VERSION_TAG, $env:RELEASE_TITLE, $changelog.Trim(), $env:GITHUB_REPOSITORY, $env:ARTIFACT_NAME, $env:ASI_ARTIFACT_NAME
+          if ($env:PRERELEASE -eq 'true') {
+            $releaseBody = "## PRE-RELEASE VERSION`n`nThis build is for testing and can contain bugs or incomplete features.`n`n" + $releaseBody
+          }
+          $bodyPath = Join-Path $env:RUNNER_TEMP 'engine-tweaks-release-body.md'
+          Set-Content -LiteralPath $bodyPath -Value $releaseBody -Encoding utf8
+          "RELEASE_BODY_PATH=$bodyPath" >> $env:GITHUB_OUTPUT
+
+          # Nexus accepts a 255-character file note, BBCode tags included, and a plain bullet-list changelog. Each
+          # file opens with its own build and requirement line, and the optional note fills what is left.
+          $mainLead = 'Main file. Install with a mod manager, or into Mods. Needs [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332]KCSE[/url], or the ASI add-on.'
+          $asiLead = 'ASI add-on for players without KCSE. Install the main file too, then extract this into the game folder. Needs an [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases]ASI loader[/url].'
+          $note = ($env:NEXUS_DESC_INPUT -replace "`r`n", "`n").Trim()
+          function Format-FileNote([string]$lead) {
+            if ($note -eq '') { return $lead }
+            $remaining = 255 - $lead.Length - 2
+            if ($remaining -le 0) { return $lead }
+            return "$lead`n`n" + $note.Substring(0, [Math]::Min($note.Length, $remaining))
+          }
+          $nexusChangelog = (($changelog -split "`r?`n") |
+            ForEach-Object { ($_.Trim() -replace '^[-*+]\s+', '') } |
+            Where-Object { $_ -ne '' }) -join "`n"
+          $delimiter = "NEXUS_$([guid]::NewGuid().ToString('N'))"
+          "NEXUS_DESCRIPTION<<$delimiter" >> $env:GITHUB_OUTPUT
+          (Format-FileNote $mainLead) >> $env:GITHUB_OUTPUT
+          $delimiter >> $env:GITHUB_OUTPUT
+          "NEXUS_ASI_DESCRIPTION<<$delimiter" >> $env:GITHUB_OUTPUT
+          (Format-FileNote $asiLead) >> $env:GITHUB_OUTPUT
+          $delimiter >> $env:GITHUB_OUTPUT
+          "NEXUS_CHANGELOG<<$delimiter" >> $env:GITHUB_OUTPUT
+          $nexusChangelog >> $env:GITHUB_OUTPUT
+          $delimiter >> $env:GITHUB_OUTPUT
+
+      - name: Commit version changes and create release tag
+        env:
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          git config --local user.email 'github-actions[bot]@users.noreply.github.com'
+          git config --local user.name 'github-actions[bot]'
+          git add -- EngineTweaks/src/version.hpp EngineTweaks/pack/mod.manifest EngineTweaks/CHANGELOG.md
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to stage version changes.' }
+          git commit -m "Bump EngineTweaks version to $env:NEW_VERSION"
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to commit version changes.' }
+          git tag -a $env:RELEASE_TAG -m "Release $env:VERSION_TAG"
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to create release tag.' }
+
+          # The tag always contains the source used to build the archive. Pre-releases keep
+          # the bump on the tag only, leaving the selected branch and pending notes untouched.
+          if ($env:PRERELEASE -eq 'true') {
+            git push origin "refs/tags/$env:RELEASE_TAG"
+          } else {
+            git push --atomic origin "HEAD:refs/heads/$env:GITHUB_REF_NAME" "refs/tags/$env:RELEASE_TAG"
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to push release changes.' }
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: |
+            ${{ env.ARTIFACT_NAME }}
+            ${{ env.ASI_ARTIFACT_NAME }}
+          name: KCD2 EngineTweaks ${{ env.VERSION_TAG }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          body_path: ${{ steps.prepare-release.outputs.RELEASE_BODY_PATH }}
+          draft: false
+          prerelease: ${{ inputs.prerelease }}
+
+      # The account API key is shared, and the file and v3 mod IDs identify this mod.
+      # Leave a file ID unset to skip that upload. mod_id is required only for changelogs.
+      # The main archive is a regular Mods folder entry, so mod managers can install it.
+      - name: Publish to Nexus Mods
+        if: ${{ !inputs.prerelease && vars.NEXUSMODS_ENGINETWEAKS_FILE_ID != '' }}
+        uses: Nexus-Mods/upload-action@c96019556046053aa26044b44396cd38929daf23 # v1.0.0-beta.10
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_id: ${{ vars.NEXUSMODS_ENGINETWEAKS_FILE_ID }}
+          filename: ${{ env.ARTIFACT_NAME }}
+          version: ${{ env.NEW_VERSION }}
+          display_name: Engine Tweaks
+          description: ${{ steps.prepare-release.outputs.NEXUS_DESCRIPTION }}
+          category: main
+          archive_existing_version: false
+          primary_mod_manager_download: true
+          allow_mod_manager_download: true
+          show_requirements_pop_up: true
+          update_mod_version: true
+          mod_id: ${{ vars.NEXUSMODS_ENGINETWEAKS_MOD_ID }}
+          changelog: ${{ vars.NEXUSMODS_ENGINETWEAKS_MOD_ID != '' && steps.prepare-release.outputs.NEXUS_CHANGELOG || '' }}
+
+      # The ASI add-on goes into Bin, which mod managers do not deploy to, so it is extracted by hand.
+      - name: Publish ASI add-on to Nexus Mods
+        if: ${{ !inputs.prerelease && vars.NEXUSMODS_ENGINETWEAKS_ASI_FILE_ID != '' }}
+        uses: Nexus-Mods/upload-action@c96019556046053aa26044b44396cd38929daf23 # v1.0.0-beta.10
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_id: ${{ vars.NEXUSMODS_ENGINETWEAKS_ASI_FILE_ID }}
+          filename: ${{ env.ASI_ARTIFACT_NAME }}
+          version: ${{ env.NEW_VERSION }}
+          display_name: Engine Tweaks - ASI add-on
+          description: ${{ steps.prepare-release.outputs.NEXUS_ASI_DESCRIPTION }}
+          category: optional
+          archive_existing_version: false
+          primary_mod_manager_download: false
+          allow_mod_manager_download: false
+          show_requirements_pop_up: true
+          update_mod_version: false
+
+      - name: Archive NEXT_CHANGELOG.md
+        if: ${{ !inputs.prerelease && success() }}
+        run: |
+          git pull --ff-only origin $env:GITHUB_REF_NAME
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to update the release branch before archiving.' }
+          $archiveDir = 'EngineTweaks/docs/archive'
+          $notesPath = 'EngineTweaks/docs/NEXT_CHANGELOG.md'
+          $archivePath = "$archiveDir/CHANGELOG_$env:VERSION_TAG.md"
+          New-Item -ItemType Directory -Path $archiveDir -Force | Out-Null
+          Move-Item -LiteralPath $notesPath -Destination $archivePath
+          $template = @'
+          ## [Title for next release]
+
+          - New feature
+          - Bug fix
+          - Improvement
+          '@
+          Set-Content -LiteralPath $notesPath -Value $template -Encoding utf8
+          git add -- $notesPath $archivePath
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to stage the archived changelog.' }
+          git commit -m "Chore: Archive EngineTweaks changelog for $env:VERSION_TAG and prepare for next release"
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to commit the archived changelog.' }
+          git push origin "HEAD:refs/heads/$env:GITHUB_REF_NAME"
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to push the archived changelog.' }

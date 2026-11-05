@@ -1,0 +1,94 @@
+[color=#ffcc00][b]I tested this mod on my own saves, but the game is huge and no test covers all of it. Use it at your own risk.[/b][/color]
+
+[size=5]Foreword[/size]
+Some of the game's freezes grow with the number of items Henry carries. With a big inventory, looking at a bed, opening the inventory, a loot or trade screen, the map or the journal can freeze the game for a second or more, and transferring all items to a container for up to a minute.
+
+If you're a hoarder like me, or you use a mod that raises or removes Henry's carry weight limit, this mod is for you. [b]Engine Tweaks (More Performance)[/b] fixes the engine code behind those freezes. It changes no gameplay: every result stays the same.
+
+[size=5]What It Fixes[/size]
+[list]
+[*][b]Beds:[/b] the bed prompt no longer simulates a whole day of sleep on a full copy of Henry every 15 seconds.[/*]
+[*][b]Full-screen menus:[/b] opening and closing them no longer rebuilds the whole scene.[/*]
+[*][b]Menu character preview:[/b] copying Henry for the preview no longer slows down with every item and perk.[/*]
+[*][b]Item lists:[/b] the inventory, trade and loot lists build faster and show the same items.[/*]
+[*][b]Loot screens:[/b] no stutter while the game updates the items in them, and transferring all items no longer freezes the game.[/*]
+[*][url=https://github.com/tkhquang/KCD2Tools]Open source[/url], built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url][/*]
+[/list]
+The more items Henry carries, the more the mod saves.
+
+[spoiler]
+Measured on a save with 2071 items:
+[list]
+[*]Bed check: 166-212 ms to 10-13 ms.[/*]
+[*]Full-screen menu: 370 ms on open and 450 ms on close removed.[/*]
+[*]Menu copy of Henry: 650 ms to 110 ms.[/*]
+[*]Inventory list script: 200 ms to 125 ms per opening.[/*]
+[*]Loot screen freezes: 1.2-1.5 s to 0.5 s at most.[/*]
+[*]Transfer all items: 47 s to 1 s.[/*]
+[/list]
+[/spoiler]
+
+[size=5]Requirements[/size]
+[list]
+[*]Kingdom Come: Deliverance II 1.5.6 on Steam.[/*]
+[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332]Kingdom Come Script Extender (KCSE)[/url], or an ASI loader with the ASI add-on.[/*]
+[/list]
+
+[size=5]Installation[/size]
+[b]Main file:[/b] install it with your mod manager, or extract it into your [b]Mods[/b] folder. With KCSE, that is all.
+[spoiler]
+[code]
+<KC:D 2 folder>/
+|-- Bin/
+|   \-- Win64MasterMasterSteamPGO/
+|       |-- KingdomCome.exe              (game file)
+|       \-- WHGame.dll                   (game file)
+\-- Mods/
+    \-- engine_tweaks/
+        |-- mod.manifest
+        |-- Data/
+        |   \-- engine_tweaks.pak        (the item list movies)
+        \-- KCSE/
+            \-- Plugins/
+                |-- KCD2_EngineTweaks.dll    (this mod)
+                |-- KCD2_EngineTweaks.ini    (settings)
+                |-- KCD2_EngineTweaks_License.txt
+                \-- KCD2_EngineTweaks.log    (created when the mod loads)
+[/code]
+[/spoiler]
+
+[b]Without KCSE:[/b] install the main file too. Without an ASI loader, extract one x64 [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases]Ultimate ASI Loader[/url] DLL beside WHGame.dll. Then extract the optional [b]ASI add-on[/b] into the game folder. The ASI reads the KCD2_EngineTweaks.ini beside it.
+[spoiler]
+[code]
+<KC:D 2 folder>/
+|-- Bin/
+|   \-- Win64MasterMasterSteamPGO/
+|       |-- KingdomCome.exe              (game file)
+|       |-- WHGame.dll                   (game file)
+|       |-- dinput8.dll                  (ASI loader)
+|       |-- KCD2_EngineTweaks.asi        (this mod)
+|       |-- KCD2_EngineTweaks.ini        (settings)
+|       |-- KCD2_EngineTweaks_License.txt
+|       \-- KCD2_EngineTweaks.log        (created when the mod loads)
+\-- Mods/
+    \-- engine_tweaks/                   (main file)
+[/code]
+On Linux or Steam Deck, add [b]WINEDLLOVERRIDES="dinput8=n,b" %command%[/b] to the Steam launch options.
+[/spoiler]
+
+[b]KCD2_EngineTweaks.log[/b] appears beside the INI once the mod runs. With both KCSE and the add-on installed, only one copy runs. To uninstall, delete Mods/engine_tweaks and the add-on's files.
+
+[size=5]Settings[/size]
+[b]KCD2_EngineTweaks.ini[/b] explains every setting, and changes apply while the game runs. Each fix has its own switch, so you can turn one off if you suspect it.
+
+[size=5]Compatibility[/size]
+[list]
+[*]The item lists replace two game files, Libs/UI/ApseInventoryList.gfx and Libs/UI/ItemTransfer.gfx. A mod that replaces them too wins or loses by load order. Remove engine_tweaks.pak to keep the stock lists.[/*]
+[/list]
+
+[size=5]Credits[/size]
+[list]
+[*]Warhorse Studios - Kingdom Come: Deliverance II[/*]
+[/list]
+
+All my Kingdom Come: Deliverance II mods and tools can be found in this [url=https://github.com/tkhquang/KCD2Tools]GitHub repository[/url]. Feel free to contribute or suggest improvements!
