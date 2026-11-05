@@ -26,8 +26,8 @@ namespace SoundFramework
         std::uintptr_t console_vtable = 0;
         /// Primary vtable of CSystem, checked against gEnv->pSystem.
         std::uintptr_t system_vtable = 0;
-        /// CSystem::Update, slot 5 of that vtable: once per frame on the main thread.
-        std::uintptr_t system_update = 0;
+        /// The main-thread tick site, CSystem::Update + constants::SYSTEM_UPDATE_TICK_OFFSET.
+        std::uintptr_t system_update_tick = 0;
         /// Primary vtable of CEntitySystem, checked against gEnv->pEntitySystem.
         std::uintptr_t entity_system_vtable = 0;
         /// Primary vtable of CEntity, checked on every entity before its slots are called.
@@ -67,7 +67,7 @@ namespace SoundFramework
         /// Primary vtable of FSW_Wh_EVENT_INSTANCE, checked on a cutscene voice event's user data before it is read.
         std::uintptr_t event_instance_vtable = 0;
 
-        /// The console commands and the main-thread tick (gEnv, CXConsole, CSystem).
+        /// The console commands and the main-thread tick (gEnv, CXConsole, CSystem, the tick site).
         bool commands = false;
         /// Entity lookups by name and id (ReplacesFor filters, speakers, faces).
         bool entities = false;

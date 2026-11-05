@@ -21,6 +21,7 @@ Questions, packs to share or ideas? Join the [KCD Modding Community](https://dis
 - **Sound replacement:** play a pack sound in place of a game sound event or on top of it, everywhere or for chosen entities, at its start or at a later moment such as a bow's release
 - **Voice lines:** NPCs speak a pack's lines through the game's own speech system, with a bottom subtitle and speaker name, a chat bubble, or both
 - **Voice replacement:** play a pack line instead of a game voice line, by exact key or by pattern
+- **Volume:** separate volume settings for conversation, bark and cutscene voices, and packs that make chosen game sounds quieter or louder
 - **Lip sync:** a pack's lines move the speaker's mouth, either with a small model that learned from the game's own animation (ADVANCED) or from the loudness of the voice (BASIC). A voice dub without mouth animation of its own gets it on every game line too, cutscenes included
 - **Moods:** facial expressions held while a line plays, with eleven defaults that packs can change or add to
 - **Live reload:** saving a pack INI or the settings INI applies it while you play
@@ -91,8 +92,13 @@ After loading a save, open `KCD2_SoundFramework.log` beside the mod's DLL or ASI
 | `[LipSync] Mode` | `ADVANCED` | `ADVANCED`: a small machine-learned model moves the whole lower face (jaw, lips, mouth corners, smile lines). `BASIC`: jaw and lip shapes follow the loudness and spectrum of the voice. Advanced falls back to basic when the model file is missing. |
 | `[LipSync] OffsetMs` | `0` | Moves the mouth earlier (positive) or later (negative) than the sound. |
 | `[LipSync] DubbedVoices` | `AUTO` | Voice dubs: the game shows English mouth animation for a voice language without its own. `AUTO`: the lips then follow each line's own voice, in cutscenes too, and the animation's smiles and frowns stay. `ON`: always. `OFF`: never. |
+| `[Volume] DialogueVoices` | `1.0` | Volume of conversation lines, on top of the game's sliders: `0` silent, `0.5` half, up to `4` (louder can clip). |
+| `[Volume] BarkVoices` | `1.0` | Volume of barks: what people call out or mutter around you, shouts, and Henry's thoughts. |
+| `[Volume] CutsceneVoices` | `1.0` | Volume of lines spoken in in-engine cutscenes. Pre-rendered cutscenes are videos with their own sound and are not affected. |
 | `[Debug] EventLog` | empty | Logs every game sound event whose path contains this text (`*` for all), and the parameters the game sets on it. |
 | `[Debug] SpeakLog` | empty | Logs every voice line the game speaks whose key or file contains this text (`*` for all). |
+
+The `[Volume]` keys also scale mods' voice lines, since those play as the game's own lines. A change applies from the next line that starts.
 
 `KCD2_SoundFramework_moods.ini` holds the default moods. It is replaced on update; change a mood by defining it again in your own pack.
 
@@ -108,6 +114,7 @@ Open the game console with `~`.
 | `sfw_lipsync_offset <ms>` | Moves the mouth earlier or later. |
 | `sfw_mood_override <mood> [pose:weight ...]` / `sfw_mood_dump <mood>` | Tries mood values live / writes a mood to the log. |
 | `sfw_reload` / `sfw_list` | Reads every pack again / writes the catalog to the log. |
+| `sfw_lines_find <first> <count>` / `sfw_lines_line <voice path>` | Searches the game's voice lines for a script (see the [modding guide](docs/MODDING.md#listing-the-games-voice-lines-from-a-script)). |
 
 ### Quick test
 

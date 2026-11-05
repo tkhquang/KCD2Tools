@@ -8,6 +8,11 @@
  * A replacement with PlayAt is held from its event's start until the game sets the named parameter on that event
  * instance. Held replacements live in a short list; the parameter hook checks one atomic flag first, so the many
  * parameter changes of events without a held replacement pass straight through.
+ *
+ * The game reuses event instances (it starts the same one again), and a volume set on an instance stays with it. So
+ * once an event's volume has been shaped (adjusted, a speech kind, or replaced), every later start of that event sets
+ * its volume again, 1 included; otherwise a setting returned to 1, or a removed adjustment, would leave a reused
+ * instance at the old volume.
  */
 
 #include "audio/replacements.hpp"
@@ -23,6 +28,10 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <format>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -61,7 +70,17 @@ namespace SoundFramework::audio::replacements
             std::optional<float> value;
             /// Whether the event was muted at its start (no KeepOriginal).
             bool muted = true;
+            /// The volume the event would have played at unmuted, restored when its replacement cannot be queued.
+            float volume = 1.0f;
             Clock::time_point since;
+        };
+
+        /** @brief One Adjusts section: the events it names and the volume their starts take. */
+        struct Adjust
+        {
+            /// Lower-case event paths, `*` matching any run.
+            std::vector<std::string> events;
+            float volume = 1.0f;
         };
 
         /// Held replacements beyond this many give way, oldest first; each one lasts at most one event.
@@ -76,13 +95,42 @@ namespace SoundFramework::audio::replacements
         {
             /// Lower-case event path to its rules: entity-filtered rules first, then at most one unfiltered rule.
             std::unordered_map<std::string, std::vector<Rule>> rules_of_event;
+            /// Adjusts sections in load order; the last one naming an event wins it.
+            std::vector<Adjust> adjusts;
+            /// Tells the per-event adjustment cache which table its entries were resolved against; never 0.
+            std::uint64_t generation = 0;
         };
 
         std::atomic<std::shared_ptr<const Table>> s_table;
+        std::atomic<std::uint64_t> s_generation{0};
+
+        /** @brief What a start needs to know about one event description, cached per description handle. */
+        struct EventInfo
+        {
+            /// Lower case; empty when FMOD cannot name the event.
+            std::string path;
+            /// The kind of speech the event plays, from its path alone.
+            std::optional<VoiceKind> voice;
+            /// The table generation @ref adjust was resolved against; 0 = not yet.
+            std::uint64_t adjusted_in = 0;
+            /// The volume of the Adjusts section that wins the event, or nothing.
+            std::optional<float> adjust;
+            /// Sticky: some start of this event had its volume shaped, so every later start sets it again.
+            bool shaped = false;
+        };
 
         std::mutex s_path_mutex;
-        /// Event path by description handle; descriptions stay valid while their bank is loaded.
-        std::unordered_map<void *, std::string> s_paths;
+        /// Event facts by description handle; descriptions stay valid while their bank is loaded.
+        std::unordered_map<void *, EventInfo> s_events;
+
+        /// Volume per VoiceKind, indexed by its value.
+        std::array<std::atomic<float>, 3> s_voice_volumes{1.0f, 1.0f, 1.0f};
+        /**
+         * @brief Set once a speech volume left 1 or an adjustment was published; until then a start of an event no
+         *        pack replaces and no log watches passes straight through. Never reset while loaded: an instance
+         *        shaped earlier must still be set back.
+         */
+        std::atomic<bool> s_shaping{false};
 
         std::mutex s_filter_mutex;
         std::string s_filter;
@@ -105,13 +153,50 @@ namespace SoundFramework::audio::replacements
             return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
         }
 
-        /** @brief The lower-case path of @p description, cached; empty when FMOD cannot name it. */
-        [[nodiscard]] std::string path_of(void *description)
+        /** @brief The kind of speech the event at lower-case @p path plays, or nothing for any other event. */
+        [[nodiscard]] std::optional<VoiceKind> voice_kind_of(std::string_view path) noexcept
+        {
+            if (path == constants::DIALOGUE_VOICE_EVENT)
+            {
+                return VoiceKind::Dialogue;
+            }
+            if (path == constants::CUTSCENE_VOICE_EVENT)
+            {
+                return VoiceKind::Cutscene;
+            }
+            if (path.starts_with(constants::BARK_VOICE_EVENT_PREFIX))
+            {
+                return VoiceKind::Bark;
+            }
+            return std::nullopt;
+        }
+
+        /** @brief The volume of the last adjustment in @p table that names @p path, or nothing. */
+        [[nodiscard]] std::optional<float> adjust_of(const Table &table, std::string_view path) noexcept
+        {
+            for (auto adjust = table.adjusts.rbegin(); adjust != table.adjusts.rend(); ++adjust)
+            {
+                if (std::ranges::any_of(
+                        adjust->events,
+                        [&](const std::string &pattern) { return packs::wildcard_match(pattern, path); }
+                    ))
+                {
+                    return adjust->volume;
+                }
+            }
+            return std::nullopt;
+        }
+
+        /**
+         * @brief The cached facts of @p description; the path is empty when FMOD cannot name it. The path is asked
+         *        for once, because FMOD copies it out of the strings bank on every call.
+         */
+        [[nodiscard]] EventInfo info_of(void *description)
         {
             {
                 const std::lock_guard lock(s_path_mutex);
-                const auto found = s_paths.find(description);
-                if (found != s_paths.end())
+                const auto found = s_events.find(description);
+                if (found != s_events.end())
                 {
                     return found->second;
                 }
@@ -126,9 +211,30 @@ namespace SoundFramework::audio::replacements
                 path.assign(buffer.data());
                 std::ranges::transform(path, path.begin(), lower);
             }
+            EventInfo info{.path = std::move(path)};
+            info.voice = voice_kind_of(info.path);
             const std::lock_guard lock(s_path_mutex);
-            s_paths.emplace(description, path);
-            return path;
+            // Another thread may have cached it meanwhile; its entry may already carry a resolved adjustment.
+            return s_events.try_emplace(description, std::move(info)).first->second;
+        }
+
+        /** @brief The lower-case path of @p description, cached; empty when FMOD cannot name it. */
+        [[nodiscard]] std::string path_of(void *description)
+        {
+            return info_of(description).path;
+        }
+
+        /** @brief Writes back the adjustment and shaped state @p info carries for @p description. */
+        void remember(void *description, const EventInfo &info)
+        {
+            const std::lock_guard lock(s_path_mutex);
+            const auto [cached, inserted] = s_events.try_emplace(description, info);
+            if (!inserted)
+            {
+                cached->second.adjusted_in = info.adjusted_in;
+                cached->second.adjust = info.adjust;
+                cached->second.shaped = cached->second.shaped || info.shaped;
+            }
         }
 
         [[nodiscard]] bool log_matches(std::string_view path)
@@ -298,6 +404,16 @@ namespace SoundFramework::audio::replacements
             table->rules_of_event.size(),
             watched.size()
         );
+        for (const packs::AdjustDef &adjust : catalog.adjusts)
+        {
+            table->adjusts.push_back(Adjust{.events = adjust.events, .volume = adjust.volume});
+        }
+        if (!table->adjusts.empty())
+        {
+            DMK::log().info("Adjustments: {} section(s) change the volume of game events", table->adjusts.size());
+            s_shaping.store(true, std::memory_order_release);
+        }
+        table->generation = s_generation.fetch_add(1, std::memory_order_relaxed) + 1;
         game::entities::set_watch_list(std::move(watched));
         s_table.store(std::move(table));
         // A held key may be gone from the new catalog, so events held at this moment play nothing and stay muted.
@@ -310,7 +426,18 @@ namespace SoundFramework::audio::replacements
         drop_holds();
         forget_logged_parameters();
         const std::lock_guard lock(s_path_mutex);
-        s_paths.clear();
+        s_events.clear();
+    }
+
+    void set_voice_volume(VoiceKind kind, float volume) noexcept
+    {
+        // NaN fails both comparisons of clamp; it means "unset", so the default applies.
+        const float clamped = std::isnan(volume) ? 1.0f : std::clamp(volume, 0.0f, constants::MAX_EVENT_VOLUME);
+        s_voice_volumes[static_cast<std::size_t>(kind)].store(clamped, std::memory_order_relaxed);
+        if (clamped != 1.0f)
+        {
+            s_shaping.store(true, std::memory_order_release);
+        }
     }
 
     void set_event_log_filter(std::string_view filter)
@@ -332,7 +459,8 @@ namespace SoundFramework::audio::replacements
         {
             const std::shared_ptr<const Table> table = s_table.load();
             const bool logging = s_logging.load(std::memory_order_acquire);
-            if (instance == nullptr || ((table == nullptr || table->rules_of_event.empty()) && !logging))
+            const bool replacing = table != nullptr && !table->rules_of_event.empty();
+            if (instance == nullptr || (!replacing && !logging && !s_shaping.load(std::memory_order_acquire)))
             {
                 return;
             }
@@ -342,10 +470,47 @@ namespace SoundFramework::audio::replacements
             {
                 return;
             }
-            const std::string path = path_of(description);
-            if (path.empty())
+            EventInfo info = info_of(description);
+            if (info.path.empty())
             {
                 return;
+            }
+            const std::string &path = info.path;
+            bool changed = false;
+            // Resolved once per event and table; a cleared table (generation 0) drops a cached adjustment.
+            const std::uint64_t generation = table == nullptr ? 0 : table->generation;
+            if (info.adjusted_in != generation)
+            {
+                info.adjust = table == nullptr ? std::nullopt : adjust_of(*table, path);
+                info.adjusted_in = generation;
+                changed = true;
+            }
+            const std::vector<Rule> *rules = nullptr;
+            if (table != nullptr)
+            {
+                const auto found = table->rules_of_event.find(path);
+                if (found != table->rules_of_event.end())
+                {
+                    rules = &found->second;
+                }
+            }
+            if (!info.shaped && (info.voice.has_value() || info.adjust.has_value() || rules != nullptr))
+            {
+                info.shaped = true;
+                changed = true;
+            }
+            if (changed)
+            {
+                remember(description, info);
+            }
+            float volume = info.adjust.value_or(1.0f);
+            if (info.voice.has_value())
+            {
+                volume *= s_voice_volumes[static_cast<std::size_t>(*info.voice)].load(std::memory_order_relaxed);
+            }
+            if (info.shaped)
+            {
+                (void)api.event_set_volume(instance, volume);
             }
             fmod::Attributes3d attributes{};
             const bool positioned = api.event_get_3d_attributes(instance, &attributes) == fmod::OK;
@@ -354,20 +519,16 @@ namespace SoundFramework::audio::replacements
                 // FMOD space is (x, z, y) of the world; logged back in world coordinates.
                 (void)DMK::log().try_log(
                     DMK::LogLevel::Info,
-                    "Event: {} at {:.2f} {:.2f} {:.2f}{}",
+                    "Event: {} at {:.2f} {:.2f} {:.2f}{}{}",
                     path,
                     attributes.position.x,
                     attributes.position.z,
                     attributes.position.y,
-                    positioned ? "" : " (no 3D attributes)"
+                    positioned ? "" : " (no 3D attributes)",
+                    volume != 1.0f ? std::format(" volume {:.2f}", volume) : std::string{}
                 );
             }
-            if (table == nullptr)
-            {
-                return;
-            }
-            const auto rules = table->rules_of_event.find(path);
-            if (rules == table->rules_of_event.end())
+            if (rules == nullptr)
             {
                 return;
             }
@@ -378,8 +539,8 @@ namespace SoundFramework::audio::replacements
                 return rule.only_for.empty() ||
                        (positioned && game::entities::any_near(rule.only_for, at, constants::REPLACES_FOR_RADIUS));
             };
-            const auto rule = std::ranges::find_if(rules->second, applies);
-            if (rule == rules->second.end())
+            const auto rule = std::ranges::find_if(*rules, applies);
+            if (rule == rules->end())
             {
                 return;
             }
@@ -394,6 +555,7 @@ namespace SoundFramework::audio::replacements
                         .parameter = rule->play_at,
                         .value = rule->play_at_value,
                         .muted = mute,
+                        .volume = volume,
                         .since = Clock::now(),
                     }
                 );
@@ -458,9 +620,8 @@ namespace SoundFramework::audio::replacements
                 ) &&
                 due->muted)
             {
-                // A full queue leaves the rest of the game's event audible. WHGame.dll imports no event volume setter
-                // (its only volume import is VCA::setVolume), so an event's own volume stays at FMOD's default of 1.
-                (void)api.event_set_volume(instance, 1.0f);
+                // A full queue leaves the rest of the game's event audible, at the volume its start gave it.
+                (void)api.event_set_volume(instance, due->volume);
             }
         }
         catch (...)

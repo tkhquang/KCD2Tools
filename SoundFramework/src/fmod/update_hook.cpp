@@ -15,13 +15,15 @@
 
 #include <windows.h>
 
+#include <atomic>
+
 namespace SoundFramework::fmod
 {
     namespace
     {
         using UpdateFn = Result(__fastcall *)(void *system);
 
-        UpdateFn s_original = nullptr;
+        std::atomic<UpdateFn> s_original{nullptr};
 
         Result __fastcall update_detour(void *system) noexcept
         {
@@ -30,7 +32,7 @@ namespace SoundFramework::fmod
                 audio::on_system(system);
                 game::cutscene_voices::on_studio_system(system);
             }
-            return s_original(system);
+            return s_original.load(std::memory_order_acquire)(system);
         }
     } // namespace
 
@@ -47,17 +49,11 @@ namespace SoundFramework::fmod
             );
             return {};
         }
-        DMK_TRY(
-            created,
-            DMK::hook::inline_at<&update_detour>(DMK::hook::InlineRequest{
-                .name = "FmodStudioSystemUpdate",
-                .target = DMK::Address{reinterpret_cast<std::uintptr_t>(target)},
-            })
-        );
-        s_original = created.original<UpdateFn>();
-        // Stored before it is armed: the stack owns it through teardown even when the arm fails half-way.
-        DMK::hook::Hook &stored = hooks.push(std::move(created));
-        DMK_TRY_VOID(stored.enable());
+        DMK_TRY_VOID(hooks.install<&update_detour>(DMK::hook::InlineInstallRequest{
+            .name = "FmodStudioSystemUpdate",
+            .target = DMK::Address{reinterpret_cast<std::uintptr_t>(target)},
+            .original = &s_original,
+        }));
         DMK::log().info(
             "FMOD: Studio::System::update hooked at {}",
             DMK::format::format_address(reinterpret_cast<std::uintptr_t>(target))

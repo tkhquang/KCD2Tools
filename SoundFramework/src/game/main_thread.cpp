@@ -1,6 +1,6 @@
 /**
  * @file game/main_thread.cpp
- * @brief The CSystem::Update hook.
+ * @brief The main-thread tick, a mid hook inside CSystem::Update.
  */
 
 #include "game/main_thread.hpp"
@@ -19,38 +19,34 @@ namespace SoundFramework::game::main_thread
 {
     namespace
     {
-        using SystemUpdateFn = bool(__fastcall *)(void *system, int flags, int pause_mode);
-
-        SystemUpdateFn s_original = nullptr;
         std::atomic<DWORD> s_thread_id{0};
 
-        bool __fastcall system_update_detour(void *system, int flags, int pause_mode) noexcept
+        /** @brief The tick callback. At the site, rsi holds the CSystem* that the prologue moved there from rcx. */
+        void system_update_tick(DMK::hook::MidContext &context) noexcept
         {
             s_thread_id.store(GetCurrentThreadId(), std::memory_order_relaxed);
             game_clock::tick();
-            commands::on_frame(system);
+            commands::on_frame(reinterpret_cast<void *>(DMK::hook::gpr(context, DMK::hook::Gpr::Rsi)));
             entities::on_frame();
             cutscene_voices::on_frame();
             speech::on_frame();
             lip_drive::on_frame();
-            return s_original(system, flags, pause_mode);
         }
     } // namespace
 
     DMK::Result<void> start(const Anchors &anchors, DMK::hook::HookStack &hooks)
     {
-        DMK_TRY(
-            created,
-            DMK::hook::inline_at<&system_update_detour>(DMK::hook::InlineRequest{
+        DMK_TRY_VOID(hooks.install(
+            DMK::hook::MidRequest{
                 .name = "CSystemUpdate",
-                .target = DMK::Address{anchors.system_update},
-            })
+                .target = DMK::Address{anchors.system_update_tick},
+            },
+            &system_update_tick
+        ));
+        DMK::log().info(
+            "MainThread: CSystem::Update hooked at {}",
+            DMK::format::format_address(anchors.system_update_tick)
         );
-        s_original = created.original<SystemUpdateFn>();
-        // Stored before it is armed: the stack owns it through teardown even when the arm fails half-way.
-        DMK::hook::Hook &stored = hooks.push(std::move(created));
-        DMK_TRY_VOID(stored.enable());
-        DMK::log().info("MainThread: CSystem::Update hooked");
         return {};
     }
 

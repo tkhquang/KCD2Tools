@@ -556,6 +556,51 @@ namespace SoundFramework::packs
                 reader.problem(section.line, "Display needs a TextKey; nothing will show");
             }
         }
+
+        [[nodiscard]] bool is_adjust_section(const IniSection &section)
+        {
+            return std::ranges::any_of(
+                section.entries,
+                [](const IniEntry &entry) { return iequals(entry.key, "Adjusts"); }
+            );
+        }
+
+        void read_adjust(SectionReader &reader, const IniSection &section, AdjustDef &adjust)
+        {
+            bool volume_set = false;
+            for (const IniEntry &entry : section.entries)
+            {
+                if (iequals(entry.key, "Adjusts"))
+                {
+                    for (const std::string_view item : split_list(entry.value))
+                    {
+                        if (!is_event_path(item))
+                        {
+                            reader.fatal(entry.line, std::format("Adjusts item '{}' is not an event:/ path", item));
+                            return;
+                        }
+                        adjust.events.push_back(lowered(item));
+                    }
+                }
+                else if (iequals(entry.key, "Volume"))
+                {
+                    reader.number(entry, adjust.volume, 0.0f, 4.0f);
+                    volume_set = true;
+                }
+                else
+                {
+                    reader.problem(entry.line, std::format("unknown key '{}' ignored (adjustment)", entry.key));
+                }
+            }
+            if (adjust.events.empty())
+            {
+                reader.fatal(section.line, "Adjusts names no event");
+            }
+            if (!volume_set)
+            {
+                reader.problem(section.line, "Adjusts without Volume leaves the events unchanged");
+            }
+        }
     } // namespace
 
     PackParse parse_pack(std::string_view text, const std::filesystem::path &ini_path)
@@ -598,6 +643,19 @@ namespace SoundFramework::packs
                 if (!reader.failed())
                 {
                     out.lines.push_back(std::move(line));
+                }
+                continue;
+            }
+            if (is_adjust_section(section))
+            {
+                AdjustDef adjust{
+                    .name = section.name,
+                    .origin = std::format("{}:{}", path_text(ini_path), section.line),
+                };
+                read_adjust(reader, section, adjust);
+                if (!reader.failed())
+                {
+                    out.adjusts.push_back(std::move(adjust));
                 }
                 continue;
             }

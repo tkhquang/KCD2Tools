@@ -26,6 +26,7 @@
 #include "game/save_load_hook.hpp"
 #include "game/speak_hook.hpp"
 #include "game/speech.hpp"
+#include "game/voice_catalog.hpp"
 #include "packs/sound_def.hpp"
 #include "version.hpp"
 
@@ -163,6 +164,26 @@ namespace SoundFramework
             const DMK::config::SectionBinder debug = DMK::config::section("Debug");
             debug.bind_string("EventLog", "Event log filter", &audio::replacements::set_event_log_filter, "");
             debug.bind_string("SpeakLog", "Speak log filter", &game::speak_hook::set_log_filter, "");
+            using audio::replacements::VoiceKind;
+            const DMK::config::SectionBinder volume = DMK::config::section("Volume");
+            volume.bind_float(
+                "DialogueVoices",
+                "Conversation voice volume",
+                [](float value) { audio::replacements::set_voice_volume(VoiceKind::Dialogue, value); },
+                1.0f
+            );
+            volume.bind_float(
+                "BarkVoices",
+                "Bark voice volume",
+                [](float value) { audio::replacements::set_voice_volume(VoiceKind::Bark, value); },
+                1.0f
+            );
+            volume.bind_float(
+                "CutsceneVoices",
+                "Cutscene voice volume",
+                [](float value) { audio::replacements::set_voice_volume(VoiceKind::Cutscene, value); },
+                1.0f
+            );
             const DMK::config::SectionBinder lip_sync = DMK::config::section("LipSync");
             lip_sync.bind_bool(
                 "Enabled",
@@ -237,6 +258,7 @@ namespace SoundFramework
         if (anchors.commands)
         {
             game::commands::configure(anchors);
+            game::voice_catalog::configure(game_root(), module_directory() / constants::VOICE_CATALOG_CACHE_FILE_NAME);
             game::entities::configure(anchors);
             game::speech::configure(anchors, game_root() / L"Data" / L"Facials");
             game::game_clock::configure(anchors.voice_clock ? anchors.genv : 0, anchors.timer_vtable);
@@ -313,6 +335,7 @@ namespace SoundFramework
         // The lip model worker is joined here, off the loader lock, before the module can unload.
         game::cutscene_voices::shutdown();
         game::speech::shutdown();
+        game::voice_catalog::shutdown();
         game::lip_drive::clear();
         // The engine joins its worker before it releases its sounds.
         audio::shutdown();

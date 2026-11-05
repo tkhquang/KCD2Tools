@@ -16,6 +16,8 @@
 
 #include <windows.h>
 
+#include <atomic>
+
 namespace SoundFramework::fmod
 {
     namespace
@@ -23,7 +25,7 @@ namespace SoundFramework::fmod
         using SetListenerFn =
             Result(__fastcall *)(void *system, int listener, const Attributes3d *attributes, const Vector *attenuation);
 
-        SetListenerFn s_original = nullptr;
+        std::atomic<SetListenerFn> s_original{nullptr};
 
         Result __fastcall set_listener_detour(
             void *system,
@@ -32,7 +34,7 @@ namespace SoundFramework::fmod
             const Vector *attenuation
         ) noexcept
         {
-            const Result result = s_original(system, listener, attributes, attenuation);
+            const Result result = s_original.load(std::memory_order_acquire)(system, listener, attributes, attenuation);
             if (result == OK && listener == 0 && attributes != nullptr && system != nullptr)
             {
                 audio::on_listener(system, *attributes);
@@ -51,17 +53,11 @@ namespace SoundFramework::fmod
             DMK::log().error("FMOD: Studio::System::setListenerAttributes export not found");
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "listener_hook/export"});
         }
-        DMK_TRY(
-            created,
-            DMK::hook::inline_at<&set_listener_detour>(DMK::hook::InlineRequest{
-                .name = "FmodStudioSetListener",
-                .target = DMK::Address{reinterpret_cast<std::uintptr_t>(target)},
-            })
-        );
-        s_original = created.original<SetListenerFn>();
-        // Stored before it is armed: the stack owns it through teardown even when the arm fails half-way.
-        DMK::hook::Hook &stored = hooks.push(std::move(created));
-        DMK_TRY_VOID(stored.enable());
+        DMK_TRY_VOID(hooks.install<&set_listener_detour>(DMK::hook::InlineInstallRequest{
+            .name = "FmodStudioSetListener",
+            .target = DMK::Address{reinterpret_cast<std::uintptr_t>(target)},
+            .original = &s_original,
+        }));
         DMK::log().info(
             "FMOD: Studio::System::setListenerAttributes hooked at {}",
             DMK::format::format_address(reinterpret_cast<std::uintptr_t>(target))

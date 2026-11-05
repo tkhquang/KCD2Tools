@@ -51,6 +51,8 @@ add_library(sndfw_packs STATIC
   src/packs/sound_def.cpp
   src/packs/catalog.cpp
   src/packs/cutscene_table.cpp
+  src/packs/voice_lines.cpp
+  src/packs/zip_reader.cpp
   src/audio/voice_analysis.cpp
   src/audio/lip_model.cpp
   src/face/mood.cpp
@@ -117,6 +119,7 @@ set(COMMON_SOURCES
   src/game/save_load_hook.cpp
   src/game/speak_hook.cpp
   src/game/speech.cpp
+  src/game/voice_catalog.cpp
 )
 
 # Applies the settings shared by the production ASI and the dev logic DLL: include paths, link libraries,

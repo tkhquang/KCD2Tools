@@ -7,15 +7,19 @@
 #include "packs/cutscene_table.hpp"
 #include "packs/ini_document.hpp"
 #include "packs/sound_def.hpp"
+#include "packs/voice_lines.hpp"
 
 #include <windows.h>
 
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace
 {
@@ -133,6 +137,52 @@ namespace
         CHECK(mentions(parsed.problems, "PlayAt value 'nan' is not a number"));
         CHECK(!parsed.sounds[0].keep_original && parsed.sounds[3].keep_original);
         CHECK(mentions(parsed.problems, "[orphankeep] KeepOriginal without Replaces"));
+    }
+
+    void test_adjusts()
+    {
+        const PackParse parsed = parse_pack(
+            "[quiet_smithing]\nAdjusts = event:/Foleys/Professions/Blacksmith/*, event:/world/x\nVolume = 0.4\n"
+            "[loud]\nAdjusts = event:/a\nVolume = 9\n"
+            "[novolume]\nAdjusts = event:/a\n"
+            "[notevent]\nAdjusts = foleys/x\nVolume = 0.5\n"
+            "[empty]\nAdjusts =\nVolume = 0.5\n"
+            "[extra]\nAdjusts = event:/a\nVolume = 0.5\nFiles = x.ogg\n",
+            fs::path("C:/Mods/m/SoundFramework/p.ini")
+        );
+        // quiet_smithing, loud, novolume and extra; notevent and empty fail.
+        CHECK(parsed.adjusts.size() == 4);
+        CHECK(parsed.sounds.empty());
+        const AdjustDef &smithing = parsed.adjusts[0];
+        CHECK(smithing.events.size() == 2 && smithing.events[0] == "event:/foleys/professions/blacksmith/*");
+        CHECK(smithing.volume == 0.4f);
+        CHECK(parsed.adjusts[1].volume == 4.0f && mentions(parsed.problems, "clamped"));
+        CHECK(parsed.adjusts[2].volume == 1.0f && mentions(parsed.problems, "[novolume] Adjusts without Volume"));
+        CHECK(mentions(parsed.problems, "Adjusts item 'foleys/x' is not an event:/ path"));
+        CHECK(mentions(parsed.problems, "[empty] Adjusts names no event"));
+        CHECK(mentions(parsed.problems, "unknown key 'Files' ignored (adjustment)"));
+        CHECK(wildcard_match(smithing.events[0], "event:/foleys/professions/blacksmith/bl_hammering"));
+        CHECK(!wildcard_match(smithing.events[0], "event:/foleys/professions/lumberjack/saw_pull"));
+
+        wchar_t temp[MAX_PATH] = {};
+        GetTempPathW(MAX_PATH, temp);
+        const fs::path root = fs::path(temp) / L"sndfw_adjusts_test";
+        fs::remove_all(root);
+        write_file(root / "mod_order.txt", "first\nsecond\n");
+        write_file(
+            root / "first/SoundFramework/a.ini",
+            "[Quiet]\nAdjusts = event:/a\nVolume = 0.5\n[keep]\nAdjusts = event:/b\nVolume = 0.2\n"
+        );
+        write_file(root / "second/SoundFramework/b.ini", "[quiet]\nAdjusts = event:/a\nVolume = 0.8\n");
+        const CatalogLoad load = load_catalog(root);
+        // second's quiet replaces first's Quiet and moves to the end, so it wins events both name.
+        CHECK(load.catalog.adjusts.size() == 2);
+        CHECK(
+            load.catalog.adjusts.size() == 2 && load.catalog.adjusts[0].name == "keep" &&
+            load.catalog.adjusts[1].volume == 0.8f
+        );
+        CHECK(mentions(load.notes, "overrides the adjustment"));
+        fs::remove_all(root);
     }
 
     void test_events()
@@ -354,19 +404,137 @@ namespace
         CHECK(rejected == 0);
         CHECK(!built_in.empty());
     }
+    void test_voice_lines()
+    {
+        const std::string texts = R"(<Table>
+<Row><Cell>hello_AbCd</Cell><Cell>Hi</Cell><Cell>  Well&apos;   met &amp; good
+day  </Cell></Row>
+<Row><Cell>hm_XyZ1</Cell><Cell>Hm</Cell><Cell>Hm...</Cell></Row>
+<Row><Cell>long_key</Cell><Cell>L</Cell><Cell>A longer line of text</Cell></Row>
+<Row><Cell>guard_line</Cell><Cell>G</Cell><Cell>Halt, you!</Cell></Row>
+<Row><Cell>empty_key</Cell><Cell>E</Cell><Cell></Cell></Row>
+<Row><Cell>broken_key</Cell><Cell>only two</Cell></Row>
+</Table>)";
+        const std::string dialogue = R"(<Dialog>
+<SelectedSoul Role="HENRY" Voice="tomMcKay"/>
+<SelectedSoul Role="STRAZ_NA_BRANE" Voice="johnSmith"/>
+<SelectedSoul Role="FAKE" Voice="fejk"/>
+<Response Role="HENRY" Skip="1" />
+<Response Role="HENRY"><Parenthetical><Text StringName="not_this"/></Parenthetical><Text StringName="HELLO_abcd"/></Response>
+<Response Role="STRAZ_NA_BRANE"><Text StringName="guard_line"/></Response>
+<Response Role="FAKE"><Text StringName="long_key"/></Response>
+<Response Role="OTHER"><Text StringName="guard_line"/></Response>
+</Dialog>)";
+        VoiceLineBuilder builder;
+        builder.add_texts(texts);
+        builder.add_dialogue(dialogue);
+        builder.add_dialogue("<Dialog><NoResponses/></Dialog>");
+        builder.add_voice_file("dialog/town/gate/jsmi_guard_line.ogg");
+        builder.add_voice_file("dialog/town/gate/tmck_hello_AbCd.ogg");
+        builder.add_voice_file("dialog/town/tmck_hm_XyZ1.ogg");
+        builder.add_voice_file("dialog/town/long_key.OGG");
+        builder.add_voice_file("dialog/town/tmck_empty_key.ogg");
+        builder.add_voice_file("dialog/town/tmck_broken_key.ogg");
+        builder.add_voice_file("dialog/town/tmck_no_such_key.ogg");
+        builder.add_voice_file("dialog/town/readme.txt");
+        builder.add_voice_file("music/town/tmck_hm_XyZ1.ogg");
+        const std::string text = builder.build();
+        CHECK(
+            text == "town/gate/tmck_hello_AbCd\tHenry (Tom McKay)\tWell' met & good day\n"
+                    "town/tmck_hm_XyZ1\tTom McKay\tHm...\n"
+                    "town/gate/jsmi_guard_line\tStraz Na Brane (John Smith)\tHalt, you!\n"
+                    "town/long_key\tFake\tA longer line of text\n"
+        );
+
+        const VoiceLines lines{text};
+        CHECK(lines.size() == 4);
+        CHECK(lines.find("", 0, 1).total == 4);
+        CHECK(
+            lines.find("", 1, 2).lines ==
+            "town/tmck_hm_XyZ1\tTom McKay\tHm...\ntown/gate/jsmi_guard_line\tStraz Na Brane (John Smith)\tHalt, you!\n"
+        );
+        CHECK(lines.find("", 3, 9).lines == "town/long_key\tFake\tA longer line of text\n");
+        CHECK(lines.find("", 9, 9).lines.empty());
+        CHECK(lines.find("MCKAY", 0, 9).total == 2);
+        CHECK(lines.find("halt", 0, 9).total == 1);
+        // A path is no part of the search, and a line with two matches counts once.
+        CHECK(lines.find("town", 0, 9).total == 0);
+        CHECK(lines.find("e", 0, 9).total == 3);
+        CHECK(lines.find("e", 1, 1).lines == "town/gate/jsmi_guard_line\tStraz Na Brane (John Smith)\tHalt, you!\n");
+        CHECK(lines.find("no such words", 0, 9).total == 0);
+        CHECK(lines.line("TOWN/long_KEY") == "town/long_key\tFake\tA longer line of text");
+        CHECK(!lines.line("town/long").has_value());
+
+        const VoiceLines nothing{std::string{}};
+        CHECK(nothing.size() == 0);
+        CHECK(nothing.find("a", 0, 9).total == 0);
+    }
+
+    /** @brief Builds the catalog from the real game paks and writes it: <out> <text pak> <scripts pak> <voice paks...>.
+     */
+    int run_voice_lines(int argc, char **argv)
+    {
+        VoiceLineSources sources{.text_pak = argv[3], .dialogue_pak = argv[4], .voice_paks = {}};
+        for (int i = 5; i < argc; ++i)
+        {
+            sources.voice_paks.emplace_back(argv[i]);
+        }
+        using Clock = std::chrono::steady_clock;
+        const Clock::time_point started = Clock::now();
+        std::optional<std::string> text = build_voice_lines(sources, [] { return false; });
+        const Clock::duration elapsed = Clock::now() - started;
+        if (!text.has_value())
+        {
+            std::printf("voice lines: a pak could not be read\n");
+            return 1;
+        }
+        std::ofstream{argv[2], std::ios::binary} << *text;
+        const std::size_t bytes = text->size();
+        const Clock::time_point indexed = Clock::now();
+        const VoiceLines lines{std::move(*text)};
+        const Clock::duration index_elapsed = Clock::now() - indexed;
+        std::printf(
+            "voice lines: %zu lines, %zu bytes, built in %lld ms, indexed in %lld ms\n",
+            lines.size(),
+            bytes,
+            static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count()),
+            static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(index_elapsed).count())
+        );
+        for (const std::string_view wanted :
+             {std::string_view{"sword"}, std::string_view{"e"}, std::string_view{"zzzzqq"}})
+        {
+            const Clock::time_point searched = Clock::now();
+            const VoiceLinePage page = lines.find(wanted, 0, 40);
+            const Clock::duration search_elapsed = Clock::now() - searched;
+            std::printf(
+                "voice lines: '%.*s' matches %zu lines in %lld us\n",
+                static_cast<int>(wanted.size()),
+                wanted.data(),
+                page.total,
+                static_cast<long long>(std::chrono::duration_cast<std::chrono::microseconds>(search_elapsed).count())
+            );
+        }
+        return 0;
+    }
 } // namespace
 
-int main()
+int main(int argc, char **argv)
 {
+    if (argc >= 6 && std::string_view{argv[1]} == "voice-lines")
+    {
+        return run_voice_lines(argc, argv);
+    }
     test_ini_reader();
     test_pack_values();
     test_play_at_and_keep_original();
+    test_adjusts();
     test_events();
     test_replaces_voice();
     test_lines();
     test_moods();
     test_catalog();
     test_cutscene_table();
+    test_voice_lines();
     if (s_failures != 0)
     {
         std::printf("%d check(s) failed\n", s_failures);

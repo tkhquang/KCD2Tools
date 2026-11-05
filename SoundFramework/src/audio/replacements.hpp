@@ -7,19 +7,41 @@
  * following it while it lives. With `PlayAt` the pack sound waits after the muted start until the game sets the named
  * parameter on that event, so it lands on a later stage of the event, such as a bow's release. With `KeepOriginal`
  * the event is never muted, so the pack sound plays on top of it.
+ *
+ * The same start sets the event's volume: the product of the matching `Adjusts` section's Volume and, for the game's
+ * speech events, the [Volume] setting of that kind of speech. The game never sets an event instance's volume itself
+ * (WHGame.dll imports no event volume setter), so the value holds for the whole play.
  */
 #ifndef SNDFW_AUDIO_REPLACEMENTS_HPP
 #define SNDFW_AUDIO_REPLACEMENTS_HPP
 
 #include "packs/catalog.hpp"
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 
 namespace SoundFramework::audio::replacements
 {
-    /** @brief Rebuilds the event-to-sound table from @p catalog; a later sound wins an event two sounds claim. */
+    /** @brief The game's speech, split the way the [Volume] settings split it. */
+    enum class VoiceKind : std::uint8_t
+    {
+        Dialogue,
+        Bark,
+        Cutscene,
+    };
+
+    /**
+     * @brief Rebuilds the event-to-sound table and the volume adjustments from @p catalog; a later sound wins an event
+     *        two sounds claim, and a later adjustment wins an event two adjustments name.
+     */
     void publish(const packs::Catalog &catalog);
+
+    /**
+     * @brief Sets the volume (linear, clamped to 0..MAX_EVENT_VOLUME) that every later start of @p kind's speech
+     *        events plays at. A line already playing keeps the volume it started with.
+     */
+    void set_voice_volume(VoiceKind kind, float volume) noexcept;
 
     /** @brief Drops the table; later event starts pass through untouched. */
     void clear() noexcept;
@@ -31,8 +53,8 @@ namespace SoundFramework::audio::replacements
     void set_event_log_filter(std::string_view filter);
 
     /**
-     * @brief Handles one event start: logs it when it matches the filter, and mutes it and queues its replacement
-     *        when a pack replaces it, or holds the replacement back until its PlayAt parameter is set.
+     * @brief Handles one event start: sets its volume, logs it when it matches the filter, and mutes it and queues its
+     *        replacement when a pack replaces it, or holds the replacement back until its PlayAt parameter is set.
      * @note Called from the start hook on the game's audio thread, before the original start.
      */
     void on_event_start(void *instance) noexcept;

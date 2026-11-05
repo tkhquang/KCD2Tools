@@ -12,6 +12,7 @@
 #include "audio/line_table.hpp"
 #include "audio/voice_analysis.hpp"
 #include "constants.hpp"
+#include "game/console_commands.hpp"
 #include "game/entity_tracker.hpp"
 #include "game/game_clock.hpp"
 #include "game/lip_drive.hpp"
@@ -69,8 +70,6 @@ namespace SoundFramework::game::speech
             void(__fastcall
                      *)(void *subtitles, const void *text, const void *speaker, bool flag, bool force, bool localize);
         using ClearSubtitlesFn = void(__fastcall *)(void *subtitles);
-        using GetCVarFn = void *(__fastcall *)(void *console, const char *name);
-        using GetStringFn = const char *(__fastcall *)(const void *cvar);
 
         constexpr std::uint64_t SUBTITLE_TAIL_MS = 300;
 
@@ -811,31 +810,6 @@ namespace SoundFramework::game::speech
             return text;
         }
 
-        /** @brief The voice language in lower case, or empty when the console or its variable does not check out. */
-        [[nodiscard]] std::string voice_language()
-        {
-            if (!s_anchors.voice_language)
-            {
-                return {};
-            }
-            const auto *const genv = reinterpret_cast<const std::uint8_t *>(s_anchors.genv);
-            void *const console = *reinterpret_cast<void *const *>(genv + constants::GENV_CONSOLE);
-            if (console == nullptr || reinterpret_cast<std::uintptr_t>(vtable_of(console)) != s_anchors.console_vtable)
-            {
-                return {};
-            }
-            const void *const cvar = reinterpret_cast<GetCVarFn>(vtable_of(
-                console
-            )[constants::CONSOLE_GET_CVAR_SLOT])(console, constants::VOICE_LANGUAGE_CVAR);
-            if (cvar == nullptr || reinterpret_cast<std::uintptr_t>(vtable_of(cvar)) != s_anchors.cvar_string_vtable)
-            {
-                return {};
-            }
-            const char *const value =
-                reinterpret_cast<GetStringFn>(vtable_of(cvar)[constants::CVAR_GET_STRING_SLOT])(cvar);
-            return value == nullptr ? std::string{} : lowered(value);
-        }
-
         /**
          * @brief The languages (lower case) whose facial animation pak sits in @p directory: `Facials_<language>.pak`,
          *        or split as `Facials_<language>-part<n>.pak`.
@@ -875,7 +849,7 @@ namespace SoundFramework::game::speech
             {
                 return mode == DubbedVoices::On;
             }
-            const std::string language = voice_language();
+            const std::string language = commands::string_variable_lowered(constants::VOICE_LANGUAGE_CVAR);
             if (language.empty())
             {
                 return false;

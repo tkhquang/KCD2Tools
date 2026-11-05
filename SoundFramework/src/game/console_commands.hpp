@@ -1,7 +1,7 @@
 /**
  * @file game/console_commands.hpp
- * @brief The framework's console commands (sfw_play, sfw_stop, sfw_stop_all, sfw_reload, sfw_list), which also give
- *        Lua a way in through System.ExecuteCommand.
+ * @brief The framework's console commands (sfw_play, sfw_stop, sfw_stop_all, sfw_reload, sfw_list, sfw_lines_find,
+ *        sfw_lines_line), which also give Lua a way in through System.ExecuteCommand.
  *
  * The console stores a raw pointer to each command function, and this code lives in a DLL that hot reload unmaps.
  * So the commands are added and removed only on the game's main thread, the thread that runs console commands, from the
@@ -13,6 +13,7 @@
 #include "anchors.hpp"
 
 #include <chrono>
+#include <string>
 
 namespace SoundFramework::game::commands
 {
@@ -28,6 +29,13 @@ namespace SoundFramework::game::commands
      * @note Main thread only, from the main-thread hook.
      */
     void on_frame(void *system) noexcept;
+
+    /**
+     * @brief The value of the game's string console variable @p name, in lower case.
+     * @return Empty when the VoiceLanguage feature is off, or when gEnv's console or the variable does not check out.
+     * @note Main thread only, after configure().
+     */
+    [[nodiscard]] std::string string_variable_lowered(const char *name);
 
     /**
      * @brief Asks the main thread to remove the commands and waits for it.
