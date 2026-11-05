@@ -159,6 +159,13 @@ namespace TPVCamera
         bool beam_gate = false;        // UseBeamGate
     };
 
+    /** @brief A combat opponent the fade's sightlines also reach (opponent_sightlines()). */
+    struct FadeOpponent
+    {
+        Vector3 head{};
+        Vector3 hip{};
+    };
+
     /** @brief One camera frame's input to the collision. */
     struct CollisionInput
     {
@@ -176,6 +183,9 @@ namespace TPVCamera
         bool fade_on = false;            // UseOccluderFade with the dissolve hook available
         bool wall_class_changed = false; // advance_fence_classification() changed a class this frame
         bool repeat_build = false;       // the frame's second build
+        /// The combat opponents the fade also casts sightlines to, the first opponent_count of them, nearest first.
+        std::array<FadeOpponent, Constants::OCCLUDER_FADE_MAX_OPPONENTS> opponents{};
+        int opponent_count = 0;
     };
 
     /** @brief One camera frame's input to the shoulder collision. */
@@ -278,6 +288,19 @@ namespace TPVCamera
     [[nodiscard]] int fade_sightlines(const Vector3 &from, const Vector3 &head, const Vector3 &hip,
                                       const Vector3 &world_up, float body_width,
                                       std::span<Sightline, Constants::OCCLUDER_FADE_SIGHTLINES> out) noexcept;
+
+    /**
+     * @brief Writes the spine sightlines from @p from to each combat opponent on the screen: his head, his chest
+     *        (halfway between his head and his hips) and his hips, so a prop that hides him fades as one that hides the
+     *        character does.
+     * @details An opponent more than k_fade_opponent_max_angle round from @p character_chest, seen across the ground
+     *          from @p from, stands off the screen or at its edge and gets none, and so does one straight above or
+     *          below @p from. The lines stop when @p out is full.
+     * @param character_chest The character's chest, the direction the view looks along.
+     * @return The number of lines written.
+     */
+    [[nodiscard]] int opponent_sightlines(const Vector3 &from, const Vector3 &character_chest,
+                                          std::span<const FadeOpponent> opponents, std::span<Sightline> out) noexcept;
 
     /**
      * @brief Runs the camera collision along the arm and refreshes the fade set.

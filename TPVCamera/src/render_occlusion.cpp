@@ -3280,18 +3280,159 @@ namespace TPVCamera
         return budget <= 0;
     }
 
+    /** @brief What the sightline pass made of one fade-class prop whose box a sightline enters. */
+    enum class SightlineVerdict : std::uint8_t
+    {
+        /// A sightline crosses its mesh, and the tube around that sightline spans it.
+        Faded,
+        /// A sightline crosses its mesh, and it spans the tube together with the fade-class brushes beside it.
+        FadedWithNeighbours,
+        /// Its mesh cannot be read, so its box on a sightline fades it.
+        FadedByBox,
+        /// A sightline crosses its mesh, but the tube around that sightline does not span it.
+        Thin,
+        /// The sightlines enter its box without crossing its mesh.
+        Missed,
+        /// An entity at a sightline's far end: what the character or an opponent carries, or stands at.
+        AtCharacter,
+        /// An entity whose mesh cannot be read, or a read that faulted.
+        Unreadable,
+        /// The triangle budget ran out before or during its test.
+        OverBudget,
+    };
+
+    /** @brief The log name of @p verdict. */
+    [[nodiscard]] static constexpr const char *sightline_verdict_name(SightlineVerdict verdict) noexcept
+    {
+        switch (verdict)
+        {
+        case SightlineVerdict::Faded:
+            return "fades";
+        case SightlineVerdict::FadedWithNeighbours:
+            return "fades with neighbours";
+        case SightlineVerdict::FadedByBox:
+            return "fades by box";
+        case SightlineVerdict::Thin:
+            return "thin";
+        case SightlineVerdict::Missed:
+            return "missed";
+        case SightlineVerdict::AtCharacter:
+            return "at character";
+        case SightlineVerdict::Unreadable:
+            return "unreadable";
+        case SightlineVerdict::OverBudget:
+            return "over budget";
+        }
+        return "?";
+    }
+
+    /** @brief One prop of the last sightline pass with its verdict, kept for the Trace log. */
+    struct SightlineProp
+    {
+        void *node = nullptr;
+        SightlineVerdict verdict = SightlineVerdict::Missed;
+    };
+
+    // The fade-class props the last sightline pass met, recorded only while Trace is enabled (log_sightline_props()).
+    // Main-thread only, like the scan.
+    constexpr int k_sightline_trace_max = 12;
+    static SightlineProp s_sightline_props[k_sightline_trace_max];
+    static int s_sightline_prop_count = 0;
+    static bool s_sightline_trace = false;
+
+    /**
+     * @brief Whether a fade-class brush other than @p node crosses one of the two @p pair lines.
+     * @details Entities are left out: one at the character (the torch he carries) would span the tube for any post in
+     *          front of him. A brush whose mesh cannot be read is judged by its box, as in sightline_nodes().
+     */
+    static bool neighbour_crosses(const void *node, const Sightline *pair, float end_margin,
+                                  std::span<void *const> skip, int &budget) noexcept
+    {
+        for (int i = 0; i < s_scan_count && budget > 0; ++i)
+        {
+            const ScannedNode &t = s_scan[i];
+            if (t.node == node || t.cls != Rules::Behaviour::Fade || t.entity ||
+                std::find(skip.begin(), skip.end(), t.node) != skip.end() ||
+                (!segment_hits_box(pair[0].from, pair[0].to, t.bbox) &&
+                 !segment_hits_box(pair[1].from, pair[1].to, t.bbox)) ||
+                !node_alive(t))
+            {
+                continue;
+            }
+            const int r = node_crosses_guarded(QueryLedger::Tag::Sightline, t.node, pair, 2, end_margin, budget);
+            if (r == 1 || r == -1)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @brief How the tube around a sightline is spanned (tube_spanned_by_props()). */
+    enum class TubeSpan : std::uint8_t
+    {
+        None,
+        Alone,
+        WithNeighbours,
+    };
+
+    /**
+     * @brief Whether the tube around a sightline that crosses @p node is spanned both ways: a side line and a lift line
+     *        each cross @p node, or else a fade-class brush beside it.
+     * @details Props side by side that each fall short of the tube, such as planks stacked against a scaffold, hide the
+     *          character together as one wide prop would, so each one a sightline crosses fades. A lone post or rail
+     *          spans neither side and stays. A mesh that cannot be read counts as spanning, as in tube_spanned().
+     * @param tube The five lines of tube_around(), in its order.
+     */
+    static TubeSpan tube_spanned_by_props(void *node, const Sightline *tube, float end_margin,
+                                          std::span<void *const> skip, int &budget) noexcept
+    {
+        bool neighbours = false;
+        for (const Sightline *pair : {tube + 1, tube + 3})
+        {
+            if (node_crosses_guarded(QueryLedger::Tag::Sightline, node, pair, 2, end_margin, budget) != 0)
+            {
+                continue;
+            }
+            if (!neighbour_crosses(node, pair, end_margin, skip, budget))
+            {
+                return TubeSpan::None;
+            }
+            neighbours = true;
+        }
+        return neighbours ? TubeSpan::WithNeighbours : TubeSpan::Alone;
+    }
+
     /**
      * @brief The scan pass of occluders_on_sightlines. Each node is read under its own SEH frame, so a fault in one
      *        (a mesh streaming out between the reads) skips that node only.
+     * @details While s_sightline_trace is set, every fade-class prop whose box a sightline enters is recorded with its
+     *          verdict, and the props the spent triangle budget leaves untested are recorded as OverBudget.
      */
     static int sightline_nodes(const Sightline *lines, int n_lines, float end_margin, std::span<void *const> skip,
                                SightlineOccluder *out, int cap) noexcept
     {
         const auto skipped = [skip](void *node) { return std::find(skip.begin(), skip.end(), node) != skip.end(); };
+        const auto note = [](void *node, SightlineVerdict verdict) noexcept
+        {
+            if (s_sightline_trace && s_sightline_prop_count < k_sightline_trace_max)
+            {
+                s_sightline_props[s_sightline_prop_count++] = {
+                    .node = node,
+                    .verdict = verdict,
+                };
+            }
+        };
+        s_sightline_prop_count = 0;
         int n = 0;
         int budget = Constants::OCCLUDER_TRIANGLE_BUDGET;
-        for (int i = 0; i < s_scan_count && n < cap && budget > 0; ++i)
+        for (int i = 0; i < s_scan_count && n < cap; ++i)
         {
+            // A spent budget ends the pass. Under Trace the box tests go on, so the props it left untested are named.
+            if (budget <= 0 && !s_sightline_trace)
+            {
+                break;
+            }
             const ScannedNode &s = s_scan[i];
             // Only a prop fades for hiding the character. A tree, a bush or a grass patch opens the tree see-through
             // window instead (see trees_in_window), so a leaf on a sightline never fades a whole plant.
@@ -3308,10 +3449,15 @@ namespace TPVCamera
             {
                 continue;
             }
+            if (budget <= 0)
+            {
+                note(s.node, SightlineVerdict::OverBudget);
+                continue;
+            }
             if (s.entity)
             {
-                // An entity right at the character is its own (the torch or weapon he carries) or something he stands
-                // at; it is not between him and the camera.
+                // An entity right at a sightline's far end is what the character or an opponent carries (a torch, a
+                // weapon) or stands at; it is not between him and the camera.
                 bool at_character = false;
                 for (int l = 0; l < n_lines && !at_character; ++l)
                 {
@@ -3319,16 +3465,21 @@ namespace TPVCamera
                 }
                 if (at_character)
                 {
+                    note(s.node, SightlineVerdict::AtCharacter);
                     continue;
                 }
             }
             // A prop brush whose mesh cannot be read (-1) is judged by its box alone: fading a small prop by mistake
             // costs less than leaving the character hidden behind it. An entity counts only on an exact crossing. A
             // read that faulted (-2) is skipped this time. A prop a sightline crosses fades only where it is wide:
-            // a tube of k_thin_half_width around that sightline meets it both ways, so a post or a rail thinner than
-            // the tube stays. Each sightline is tested alone and each test stops at its first crossing, so the mesh
-            // is walked in full only along a line it does not cross.
+            // a tube of k_thin_half_width around that sightline meets it, or the fade-class brushes beside it, both
+            // ways, so a lone post or rail thinner than the tube stays (tube_spanned_by_props()). Each sightline is
+            // tested alone and each test stops at its first crossing, so the mesh is walked in full only along a line
+            // it does not cross.
             bool fades = false;
+            bool crossed = false;
+            int unreadable = 0;
+            TubeSpan span = TubeSpan::None;
             for (int l = 0; l < n_lines && !fades; ++l)
             {
                 const int r =
@@ -3336,19 +3487,35 @@ namespace TPVCamera
                 if (r < 0)
                 {
                     fades = r == -1 && !s.entity;
+                    unreadable = r;
                     break;
                 }
                 if (r == 1)
                 {
+                    crossed = true;
                     Sightline tube[5];
                     tube_around(lines[l], k_thin_half_width, tube);
-                    fades = tube_spanned(QueryLedger::Tag::Sightline, s.node, tube, end_margin, budget);
+                    span = tube_spanned_by_props(s.node, tube, end_margin, skip, budget);
+                    fades = span != TubeSpan::None;
                 }
             }
+            SightlineVerdict verdict = crossed ? SightlineVerdict::Thin : SightlineVerdict::Missed;
             if (fades)
             {
                 out[n++] = {s.node, false};
+                verdict = unreadable == -1                   ? SightlineVerdict::FadedByBox
+                          : span == TubeSpan::WithNeighbours ? SightlineVerdict::FadedWithNeighbours
+                                                             : SightlineVerdict::Faded;
             }
+            else if (unreadable != 0)
+            {
+                verdict = SightlineVerdict::Unreadable;
+            }
+            else if (budget <= 0)
+            {
+                verdict = SightlineVerdict::OverBudget;
+            }
+            note(s.node, verdict);
         }
         // The camera buried in a prop or a bush (the hay on a wagon, a hawthorn): it fills the view whichever way it
         // lies from the sightlines, and the near clip plane cuts only what touches the lens, so it fades all the way.
@@ -3467,6 +3634,35 @@ namespace TPVCamera
                                  n_near == 0 ? std::string{"nothing"} : text);
     }
 
+    /**
+     * @brief Logs at Trace the fade-class props of the last sightline pass with their verdicts, when that list changes,
+     *        so a prop that hides the character or an opponent without fading is identifiable from the log.
+     */
+    static void log_sightline_props()
+    {
+        static SightlineProp s_last[k_sightline_trace_max] = {};
+        static int s_last_count = 0;
+        const auto same = [](const SightlineProp &a, const SightlineProp &b)
+        { return a.node == b.node && a.verdict == b.verdict; };
+        if (s_sightline_prop_count == s_last_count &&
+            std::equal(s_sightline_props, s_sightline_props + s_sightline_prop_count, s_last, same))
+        {
+            return;
+        }
+        std::copy_n(s_sightline_props, s_sightline_prop_count, s_last);
+        s_last_count = s_sightline_prop_count;
+        std::string text;
+        for (int i = 0; i < s_sightline_prop_count; ++i)
+        {
+            char name[160];
+            name_of_node_guarded(s_sightline_props[i].node, name, static_cast<int>(sizeof(name)));
+            text += std::format("{}{}({})", i == 0 ? "" : ", ", name[0] != '\0' ? name : "?",
+                                sightline_verdict_name(s_sightline_props[i].verdict));
+        }
+        (void)DMK::log().try_log(DMK::LogLevel::Trace, "RenderOcclusion: props on the sightlines: {}",
+                                 s_sightline_prop_count == 0 ? std::string{"nothing"} : text);
+    }
+
     int occluders_on_sightlines(const Sightline *lines, int n_lines, float end_margin, std::span<void *const> skip,
                                 SightlineOccluder *out, int cap) noexcept
     {
@@ -3475,11 +3671,16 @@ namespace TPVCamera
         {
             return 0;
         }
-        const int n =
-            sightline_nodes(lines, std::min(n_lines, Constants::OCCLUDER_FADE_SIGHTLINES), end_margin, skip, out, cap);
+        s_sightline_trace = DMK::log().is_enabled(DMK::LogLevel::Trace);
+        const int n = sightline_nodes(lines, std::min(n_lines, Constants::OCCLUDER_FADE_MAX_SIGHTLINES), end_margin,
+                                      skip, out, cap);
         try
         {
             log_nodes_at_camera(lines[0].from, 0.4f, out, n);
+            if (s_sightline_trace)
+            {
+                log_sightline_props();
+            }
         }
         catch (...)
         {

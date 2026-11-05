@@ -185,6 +185,7 @@ namespace TPVCamera
         collision.bind<float>("OccluderFadeBodyWidth", "Occluder Fade Body Width", s.occluder_fade_body_width, 0.25f);
         collision.bind<float>("OccluderFadeBodyMargin", "Occluder Fade Body Margin", s.occluder_fade_body_margin,
                               0.15f);
+        collision.bind<bool>("OccluderFadeOpponents", "Occluder Fade Opponents", s.occluder_fade_opponents, true);
         collision.bind<bool>("UseTreeSeeThrough", "Use Tree See Through", s.use_tree_see_through, true);
         collision.bind<float>("TreeSeeThroughMinOpacity", "Tree See Through Min Opacity",
                               s.tree_see_through_min_opacity, 0.3f);

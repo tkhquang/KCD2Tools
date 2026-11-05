@@ -103,6 +103,9 @@ namespace TPVCamera
     // below the eye. The head and a chest point between the two complete the spine sightlines (fade_sightlines()).
     constexpr float k_fade_hip_height = 0.9f;
     constexpr float k_fade_hip_drop = 0.75f;
+    // Where the occluder fade aims a combat opponent's head sightline: this far above his feet. His hip sightline
+    // takes k_fade_hip_height.
+    constexpr float k_fade_opponent_head_height = 1.65f;
     // The camera collision's and the occluder fade's carry-over between frames (see camera/collision.hpp). Main thread
     // only (the camera detour).
     static CollisionState s_collision{};
@@ -140,6 +143,10 @@ namespace TPVCamera
     // The feet of the living opponent the combat lock-on steers toward, for the rig's lock framing
     // (RigInput::lock_focus), main thread only.
     static std::optional<Vector3> s_lock_focus;
+    // The combat opponents the occluder fade casts sightlines to (CollisionInput::opponents), nearest first, main
+    // thread only.
+    static std::array<FadeOpponent, Constants::OCCLUDER_FADE_MAX_OPPONENTS> s_fade_opponents{};
+    static int s_fade_opponent_count = 0;
     // The lock-on's free look is on (RigInput::lock_free_look), main thread only.
     static bool s_lock_free_look = false;
     // The game's stance is crouched this frame (RigInput::crouched), main thread only.
@@ -1401,6 +1408,8 @@ namespace TPVCamera
             .fade_on = fade_on,
             .wall_class_changed = wall_class_changed,
             .repeat_build = step.repeat_build,
+            .opponents = s_fade_opponents,
+            .opponent_count = s_fade_opponent_count,
         };
         camera_position = resolve_camera_collision(s_collision, collision_input);
 
@@ -1787,6 +1796,56 @@ namespace TPVCamera
     };
 
     /**
+     * @brief Lists in s_fade_opponents the combat opponents the occluder fade casts sightlines to, nearest first: while
+     *        the combat stance holds and OccluderFadeOpponents is on, the living ones the lock-on can pick within
+     *        OCCLUDER_FADE_OPPONENT_REACH of the character, and the opponent the lock holds. Each is taken standing:
+     *        his head and hips sit at fixed heights above his feet.
+     */
+    static void collect_fade_opponents(uintptr_t c_player, const CombatLock &lock) noexcept
+    {
+        s_fade_opponent_count = 0;
+        if (!lock.resolved || !lock.stance || !settings().occluder_fade_opponents.load(std::memory_order_relaxed))
+        {
+            return;
+        }
+        constexpr std::size_t k_read_max = 16;
+        std::array<CombatCandidate, k_read_max + 1> picked{};
+        std::size_t n_picked = 0;
+        std::array<CombatCandidate, k_read_max> candidates{};
+        const std::size_t count = read_combat_candidates(c_player, candidates);
+        for (const CombatCandidate &candidate : std::span<const CombatCandidate>(candidates.data(), count))
+        {
+            if (!candidate.dead && candidate.id != 0 && candidate.distance <= Constants::OCCLUDER_FADE_OPPONENT_REACH)
+            {
+                picked[n_picked++] = candidate;
+            }
+        }
+        // The opponent the lock holds is normally among the candidates; it is added when the selector does not list it.
+        const bool opponent_listed =
+            std::ranges::any_of(std::span<const CombatCandidate>(picked.data(), n_picked),
+                                [&lock](const CombatCandidate &candidate) { return candidate.id == lock.opponent_id; });
+        if (lock.has_opponent() && !lock.opponent_dead && lock.geometry && lock.opponent_id != 0 && !opponent_listed &&
+            lock.opponent_distance <= Constants::OCCLUDER_FADE_OPPONENT_REACH)
+        {
+            picked[n_picked++] = CombatCandidate{
+                .id = lock.opponent_id,
+                .distance = lock.opponent_distance,
+                .position = lock.opponent_position,
+            };
+        }
+        const std::span<CombatCandidate> nearest(picked.data(), n_picked);
+        std::ranges::sort(nearest, {}, &CombatCandidate::distance);
+        for (const CombatCandidate &candidate : nearest.first(std::min(n_picked, s_fade_opponents.size())))
+        {
+            const Vector3 feet{candidate.position[0], candidate.position[1], candidate.position[2]};
+            s_fade_opponents[static_cast<std::size_t>(s_fade_opponent_count++)] = FadeOpponent{
+                .head = feet + Vector3{0.0f, 0.0f, k_fade_opponent_head_height},
+                .hip = feet + Vector3{0.0f, 0.0f, k_fade_hip_height},
+            };
+        }
+    }
+
+    /**
      * @brief Gate and matrix-offset body, outside the SEH wrapper so local C++ objects can unwind.
      * @param camera The camera handed to the frustum builder (matrix at offset 0).
      * @param profile Per-call diagnostic state, marked after identifying the game view.
@@ -1950,6 +2009,7 @@ namespace TPVCamera
             {
                 log_combat_lock(s_combat_lock, step.game_clock, s_camera_heading, s_pick_heading);
             }
+            collect_fade_opponents(c_player, s_combat_lock);
         }
         // A dead opponent is not one to turn to: the game only holds the lock on the body until the stance ends.
         const bool lock_steers = s_combat_lock.has_opponent() && !s_combat_lock.opponent_dead &&

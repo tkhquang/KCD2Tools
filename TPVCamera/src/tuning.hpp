@@ -53,6 +53,14 @@ namespace Constants
     constexpr int OCCLUDER_FADE_MAX_NODES = 32;
     /// The fade's sightlines from the camera: the head, the chest, the hips and either side of the chest.
     constexpr int OCCLUDER_FADE_SIGHTLINES = 5;
+    // In combat the fade also casts spine sightlines (the head, the chest and the hips) to the living opponents the
+    // lock-on can pick within OCCLUDER_FADE_OPPONENT_REACH meters of the character, the nearest
+    // OCCLUDER_FADE_MAX_OPPONENTS of them, so a prop that hides an opponent fades too.
+    constexpr float OCCLUDER_FADE_OPPONENT_REACH = 15.0f;
+    constexpr int OCCLUDER_FADE_MAX_OPPONENTS = 4;
+    constexpr int OCCLUDER_FADE_OPPONENT_SIGHTLINES = 3;
+    constexpr int OCCLUDER_FADE_MAX_SIGHTLINES =
+        OCCLUDER_FADE_SIGHTLINES + OCCLUDER_FADE_OPPONENT_SIGHTLINES * OCCLUDER_FADE_MAX_OPPONENTS;
     // Fade timing. A node must hide the character for the delay before it starts to fade, so an object that crosses a
     // sightline for an instant (a post the camera swings past) never blinks; then it fades in, is held while it
     // flickers on and off the sightline, and fades back out. An object at the lens skips the delay.

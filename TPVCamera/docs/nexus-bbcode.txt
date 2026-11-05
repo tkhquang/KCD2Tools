@@ -90,7 +90,7 @@ Camera framing lives in the in-game preset manager (Home) and is saved to KCD2_T
 [*][b][Settings][/b] - log level, view hotkeys, auto-enable at start (AutoEnableTPV)[/*]
 [*][b][Camera][/b] - zoom and shoulder keys, screen effects hidden per view (HideScreenEffectsTPV, HideScreenEffectsFPV), view transition, camera stability, native turn animation[/*]
 [*][b][Orbit][/b] - free-look keys and cursor freeze[/*]
-[*][b][Collision][/b] - prop fading (UseOccluderFade), foliage window (UseTreeSeeThrough), lens cut (UseLensCut), character fade (CloseUpFade)[/*]
+[*][b][Collision][/b] - prop fading (UseOccluderFade, OccluderFadeOpponents for combat), foliage window (UseTreeSeeThrough), lens cut (UseLensCut), character fade (CloseUpFade)[/*]
 [*][b][StateBehavior][/b] - which situations switch the view or pause free-look[/*]
 [*][b][Ranged][/b] - aim at the crosshair, landing preview, projectile trail, drop per weapon[/*]
 [*][b][Presets][/b] - preset cycle keys[/*]

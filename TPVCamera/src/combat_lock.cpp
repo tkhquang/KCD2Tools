@@ -378,6 +378,7 @@ namespace TPVCamera
                 .dead = health.has_value() && *health <= 0.0f,
                 .distance = std::sqrt(dx * dx + dy * dy),
                 .heading = std::atan2(-dx, dy),
+                .position = {them->x, them->y, them->z},
             };
         }
     } // namespace

@@ -98,7 +98,7 @@ Camera framing lives in the in-game preset manager (`Home`) and is saved to `KCD
 - `[Settings]` - log level, view hotkeys, the overlay key, auto-enable at start
 - `[Camera]` - zoom and shoulder keys, screen effects hidden per view (`HideScreenEffectsTPV`, `HideScreenEffectsFPV`), view transition, camera stability against head-bob and shake (`StableAimBasis`, `AimBasisSmoothing`), native turn animation (`NativeTurnAnimation`, `NativeTurnAngle`, `NativeTurnSettleDelay`)
 - `[Orbit]` - free-look keys and cursor freeze
-- `[Collision]` - probe and radius, prop fading (`UseOccluderFade`), foliage window (`UseTreeSeeThrough`), lens cut (`UseLensCut`), `HeadClearance`, character fade (`CloseUpFade`)
+- `[Collision]` - probe and radius, prop fading (`UseOccluderFade`, `OccluderFadeOpponents` for combat), foliage window (`UseTreeSeeThrough`), lens cut (`UseLensCut`), `HeadClearance`, character fade (`CloseUpFade`)
 - `[StateBehavior]` - which situations switch the view, restore it or pause free-look; where the turn animation is off (`NativeTurnExcludeState`); `ReloadCountsAsAiming`
 - `[Ranged]` - aim at the crosshair (`AimAtCrosshair`, `MaxAimCorrection`), trail (`ShowProjectileTrail`), landing preview (`ShowAimPreview` and its look), drop per weapon (`BowGravity`, `CrossbowGravity`, `FirearmGravity`)
 - `[Presets]` - cycle keys and `AutoSaveCyclePick`
