@@ -1,5 +1,5 @@
 KINGDOM COME: DELIVERANCE II - THIRD PERSON CAMERA
-Version 3.0.2
+Version 3.1.0
 
 This mod is an .asi plugin. Kingdom Come Script Extender (KCSE) loads .asi
 files itself; without KCSE you need an ASI loader, which is NOT included in

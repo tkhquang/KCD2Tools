@@ -2,6 +2,15 @@
 
 All notable changes to the TPVCamera mod will be documented in this file.
 
+## [3.1.0] - Screen Effects and Combat Fades
+
+- Hides the helmet visor, the washing and sleepy eyelids, the water drops and head wound blood in third person; the INI sets what each view hides, first person included.
+- In combat, props between the camera and your opponents fade too (OccluderFadeOpponents, on by default).
+- Stacked planks and boards no longer hide Henry at some camera angles.
+- Starts reliably together with other mods that hook the same game function, in any load order.
+- In densely furnished interiors the camera keeps track of every nearby object again and does less work each frame.
+- Updated the bundled modding toolkit (DetourModKit) to v4.5.0.
+
 ## [3.0.2] - Focused Look Fix
 
 - Fixed Henry spinning during the focused look (Left Alt, or LB on a controller), with free-look on or off, so the focus now settles and completes its action.
@@ -176,6 +185,7 @@ All notable changes to the TPVCamera mod will be documented in this file.
 - Third person stays out of every minigame (lockpicking, reading, alchemy, pickpocketing, and more), and you can give any minigame its own framing
 - Configurable hotkeys, with most changes applying while you play
 
+[3.1.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v3.1.0
 [3.0.2]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v3.0.2
 [3.0.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v3.0.1
 [3.0.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v3.0.0
