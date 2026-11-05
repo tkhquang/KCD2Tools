@@ -91,6 +91,19 @@ namespace HenrySenses
             {"Always", GroupMode::Always},
         }};
 
+        struct TriggerActionName
+        {
+            std::string_view name;
+            TriggerAction action;
+        };
+
+        constexpr std::array<TriggerActionName, 4> TRIGGER_ACTION_NAMES{{
+            {"pulse", TriggerAction::Pulse},
+            {"toggle", TriggerAction::Toggle},
+            {"on", TriggerAction::On},
+            {"off", TriggerAction::Off},
+        }};
+
         // Effect names by id (id = index + 1). Groups are read on the init and INI-watcher threads and the names are
         // looked up on the main thread, so the table is locked; it only grows, one entry per distinct name.
         std::mutex s_effect_names_mutex;
@@ -1400,6 +1413,114 @@ namespace HenrySenses
         }
     }
 
+    std::optional<TriggerAction> parse_trigger_action(std::string_view text) noexcept
+    {
+        text = trim(text);
+        for (const TriggerActionName &entry : TRIGGER_ACTION_NAMES)
+        {
+            if (iequals(entry.name, text))
+            {
+                return entry.action;
+            }
+        }
+        return std::nullopt;
+    }
+
+    void trigger_groups(std::string_view names, TriggerAction action)
+    {
+        const std::shared_ptr<const GroupSet> set = current_groups();
+        if (set == nullptr)
+        {
+            return;
+        }
+        if (!settings().enabled.load(std::memory_order_relaxed))
+        {
+            (void)DMK::log().try_log(DMK::LogLevel::Debug, "henrysenses_trigger {}: ignored (mod disabled)", names);
+            return;
+        }
+        std::vector<const HighlightGroup *> groups;
+        for (const std::string_view name : split(names, ','))
+        {
+            const auto found = std::find_if(
+                set->groups.begin(),
+                set->groups.end(),
+                [name](const HighlightGroup &candidate) { return iequals(candidate.name, name); }
+            );
+            if (found == set->groups.end())
+            {
+                (void)DMK::log().try_log(DMK::LogLevel::Warning, "henrysenses_trigger: no [Highlight.{}] group", name);
+            }
+            else if (!found->enabled || found->mode == GroupMode::Always)
+            {
+                (void)DMK::log().try_log(
+                    DMK::LogLevel::Debug,
+                    "henrysenses_trigger: Highlight.{} skipped ({})",
+                    found->name,
+                    found->enabled ? "Always" : "disabled"
+                );
+            }
+            else if (std::find(groups.begin(), groups.end(), &*found) == groups.end())
+            {
+                groups.push_back(&*found);
+            }
+        }
+        // A Toggle group shares its switch with its key, so the key and the command always agree.
+        auto switch_of = [](const HighlightGroup &group) -> std::atomic<bool> &
+        {
+            GroupActivation &activation = *group.activation;
+            return group.mode == GroupMode::Toggle ? activation.toggled : activation.script_on;
+        };
+        // One toggle for the whole list, so groups that were out of step end up together: off when any was on.
+        const bool any_on = std::any_of(
+            groups.begin(),
+            groups.end(),
+            [&switch_of](const HighlightGroup *group) { return switch_of(*group).load(std::memory_order_relaxed); }
+        );
+        const TriggerAction toggled = any_on ? TriggerAction::Off : TriggerAction::On;
+        const std::int64_t now = steady_ms();
+        for (const HighlightGroup *group : groups)
+        {
+            GroupActivation &activation = *group->activation;
+            std::atomic<bool> &switched_on = switch_of(*group);
+            TriggerAction group_action = action;
+            if (group_action == TriggerAction::Default)
+            {
+                group_action = group->mode == GroupMode::Toggle ? TriggerAction::Toggle : TriggerAction::Pulse;
+            }
+            if (group_action == TriggerAction::Toggle)
+            {
+                group_action = toggled;
+            }
+            if (group_action == TriggerAction::Pulse)
+            {
+                activation.pulse_started_ms.store(now, std::memory_order_relaxed);
+                (void)DMK::log().try_log(DMK::LogLevel::Debug, "Highlight.{} pulse (henrysenses_trigger)", group->name);
+                continue;
+            }
+            if (group_action == TriggerAction::On)
+            {
+                activation.off_started_ms.store(0, std::memory_order_relaxed);
+                switched_on.store(true, std::memory_order_relaxed);
+                (void)DMK::log().try_log(DMK::LogLevel::Info, "Highlight.{} ON (henrysenses_trigger)", group->name);
+                continue;
+            }
+            // Off. A fade-out starts only from full strength: a pulse already fading keeps its own fade.
+            const std::int64_t started = activation.pulse_started_ms.load(std::memory_order_relaxed);
+            const bool pulsing =
+                started != 0 && now >= started && now - started < static_cast<std::int64_t>(group->duration * 1000.0f);
+            const bool was_on = switched_on.exchange(false, std::memory_order_relaxed);
+            if (was_on || pulsing)
+            {
+                activation.off_started_ms.store(now, std::memory_order_relaxed);
+            }
+            if (pulsing)
+            {
+                activation.pulse_started_ms.store(0, std::memory_order_relaxed);
+            }
+            (void)DMK::log().try_log(DMK::LogLevel::Info, "Highlight.{} OFF (henrysenses_trigger)", group->name);
+        }
+    }
+
     void log_groups()
     {
         const std::shared_ptr<const GroupSet> set = current_groups();
@@ -1409,12 +1530,13 @@ namespace HenrySenses
             const GroupActivation &activation = *group.activation;
             const std::int64_t started = activation.pulse_started_ms.load(std::memory_order_relaxed);
             DMK::log().info(
-                "Groups: {} {} mode={} key='{}' toggled={} held={} lastPulseMsAgo={} radius={:.0f}",
+                "Groups: {} {} mode={} key='{}' toggled={} scriptOn={} held={} lastPulseMsAgo={} radius={:.0f}",
                 group.name,
                 group.enabled ? "on" : "off",
                 group_mode_name(group.mode),
                 group.key_text,
                 activation.toggled.load(),
+                activation.script_on.load(),
                 activation.hold_due_ms.load() != 0,
                 started != 0 ? now - started : -1,
                 group.radius

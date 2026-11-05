@@ -10,6 +10,7 @@
 #include "rtti_types.hpp"
 #include "engine/engine_env.hpp"
 #include "engine/entity_access.hpp"
+#include "engine/guarded_call.hpp"
 #include "engine/seh.hpp"
 
 #include <DetourModKit.hpp>
@@ -35,44 +36,6 @@ namespace HenrySenses
         constexpr std::size_t MAX_SHOPS = 4096;
         constexpr std::size_t MAX_SCRIPT_CONTEXTS = 4096;
         constexpr std::size_t MAX_CONTEXT_NAME = 128;
-
-        /**
-         * @brief Calls @p fn(args...) under SEH.
-         * @return True when the call returned.
-         */
-        template <typename R, typename... A>
-        [[nodiscard]] bool guarded_call(std::uintptr_t fn, R *out, A... args) noexcept
-        {
-            __try
-            {
-                *out = reinterpret_cast<R(__fastcall *)(A...)>(fn)(args...);
-                return true;
-            }
-            __except (engine_fault_filter(GetExceptionCode()))
-            {
-                return false;
-            }
-        }
-
-        /**
-         * @brief Calls the virtual at @p slot of @p object, whose vtable and target must lie in the game image.
-         * @return The result, or std::nullopt when the slot is not plausible or the call faulted.
-         */
-        template <typename R, typename... A>
-        [[nodiscard]] std::optional<R> vcall(std::uintptr_t object, std::ptrdiff_t slot, A... args) noexcept
-        {
-            const std::uintptr_t fn = read_vtable_slot(object, slot);
-            if (fn == 0)
-            {
-                return std::nullopt;
-            }
-            R result{};
-            if (!guarded_call<R>(fn, &result, object, args...))
-            {
-                return std::nullopt;
-            }
-            return result;
-        }
 
         /** @brief A plausible, 8-byte aligned pointer: the structural screen before a guarded read of an engine node.
          */

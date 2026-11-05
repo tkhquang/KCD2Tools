@@ -267,10 +267,10 @@ namespace HenrySenses
         };
         CompositeHandoff s_handoff{};
 
-        // Trampolines, published before each hook is armed.
-        StdInitFn s_std_init_original = nullptr;
-        CreatePsoFn s_create_pso_original = nullptr;
-        ProxyRenderFn s_proxy_render_original = nullptr;
+        // Trampolines. HookStack::install stores each one with release order before it arms the hook.
+        std::atomic<StdInitFn> s_std_init_original{nullptr};
+        std::atomic<CreatePsoFn> s_create_pso_original{nullptr};
+        std::atomic<ProxyRenderFn> s_proxy_render_original{nullptr};
         /**
          * @brief Where in the frame the silhouette is composited: always after tone-mapping, so a highlight adds its
          *        own colour whatever the scene's exposure. A composite into the HDR scene before the upscaler went
@@ -291,7 +291,7 @@ namespace HenrySenses
         }
 
         using SuperResolutionFn = void(__fastcall *)(void *stage);
-        SuperResolutionFn s_super_resolution_original = nullptr;
+        std::atomic<SuperResolutionFn> s_super_resolution_original{nullptr};
         std::atomic<bool> s_p6_installed{false};
         std::atomic<std::uint64_t> s_p6_frames{0};
 
@@ -320,10 +320,10 @@ namespace HenrySenses
             void *lod_value,
             const void *pass_info
         );
-        RenderInternalFn s_render_internal_original = nullptr;
-        AfterPostHdrFn s_after_post_hdr_original = nullptr;
-        AfterPostHdrFn s_after_post_ldr_original = nullptr;
-        DrawRenderItemsFn s_draw_render_items_original = nullptr;
+        std::atomic<RenderInternalFn> s_render_internal_original{nullptr};
+        std::atomic<AfterPostHdrFn> s_after_post_hdr_original{nullptr};
+        std::atomic<AfterPostHdrFn> s_after_post_ldr_original{nullptr};
+        std::atomic<DrawRenderItemsFn> s_draw_render_items_original{nullptr};
 
         std::atomic<bool> s_armed{true};
         std::atomic<bool> s_p1_installed{false};
@@ -2862,7 +2862,7 @@ namespace HenrySenses
                     registered = guarded_register_stage(anchor_address(AnchorId::RegisterCustomStage), pipeline);
                 }
             }
-            s_std_init_original(pipeline);
+            s_std_init_original.load(std::memory_order_acquire)(pipeline);
             s_binding_generation.fetch_add(1, std::memory_order_acq_rel);
             s_last_pipeline.store(pipeline, std::memory_order_relaxed);
             note_p1_pipeline(pipeline, registered);
@@ -2918,7 +2918,7 @@ namespace HenrySenses
             {
                 // A pipeline-state compile on a cold cache stalls the calling thread.
                 DMK_PROFILE_SCOPE("create_pso_original");
-                ok = s_create_pso_original(stage, desc, pass_id, out_pso);
+                ok = s_create_pso_original.load(std::memory_order_acquire)(stage, desc, pass_id, out_pso);
             }
             if (pass_id != constants::CUSTOM_PASS_SILHOUETTE)
             {
@@ -2996,7 +2996,7 @@ namespace HenrySenses
             if (params == nullptr || pass == nullptr || pass[constants::PASS_INFO_RECURSION_OFFSET] != 0 ||
                 pass[constants::PASS_INFO_SHADOW_OFFSET] != 0 || !s_armed.load(std::memory_order_relaxed))
             {
-                s_proxy_render_original(self, params, pass_info);
+                s_proxy_render_original.load(std::memory_order_acquire)(self, params, pass_info);
                 // Visible entities render every frame (static meshes reach RenderInternal only when their cached
                 // render object is rebuilt), so this is the dependable once-per-frame point for the herb draws.
                 if (s_armed.load(std::memory_order_relaxed))
@@ -3026,7 +3026,7 @@ namespace HenrySenses
             {
                 *slot = word;
             }
-            s_proxy_render_original(self, params, pass_info);
+            s_proxy_render_original.load(std::memory_order_acquire)(self, params, pass_info);
             *flags = saved_flags;
             *slot = saved;
             if (word != 0)
@@ -3073,8 +3073,8 @@ namespace HenrySenses
                     s_p3b_marked.fetch_add(1, std::memory_order_relaxed);
                 }
             }
-            const std::uintptr_t result =
-                s_render_internal_original(stat_obj, render_object, hide_mask, lod_value, pass_info);
+            const RenderInternalFn original = s_render_internal_original.load(std::memory_order_acquire);
+            const std::uintptr_t result = original(stat_obj, render_object, hide_mask, lod_value, pass_info);
             if (armed)
             {
                 herb_outline_on_render(pass_info);
@@ -3195,7 +3195,7 @@ namespace HenrySenses
                     s_p7_stripped.fetch_add(*removed, std::memory_order_relaxed);
                 }
             }
-            s_draw_render_items_original(pass, render_view, list, start, end);
+            s_draw_render_items_original.load(std::memory_order_acquire)(pass, render_view, list, start, end);
         }
 
         /**
@@ -4461,7 +4461,7 @@ namespace HenrySenses
          */
         void __fastcall detour_after_post_hdr(void *forward_stage) noexcept
         {
-            s_after_post_hdr_original(forward_stage);
+            s_after_post_hdr_original.load(std::memory_order_acquire)(forward_stage);
             if (s_armed.load(std::memory_order_acquire))
             {
                 const P4BodyScope body;
@@ -4584,7 +4584,7 @@ namespace HenrySenses
             {
                 before_upscale(reinterpret_cast<std::uintptr_t>(stage));
             }
-            s_super_resolution_original(stage);
+            s_super_resolution_original.load(std::memory_order_acquire)(stage);
         }
 
         /**
@@ -4592,7 +4592,7 @@ namespace HenrySenses
          */
         void __fastcall detour_after_post_ldr(void *forward_stage) noexcept
         {
-            s_after_post_ldr_original(forward_stage);
+            s_after_post_ldr_original.load(std::memory_order_acquire)(forward_stage);
             if (s_armed.load(std::memory_order_acquire))
             {
                 after_post_ldr(reinterpret_cast<std::uintptr_t>(forward_stage));
@@ -4600,30 +4600,29 @@ namespace HenrySenses
         }
 
         /**
-         * @brief Installs one counted inline hook, stores it, and arms it.
+         * @brief Installs and arms one counted inline hook in one HookStack::install call.
          * @tparam Detour The detour. DMK counts its calls, so HookStack::retire can prove that no render thread is
          *         inside it, the original included.
          * @tparam Original Trampoline pointer type.
-         * @param hooks The stack. It owns the hook before the arm, so a half-armed hook is still torn down.
+         * @param hooks The stack. A failed install leaves it unchanged.
          * @param name Hook name.
          * @param target Target address.
-         * @param original Receives the trampoline before the hook is armed.
-         * @return An empty value, or the install Error.
+         * @param original Receives the trampoline with release order before the hook is armed.
+         * @return An empty value, or the Error of the create or the arm.
          */
         template <auto Detour, typename Original>
-        [[nodiscard]] DMK::Result<void>
-        install_hook(DMK::hook::HookStack &hooks, const char *name, std::uintptr_t target, Original &original)
+        [[nodiscard]] DMK::Result<void> install_hook(
+            DMK::hook::HookStack &hooks,
+            const char *name,
+            std::uintptr_t target,
+            std::atomic<Original> &original
+        )
         {
-            DMK_TRY(
-                created,
-                DMK::hook::inline_at<Detour>(DMK::hook::InlineRequest{
-                    .name = name,
-                    .target = DMK::Address{target},
-                })
-            );
-            original = created.template original<Original>();
-            DMK::hook::Hook &stored = hooks.push(std::move(created));
-            DMK_TRY_VOID(stored.enable());
+            DMK_TRY_VOID(hooks.install<Detour>(DMK::hook::InlineInstallRequest{
+                .name = name,
+                .target = DMK::Address{target},
+                .original = &original,
+            }));
             DMK::log().info(
                 "EngineSilhouette: hook {} armed at {} (RVA {:#x})",
                 name,

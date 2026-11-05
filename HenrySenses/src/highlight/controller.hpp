@@ -7,7 +7,8 @@
  * ScanIntervalMs, applies their results, advances the container index walk, publishes the per-frame silhouette
  * parameters, re-asserts the always-visible bookkeeping, and queues the aux-geom markers. While no group can show and
  * nothing is left to take down, a tick only notices the keys, a saved INI and a level change, keeps the indexes a first
- * press relies on current, and lets a focus release finish. It also performs the main-thread half of shutdown.
+ * press relies on current, and lets a focus release finish. Every tick also adds the console command once and keeps
+ * henrysenses_active current (engine/console_commands.hpp). It also performs the main-thread half of shutdown.
  */
 #ifndef HENRYSENSES_CONTROLLER_HPP
 #define HENRYSENSES_CONTROLLER_HPP

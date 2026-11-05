@@ -129,6 +129,12 @@ namespace HenrySenses
         XmlUtils,
         /// CParticleManager (its primary base; gEnv holds the IParticleManager base 8 bytes further).
         ParticleManager,
+        /// CXConsole, the IConsole implementation.
+        Console,
+        /// CXConsoleVariableString, a string console variable.
+        CvarString,
+        /// CConsoleCommandArgs, the argument list the console passes to a command.
+        ConsoleCommandArgs,
         /// Enumerator count. Not a class.
         Count,
     };
