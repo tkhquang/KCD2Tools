@@ -5,7 +5,7 @@
  * @details Read through the engine's skeleton interfaces: the player's CCharInstance (character_attachments.hpp), its
  *          ISkeletonPose and GetAbsJointByID, with the joint's index looked up once per skeleton by the lower-case
  *          name's CRC32 (IDefaultSkeleton::GetJointIDByCRC32). Every object is checked by its vtable and every getter
- *          by its code before it is called (layout_offsets.hpp, Aob::k_charGetSkeletonPoseBody and its siblings).
+ *          by its code before it is called (layout_offsets.hpp, Proof::k_charGetSkeletonPose and its siblings).
  *          Main thread only (the camera frame): the animation jobs have finished the pose by then.
  */
 #ifndef TPVCAMERA_CHARACTER_POSE_HPP

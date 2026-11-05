@@ -1,15 +1,18 @@
 /**
  * @file hooks/vtable_slots.hpp
- * @brief Reads a hook target from a live vtable slot and proves it before it is trusted.
+ * @brief Reads code the mod reaches through live data, a vtable slot or a call's target, and proves it before it is
+ *        trusted (see code_proofs.hpp).
  */
 #ifndef TPVCAMERA_HOOKS_VTABLE_SLOTS_HPP
 #define TPVCAMERA_HOOKS_VTABLE_SLOTS_HPP
 
+#include "code_proofs.hpp"
+
 #include <DetourModKit/region.hpp>
-#include <DetourModKit/scan.hpp>
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace TPVCamera
 {
@@ -17,36 +20,24 @@ namespace TPVCamera
      * @brief Reads a vtable slot and returns its target when it lies in the game image, else 0.
      */
     [[nodiscard]] std::uintptr_t read_image_vtable_slot(std::uintptr_t vtable, std::size_t slot,
-                                                        std::uintptr_t module_base, std::size_t module_size);
+                                                        std::uintptr_t module_base, std::size_t module_size) noexcept;
 
     /**
-     * @brief True when @p signature matches within the first @p window bytes of the code at @p target, all inside
-     *        @p image.
-     * @details A window of the pattern's own length requires the match to start exactly at @p target. Proves the
-     *          instructions a call or hook depends on at an address read from live data, before it is trusted.
+     * @brief True when the code at @p target, inside @p image, holds one of @p proof's shapes.
+     * @details The shapes are tried in order, each within its own window from @p target, so the code is proven before
+     *          the mod calls or hooks it.
      */
-    [[nodiscard]] bool code_window_matches(std::uintptr_t target, const DMK::scan::Pattern &signature,
-                                           std::size_t window, const DMK::Region &image);
+    [[nodiscard]] bool code_proven(std::uintptr_t target, std::span<const Proof::Shape> proof,
+                                   const DMK::Region &image) noexcept;
 
     /**
-     * @brief Reads a vtable slot and returns its target when it lies in the game image and @p signature matches
-     *        within its first @p window bytes, else 0, so a slot that no longer holds the expected function is
-     *        refused rather than hooked or called.
-     */
-    [[nodiscard]] std::uintptr_t read_checked_vtable_slot(std::uintptr_t vtable, std::size_t slot,
-                                                          const DMK::scan::Pattern &signature, std::size_t window,
-                                                          std::uintptr_t module_base, std::size_t module_size);
-
-    /**
-     * @brief Reads a vtable slot whose target is proven by two shapes: @p frame matched at its first byte, else
-     *        @p body within its first @p body_window bytes.
-     * @details The body shape proves a target whose entry another mod's inline hook replaced.
-     * @return The target, or 0 when it lies outside the game image or neither shape matches.
+     * @brief Reads a vtable slot and returns its target when it lies in the game image and holds one of @p proof's
+     *        shapes (code_proven()), else 0, so a slot that no longer holds the expected function is refused rather
+     *        than called or hooked.
      */
     [[nodiscard]] std::uintptr_t read_proven_vtable_slot(std::uintptr_t vtable, std::size_t slot,
-                                                         const DMK::scan::Pattern &frame,
-                                                         const DMK::scan::Pattern &body, std::size_t body_window,
-                                                         std::uintptr_t module_base, std::size_t module_size);
+                                                         std::span<const Proof::Shape> proof,
+                                                         std::uintptr_t module_base, std::size_t module_size) noexcept;
 } // namespace TPVCamera
 
 #endif // TPVCAMERA_HOOKS_VTABLE_SLOTS_HPP

@@ -4,8 +4,8 @@
  */
 
 #include "character_pose.hpp"
-#include "aob_resolver.hpp"
 #include "character_attachments.hpp"
+#include "code_proofs.hpp"
 #include "constants.hpp"
 #include "hooks/vtable_slots.hpp"
 #include "rtti_types.hpp"
@@ -17,8 +17,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <initializer_list>
 #include <optional>
+#include <span>
 #include <string_view>
 
 namespace TPVCamera
@@ -91,34 +91,11 @@ namespace TPVCamera
             return vtable.has_value() ? *vtable : 0;
         }
 
-        /** @brief One code shape a vtable slot's target must match within its first `window` bytes. */
-        struct SlotShape
+        /** @brief The target of @p slot when it lies in the game image and holds @p proof, else 0. */
+        [[nodiscard]] std::uintptr_t proven_slot(std::uintptr_t vtable, std::size_t slot,
+                                                 std::span<const Proof::Shape> proof) noexcept
         {
-            const DMK::scan::Pattern *signature = nullptr;
-            std::size_t window = 0;
-        };
-
-        /**
-         * @brief The target of @p slot when it matches @p first or, when given, @p second, else 0
-         *        (read_checked_vtable_slot()).
-         */
-        [[nodiscard]] std::uintptr_t checked_slot(std::uintptr_t vtable, std::size_t slot, SlotShape first,
-                                                  SlotShape second = {}) noexcept
-        {
-            for (const SlotShape &shape : {first, second})
-            {
-                if (shape.signature == nullptr)
-                {
-                    continue;
-                }
-                const std::uintptr_t target = read_checked_vtable_slot(vtable, slot, *shape.signature, shape.window,
-                                                                       s_module_base, s_module_size);
-                if (target != 0)
-                {
-                    return target;
-                }
-            }
-            return 0;
+            return read_proven_vtable_slot(vtable, slot, proof, s_module_base, s_module_size);
         }
 
         /** @brief Calls a getter. SEH-guarded, POD body: a fault answers 0. */
@@ -225,12 +202,12 @@ namespace TPVCamera
         if (character_vtable != s_character_vtable)
         {
             s_character_vtable = character_vtable;
-            s_get_pose = reinterpret_cast<GetterFn>(
-                checked_slot(character_vtable, Constants::CHAR_INSTANCE_VTABLE_GET_SKELETON_POSE_SLOT,
-                             {&Aob::k_charGetSkeletonPoseBody, Aob::k_charGetterBodyWindow}));
+            s_get_pose = reinterpret_cast<GetterFn>(proven_slot(character_vtable,
+                                                                Constants::CHAR_INSTANCE_VTABLE_GET_SKELETON_POSE_SLOT,
+                                                                Proof::k_charGetSkeletonPose));
             s_get_skeleton = reinterpret_cast<GetterFn>(
-                checked_slot(character_vtable, Constants::CHAR_INSTANCE_VTABLE_GET_DEFAULT_SKELETON_SLOT,
-                             {&Aob::k_charGetDefaultSkeletonBody, Aob::k_charGetterBodyWindow}));
+                proven_slot(character_vtable, Constants::CHAR_INSTANCE_VTABLE_GET_DEFAULT_SKELETON_SLOT,
+                            Proof::k_charGetDefaultSkeleton));
         }
         if (s_get_pose == nullptr || s_get_skeleton == nullptr)
         {
@@ -246,10 +223,8 @@ namespace TPVCamera
         if (pose_vtable != s_pose_vtable)
         {
             s_pose_vtable = pose_vtable;
-            s_abs_joint = reinterpret_cast<AbsJointFn>(
-                checked_slot(pose_vtable, Constants::SKELETON_POSE_VTABLE_GET_ABS_JOINT_SLOT,
-                             {&Aob::k_skeletonPoseAbsJointBody, Aob::k_skeletonPoseAbsJointBodyWindow},
-                             {&Aob::k_skeletonPoseAbsJointTail, Aob::k_skeletonPoseAbsJointTailWindow}));
+            s_abs_joint = reinterpret_cast<AbsJointFn>(proven_slot(
+                pose_vtable, Constants::SKELETON_POSE_VTABLE_GET_ABS_JOINT_SLOT, Proof::k_skeletonPoseAbsJoint));
         }
         if (s_abs_joint == nullptr)
         {
@@ -267,10 +242,8 @@ namespace TPVCamera
             if (skeleton_vtable != s_skeleton_vtable)
             {
                 s_skeleton_vtable = skeleton_vtable;
-                s_joint_id = reinterpret_cast<JointIdFn>(
-                    checked_slot(skeleton_vtable, Constants::DEFAULT_SKELETON_VTABLE_JOINT_ID_BY_CRC_SLOT,
-                                 {&Aob::k_jointIdByCrcBody, Aob::k_jointIdByCrcBodyWindow},
-                                 {&Aob::k_jointIdByCrcProbe, Aob::k_jointIdByCrcProbeWindow}));
+                s_joint_id = reinterpret_cast<JointIdFn>(proven_slot(
+                    skeleton_vtable, Constants::DEFAULT_SKELETON_VTABLE_JOINT_ID_BY_CRC_SLOT, Proof::k_jointIdByCrc));
             }
             if (s_joint_id == nullptr)
             {

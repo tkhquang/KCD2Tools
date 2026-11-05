@@ -5,6 +5,7 @@
 
 #include "screen_effects.hpp"
 #include "aob_resolver.hpp"
+#include "code_proofs.hpp"
 #include "config.hpp"
 #include "constants.hpp"
 #include "core/text/token_list.hpp"
@@ -144,17 +145,15 @@ namespace TPVCamera
                 }
                 const std::uintptr_t particles_vtable = read_pointer(particles);
                 const std::uintptr_t engine_vtable = read_pointer(engine);
-                const std::uintptr_t find_effect = read_proven_vtable_slot(
-                    particles_vtable, Constants::PARTICLE_MANAGER_FIND_EFFECT_SLOT, Aob::k_particleFindEffectFrame,
-                    Aob::k_particleFindEffectGuards, Aob::k_particleFindEffectGuardsWindow, game.base, game.size);
+                const std::uintptr_t find_effect =
+                    read_proven_vtable_slot(particles_vtable, Constants::PARTICLE_MANAGER_FIND_EFFECT_SLOT,
+                                            Proof::k_particleFindEffect, game.base, game.size);
                 const std::uintptr_t set_enabled =
                     read_proven_vtable_slot(particles_vtable, Constants::PARTICLE_MANAGER_SET_EFFECT_ENABLED_SLOT,
-                                            Aob::k_particleSetEffectEnabledFrame, Aob::k_particleSetEffectEnabledCall,
-                                            Aob::k_particleSetEffectEnabledCallWindow, game.base, game.size);
-                const std::uintptr_t set_param = read_proven_vtable_slot(
-                    engine_vtable, Constants::ENGINE_SET_POST_EFFECT_PARAM_SLOT, Aob::k_engineSetPostEffectParamFrame,
-                    Aob::k_engineSetPostEffectParamForward, Aob::k_engineSetPostEffectParamForwardWindow, game.base,
-                    game.size);
+                                            Proof::k_particleSetEffectEnabled, game.base, game.size);
+                const std::uintptr_t set_param =
+                    read_proven_vtable_slot(engine_vtable, Constants::ENGINE_SET_POST_EFFECT_PARAM_SLOT,
+                                            Proof::k_engineSetPostEffectParam, game.base, game.size);
                 if (find_effect == 0 || set_enabled == 0 || set_param == 0)
                 {
                     s_calls_refused = true;
@@ -347,8 +346,7 @@ namespace TPVCamera
                 read_image_vtable_slot(vtable, Constants::UI_OVERLAY_SHOW_SLOT, game.base, game.size) == show;
             const std::uintptr_t set_alpha =
                 class_proven ? read_proven_vtable_slot(vtable, Constants::UI_OVERLAY_SET_ALPHA_SLOT,
-                                                       Aob::k_uiOverlaySetAlphaFrame, Aob::k_uiOverlaySetAlphaCall,
-                                                       Aob::k_uiOverlaySetAlphaCallWindow, game.base, game.size)
+                                                       Proof::k_uiOverlaySetAlpha, game.base, game.size)
                              : 0;
             if (set_alpha == 0)
             {

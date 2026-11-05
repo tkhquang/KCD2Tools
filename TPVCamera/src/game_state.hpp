@@ -190,7 +190,7 @@ namespace TPVCamera
     /**
      * @brief True while the engine plays a cutscene: IViewSystem::IsPlayingCutScene, read without a call.
      * @details A TrackView sequence flagged as a cutscene renders through a CView of its own, which the camera must
-     *          leave alone. The member offsets come from the two getters' code (see Aob::k_frameworkGetViewSystem),
+     *          leave alone. The member offsets come from the two getters' code (see Proof::k_frameworkGetViewSystem),
      *          proved once; after that each call is three guarded reads and a vtable compare. Main thread only, like
      *          poll_game_state.
      * @param cry_action The CCryAction (IGameFramework), or 0.

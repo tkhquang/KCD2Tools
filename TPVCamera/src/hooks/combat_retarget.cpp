@@ -5,6 +5,7 @@
 
 #include "hooks/combat_retarget.hpp"
 #include "aob_resolver.hpp"
+#include "code_proofs.hpp"
 #include "combat_lock.hpp"
 #include "constants.hpp"
 #include "hooks/vtable_slots.hpp"
@@ -126,10 +127,7 @@ namespace TPVCamera
         const DMK::Region image{DMK::Address{module_base}, module_size};
         const auto setter =
             DMK::scan::resolve_rip_relative(DMK::Address{wrapper + Aob::k_setCombatOpponentCallSite}, 1, 5);
-        if (!setter || !(code_window_matches(setter->raw(), Aob::k_setCombatOpponentSetterBody,
-                                             Aob::k_setCombatOpponentSetterBody.max_match_length(), image) ||
-                         code_window_matches(setter->raw(), Aob::k_setCombatOpponentSetterTargetLoad,
-                                             Aob::k_setCombatOpponentSetterTargetLoadWindow, image)))
+        if (!setter || !code_proven(setter->raw(), Proof::k_setCombatOpponentSetter, image))
         {
             logger.warning("Combat: the set-opponent call did not prove out; after a kill the lock-on waits for the "
                            "game to move on");
@@ -142,15 +140,8 @@ namespace TPVCamera
                            "move on");
             return;
         }
-        std::uintptr_t target = read_checked_vtable_slot(
-            *vtable, Constants::COMBAT_PLAYER_VTABLE_UPDATE_SLOT, Aob::k_combatPlayerUpdateBody,
-            Aob::k_combatPlayerUpdateBody.max_match_length(), module_base, module_size);
-        if (target == 0)
-        {
-            target = read_checked_vtable_slot(*vtable, Constants::COMBAT_PLAYER_VTABLE_UPDATE_SLOT,
-                                              Aob::k_combatPlayerUpdateController,
-                                              Aob::k_combatPlayerUpdateControllerWindow, module_base, module_size);
-        }
+        const std::uintptr_t target = read_proven_vtable_slot(*vtable, Constants::COMBAT_PLAYER_VTABLE_UPDATE_SLOT,
+                                                              Proof::k_combatPlayerUpdate, module_base, module_size);
         if (target == 0)
         {
             logger.warning("Combat: C_CombatPlayer slot {} is not the update that runs the lock-on; after a kill the "

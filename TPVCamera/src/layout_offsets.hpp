@@ -60,8 +60,8 @@ namespace Constants
     // Cutscene gate (game_state.cpp). A TrackView sequence flagged as a cutscene renders through its own CView, which
     // the frustum detour cannot tell from the player's, so the camera stays in first person while one plays.
     // CCryAction's IGameFramework::GetIViewSystem is vtable slot 29 and CViewSystem's IViewSystem::IsPlayingCutScene
-    // is slot 19. Each slot target is checked against Aob::k_frameworkGetViewSystem /
-    // Aob::k_viewSystemIsPlayingCutScene (the same on Steam 1.5.6, GOG 1.5 and Game Pass 1.4), and the two member
+    // is slot 19. Each slot target is checked against Proof::k_frameworkGetViewSystem /
+    // Proof::k_viewSystemIsPlayingCutScene (the same on Steam 1.5.6, GOG 1.5 and Game Pass 1.4), and the two member
     // offsets are read from those instructions rather than kept here.
     constexpr const char *CVIEW_SYSTEM_RTTI_NAME = ".?AVCViewSystem@@";
     constexpr std::size_t CRYACTION_VTABLE_GET_VIEW_SYSTEM_SLOT = 29;
@@ -197,7 +197,8 @@ namespace Constants
     // gEnv's console (IConsole *, class CXConsole) is at GENV_CONSOLE_OFFSET. CXConsole slot 3 is
     // RegisterInt(name, value, flags, help, change function) and slot 23 GetCVar(name). A CXConsoleVariableInt keeps
     // its value at CVAR_INT_VALUE_OFFSET, which its slot 2 (GetIVal) and slot 3 (GetI64Val) read. The same on
-    // Steam 1.5.6, GOG 1.5 and Game Pass 1.4, and each slot target is checked against Aob::k_console* before use.
+    // Steam 1.5.6, GOG 1.5 and Game Pass 1.4, and each slot target is checked against its proof
+    // (Proof::k_consoleGetCVar and its siblings) before use.
     constexpr ptrdiff_t GENV_CONSOLE_OFFSET = 0xA8;
     constexpr const char *CXCONSOLE_RTTI_NAME = ".?AVCXConsole@@";
     constexpr const char *CXCONSOLE_VARIABLE_INT_RTTI_NAME = ".?AVCXConsoleVariableInt@@";
@@ -1177,7 +1178,7 @@ namespace Constants
     // pulled-back camera instead of the eye.
     constexpr const char *C_CAMERA_OBSERVER_RTTI_NAME = ".?AVC_CameraObserver@engine3d@wh@@";
     constexpr size_t CAMERA_OBSERVER_VTABLE_UPDATE_SLOT = 30;
-    // The update reads the view camera (Aob::k_cameraObserverUpdateBody). That read among its first instructions
+    // The update reads the view camera (Proof::k_cameraObserverUpdate). That read among its first instructions
     // confirms the slot before it is hooked.
 
     // Native turn-in-place animation. The free-roam locomotion action (wh::entitymodule::C_PlayerMovementAction) plays

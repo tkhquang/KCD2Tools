@@ -4,7 +4,7 @@
  */
 
 #include "hooks/ai_observer.hpp"
-#include "aob_resolver.hpp"
+#include "code_proofs.hpp"
 #include "constants.hpp"
 #include "global_state.hpp"
 #include "hooks/camera_hook.hpp"
@@ -68,9 +68,8 @@ namespace TPVCamera
                            "the pulled-back camera");
             return;
         }
-        const uintptr_t target = read_checked_vtable_slot(
-            *vtable, Constants::CAMERA_OBSERVER_VTABLE_UPDATE_SLOT, Aob::k_cameraObserverUpdateBody,
-            Aob::k_cameraObserverUpdateBodyWindow, module_base, module_size);
+        const uintptr_t target = read_proven_vtable_slot(*vtable, Constants::CAMERA_OBSERVER_VTABLE_UPDATE_SLOT,
+                                                         Proof::k_cameraObserverUpdate, module_base, module_size);
         if (target == 0)
         {
             logger.warning("Camera: C_CameraObserver slot {} is not an in-image update that reads the view camera; "

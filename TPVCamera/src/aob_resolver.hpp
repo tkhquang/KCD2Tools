@@ -561,128 +561,6 @@ namespace TPVCamera
                               Pattern::literal("48 83 C8 FF 48 FF C0 80 3C 02 00 [2-6] 8B D0 49 8B C8 | E8")),
         };
 
-        // Identity checks on a vtable slot's target, searched within its first bytes (see read_checked_vtable_slot in
-        // camera_hook.cpp). IsThirdPerson asks the active camera (`mov rdx, [rcx+disp8]; mov rcx, rax; call rdx`).
-        // C_CameraObserver's update fetches the view camera through ISystem (`call [rax+disp32]`, whose ISystem slot
-        // differs between builds) and copies its translation column (`[rax+0Ch]`, `[rax+1Ch]`, `[rax+2Ch]`) into
-        // its position out-parameter.
-        inline constexpr Pattern k_isThirdPersonBody = Pattern::literal("48 8B 51 ?? 48 8B C8 FF D2");
-        inline constexpr std::size_t k_isThirdPersonBodyWindow = 0x50;
-        inline constexpr Pattern k_cameraObserverUpdateBody =
-            Pattern::literal("48 8B 01 FF 90 ?? ?? ?? ?? 8B 48 0C F3 0F 10 40 1C F3 0F 10 48 2C");
-        inline constexpr std::size_t k_cameraObserverUpdateBodyWindow = 0x40;
-        // The player's skeleton getters (character_pose.cpp), checked before the mod calls them. Every shape below
-        // matches on Steam 1.5.6, GOG 1.5 and Game Pass 1.4.
-        // CCharInstance's GetISkeletonPose is `lea rax, [rcx+disp32]; ret` and its GetIDefaultSkeleton
-        // `mov rax, [rcx+disp32]; ret`, each matched at its first byte. The whole getter is those eight bytes, so each
-        // has one shape.
-        // CSkeletonPose's GetAbsJointByID, two shapes. The first, after the 10-byte frame, takes the pose data
-        // (`lea rbx, [rcx+disp32]`), checks the index against the joint count (`call [rax+8]`) and returns the
-        // absolute joint (`call [rax+50h]`, where the relative one calls +10h). The second is that call, the static
-        // identity an out-of-range index gets (`lea rax, [rip+disp32]`) and the epilogue.
-        // CDefaultSkeleton's GetJointIDByCRC32, two shapes. The first is its start: the name table (`mov rcx,
-        // [rcx+10h]`) and the hash (`imul eax, edx, 0Dh`). The second is the bucket probe: the hash masked to 0x1FF,
-        // the bucket's first index (`movzx r8d, word [rcx+rax*2]`) and the CRC compare (`cmp [rcx+rax*4+4], edx`).
-        inline constexpr Pattern k_charGetSkeletonPoseBody = Pattern::literal("48 8D 81 ?? ?? ?? ?? C3");
-        inline constexpr Pattern k_charGetDefaultSkeletonBody = Pattern::literal("48 8B 81 ?? ?? ?? ?? C3");
-        inline constexpr std::size_t k_charGetterBodyWindow = 8;
-        inline constexpr Pattern k_skeletonPoseAbsJointBody =
-            Pattern::literal("48 8D 99 ?? ?? ?? ?? 8B FA 85 D2 78 ?? 48 8B 03 48 8B CB FF 50 08 3B F8 73 ?? "
-                             "48 8B 03 8B D7 48 8B CB FF 50 50");
-        inline constexpr std::size_t k_skeletonPoseAbsJointBodyWindow = 0x30;
-        inline constexpr Pattern k_skeletonPoseAbsJointTail =
-            Pattern::literal("FF 50 50 EB ?? 48 8D 05 ?? ?? ?? ?? 48 8B 5C 24 ?? 48 83 C4 ?? 5F C3");
-        inline constexpr std::size_t k_skeletonPoseAbsJointTailWindow = 0x48;
-        inline constexpr Pattern k_jointIdByCrcBody = Pattern::literal("48 8B 49 10 48 85 C9 74 ?? 6B C2 0D");
-        inline constexpr std::size_t k_jointIdByCrcBodyWindow = 12;
-        inline constexpr Pattern k_jointIdByCrcProbe =
-            Pattern::literal("6B C2 0D [8-14] 25 FF 01 00 00 44 0F B7 04 41 [16-28] 39 54 81 04");
-        inline constexpr std::size_t k_jointIdByCrcProbeWindow = 0x40;
-
-        // CAnimationSet's GetAnimIDByCRC slot holds a thunk, matched at its first byte: `add rcx, imm8` (to the name
-        // map), then `jmp rel32` (to the map lookup).
-        inline constexpr Pattern k_animIdByCrcThunk = Pattern::literal("48 83 C1 ?? E9");
-        // The animation-name hash, matched at its first byte before the mod calls it: the register saves and pushes,
-        // the frame, `mov edi, edx` (the length), `mov rbp, rcx` (the name), then `cmp edx, 20h` (its first branch on
-        // the length).
-        inline constexpr Pattern k_animNameHashBody = Pattern::literal(
-            "48 89 5C 24 08 89 54 24 10 55 56 57 41 54 41 55 41 56 41 57 48 83 EC ?? 8B FA 48 8B E9 83 FA 20");
-
-        // The console slots the camera-view publisher calls (camera_view_signal.cpp), two shapes each, and the int
-        // variable's value field it writes. Every shape matches on Steam 1.5.6, GOG 1.5 and Game Pass 1.4.
-        // CXConsole's RegisterInt: its frame, the variable map (`add rcx, 0C0h`), and the flags and 32-bit value kept
-        // in r14d and r15d (`mov r14d, r9d; mov r15d, r8d`), matched at its first byte. The second shape is the new
-        // variable's value store (`mov [rbx+48h], r15d`) beside its CXConsoleVariableInt vtable store.
-        // CXConsole's GetCVar: its frame and the report of a null name (`call [rax+38h]`), matched at its first byte.
-        // The second shape is the map lookup (`lea rcx, [rsi+0C0h]; call rel32`) and the name compare
-        // (`mov rdx, [rbx+20h]; mov rcx, rdi; call [rip+disp32]`).
-        // CXConsoleVariableInt's GetIVal (`mov eax, [rcx+48h]; ret`) and GetI64Val (`movsxd rax, dword [rcx+48h];
-        // ret`) each prove the value field at CVAR_INT_VALUE_OFFSET.
-        inline constexpr Pattern k_consoleRegisterIntFrame =
-            Pattern::literal("48 89 5C 24 18 48 89 54 24 10 55 56 57 41 56 41 57 48 83 EC 30 48 8B EA 48 8B F9 48 81 "
-                             "C1 C0 00 00 00 48 8D 54 24 ?? 45 8B F1 45 8B F8 E8");
-        inline constexpr Pattern k_consoleRegisterIntStore =
-            Pattern::literal("48 8D 05 ?? ?? ?? ?? 44 89 7B 48 48 89 03");
-        inline constexpr std::size_t k_consoleRegisterIntStoreWindow = 0xD0;
-        inline constexpr Pattern k_consoleGetCVarFrame =
-            Pattern::literal("48 89 5C 24 08 48 89 74 24 18 48 89 54 24 10 57 48 83 EC 40 48 8B FA 48 8B F1 48 85 D2 "
-                             "75 ?? 48 8B 0D ?? ?? ?? ?? 48 8D 15 ?? ?? ?? ?? 48 8B 01 FF 50 38");
-        inline constexpr Pattern k_consoleGetCVarLookup = Pattern::literal(
-            "48 8D 8E C0 00 00 00 E8 ?? ?? ?? ?? 48 8B 5C 24 ?? 80 7B 19 00 75 ?? 48 8B 53 20 48 8B CF FF 15");
-        inline constexpr std::size_t k_consoleGetCVarLookupWindow = 0xD0;
-        inline constexpr Pattern k_cvarIntGetIVal = Pattern::literal("8B 41 48 C3");
-        inline constexpr Pattern k_cvarIntGetI64Val = Pattern::literal("48 63 41 48 C3");
-
-        // The slots the screen effects call (screen_effects.cpp), two shapes each: a Frame matched at the slot
-        // target's first byte, and a body shape within its window that starts past the first 14 bytes, so a target
-        // whose entry another mod hooked still proves. Every shape matches once in the image and at no neighbouring
-        // slot on Steam 1.5.6, GOG 1.5 and Game Pass 1.4.
-        // C_UIOverlay's SetAlpha(layer, alpha) spills the int alpha (`mov [rsp+18h], r8d`), where HideOverlays and
-        // ShowOverlays spill a byte. Its body passes the layer (`[rsp+38h]`) and the alpha (`[rsp+40h]`) to the movie
-        // call: `lea r9, [rsp+40h]; mov rcx, rbx; lea r8, [rsp+38h]; lea rdx, [rsp+48h]; call rel32`.
-        // The particle manager's FindEffect(name, source, bLoadResources) opens with its 0x270-byte frame and the
-        // security cookie. Its body keeps bLoadResources and the name (`mov r12b, r9b; mov rsi, rdx`), refuses a
-        // disabled manager (`cmp [rcx+1C8h], bl`) and an empty name, then steps back to the manager (`add rcx, -8`)
-        // and calls the loaded-effect lookup.
-        // The manager's enable-by-name slot steps back to the manager, looks up the loaded effect, and calls the
-        // effect's SetEnabled with the flag (`mov dl, bl; mov r9, [rcx+50h]; call r9`, effect vtable slot 10). That
-        // call and the epilogue are its body shape.
-        // C3DEngine's SetPostEffectParam refuses a null name, then forwards to the post-effect group manager's slot
-        // 0x588 and returns: `test rcx, rcx; jz; mov rax, [rcx]; call [rax+588h]; add rsp, 28h; ret`.
-        inline constexpr Pattern k_uiOverlaySetAlphaFrame = Pattern::literal(
-            "44 89 44 24 18 53 48 83 EC 20 0F B6 C2 48 8B D9 48 8D 15 ?? ?? ?? ?? 89 44 24 38 48 8D 4C 24 48 E8");
-        inline constexpr Pattern k_uiOverlaySetAlphaCall = Pattern::literal(
-            "89 44 24 38 48 8D 4C 24 48 E8 ?? ?? ?? ?? 4C 8D 4C 24 40 48 8B CB 4C 8D 44 24 38 48 8D 54 24 48 E8");
-        inline constexpr std::size_t k_uiOverlaySetAlphaCallWindow = 0x40;
-        inline constexpr Pattern k_particleFindEffectFrame = Pattern::literal(
-            "40 53 55 56 57 41 54 41 56 41 57 48 81 EC 70 02 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 "
-            "84 24 60 02 00 00 33 DB 45 8A");
-        inline constexpr Pattern k_particleFindEffectGuards = Pattern::literal(
-            "33 DB 45 8A E1 49 8B E8 48 8B F2 4C 8B F9 38 99 C8 01 00 00 0F 84 ?? ?? ?? ?? 48 85 D2 0F 84 ?? ?? ?? ?? "
-            "38 1A 0F 84 ?? ?? ?? ?? 48 83 C1 F8 E8");
-        inline constexpr std::size_t k_particleFindEffectGuardsWindow = 0x60;
-        inline constexpr Pattern k_particleSetEffectEnabledFrame = Pattern::literal(
-            "40 53 48 83 EC 20 48 83 C1 F8 41 8A D8 E8 ?? ?? ?? ?? 48 85 C0 74 ?? 48 8B 08 8A D3 4C 8B "
-            "49 50 48 8B C8 41 FF D1");
-        inline constexpr Pattern k_particleSetEffectEnabledCall =
-            Pattern::literal("48 85 C0 74 ?? 48 8B 08 8A D3 4C 8B 49 50 48 8B C8 41 FF D1 48 83 C4 20 5B C3");
-        inline constexpr std::size_t k_particleSetEffectEnabledCallWindow = 0x30;
-        inline constexpr Pattern k_engineSetPostEffectParamFrame = Pattern::literal(
-            "48 83 EC 28 48 85 D2 74 ?? 48 8B 0D ?? ?? ?? ?? 48 85 C9 74 ?? 48 8B 01 FF 90 88 05 00 00 48 "
-            "83 C4 28 C3");
-        inline constexpr Pattern k_engineSetPostEffectParamForward =
-            Pattern::literal("48 85 C9 74 ?? 48 8B 01 FF 90 88 05 00 00 48 83 C4 28 C3");
-        inline constexpr std::size_t k_engineSetPostEffectParamForwardWindow = 0x28;
-
-        // The cutscene gate's two getters, each matched at its first byte (Steam 1.5.6, GOG 1.5, Game Pass 1.4).
-        // CCryAction's GetIViewSystem (`mov rax, [rcx+disp32]; ret`): the disp32 at k_frameworkGetViewSystemMember is
-        // the CCryAction member holding the CViewSystem. CViewSystem's IsPlayingCutScene (`cmp dword [rcx+disp8], 0;
-        // seta al; ret`): the disp8 at k_viewSystemIsPlayingCutSceneCount is the running cutscene count.
-        inline constexpr Pattern k_frameworkGetViewSystem = Pattern::literal("48 8B 81 ?? ?? ?? ?? C3");
-        inline constexpr std::ptrdiff_t k_frameworkGetViewSystemMember = 3;
-        inline constexpr Pattern k_viewSystemIsPlayingCutScene = Pattern::literal("83 79 ?? 00 0F 97 C0 C3");
-        inline constexpr std::ptrdiff_t k_viewSystemIsPlayingCutSceneCount = 2;
-
         // Interaction ray-query builder entry
         // Direct entry hook. The function is a leaf-style Vec3 copier with no
         // standard prologue, so all anchors are body-shaped. P2 extends the
@@ -1261,8 +1139,8 @@ namespace TPVCamera
         // (`mov rdi, [r8+0CF0h]`). P2 is the wrapper alone with the call left open (Game Pass places the setter
         // further on). P3 starts at the byte test, leaves the jz distance and the frame size open, and walks back over
         // `sub rsp, 28h`. Its wildcards keep every instruction's length, so the call stays at
-        // k_setCombatOpponentCallSite. P2 and P3 match on all three builds. The call target is proven against
-        // k_setCombatOpponentSetterBody or k_setCombatOpponentSetterTargetLoad before the wrapper is trusted.
+        // k_setCombatOpponentCallSite. P2 and P3 match on all three builds. The call target is proven by
+        // Proof::k_setCombatOpponentSetter (code_proofs.hpp) before the wrapper is trusted.
         inline const Candidate k_setCombatOpponentCandidates[] = {
             Candidate::direct("SetCombatOpponent_P1_WrapperAndSetter",
                               Pattern::literal("48 83 EC 28 80 B9 7A 02 00 00 00 74 0C 48 8B 89 B8 03 00 00 E8 07 00 "
@@ -1277,16 +1155,6 @@ namespace TPVCamera
                                                "C4 ?? C3"),
                               -0x04),
         };
-        // The setter the set-opponent wrapper calls, proven at its address by either shape: the prologue through the
-        // target slot load, matched at its first byte, or the two loads alone (`mov r8, [rax+210h]`,
-        // `mov rdi, [r8+0CF0h]`, the state block and the target slot the mod reads) within its first
-        // k_setCombatOpponentSetterTargetLoadWindow bytes. Both hold on all three builds.
-        inline constexpr Pattern k_setCombatOpponentSetterBody = Pattern::literal(
-            "48 89 5C 24 ?? 48 89 74 24 ?? 57 48 83 EC 30 48 8B 41 08 48 8B F2 48 8B D9 4C 8B 80 10 02 "
-            "00 00 49 8B B8 F0 0C 00 00");
-        inline constexpr Pattern k_setCombatOpponentSetterTargetLoad =
-            Pattern::literal("4C 8B 80 10 02 00 00 49 8B B8 F0 0C 00 00");
-        inline constexpr std::size_t k_setCombatOpponentSetterTargetLoadWindow = 0x30;
         // The set-opponent wrapper's `call rel32` (E8), its byte offset from the wrapper's entry.
         inline constexpr std::size_t k_setCombatOpponentCallSite = 0x14;
         // The combat threat test (sub_18082A334, GOG 0x18084F4D4, Game Pass 0x180753854), called, not hooked:
@@ -1307,17 +1175,6 @@ namespace TPVCamera
                                                "8B CB FF 90 40 01 00 00 83 F8 06 0F 84"),
                               -0x26),
         };
-        // C_CombatPlayer's per-frame update (vtable slot COMBAT_PLAYER_VTABLE_UPDATE_SLOT on all three builds;
-        // sub_181002DD4, GOG 0x180FFFE24, Game Pass 0x18075B5B8), proven before it is hooked by either shape: the whole
-        // body matched at its first byte (the frame, `mov rbx, rcx`, the lock-on controller load
-        // `mov rcx, [rcx+450h]`, the call of its update, and the tail jump), or the controller load and the call alone,
-        // a bounded gap apart, within its first k_combatPlayerUpdateControllerWindow bytes. Both hold on all three
-        // builds.
-        inline constexpr Pattern k_combatPlayerUpdateBody = Pattern::literal(
-            "40 53 48 83 EC 30 48 8B D9 0F 29 74 24 20 48 8B 89 50 04 00 00 0F 28 F1 E8 ?? ?? ?? ?? 0F "
-            "28 CE 48 8B CB 0F 28 74 24 20 48 83 C4 30 5B E9");
-        inline constexpr Pattern k_combatPlayerUpdateController = Pattern::literal("48 8B 89 50 04 00 00 [0-8] E8");
-        inline constexpr std::size_t k_combatPlayerUpdateControllerWindow = 0x30;
         // The combat lock-on's target pick reading the view camera's forward (sub_180686A50 at 0x180686AE7, GOG
         // 0x1806AC047, Game Pass 0x180655197), the instruction site the mid hook sits on: `movss xmm13, [rax+4]` and
         // `movss xmm14, [rax+14h]` read the forward's x and y from the CCamera that ISystem::GetViewCamera returned in

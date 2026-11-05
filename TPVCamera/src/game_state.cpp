@@ -10,6 +10,7 @@
 
 #include "game_state.hpp"
 #include "aob_resolver.hpp"
+#include "code_proofs.hpp"
 #include "config.hpp"
 #include "rtti_types.hpp"
 #include "constants.hpp"
@@ -755,16 +756,16 @@ namespace TPVCamera
             {
                 return std::nullopt;
             }
-            const uintptr_t get_view_system = read_checked_vtable_slot(
-                *framework_vtable, Constants::CRYACTION_VTABLE_GET_VIEW_SYSTEM_SLOT, Aob::k_frameworkGetViewSystem,
-                Aob::k_frameworkGetViewSystem.max_match_length(), game.base, game.size);
+            const uintptr_t get_view_system =
+                read_proven_vtable_slot(*framework_vtable, Constants::CRYACTION_VTABLE_GET_VIEW_SYSTEM_SLOT,
+                                        Proof::k_frameworkGetViewSystem, game.base, game.size);
             if (get_view_system == 0)
             {
                 s_cutscene_unavailable = true;
                 return std::nullopt;
             }
             const auto member =
-                DMK::memory::read<int32_t>(DMK::Address{get_view_system + Aob::k_frameworkGetViewSystemMember});
+                DMK::memory::read<int32_t>(DMK::Address{get_view_system + Proof::k_frameworkGetViewSystemMember});
             if (!member || *member <= 0)
             {
                 s_cutscene_unavailable = true;
@@ -782,16 +783,15 @@ namespace TPVCamera
                 return std::nullopt;
             }
             const uintptr_t is_playing =
-                read_checked_vtable_slot(*view_system_vtable, Constants::VIEW_SYSTEM_VTABLE_IS_PLAYING_CUTSCENE_SLOT,
-                                         Aob::k_viewSystemIsPlayingCutScene,
-                                         Aob::k_viewSystemIsPlayingCutScene.max_match_length(), game.base, game.size);
+                read_proven_vtable_slot(*view_system_vtable, Constants::VIEW_SYSTEM_VTABLE_IS_PLAYING_CUTSCENE_SLOT,
+                                        Proof::k_viewSystemIsPlayingCutScene, game.base, game.size);
             if (is_playing == 0)
             {
                 s_cutscene_unavailable = true;
                 return std::nullopt;
             }
             const auto count =
-                DMK::memory::read<int8_t>(DMK::Address{is_playing + Aob::k_viewSystemIsPlayingCutSceneCount});
+                DMK::memory::read<int8_t>(DMK::Address{is_playing + Proof::k_viewSystemIsPlayingCutSceneCount});
             if (!count || *count <= 0)
             {
                 s_cutscene_unavailable = true;
