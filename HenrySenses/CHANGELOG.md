@@ -2,6 +2,13 @@
 
 All notable changes to the HenrySenses mod will be documented in this file.
 
+## [1.2.0] - Mod Support and Nearest Loot First
+
+- Updated the bundled modding toolkit (DetourModKit) to v4.5.0.
+- Starts reliably together with other mods that hook the same game function, in any load order.
+- Loot right next to you lights up first when a group switches on in a busy area.
+- Other mods can switch highlight groups with the `henrysenses_trigger` console command and see which are on in `henrysenses_active`.
+
 ## [1.1.0] - Hold Hotkeys, Books and Bows
 
 - Added `Key.HoldTimeInSeconds` to make a hotkey act only after you hold it for a set time, so a quick tap does nothing.
@@ -33,6 +40,7 @@ All notable changes to the HenrySenses mod will be documented in this file.
 - Filter stolen, empty, locked and hostile targets using the game's own checks.
 - Add optional sparkles, glow or a tinted focus effect.
 
+[1.2.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/HenrySenses-v1.2.0
 [1.1.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/HenrySenses-v1.1.0
 [1.0.2]: https://github.com/tkhquang/KCD2Tools/releases/tag/HenrySenses-v1.0.2
 [1.0.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/HenrySenses-v1.0.1
