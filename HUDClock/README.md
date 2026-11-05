@@ -1,6 +1,6 @@
 # Kingdom Come: Deliverance II - HUD Clock - Show the Time of Day
 
-Shows the game time on the HUD: as a clock, as the part of the day (Dawn, Late morning, Dusk...), or both, under the game's own sun and moon dial. It shows with the HUD, in minigames and optionally in photo mode, and hides in menus, dialogue and cutscenes.
+Shows the game time on the HUD.
 
 ## Features
 
