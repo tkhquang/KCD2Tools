@@ -36,6 +36,17 @@ namespace TPVCamera
     [[nodiscard]] std::uintptr_t read_checked_vtable_slot(std::uintptr_t vtable, std::size_t slot,
                                                           const DMK::scan::Pattern &signature, std::size_t window,
                                                           std::uintptr_t module_base, std::size_t module_size);
+
+    /**
+     * @brief Reads a vtable slot whose target is proven by two shapes: @p frame matched at its first byte, else
+     *        @p body within its first @p body_window bytes.
+     * @details The body shape proves a target whose entry another mod's inline hook replaced.
+     * @return The target, or 0 when it lies outside the game image or neither shape matches.
+     */
+    [[nodiscard]] std::uintptr_t read_proven_vtable_slot(std::uintptr_t vtable, std::size_t slot,
+                                                         const DMK::scan::Pattern &frame,
+                                                         const DMK::scan::Pattern &body, std::size_t body_window,
+                                                         std::uintptr_t module_base, std::size_t module_size);
 } // namespace TPVCamera
 
 #endif // TPVCAMERA_HOOKS_VTABLE_SLOTS_HPP

@@ -8,6 +8,7 @@
 #include "camera_rules_files.hpp"
 #include "constants.hpp"
 #include "core/occlusion/fence_coverage.hpp"
+#include "core/occlusion/scan_guard.hpp"
 #include "dev/hook_profile.hpp"
 #include "global_state.hpp"
 #include "physics_raycast.hpp"
@@ -23,6 +24,8 @@
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <memory>
+#include <new>
 #include <string>
 
 namespace TPVCamera
@@ -168,26 +171,42 @@ namespace TPVCamera
         }
     }
 
+    // The count-then-fill query's list (query_nodes()). Main-thread only, like every octree query here.
+    static void *s_filled[Constants::RENDER_OCCLUSION_MAX_NODES];
+
     /**
-     * @brief Fills @p nodes with the render nodes of @p type in @p bbox and returns how many it wrote.
-     * @details With the single walk (refresh_brush_query()), the typed query's collector gathers into s_collected
-     *          once and the nodes are copied out when they fit. Otherwise the typed query when refresh_brush_query()
-     *          selected it, else the untyped one (whose other node types the callers' own type filter drops). Both copy
-     *          their full result without a size limit, so the count is taken first and the list is filled only when it
-     *          fits with RENDER_OCCLUSION_NODE_SLACK to spare, covering nodes registered between the two calls. The
-     *          return is the FILL call's count (a node removed in between must not leave a stale slot in range),
-     *          bounded by the buffer. POD-only: called inside the callers' structured-exception frames, which contain a
-     *          fault.
+     * @brief The render nodes one octree query returned: a view valid until the next query_nodes() call.
+     * @details POD, for the callers' structured-exception frames.
+     */
+    struct NodeList
+    {
+        void *const *nodes = nullptr;
+        std::uint32_t count = 0;
+        // How many nodes the octree held for the query, whether or not they were returned.
+        std::uint64_t found = 0;
+        // The octree held more nodes than the guard allows, so none were returned.
+        bool overflow = false;
+    };
+
+    /**
+     * @brief Queries the render nodes of @p type in @p bbox.
+     * @details With the single walk (refresh_brush_query()), the typed query's collector gathers into s_collected,
+     *          the engine's own growable vector, and the list is that vector as it stands: nothing is copied, so a box
+     *          of any real size is returned whole. Only a count above RENDER_OCCLUSION_MAX_COLLECTED (or a vector whose
+     *          end lies before its start) is taken for corruption. Otherwise the typed query when
+     *          refresh_brush_query() selected it, else the untyped one (whose other node types the callers' own type
+     *          filter drops). Both copy their full result without a size limit, so the count is taken first and
+     *          s_filled is filled only when it fits with RENDER_OCCLUSION_NODE_SLACK to spare, covering nodes
+     *          registered between the two calls. The count is then the FILL call's (a node removed in between must
+     *          not leave a stale slot in range), bounded by the buffer. POD-only: called inside the callers'
+     *          structured-exception frames, which contain a fault.
      * @param p3d The engine object.
      * @param type The EERType to collect (ignored by the untyped fallback).
      * @param bbox Query box {min.xyz, max.xyz}.
-     * @param nodes Buffer of RENDER_OCCLUSION_MAX_NODES entries.
-     * @param overflow Set to true when the box holds more candidates than fit; left untouched otherwise. May be
-     *        nullptr.
-     * @return The number of entries written, 0 when the box is empty or holds more candidates than fit.
+     * @return The nodes and how many the octree held; empty when the box holds none, or flagged overflow when it holds
+     *         more than the guard allows.
      */
-    static std::uint32_t query_nodes(QueryLedger::Tag tag, void *p3d, std::uint32_t type, const float *bbox,
-                                     void **nodes, bool *overflow = nullptr) noexcept
+    static NodeList query_nodes(QueryLedger::Tag tag, void *p3d, std::uint32_t type, const float *bbox) noexcept
     {
         constexpr auto k_capacity = static_cast<std::uint32_t>(Constants::RENDER_OCCLUSION_MAX_NODES);
         constexpr auto k_fit =
@@ -195,22 +214,25 @@ namespace TPVCamera
         const GetObjectsByTypeInBoxFn typed = s_get_objects_by_type_in_box;
         if (typed != nullptr && s_single_walk)
         {
-            // One walk: nothing can register between a count and a fill, so the whole buffer is usable.
             const std::int64_t started = QueryLedger::begin();
             s_collected.last = s_collected.first;
             s_octree_collect(p3d, type, bbox, &s_collected, Constants::ENGINE3D_QUERY_ANY_RNDFLAGS);
             QueryLedger::end(tag, QueryLedger::Kind::Octree, started);
-            const auto found = static_cast<std::size_t>(s_collected.last - s_collected.first);
-            if (found == 0 || found > k_capacity)
+            const ScanGuard::Collected got = ScanGuard::collected(
+                reinterpret_cast<std::uintptr_t>(s_collected.first), reinterpret_cast<std::uintptr_t>(s_collected.last),
+                static_cast<std::uint64_t>(Constants::RENDER_OCCLUSION_MAX_COLLECTED));
+            if (got.count == 0 || got.overflow)
             {
-                if (overflow != nullptr && found > k_capacity)
-                {
-                    *overflow = true;
-                }
-                return 0;
+                return {
+                    .found = got.count,
+                    .overflow = got.overflow,
+                };
             }
-            std::copy_n(s_collected.first, found, nodes);
-            return static_cast<std::uint32_t>(found);
+            return {
+                .nodes = s_collected.first,
+                .count = static_cast<std::uint32_t>(got.count),
+                .found = got.count,
+            };
         }
 
         const std::int64_t ledger_started = QueryLedger::begin();
@@ -220,17 +242,20 @@ namespace TPVCamera
         if (count == 0 || count > k_fit)
         {
             QueryLedger::end(tag, QueryLedger::Kind::Octree, ledger_started);
-            if (overflow != nullptr && count > k_fit)
-            {
-                *overflow = true;
-            }
-            return 0;
+            return {
+                .found = count,
+                .overflow = count > k_fit,
+            };
         }
         const std::uint32_t copied = (typed != nullptr)
-                                         ? typed(p3d, type, bbox, nodes, Constants::ENGINE3D_QUERY_ANY_RNDFLAGS)
-                                         : s_get_objects_in_box(p3d, bbox, nodes);
+                                         ? typed(p3d, type, bbox, s_filled, Constants::ENGINE3D_QUERY_ANY_RNDFLAGS)
+                                         : s_get_objects_in_box(p3d, bbox, s_filled);
         QueryLedger::end(tag, QueryLedger::Kind::Octree, ledger_started, 2);
-        return (copied < k_capacity) ? copied : k_capacity;
+        return {
+            .nodes = s_filled,
+            .count = (copied < k_capacity) ? copied : k_capacity,
+            .found = count,
+        };
     }
 
     void release_render_occlusion() noexcept
@@ -245,6 +270,9 @@ namespace TPVCamera
         s_single_walk = false;
     }
 
+    /** @brief Allocates the scan tables once (see s_scan). False when the allocation fails. */
+    static bool allocate_scan_tables() noexcept;
+
     bool initialize_render_occlusion(uintptr_t module_base, size_t module_size, uintptr_t g_env)
     {
         DMK::Logger &logger = DMK::log();
@@ -254,6 +282,12 @@ namespace TPVCamera
         {
             logger.warning(
                 "RenderOcclusion: GetObjectsInBox or g_env not found (game patched?); render occlusion unavailable");
+            return false;
+        }
+        if (!allocate_scan_tables())
+        {
+            logger.warning("RenderOcclusion: the occluder scan tables could not be allocated; render occlusion "
+                           "unavailable");
             return false;
         }
 
@@ -869,8 +903,11 @@ namespace TPVCamera
         }
     }
 
-    // The cached scan. Main-thread only (the camera frame), so plain statics are race-free.
-    static ScannedNode s_scan[Constants::OCCLUDER_SCAN_MAX];
+    // The cached scan. Main-thread only (the camera frame), so plain statics are race-free. The tables of
+    // OCCLUDER_SCAN_MAX entries (this one and the next scan's) are allocated once by allocate_scan_tables(): as
+    // statics they would fill the DLL image with initialized data.
+    static std::unique_ptr<ScannedNode[]> s_scan_storage;
+    static ScannedNode *s_scan = nullptr;
     static int s_scan_count = 0;
     static float s_scan_box[6] = {};
     // When the scan was taken (GetTickCount64), so a scan from before a pause, a first-person stretch or a load is
@@ -879,6 +916,9 @@ namespace TPVCamera
     // When the scan's static part (brushes, vegetation, merged patches) was queried: by the full scan only, while the
     // dynamic refresh moves s_scan_stamp_ms on.
     static std::uint64_t s_scan_static_stamp_ms = 0;
+    // Counts the scans put in use (a full scan, a dynamic refresh, a scan built ahead): what a consumer of the table
+    // keys its per-scan state on. A stamp can repeat (GetTickCount64 steps every 10-16 ms), a generation never does.
+    static std::uint64_t s_scan_generation = 0;
     static bool s_scan_valid = false;
     // The rule set the scan was classified with: its verdicts index its rules, and a set of another generation takes a
     // new scan. A scan with a new set reports a class change once (advance_fence_classification()).
@@ -1145,6 +1185,22 @@ namespace TPVCamera
         return true;
     }
 
+    /** @brief What a scan's octree queries found, and whether a guard cut it short. POD, for the SEH frames. */
+    struct ScanStats
+    {
+        // The query slots: the typed passes in scan order (vegetation, merged patches, entity proxies, movable
+        // brushes, brushes), then the untyped fallback's one query.
+        static constexpr int k_untyped = 5;
+        static constexpr int k_slots = 6;
+        // The most nodes a query of each slot found (several frames of a scan built ahead each add theirs).
+        std::uint64_t found[k_slots] = {};
+        // A query found more nodes than its guard (overflow_slot names it) or the table filled: the scan holds only
+        // part of its box.
+        bool truncated = false;
+        bool table_full = false;
+        int overflow_slot = -1;
+    };
+
     /**
      * @brief Collects the visible brushes, vegetation and entity proxies in @p qbox into @p out, each with the verdict
      *        of its camera rule and its class.
@@ -1159,17 +1215,16 @@ namespace TPVCamera
      *        brushes (see refresh_occluder_scan()).
      * @param pass_mask With the typed query, collect only the types of the passes whose bits are set (bit n for the
      *        n-th of vegetation, merged patches, entity proxies, movable brushes, brushes); ~0u for all.
-     * @param truncated Set when a type had more nodes than the octree query or the table holds.
+     * @param stats Accumulates what the queries found and whether a guard cut the scan short.
      * @return The number of nodes written.
      */
     static int scan_nodes_guarded(void *p3d, const float *qbox, const Rules::RuleSet &rules, bool trace,
-                                  bool dynamic_only, ScannedNode *out, int cap, bool *truncated,
+                                  bool dynamic_only, ScannedNode *out, int cap, ScanStats &stats,
                                   unsigned pass_mask = ~0u) noexcept
     {
         int n = 0;
         __try
         {
-            void *nodes[Constants::RENDER_OCCLUSION_MAX_NODES];
             const bool typed = s_get_objects_by_type_in_box != nullptr;
             static constexpr std::uint32_t k_types[] = {static_cast<std::uint32_t>(Constants::EERTYPE_VEGETATION),
                                                         static_cast<std::uint32_t>(Constants::EERTYPE_MERGED_MESH),
@@ -1189,16 +1244,23 @@ namespace TPVCamera
                 {
                     continue;
                 }
-                const std::uint32_t count =
-                    query_nodes(QueryLedger::Tag::OccluderScan, p3d, k_types[pass], qbox, nodes, truncated);
-                for (std::uint32_t i = 0; i < count; ++i)
+                const NodeList list = query_nodes(QueryLedger::Tag::OccluderScan, p3d, k_types[pass], qbox);
+                const int slot = typed ? pass : ScanStats::k_untyped;
+                stats.found[slot] = std::max(stats.found[slot], list.found);
+                if (list.overflow)
+                {
+                    stats.truncated = true;
+                    stats.overflow_slot = slot;
+                }
+                for (std::uint32_t i = 0; i < list.count; ++i)
                 {
                     if (n >= cap)
                     {
-                        *truncated = true;
+                        stats.truncated = true;
+                        stats.table_full = true;
                         break;
                     }
-                    void *node = nodes[i];
+                    void *node = list.nodes[i];
                     if (node == nullptr)
                     {
                         continue;
@@ -1368,12 +1430,16 @@ namespace TPVCamera
         {
             return false;
         }
-        bool truncated = false;
+        ScanStats stats;
         HookProfile::count(HookProfile::Counter::ScanDynamic);
-        s_scan_count +=
-            scan_nodes_guarded(reinterpret_cast<void *>(*p3d), s_scan_box, rules, trace, true, s_scan + s_scan_count,
-                               Constants::OCCLUDER_SCAN_MAX - s_scan_count, &truncated);
-        return !truncated;
+        s_scan_count += scan_nodes_guarded(reinterpret_cast<void *>(*p3d), s_scan_box, rules, trace, true,
+                                           s_scan + s_scan_count, Constants::OCCLUDER_SCAN_MAX - s_scan_count, stats);
+        if (stats.truncated)
+        {
+            return false;
+        }
+        ++s_scan_generation;
+        return true;
     }
 
     // The next scan's frames (advance_next_scan()), each a set of scan_nodes_guarded() passes: the vegetation, the
@@ -1384,13 +1450,14 @@ namespace TPVCamera
 
     // The next scan, built ahead of the one in use over a few camera frames (advance_next_scan()). Main-thread
     // only.
-    static ScannedNode s_next[Constants::OCCLUDER_SCAN_MAX];
+    static std::unique_ptr<ScannedNode[]> s_next_storage;
+    static ScannedNode *s_next = nullptr;
     static int s_next_count = 0;
     static int s_next_pass = -1; // the next frame of k_ahead_frames to query; -1 while no build runs
     static float s_next_box[6] = {};
     static std::uint64_t s_next_started_ms = 0;
     static std::uint64_t s_next_rules_generation = 0;
-    static bool s_next_truncated = false;
+    static ScanStats s_next_stats{};
     // The points' box on the last call, and the most any of its faces moved in one call lately (a decaying peak).
     static float s_last_want[6] = {};
     static bool s_last_want_valid = false;
@@ -1451,7 +1518,7 @@ namespace TPVCamera
             s_next_pass = 0;
             s_next_started_ms = now_ms;
             s_next_rules_generation = rules.generation();
-            s_next_truncated = false;
+            s_next_stats = {};
         }
         const auto drop = []() noexcept
         {
@@ -1469,9 +1536,9 @@ namespace TPVCamera
             DMK_PROFILE_SCOPE("render.scan_ahead");
             s_next_count += scan_nodes_guarded(reinterpret_cast<void *>(*p3d), s_next_box, rules, trace, false,
                                                s_next + s_next_count, Constants::OCCLUDER_SCAN_MAX - s_next_count,
-                                               &s_next_truncated, k_ahead_frames[s_next_pass]);
+                                               s_next_stats, k_ahead_frames[s_next_pass]);
         }
-        if (s_next_truncated || !box_holds(s_next_box, want, inner))
+        if (s_next_stats.truncated || !box_holds(s_next_box, want, inner))
         {
             drop();
             return;
@@ -1485,8 +1552,56 @@ namespace TPVCamera
         std::copy_n(s_next_box, 6, s_scan_box);
         s_scan_stamp_ms = s_next_started_ms;
         s_scan_static_stamp_ms = s_next_started_ms;
+        ++s_scan_generation;
         s_next_pass = -1;
         HookProfile::count(HookProfile::Counter::ScanAhead);
+    }
+
+    // The query slots of ScanStats, for the log.
+    constexpr const char *k_scan_slot_names[ScanStats::k_slots] = {"vegetation",    "merged patch", "entity proxy",
+                                                                   "movable brush", "brush",        "untyped"};
+
+    /**
+     * @brief Logs a full scan that a guard cut short: at once the first time, then at most once a minute with the count
+     *        since the last line. The guards sit far above any box measured in game, so a line means corrupt engine
+     *        data or a box denser than any seen, and names which guard and where.
+     */
+    static void note_truncated_scan(const ScanStats &stats, const float *qbox, int kept, std::uint64_t now_ms) noexcept
+    {
+        static ScanGuard::ReportLimiter s_limiter{60000};
+        const std::uint64_t scans = s_limiter.note(now_ms);
+        if (scans == 0)
+        {
+            return;
+        }
+        const int slot = stats.overflow_slot;
+        (void)DMK::log().try_log(
+            DMK::LogLevel::Warning,
+            "RenderOcclusion: {} occluder scan(s) since the last report held more render nodes than they keep, the "
+            "last around ({:.0f}, {:.0f}, {:.0f}) with {} kept ({} query found {}, table full: {}); an object left "
+            "out may not fade, a plant or prop left out stops the camera like a wall, and the see-through may miss it",
+            scans, (qbox[0] + qbox[3]) * 0.5f, (qbox[1] + qbox[4]) * 0.5f, (qbox[2] + qbox[5]) * 0.5f, kept,
+            slot >= 0 ? k_scan_slot_names[slot] : "no", slot >= 0 ? stats.found[slot] : 0, stats.table_full);
+    }
+
+    static bool allocate_scan_tables() noexcept
+    {
+        if (s_scan != nullptr)
+        {
+            return true;
+        }
+        try
+        {
+            s_scan_storage = std::make_unique<ScannedNode[]>(Constants::OCCLUDER_SCAN_MAX);
+            s_next_storage = std::make_unique<ScannedNode[]>(Constants::OCCLUDER_SCAN_MAX);
+        }
+        catch (const std::bad_alloc &)
+        {
+            return false;
+        }
+        s_scan = s_scan_storage.get();
+        s_next = s_next_storage.get();
+        return true;
     }
 
     void refresh_occluder_scan(const Vector3 *points, int n_points)
@@ -1593,7 +1708,7 @@ namespace TPVCamera
         refresh_brush_query(*vtable);
         const float m = Constants::OCCLUDER_SCAN_MARGIN;
         float qbox[6] = {want[0] - m, want[1] - m, want[2] - m, want[3] + m, want[4] + m, want[5] + m};
-        bool truncated = false;
+        ScanStats stats;
         HookProfile::count(HookProfile::Counter::ScanFull);
         HookProfile::count(!had_scan || !same_rules ? HookProfile::Counter::ScanFullFirst
                            : !inside                ? HookProfile::Counter::ScanFullExit
@@ -1602,7 +1717,7 @@ namespace TPVCamera
         {
             DMK_PROFILE_SCOPE("render.scan_full");
             s_scan_count = scan_nodes_guarded(reinterpret_cast<void *>(*p3d), qbox, *rules, trace, false, s_scan,
-                                              Constants::OCCLUDER_SCAN_MAX, &truncated);
+                                              Constants::OCCLUDER_SCAN_MAX, stats);
         }
         if (!same_rules)
         {
@@ -1615,21 +1730,14 @@ namespace TPVCamera
             s_scan_box[k] = qbox[k];
         }
         // A truncated scan holds only part of the box, so it is not reused: the next refresh queries again.
-        s_scan_stamp_ms = truncated ? 0 : now_ms;
+        s_scan_stamp_ms = stats.truncated ? 0 : now_ms;
         s_scan_static_stamp_ms = s_scan_stamp_ms;
-        if (truncated)
+        ++s_scan_generation;
+        s_scan_valid = true;
+        if (stats.truncated)
         {
             HookProfile::count(HookProfile::Counter::ScanTruncated);
-        }
-        s_scan_valid = true;
-        static bool s_logged_truncation = false;
-        if (truncated && !s_logged_truncation)
-        {
-            s_logged_truncation = true;
-            DMK::log().warning("RenderOcclusion: the occluder scan around the camera holds more render nodes than it "
-                               "keeps ({} kept); an object left out may not fade, a plant or prop left out stops "
-                               "the camera like a wall, and the see-through may miss it",
-                               s_scan_count);
+            note_truncated_scan(stats, qbox, s_scan_count, now_ms);
         }
     }
 
@@ -3717,9 +3825,9 @@ namespace TPVCamera
         static std::uint64_t s_builds_seen = 0;
         const bool measured_since = s_mesh_builds != s_builds_seen;
         s_builds_seen = s_mesh_builds;
-        if (s_done_scan != s_scan_stamp_ms)
+        if (s_done_scan != s_scan_generation)
         {
-            s_done_scan = s_scan_stamp_ms;
+            s_done_scan = s_scan_generation;
             s_done_count = 0;
         }
         if (measured_since || !s_scan_valid || lines == nullptr || n_lines <= 0)

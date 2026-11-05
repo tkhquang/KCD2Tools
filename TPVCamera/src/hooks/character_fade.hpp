@@ -23,7 +23,7 @@ namespace TPVCamera
     /**
      * @brief Installs the CRenderProxy::Render detour from the CharacterFade anchor.
      * @details Best-effort: on a miss the camera keeps the first-person switch when it is too close.
-     * @param hooks The mod's hook stack. The handle is stored before its arm.
+     * @param hooks The mod's hook stack. A failed install leaves it unchanged.
      * @return An empty value when the hook was installed, else the library Error (ErrorCode::NoMatch when the anchor
      *         did not resolve).
      * @throws std::bad_alloc If the hook name or the hook stack cannot allocate.

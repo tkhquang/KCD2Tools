@@ -633,6 +633,47 @@ namespace TPVCamera
         inline constexpr Pattern k_cvarIntGetIVal = Pattern::literal("8B 41 48 C3");
         inline constexpr Pattern k_cvarIntGetI64Val = Pattern::literal("48 63 41 48 C3");
 
+        // The slots the screen effects call (screen_effects.cpp), two shapes each: a Frame matched at the slot
+        // target's first byte, and a body shape within its window that starts past the first 14 bytes, so a target
+        // whose entry another mod hooked still proves. Every shape matches once in the image and at no neighbouring
+        // slot on Steam 1.5.6, GOG 1.5 and Game Pass 1.4.
+        // C_UIOverlay's SetAlpha(layer, alpha) spills the int alpha (`mov [rsp+18h], r8d`), where HideOverlays and
+        // ShowOverlays spill a byte. Its body passes the layer (`[rsp+38h]`) and the alpha (`[rsp+40h]`) to the movie
+        // call: `lea r9, [rsp+40h]; mov rcx, rbx; lea r8, [rsp+38h]; lea rdx, [rsp+48h]; call rel32`.
+        // The particle manager's FindEffect(name, source, bLoadResources) opens with its 0x270-byte frame and the
+        // security cookie. Its body keeps bLoadResources and the name (`mov r12b, r9b; mov rsi, rdx`), refuses a
+        // disabled manager (`cmp [rcx+1C8h], bl`) and an empty name, then steps back to the manager (`add rcx, -8`)
+        // and calls the loaded-effect lookup.
+        // The manager's enable-by-name slot steps back to the manager, looks up the loaded effect, and calls the
+        // effect's SetEnabled with the flag (`mov dl, bl; mov r9, [rcx+50h]; call r9`, effect vtable slot 10). That
+        // call and the epilogue are its body shape.
+        // C3DEngine's SetPostEffectParam refuses a null name, then forwards to the post-effect group manager's slot
+        // 0x588 and returns: `test rcx, rcx; jz; mov rax, [rcx]; call [rax+588h]; add rsp, 28h; ret`.
+        inline constexpr Pattern k_uiOverlaySetAlphaFrame = Pattern::literal(
+            "44 89 44 24 18 53 48 83 EC 20 0F B6 C2 48 8B D9 48 8D 15 ?? ?? ?? ?? 89 44 24 38 48 8D 4C 24 48 E8");
+        inline constexpr Pattern k_uiOverlaySetAlphaCall = Pattern::literal(
+            "89 44 24 38 48 8D 4C 24 48 E8 ?? ?? ?? ?? 4C 8D 4C 24 40 48 8B CB 4C 8D 44 24 38 48 8D 54 24 48 E8");
+        inline constexpr std::size_t k_uiOverlaySetAlphaCallWindow = 0x40;
+        inline constexpr Pattern k_particleFindEffectFrame = Pattern::literal(
+            "40 53 55 56 57 41 54 41 56 41 57 48 81 EC 70 02 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 "
+            "84 24 60 02 00 00 33 DB 45 8A");
+        inline constexpr Pattern k_particleFindEffectGuards = Pattern::literal(
+            "33 DB 45 8A E1 49 8B E8 48 8B F2 4C 8B F9 38 99 C8 01 00 00 0F 84 ?? ?? ?? ?? 48 85 D2 0F 84 ?? ?? ?? ?? "
+            "38 1A 0F 84 ?? ?? ?? ?? 48 83 C1 F8 E8");
+        inline constexpr std::size_t k_particleFindEffectGuardsWindow = 0x60;
+        inline constexpr Pattern k_particleSetEffectEnabledFrame = Pattern::literal(
+            "40 53 48 83 EC 20 48 83 C1 F8 41 8A D8 E8 ?? ?? ?? ?? 48 85 C0 74 ?? 48 8B 08 8A D3 4C 8B "
+            "49 50 48 8B C8 41 FF D1");
+        inline constexpr Pattern k_particleSetEffectEnabledCall =
+            Pattern::literal("48 85 C0 74 ?? 48 8B 08 8A D3 4C 8B 49 50 48 8B C8 41 FF D1 48 83 C4 20 5B C3");
+        inline constexpr std::size_t k_particleSetEffectEnabledCallWindow = 0x30;
+        inline constexpr Pattern k_engineSetPostEffectParamFrame = Pattern::literal(
+            "48 83 EC 28 48 85 D2 74 ?? 48 8B 0D ?? ?? ?? ?? 48 85 C9 74 ?? 48 8B 01 FF 90 88 05 00 00 48 "
+            "83 C4 28 C3");
+        inline constexpr Pattern k_engineSetPostEffectParamForward =
+            Pattern::literal("48 85 C9 74 ?? 48 8B 01 FF 90 88 05 00 00 48 83 C4 28 C3");
+        inline constexpr std::size_t k_engineSetPostEffectParamForwardWindow = 0x28;
+
         // The cutscene gate's two getters, each matched at its first byte (Steam 1.5.6, GOG 1.5, Game Pass 1.4).
         // CCryAction's GetIViewSystem (`mov rax, [rcx+disp32]; ret`): the disp32 at k_frameworkGetViewSystemMember is
         // the CCryAction member holding the CViewSystem. CViewSystem's IsPlayingCutScene (`cmp dword [rcx+disp8], 0;

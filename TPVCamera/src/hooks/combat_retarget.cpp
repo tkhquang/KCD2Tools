@@ -159,29 +159,21 @@ namespace TPVCamera
             return;
         }
 
-        auto result = DMK::hook::inline_at<&detour_combat_player_update>(DMK::hook::InlineRequest{
-            .name = "CombatPlayerUpdate",
-            .target = DMK::Address{target},
-        });
-        if (!result.has_value())
-        {
-            logger.warning("Combat: combat-player update hook failed ({}); after a kill the lock-on waits for the game "
-                           "to move on",
-                           result.error().message());
-            return;
-        }
-        // Publish the trampoline and the call before enable() arms the patch, so the detour never sees a null original.
+        // Both calls are published before the install arms the hook, so the detour sees them from its first frame.
         s_set_opponent.store(reinterpret_cast<SetOpponentFunc>(wrapper), std::memory_order_release);
         s_is_threat.store(reinterpret_cast<CombatThreatFunc>(threat), std::memory_order_release);
-        s_update_original.store(result->original<CombatPlayerUpdateFunc>(), std::memory_order_release);
-        const auto armed = hooks.push(std::move(*result)).enable();
-        if (!armed.has_value())
+        const auto installed = hooks.install<&detour_combat_player_update>(DMK::hook::InlineInstallRequest{
+            .name = "CombatPlayerUpdate",
+            .target = DMK::Address{target},
+            .original = &s_update_original,
+        });
+        if (!installed.has_value())
         {
             s_set_opponent.store(nullptr, std::memory_order_release);
             s_is_threat.store(nullptr, std::memory_order_release);
-            logger.warning("Combat: combat-player update hook could not be armed ({}); after a kill the lock-on waits "
-                           "for the game to move on",
-                           armed.error().message());
+            logger.warning("Combat: combat-player update hook failed ({}); after a kill the lock-on waits for the game "
+                           "to move on",
+                           installed.error().message());
             return;
         }
         logger.info("Combat: after a kill the lock-on can move to the hostile in view (C_CombatPlayer slot {} at {}, "

@@ -153,6 +153,13 @@ namespace TPVCamera
         // so the use-target matches screen centre at all ranges.
         std::atomic<bool> interact_from_camera{true};
 
+        // The game's screen effects hidden in each view (ScreenEffect bits, parsed from the comma-separated
+        // HideScreenEffectsTPV / HideScreenEffectsFPV lists by parse_screen_effect_mask): the helmet's visor, the hit
+        // flashes, the wash's eyelids and water drops, the sleepy eyelids and the head-wound blood. The TPV list
+        // applies while mod_camera_view is 1, the FPV list at every other time.
+        std::atomic<uint32_t> hide_screen_effects_tpv_mask{0};
+        std::atomic<uint32_t> hide_screen_effects_fpv_mask{0};
+
         // First-person <-> third-person view-switch easing. The frustum detour eases a 0..1 blend
         // toward the target view over this many seconds (smoothstepped) so toggling and UI
         // suppression slide instead of snapping; 0 = instant switch.

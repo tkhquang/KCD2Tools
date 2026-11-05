@@ -24,7 +24,7 @@ namespace TPVCamera
     /**
      * @brief Installs the FireProjectile, Launch and CArrow collision hooks from the pre-resolved anchors.
      * @param g_env The resolved SSystemGlobalEnvironment base, or 0 (the trail then stays off).
-     * @param hooks The mod's hook stack. Each handle is stored before its arm.
+     * @param hooks The mod's hook stack. A failed install leaves it unchanged.
      * @return An empty value when the shot hooks are installed, or the Error that refused them (ErrorCode::NoMatch
      *         when the RangedAim gate failed). The trail is best-effort within this unit and only warns.
      * @throws std::bad_alloc If a hook name or the hook stack cannot allocate.

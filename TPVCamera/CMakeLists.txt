@@ -150,6 +150,7 @@ set(COMMON_SOURCES
   src/physics_raycast.cpp
   src/render_occlusion.cpp
   src/rtti_types.cpp
+  src/screen_effects.cpp
   src/tpv_camera.cpp
   src/version.cpp
   src/hooks/ai_observer.cpp

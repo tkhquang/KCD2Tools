@@ -1112,6 +1112,38 @@ namespace Constants
     // HideOverlays / ShowOverlays. The camera reads overlay_state().active to suppress the offset
     // while an overlay (inventory, map, dialog, codex) is up.
 
+    // wh::guimodule::C_UIOverlay, the C++ side of Libs/UI/Overlay.gfx (screen_effects.cpp). Its HideOverlays and
+    // ShowOverlays are the anchored hooks above, so the object arrives as their `this`, and its vtable is proven when
+    // these two slots hold exactly those anchors. Slot 17 is SetAlpha(u8 layer, int alpha 0..100), which sets the
+    // layer's image alpha in the movie (fc_setAlpha: g_overlaysA[i].anim.image._alpha). The movie's fade plays on the
+    // image's parent, so nothing but SetAlpha writes it. A new clip starts at 100: AddOverlay with a different type
+    // replaces the clip, and the same type replays the fade on the existing one. The object keeps each layer's
+    // current type at UI_OVERLAY_LAYER_TYPE_OFFSET + 4 * layer (12 ints, 0 = none; RemoveOverlay stores 0 there)
+    // and the WaterDroplets amount the game last asked for at UI_OVERLAY_DROPLETS_OFFSET. The same on Steam 1.5.6,
+    // GOG 1.5 and Game Pass 1.4.
+    constexpr std::size_t UI_OVERLAY_SET_ALPHA_SLOT = 17;
+    constexpr std::size_t UI_OVERLAY_HIDE_SLOT = 20;
+    constexpr std::size_t UI_OVERLAY_SHOW_SLOT = 21;
+    constexpr ptrdiff_t UI_OVERLAY_LAYER_TYPE_OFFSET = 0x88;
+    constexpr ptrdiff_t UI_OVERLAY_DROPLETS_OFFSET = 0xE4;
+    // Overlay.gfx layer ids (E_LAYER_*): the helmet's visor and the four hit flashes (blood, head hit, blackout,
+    // vignette). The game never sets the alpha of these five, so a hidden one goes back to 100.
+    constexpr std::uint8_t UI_OVERLAY_LAYER_HELMET = 0;
+    constexpr std::uint8_t UI_OVERLAY_LAYER_HIT_FIRST = 3;
+    constexpr std::uint8_t UI_OVERLAY_LAYER_HIT_LAST = 6;
+    constexpr std::int32_t UI_OVERLAY_ALPHA_SHOWN = 100;
+
+    // The particle manager (IParticleManager, the secondary base of CParticleManager) is a g_env member. Slot 6 is
+    // FindEffect(name, source, bLoadResources), which loads the effect's library on first use. Slot 8 enables or
+    // disables an already loaded effect by name: the call the game's own HideOverlays and ShowOverlays make for the
+    // screen particles (the eyelids, the wash and the head blood). It sets the effect's bEnabled, so the effect's
+    // emitters stop drawing and later spawns stay off until it is enabled again.
+    constexpr ptrdiff_t GENV_PARTICLE_MANAGER_OFFSET = 0x68;
+    constexpr std::size_t PARTICLE_MANAGER_FIND_EFFECT_SLOT = 6;
+    constexpr std::size_t PARTICLE_MANAGER_SET_EFFECT_ENABLED_SLOT = 8;
+    // C3DEngine's SetPostEffectParam(name, value, bForceValue), the call the game makes for WaterDroplets_Amount.
+    constexpr std::size_t ENGINE_SET_POST_EFFECT_PARAM_SLOT = 171;
+
     // The UI menu hooks (k_menuOpenCandidates / k_menuCloseCandidates) bracket the menu-open
     // (vftable[1]) and menu-close (vftable[2]) entries.
 

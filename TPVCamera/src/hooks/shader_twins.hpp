@@ -61,7 +61,7 @@ namespace TPVCamera
      *          association, independently of the camera's target list, in capacity of their own. Each frame checks
      *          the association, and a level or save load releases them. They own no native object and keep every PSO
      *          readiness check.
-     * @param hooks The mod's hook stack. Each handle is stored before its arm.
+     * @param hooks The mod's hook stack. A failed install leaves it unchanged.
      * @return An empty value when the hooks were installed (with or without the per-view upload hook), else the
      *         library Error (ErrorCode::NoMatch when the gate failed).
      * @note Call after resolve_all_anchors() and init_game_types().

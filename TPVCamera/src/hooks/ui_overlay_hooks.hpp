@@ -18,7 +18,7 @@ namespace TPVCamera
 
     /**
      * @brief Installs the UI overlay show/hide hooks from the pre-resolved anchors.
-     * @param hooks The mod's hook stack. Each handle is stored before its arm.
+     * @param hooks The mod's hook stack. A failed install leaves it unchanged.
      * @return An empty value when both hooks installed, or the library Error that refused the install
      *         (ErrorCode::NoMatch when an anchor cascade did not resolve).
      * @note Call after resolve_all_anchors(); the hook targets are read through the OverlayState gate.

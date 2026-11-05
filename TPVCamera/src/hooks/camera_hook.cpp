@@ -38,6 +38,7 @@
 #include "core/view/view_blend.hpp"
 #include "aob_resolver.hpp"
 #include "camera_view_signal.hpp"
+#include "screen_effects.hpp"
 #include "character_attachments.hpp"
 #include "character_pose.hpp"
 #include "combat_lock.hpp"
@@ -856,8 +857,8 @@ namespace TPVCamera
         // resolved chain has gone stale - which is why this function needs no SEH wrapper of its own.
         const float half = target_yaw * 0.5f;
         const std::array<float, 4> quat{0.0f, 0.0f, std::sin(half), std::cos(half)};
-        static_assert(Constants::QUAT_X_OFFSET == 0 && Constants::QUAT_Y_OFFSET == 4 &&
-                          Constants::QUAT_Z_OFFSET == 8 && Constants::QUAT_W_OFFSET == 12,
+        static_assert(Constants::QUAT_X_OFFSET == 0 && Constants::QUAT_Y_OFFSET == 4 && Constants::QUAT_Z_OFFSET == 8 &&
+                          Constants::QUAT_W_OFFSET == 12,
                       "The quat components must be contiguous XYZW floats for the single-store write.");
         if (!DMK::memory::write_in_place<std::array<float, 4>>(
                 anim_char->offset(Constants::ANIMCHAR_OVERRIDE_ROT_QUAT_OFFSET), quat))
@@ -1885,6 +1886,12 @@ namespace TPVCamera
             s_cursor_shown.store(false, std::memory_order_relaxed);
             // The next combat opponent is chosen by the third-person camera only; its standing request ends with it.
             request_combat_retarget(0, 0, 0);
+            // First person hides the HideScreenEffectsFPV list. It runs on idle frames too, so a hot reload in first
+            // person also replaces whatever the previous generation hid.
+            if (!repeat_build)
+            {
+                update_screen_effects(s_genv_runtime, false);
+            }
             // The trees the tree see-through still holds swapped go back to the stock shader once its hold runs out,
             // so it keeps getting its frames while any is left. The twins a pause creates come in first person too.
             if (!repeat_build && shader_twins_available())
@@ -2301,6 +2308,11 @@ namespace TPVCamera
         // Other mods follow the view through mod_camera_view: third person while the camera is out of the head,
         // through the ease back to the eye.
         publish_camera_view(s_genv_runtime, offset_engaged);
+        // The screen effects (visor, eyelids, water drops) follow the same view: each view hides its own list.
+        if (!repeat_build)
+        {
+            update_screen_effects(s_genv_runtime, offset_engaged);
+        }
         // A switch into third person starts with the lens at the eye, so the head stays hidden from its first frame;
         // the offset clears the hide once the lens is clear of the head. The re-assert below applies it this frame.
         const bool switch_starts = offset_engaged && !head_was_active();
@@ -2352,9 +2364,9 @@ namespace TPVCamera
                 const float stranded = player_onaction_reset();
                 if (stranded > k_move_input_stop)
                 {
-                    (void)DMK::log().try_log(
-                        DMK::LogLevel::Trace,
-                        "Orbit: TPV disengaged; cleared a stranded move-latch (magnitude {:.2f})", stranded);
+                    (void)DMK::log().try_log(DMK::LogLevel::Trace,
+                                             "Orbit: TPV disengaged; cleared a stranded move-latch (magnitude {:.2f})",
+                                             stranded);
                 }
                 s_orbit_was_engaged = false;
             }
@@ -2609,21 +2621,14 @@ namespace TPVCamera
         {
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "camera_hook/frustum_anchor"});
         }
-        auto frustum_result = DMK::hook::inline_at<&detour_frustum_build>(DMK::hook::InlineRequest{
+        const auto frustum_installed = hooks.install<&detour_frustum_build>(DMK::hook::InlineInstallRequest{
             .name = "CameraFrustumBuild",
             .target = DMK::Address{frustum_addr},
+            .original = &s_frustum_build_original,
         });
-        if (!frustum_result.has_value())
+        if (!frustum_installed.has_value())
         {
-            return std::unexpected(frustum_result.error());
-        }
-        // Publish the trampoline and store the handle BEFORE enable() arms the patch. The detour then cannot observe a
-        // null original on its first frame, and the stack owns a hook whose arm fails with the patch live. The backend
-        // allocates the trampoline at install, so it is readable off the still-disabled handle.
-        s_frustum_build_original.store(frustum_result->original<FrustumBuildFunc>(), std::memory_order_release);
-        if (auto armed = hooks.push(std::move(*frustum_result)).enable(); !armed.has_value())
-        {
-            return std::unexpected(armed.error());
+            return std::unexpected(frustum_installed.error());
         }
 
         install_head_visibility_hook(hooks);

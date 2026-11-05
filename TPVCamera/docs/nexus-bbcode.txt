@@ -11,232 +11,174 @@ It is still early days, so if anything feels off or you have an idea that would 
 
 [size=5]Key Features[/size]
 [list]
-[*]Third-person view you can toggle on and off at any time (default: F3, or hold LB + RB)[/*]
-[*]Over-the-shoulder framing with adjustable distance, height, and side offset[/*]
-[*]Zoom the camera in and out on the fly[/*]
-[*]Basic free-look orbit to look around your character (early, see Known Limitations)[/*]
-[*]Henry turns on the spot with the game's own turn-in-place animations when you look around while standing still, and the camera stays put; switched off automatically in combat, aiming, riding, conversations and minigames[/*]
-[*]The camera follows Henry's upper body through his own animations (sitting, praying, bending) and eases after the turns the game makes for him, so actions no longer jolt the view[/*]
-[*]Works with the game's combat lock-on: Henry turns to the enemy it picks, the camera keeps that enemy in view beside Henry, and after a kill the lock moves to the next enemy your camera points at[/*]
-[*]Automatic view switching by situation: switch to first or third person when you enter combat, aiming a bow, dialogue, minigames, riding, or menus (you can still toggle manually during it), restoring your previous view when it ends[/*]
-[*]In-game preset manager: edit, add, and save camera presets from an overlay; built-in presets for normal play, combat, aiming, horseback, sneaking, and special poses (lying down, sitting, kneeling, riding a cart) apply automatically by situation, and you can bind your own presets to combinations of states (such as aiming while crouched), with the most specific match winning[/*]
-[*]Several presets per situation, switched in game with a key; Close Shoulder (a tight over-the-shoulder camera) and Aiming Wide (the everyday framing while aiming) ship ready to use[/*]
-[*]Free-look look sensitivity is set per axis for both mouse and gamepad, so horizontal and vertical can be tuned independently; set a negative value to invert that axis. Mark any preset setting as Shared to apply its value to every preset at once[/*]
-[*]Camera collision that keeps its distance: posts, fences, open carts, lamps, furniture and hanging decorations between the camera and your character fade out instead of pulling the camera in[/*]
-[*]The ground, rocks, buildings, plank decks and walls, fences too tall to see over, high-sided wagons, tall shelves and haystacks still stop the camera, so inside a house it stays in the room[/*]
-[*]Trees, bushes and tall grass in front of your character open a dithered window around it, only where they hide it; the camera passes through bushes and trunks, and leaves right at the lens are cut away[/*]
-[*]When there is no room behind your character (a low doorway, a wall right behind), the character fades out with everything it wears and holds instead of the view jumping to first person[/*]
-[*]Camera rules decide, folder by folder or model by model, which objects stop the camera, fade, open in the window or are left alone, a mod's own models included[/*]
-[*]Crosshair stays lined up with what you point at (partly, only for interactions and not 100% yet)[/*]
-[*]Full keyboard and XInput controller support[/*]
-[*]Almost every setting is editable live while the game runs[/*]
-[*][url=https://github.com/tkhquang/KCD2Tools]Open-source[/url] with full transparency[/*]
+[*]Customizable over-the-shoulder third person, toggled with F3 (or hold LB + RB)[/*]
+[*]Camera presets per situation (combat, aiming, horseback, sneaking...), edited in game[/*]
+[*]Switches to first or third person by situation, if you want[/*]
+[*]Props fade instead of pulling the camera in; walls still stop it[/*]
+[*]See-through trees, bushes and tall grass[/*]
+[*]Shots and thrown stones fly to the crosshair[/*]
+[*]Hides first-person screen effects (helmet visor, eyelids, water drops) in third person[/*]
+[*][url=https://github.com/tkhquang/KCD2Tools]Open source[/url], built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url][/*]
 [/list]
-Third-person turns on automatically once you reach gameplay; press the toggle key to switch back, or set AutoEnableTPV = false in the INI to start in first-person.
 
 [size=5]Requirements[/size]
 [list]
-[*]Kingdom Come: Deliverance II (Steam or GOG version)[/*]
-[*]An ASI loader - NOT included, you download it yourself (see Step 1 below)[/*]
+[*]Kingdom Come: Deliverance II on Steam.[/*]
+[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332]Kingdom Come Script Extender (KCSE)[/url] [b]or[/b] [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases]Ultimate ASI Loader[/url]. Neither is included.[/*]
 [/list]
 
 [size=5]Installation[/size]
-This is an [b].asi[/b] plugin and requires an [b]ASI loader[/b], which is [b]not bundled[/b] in the download.
-
-[size=4]Find the installation folder[/size]
-Open your KC:D 2 installation folder, then open the Bin/Win64MasterMaster... subfolder that contains [b]WHGame.dll[/b]. On Steam this is:
-[code]<KC:D 2 installation folder>/Bin/Win64MasterMasterSteamPGO/[/code]
-Other stores use their own Bin/Win64MasterMaster... folder; use WHGame.dll to identify the correct one. The loader and mod files go directly into this folder.
-
-If you have the older [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1550]KCD2_TPVToggle[/url] mod installed, remove KCD2_TPVToggle.asi and KCD2_TPVToggle.ini first. TPVCamera replaces it, and running both camera mods at once will conflict. To keep a backup, move the old ASI outside the game folder or rename its extension to .asi.bak.
-
-[size=4]Step 1: Install an ASI loader[/size]
-If you already have a working ASI loader for KC:D 2, skip to Step 2. The same loader can load TPVCamera, Henry's Senses and other ASI mods.
-
-Download [b]one x64[/b] variant of [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases]Ultimate ASI Loader[/url] by ThirteenAG:
-[list]
-[*][url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/dinput8-x64.zip][b]dinput8.dll[/b][/url] - Usual choice if dinput8.dll is unused.[/*]
-[*][url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/version-x64.zip][b]version.dll[/b][/url] - Alternative when dinput8.dll is already used, including by KCSE.[/*]
-[*][url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/winmm-x64.zip][b]winmm.dll[/b][/url] - Another alternative if version.dll is also used or does not load.[/*]
+Everything goes in the game's binary folder, the one with [b]WHGame.dll[/b]. On Steam: [b]<KC:D 2 folder>/Bin/Win64MasterMasterSteamPGO/[/b]
+[list=1]
+[*][b]ASI loader:[/b] KCSE loads .asi files itself, so [b]KCSE users skip this step[/b]. Everyone else: extract one x64 Ultimate ASI Loader DLL beside WHGame.dll, [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/dinput8-x64.zip]dinput8.dll[/url] (usual), or [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/version-x64.zip]version.dll[/url] / [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/winmm-x64.zip]winmm.dll[/url] if that name is taken.[/*]
+[*][b]The mod:[/b] extract the archive into the same folder, with no extra subfolder. It does not use the Mods folder.[/*]
+[*][b]Check:[/b] launch the game. [b]KCD2_TPVCamera.log[/b] appears beside the ASI once the mod loads.[/*]
 [/list]
-Extract the DLL from the chosen ZIP directly beside WHGame.dll. Use the [b]x64[/b] build, not Win32, and install only one Ultimate ASI Loader variant. Do not overwrite a DLL belonging to another mod.
+Coming from [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/1550]KCD2_TPVToggle[/url]? Delete KCD2_TPVToggle.asi and KCD2_TPVToggle.ini first; the two mods conflict.
 
-[b]Using [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332]Kingdom Come Script Extender (KCSE)[/url]?[/b] KCSE uses [b]dinput8.dll[/b]. Keep KCSE's file and install Ultimate ASI Loader as [b]version.dll[/b] or [b]winmm.dll[/b] in the same folder. Choose an unused name from the downloads above; do not rename or replace KCSE's DLL.
-
-[size=4]Step 2: Install the mod[/size]
-Download the TPVCamera release archive from the Files tab or [url=https://github.com/tkhquang/KCD2Tools/releases]GitHub Releases[/url]. Extract its contents directly into the [b]same folder[/b] beside WHGame.dll and your loader DLL, without an extra archive-named subfolder.
-[list]
-[*][b]KCD2_TPVCamera.asi[/b] - The mod.[/*]
-[*][b]KCD2_TPVCamera.ini[/b] - Hotkeys and global settings.[/*]
-[*]The camera rules, which set how the camera treats each object in the world, are built into the ASI. Your own changes go in [b]KCD2_TPVCamera_rules_User.txt[/b], which you create (see Camera Rules below).[/*]
-[*][b]KCD2_TPVCamera_presets.json[/b] - Created on first run; not included in the archive.[/*]
-[/list]
-TPVCamera does not use the Mods folder.
-
-[size=4]Step 3: Launch and verify[/size]
-Launch the game; third-person turns on automatically once you reach gameplay. Press F3 (or hold LB + RB on a controller) to toggle back to first-person.
-
-[b]How to verify the mod loaded:[/b] check for [b]KCD2_TPVCamera.log[/b] beside the ASI. If it is missing, check that the ASI and x64 loader DLL are directly beside WHGame.dll, then try another unused loader variant and relaunch. Replace only the Ultimate ASI Loader DLL you installed; keep KCSE and other mods' DLLs. On Wine/Proton, also check the override below.
-
-When updating, back up your customized INI before extracting the new archive, then reapply your settings to the supplied INI. Keep KCD2_TPVCamera_presets.json to retain your saved camera presets. An update brings its camera rules built into the ASI and never touches your own KCD2_TPVCamera_rules_User.txt. If you replaced the built-in rules with a KCD2_TPVCamera_rules.txt of your own, that file stays in force, and the rules of an update reach you only once you delete it.
-
-[b]Folder layout[/b] (everything goes in the binary folder, next to WHGame.dll):
+[spoiler]
+[b]Folder layout[/b]
 [code]
 Bin/Win64MasterMasterSteamPGO/
-|-- WHGame.dll                         (game file, already present)
-|-- dinput8.dll                        (ASI loader; see KCSE note above)
-|-- KCD2_TPVCamera.asi                  (this mod)
-|-- KCD2_TPVCamera.ini                  (settings)
-|-- KCD2_TPVCamera_rules_User.txt       (your own camera rules; optional, you create it)
-|-- KCD2_TPVCamera_presets.json         (created on first run)
-\-- KCD2_TPVCamera.log                  (created when the mod loads)
+|-- WHGame.dll                         (game file)
+|-- dinput8.dll                        (KCSE or the ASI loader)
+|-- KCD2_TPVCamera.asi                 (this mod)
+|-- KCD2_TPVCamera.ini                 (settings)
+|-- KCD2_TPVCamera_rules_User.txt      (your camera rules; optional, you create it)
+|-- KCD2_TPVCamera_presets.json        (created on first run)
+\-- KCD2_TPVCamera.log                 (created when the mod loads)
 [/code]
-With KCSE, dinput8.dll in this example belongs to KCSE; your chosen ASI loader, version.dll or winmm.dll, sits alongside it.
 
-[size=5]Linux / Steam Deck (Wine/Proton)[/size]
-Add an override for your chosen loader DLL in the game's [b]Properties -> Launch Options[/b] on Steam:
+[b]No log file?[/b] Check that the ASI and the loader DLL sit directly beside WHGame.dll, and that the loader is the x64 build. With KCSE, update KCSE to its latest version. Without it, try another loader name. Never overwrite a DLL that belongs to another mod.
+
+[b]Linux / Steam Deck:[/b] add this to the game's Steam launch options, using your loader's name (version or winmm) if it is not dinput8:
 [code]WINEDLLOVERRIDES="dinput8=n,b" %command%[/code]
-Use version=n,b or winmm=n,b instead when using that loader name. If you also use KCSE's dinput8.dll with the version.dll loader, retain both overrides:
-[code]WINEDLLOVERRIDES="dinput8,version=n,b" %command%[/code]
-For a command-line launch, set the same WINEDLLOVERRIDES value before your launch command. Keep any overrides your other mods need.
 
-[size=5]Uninstall[/size]
+[b]Updating:[/b] back up your INI, extract the new archive, then copy your settings back in. Keep KCD2_TPVCamera_presets.json and KCD2_TPVCamera_rules_User.txt; updates never touch them.
+
+[b]Uninstall:[/b] delete every file starting with KCD2_TPVCamera beside WHGame.dll, and the loader DLL if no other mod needs it. Optionally, delete the files starting with kcd2_tpvcamera_ in the game's shader cache ([b]%USERPROFILE%\Saved Games\kingdomcome2\shaders\cache\d3d12\[/b] and its cg...shaders subfolders); leave the game's own files there.
+[/spoiler]
+
+[size=5]Controls[/size]
 [list]
-[*]In the folder beside WHGame.dll, delete every file whose name starts with [b]KCD2_TPVCamera[/b]: the ASI, the INI, the rules files (your own, other mods' patches and an exported copy included), the presets, the logs and any signature files. Delete the ASI loader DLL only if no other mod uses it.[/*]
-[*]Optionally, delete the shaders TPVCamera wrote to the game's shader cache, usually [b]%USERPROFILE%\Saved Games\kingdomcome2\shaders\cache\d3d12\[/b] (the log line "ShaderTwins: ... twin file(s) in <folder>" names it): the files whose names start with [b]kcd2_tpvcamera_[/b], in that folder and in its cg...shaders subfolders. Leave the rest of the folder alone: it is the game's own shader cache, and deleting it only makes the game compile its shaders again.[/*]
+[*][b]Toggle third person:[/b] F3, or hold LB + RB[/*]
+[*][b]Toggle free-look orbit:[/b] F4, or hold LB + click LS[/*]
+[*][b]Preset manager:[/b] Home[/*]
+[*][b]Zoom in / out:[/b] LShift + PageUp / PageDown, or hold LB + D-pad up / down[/*]
+[/list]
+Unbound by default: hold-to-orbit, force first / third person, next / previous preset, swap shoulder. Bind them in KCD2_TPVCamera.ini.
+
+[spoiler]
+[b]Hotkey format[/b]
+[list]
+[*]Named keys: V, F3, Numpad1, Mouse4, Gamepad_A, etc. ([url=https://github.com/tkhquang/DetourModKit?tab=readme-ov-file#supported-input-names]full list[/url])[/*]
+[*]Modifiers: Ctrl, Shift, Alt (or LCtrl, RCtrl, etc.)[/*]
+[*]Comma = OR: [b]F3,Gamepad_LB+Gamepad_RB[/b] is F3 alone, or hold LB and press RB[/*]
+[*]An empty value disables the binding[/*]
 [/list]
 
-[size=5]Default Controls[/size]
-All keys are rebindable in KCD2_TPVCamera.ini.
-[list]
-[*][b]Enter / exit third-person:[/b] F3, or hold LB + RB[/*]
-[*][b]Toggle free-look orbit:[/b] F4, or hold LB + click the left stick (LS)[/*]
-[*][b]Hold for free-look orbit:[/b] unbound by default (momentary freelook: hold to look around, release to snap back)[/*]
-[*][b]Open preset manager overlay:[/b] Home[/*]
-[*][b]Zoom in:[/b] LShift + PageUp, or hold LB + D-pad up[/*]
-[*][b]Zoom out:[/b] LShift + PageDown, or hold LB + D-pad down[/*]
-[*][b]Force first-person / force third-person:[/b] unbound by default[/*]
-[*][b]Cycle to next / previous preset:[/b] unbound by default (for example Numpad6 / Numpad4, or hold LB + D-pad right / left)[/*]
-[*][b]Swap shoulder:[/b] unbound by default (SwapShoulderKey)[/*]
-[/list]
-On a controller the zoom shares the D-pad with the game's inventory/map shortcut, so the mod hides that D-pad button from the game while you zoom (the ZoomInKey.Consume / ZoomOutKey.Consume keys, on by default) so finishing a zoom does not open the inventory or map. Set them to false if you would rather the D-pad keep reaching the game. The keyboard zoom keys are unaffected.
+[b]Controllers:[/b] XInput only. Xbox pads work as they are; for PlayStation or Switch pads, use Steam Input, DS4Windows, DualSenseX or BetterJoy (see [url=https://github.com/tkhquang/DetourModKit?tab=readme-ov-file#gamepad-compatibility]Gamepad Compatibility[/url]).
+
+[b]D-pad zoom:[/b] while you zoom, the mod hides that D-pad press from the game so the inventory or map does not open. Set ZoomInKey.Consume / ZoomOutKey.Consume to false to turn that off.
+[/spoiler]
 
 [size=5]Configuration[/size]
-Edit KCD2_TPVCamera.ini, grouped into:
-[list]
-[*][b][Settings][/b] - log level, the view hotkeys, the preset-overlay key, and the start-of-session auto-enable flags[/*]
-[*][b][Camera][/b] - zoom keys, the shoulder swap key (SwapShoulderKey) and whether the swap is saved (AutoSaveShoulder), the camera-space interaction toggle, the view-transition ease, the camera-stability options (StableAimBasis, AimBasisSmoothing) that keep the view steady against head-bob, sway, and combat shake, and the native turn animation (NativeTurnAnimation, with NativeTurnAngle and NativeTurnSettleDelay tuning when Henry turns on the spot to face where you look). The framing itself is per-preset[/*]
-[*][b][Orbit][/b] - the free-look orbit keys (press-to-toggle and momentary hold) and the cursor freeze (the orbit feel is per-preset)[/*]
-[*][b][Collision][/b] - the collision probe and radius, UseOccluderFade (fade the props that hide your character instead of pulling in; buildings still stop the camera) with how much of them stays and which props count as in front of your character (enable, skin, return speed and shoulder collision are per-preset), UseTreeSeeThrough (open a dithered window around your character in the trees, bushes and tall grass in front of it) with how much of the plants stays, its size, where it starts up the body and its softness, UseLensCut (cut away what comes right up to the lens), HeadClearance, the room the camera needs behind your character, and CloseUpFade (fade the character and everything it wears and holds instead of switching to first person when there is less) with how much of the character always stays[/*]
-[*][b][StateBehavior][/b] - switch first/third person on entering a situation (combat, aiming, dialogue, minigame, mount, menu, overlay), restore the prior view on exit (manual toggles during it stick), suspend/restore free-look in chosen situations, choose where the native turn animation is switched off (NativeTurnExcludeState), and whether loading a crossbow already counts as aiming (ReloadCountsAsAiming)[/*]
-[*][b][Ranged][/b] - aim third-person shots (arrows, bolts, handgonne balls) and distraction stones at the crosshair (AimAtCrosshair), the largest correction allowed (MaxAimCorrection), the flight trail (ShowProjectileTrail, ProjectileTrailSeconds), a live preview of where a drawn shot or a held distraction stone will land (ShowAimPreview, AimPreviewArc, AimPreviewOpacity, AimPreviewColor, AimPreviewThroughWalls), and how much your shots drop per weapon (BowGravity, CrossbowGravity, FirearmGravity)[/*]
-[*][b][Presets][/b] - the keys that cycle presets bound to the same situation (NextPresetKey, PreviousPresetKey) and whether the choice is saved (AutoSaveCyclePick); the camera framing lives in the in-game preset manager (open with Home) and is stored in KCD2_TPVCamera_presets.json next to the INI. That file is created automatically from the built-in defaults on first run; it is not shipped, so updating the mod never overwrites presets you have tuned[/*]
-[*][b][Advanced][/b] - the self-heal window, ExportSignatures (writes the built-in signatures for reporting a problem after a game update) and ExportRules (see Camera Rules below)[/*]
-[/list]
-Most values apply the next frame after you save the file.
+Camera framing lives in the in-game preset manager (Home) and is saved to KCD2_TPVCamera_presets.json. Everything else is in [b]KCD2_TPVCamera.ini[/b], where every option is documented. Most changes apply as soon as you save.
 
-How the camera treats each object (which ones stop it, fade, let it through, open in the see-through window or thin away at the lens) is set by the camera rules, not in the INI; see Camera Rules below. UseOccluderFade and UseTreeSeeThrough still turn the fade and the window on or off for every object, whatever the rules say.
+[spoiler]
+[list]
+[*][b][Settings][/b] - log level, view hotkeys, auto-enable at start (AutoEnableTPV)[/*]
+[*][b][Camera][/b] - zoom and shoulder keys, screen effects hidden per view (HideScreenEffectsTPV, HideScreenEffectsFPV), view transition, camera stability, native turn animation[/*]
+[*][b][Orbit][/b] - free-look keys and cursor freeze[/*]
+[*][b][Collision][/b] - prop fading (UseOccluderFade), foliage window (UseTreeSeeThrough), lens cut (UseLensCut), character fade (CloseUpFade)[/*]
+[*][b][StateBehavior][/b] - which situations switch the view or pause free-look[/*]
+[*][b][Ranged][/b] - aim at the crosshair, landing preview, projectile trail, drop per weapon[/*]
+[*][b][Presets][/b] - preset cycle keys[/*]
+[*][b][Advanced][/b] - ExportRules and ExportSignatures[/*]
+[/list]
+[/spoiler]
 
 [size=5]Camera Rules[/size]
-The camera rules decide how the camera treats every object in the world: which ones stop it like a wall, fade while they hide your character, let it through, open in the see-through window or thin away at the lens. They go by the model's path in the game files, for a whole folder or one model, so you can change any of them and cover other mods' models too. The [url=https://github.com/tkhquang/KCD2Tools/blob/main/TPVCamera/README.md#camera-rules]README[/url] has the full syntax, which rule wins and what the rules cannot change.
-[list]
-[*][b]Built-in rules[/b] - built into the ASI and updated with it. Set ExportRules = true in the INI's [Advanced] section to write them, with notes that explain the syntax, to KCD2_TPVCamera_rules.default.txt (TPVCamera never reads that file).[/*]
-[*][b]KCD2_TPVCamera_rules_<Name>.txt[/b] - patches from other mods or from you, read next in name order.[/*]
-[*][b]KCD2_TPVCamera_rules_User.txt[/b] - your own changes, read last, so they win. Updates never touch it.[/*]
-[/list]
-Every rules file sits beside KCD2_TPVCamera.asi. Edits apply while the game runs, about a second after you save. To replace the built-in rules entirely, rename the exported file to KCD2_TPVCamera_rules.txt; the rules of later updates then reach you only once you delete it.
+Camera rules decide what happens with each object: stop the camera, fade, open in the see-through window, or be left alone. Defaults are built into the mod. Put your own changes in [b]KCD2_TPVCamera_rules_User.txt[/b] beside the ASI; they apply while the game runs and updates never touch them.
 
+[spoiler]
 [b]One rule per line:[/b] [code]<match> = <behaviour> [options][/code]
-A match is a folder, one model, a text (*hlod*), a state (@actor, @animated, @nodraw, @merged, @unnamed) or @default. The behaviours are collide, fade, tree, bush, grass, frame, pass, character and exclude.
+A match is a folder, one model, a text (*hlod*), a state (@actor, @animated, @nodraw, @merged, @unnamed) or @default. Behaviours: collide, fade, tree, bush, grass, frame, pass, character, exclude.
 
-[b]Find a model's path:[/b] set LogLevel = TRACE, go up to the object, and the log names it with the rule that decided it:
-[code]Rules: objects/manmade/vehicles/wagons/wagon_c_hay.cgf [brush] -> collide mesh (built-in KCD2_TPVCamera_rules.txt:342 'objects/manmade/vehicles/wagons/wagon_c_hay.cgf')[/code]
-
-[b]Examples[/b] for KCD2_TPVCamera_rules_User.txt:
+[b]Examples:[/b]
 [code]
-objects/manmade/vehicles/wagons/wagon_c_hay.cgf = fade                         # the covered hay wagon fades
-objects/manmade/vehicles/wagons/ = fade                                        # every covered wagon fades
-objects/manmade/structures/industrial/hay/ = collide mesh                      # all hay stops the camera
-objects/manmade/common_furniture/beds/bed_warmer_fancy.cgf = exclude           # one model left out of the mod
-objects/mymod/trees/ = tree                                                    # a mod's trees open in the window
+objects/manmade/vehicles/wagons/wagon_c_hay.cgf = fade                 # the covered hay wagon fades
+objects/manmade/vehicles/wagons/ = fade                                # every covered wagon fades
+objects/manmade/structures/industrial/hay/ = collide mesh              # all hay stops the camera
+objects/manmade/common_furniture/beds/bed_warmer_fancy.cgf = exclude   # one model left out
+objects/mymod/trees/ = tree                                            # a mod's trees open in the window
 [/code]
 
-[b]For mod authors:[/b] ship your rules as KCD2_TPVCamera_rules_<YourMod>.txt, a separate optional file the player copies beside KCD2_TPVCamera.asi by hand (TPVCamera reads no rules from the Mods folder), and keep folder lines to your mod's own folders. See the README for details.
+[b]Find a model's path:[/b] set LogLevel = TRACE, walk up to the object, and the log names it with the rule that decided it:
+[code]Rules: objects/manmade/vehicles/wagons/wagon_c_hay.cgf [brush] -> collide mesh (built-in KCD2_TPVCamera_rules.txt:342 '...')[/code]
 
-[size=5]Hotkey Format[/size]
-[list]
-[*]Named keys: V, F3, Numpad1, Mouse4, Gamepad_A, etc.[/*]
-[*]Modifiers: Ctrl, Shift, Alt (or LCtrl, RCtrl, etc.)[/*]
-[*]Multiple combos: F3,Gamepad_LB+Gamepad_RB (F3 alone OR hold LB + press RB)[/*]
-[*]Empty value disables the binding[/*]
-[/list]
+[b]See the built-in rules:[/b] set ExportRules = true in [Advanced]. The mod writes them, with notes on the syntax, to KCD2_TPVCamera_rules.default.txt.
 
-See the full list at the [url=https://github.com/tkhquang/DetourModKit?tab=readme-ov-file#supported-input-names]Supported Input Names[/url] reference.
+[b]Mod authors:[/b] ship KCD2_TPVCamera_rules_<YourMod>.txt as a separate optional file the player copies beside the ASI (rules are not read from the Mods folder), and keep folder lines to your own folders.
 
-[size=5]Using with Controllers[/size]
-DetourModKit supports gamepad input natively via the [b]XInput[/b] API. Use gamepad button names directly in the INI:
-
-[code]
-; Toggle with the gamepad Y button
-ToggleViewKey = Gamepad_Y
-
-; Use a modifier combo (hold LB + press RB)
-ToggleViewKey = Gamepad_LB+Gamepad_RB
-
-; Multiple independent combos (comma = OR)
-ToggleViewKey = F3,Gamepad_LB+Gamepad_RB
-[/code]
-
-[b]XInput only:[/b] Xbox controllers work natively. For PS4/PS5/Switch controllers, use an XInput translation layer (e.g. DS4Windows, DualSenseX, BetterJoy) or Steam Input to present your controller as XInput. See [url=https://github.com/tkhquang/DetourModKit?tab=readme-ov-file#gamepad-compatibility]Gamepad Compatibility[/url] for details.
+Full syntax, which rule wins and what rules cannot change: [url=https://github.com/tkhquang/KCD2Tools/blob/main/TPVCamera/README.md#camera-rules]README[/url].
+[/spoiler]
 
 [size=5]Recommended Mods[/size]
-These pair well with a third-person camera:
 [list]
-[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/93]No Helmet Vision[/url] - removes the helmet vision letterbox/black bars that look out of place in third-person.[/*]
-[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/269]First Person Overhaul[/url] - keeps certain actions and interactions in third person instead of forcing the view back to game default camera.[/*]
-[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/2497]Alternate Combat[/url] (optional) - modifies combat and camera lock-on behaviour to make melee combat more free and target switching easier.[/*]
+[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3921]True Light - Real Torch Shadows[/url] - Henry's torch lights the world from its flame and casts real shadows, his own included, instead of the game's first-person cone.[/*]
+[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/269]First Person Overhaul[/url] - keeps more actions and interactions in third person.[/*]
+[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/2497]Alternate Combat[/url] (optional) - freer melee and easier target switching.[/*]
 [/list]
 
 [size=5]Known Limitations[/size]
 [list]
-[*]Free-look orbit is a raw proof-of-concept: fine for swinging the camera around to look at the front of Henry, but rough for normal gameplay.[/*]
-[*]Free-look orbit conflicts with the game's own camera control on horseback and in combat, so it is auto-disabled in those situations. It also pauses during the focused look (Left Alt, or LB on a controller).[/*]
-[*]The first-person body rig can still look slightly off from behind in some animations.[/*]
-[*]Faded objects use the engine's dither, so a large faded cart or ladder wagon shows a fine screen-door pattern rather than smooth transparency.[/*]
-[*]The plant window, the cut of tent frames at the lens and the fade of your character's eyes, hair and beard use copies of the game's shaders, prepared at the loading screen or the next pause (the Esc menu, or a menu screen while the game is paused). A plant first seen during play keeps its normal look until then, and a close-up before the character's copies are ready hides the head, as in first person. Loading may take longer.[/*]
-[*]A held torch's flame and light do not fade with your character.[/*]
-[*]In busy towns the fades, the see-through window and the lens cut take the camera about 0.3 ms per frame, against about 0.2 ms without them. For the lowest cost, set UseOccluderFade, UseTreeSeeThrough, UseLensCut and CloseUpFade to false and CollisionPullInSeconds to 0 in [Collision]: the camera then stops at what it hits, as in 2.0.0 (with this version's fixes), prepares no shaders at loading screens or pauses, and costs about what 2.0.0 did.[/*]
-[*]The raycast-based crosshair fix is partial: it does not cover every interaction type, so some still show parallax or an offset.[/*]
-[*]A third-person shot at a close target, such as the ground at Henry's feet, is turned up to about 50 degrees from where the bow points, so the arrow visibly leaves the bow at an angle before it hits the crosshair. A target behind the bow cannot be reached that way and takes the game's own shot. Lower MaxAimCorrection in [Ranged] (90 degrees by default) to keep the game's shot for close targets instead.[/*]
-[*]A large Offset Right (above about 1 m) can put the crosshair out of Henry's reach. The game only offers herbs within about 1.5 m of his eyes and doors, beds and other usables within about 1 m to his side, so the use prompt does not show for what the crosshair rests on. Lower the offset, or swing the crosshair back over something close to Henry.[/*]
-[*]Certain world interactions in third person can still be janky or buggy; toggle the camera off if one looks wrong.[/*]
-[*]The preset overlay does not hook the game's swap chain by design: it renders through a private WARP device and composites with a GDI blit, which keeps it compatible with overlays and injectors like ReShade and OptiScaler. The trade-off is a frame-rate hit while the overlay is open; since it is a tuning panel you open briefly rather than play with, that is acceptable.[/*]
+[*]Free-look orbit is a rough proof of concept, and it turns off on horseback and in combat.[/*]
+[*]Some interactions can still be janky in third person; toggle the camera off if one looks wrong.[/*]
 [/list]
+
+[spoiler]
+[list]
+[*]Free-look orbit also pauses during the focused look (Left Alt, or LB on a controller).[/*]
+[*]The first-person body can look slightly off from behind in some animations.[/*]
+[*]Faded objects use the engine's dither, so a large faded cart shows a fine screen-door pattern.[/*]
+[*]The foliage window, the lens cut and Henry's close-up fade use shaders prepared at loading screens and pauses (Esc). A plant first seen during play keeps its normal look until then, and loading can take longer.[/*]
+[*]A held torch's flame and light do not fade with Henry.[/*]
+[*]In busy towns the fades cost about 0.1 ms more per frame. To skip them, set UseOccluderFade, UseTreeSeeThrough, UseLensCut and CloseUpFade to false and CollisionPullInSeconds to 0 in [Collision].[/*]
+[*]The crosshair fix does not cover every interaction type yet.[/*]
+[*]A shot at a very close target leaves the bow at a visible angle to reach the crosshair. Lower MaxAimCorrection in [Ranged] to keep the game's own shot there.[/*]
+[*]A side offset above about 1 m can put the crosshair out of Henry's reach, so the use prompt does not show.[/*]
+[*]The preset manager costs some frame rate while open. It avoids the game's swap chain on purpose, to stay compatible with ReShade and OptiScaler.[/*]
+[/list]
+[/spoiler]
 
 [size=5]Roadmap[/size]
+[spoiler]
 [list]
-[*]Rework the free-look orbit so it is usable in normal gameplay (interaction during orbit, smoother engage/release, better mouse feel), including resolving the conflict with the game's own camera on horseback and in combat where orbit is currently auto-disabled.[/*]
+[*]Make free-look orbit usable in normal play, including on horseback and in combat.[/*]
 [*]Soften the dither on large faded objects.[/*]
-[*]Fix shadows being cut off behind the character (the shadow cascade still follows the first-person eye).[/*]
-[*]Extend the raycast-based crosshair/interaction fix to cover more interaction types.[/*]
-[*]Make the fades and the see-through window cheaper per frame, if a better way turns up (none is known yet).[/*]
+[*]Fix shadows cut off behind Henry (they still follow the first-person eye).[/*]
+[*]Extend the crosshair fix to more interaction types.[/*]
+[*]Make the fades and the see-through window cheaper.[/*]
 [/list]
+[/spoiler]
 
-[b]After a game update:[/b] The mod locates each game function it hooks through several fallback signatures, so it automatically adapts to minor game changes. Major updates may still require a mod update if core game functions have been heavily rewritten.
+[b]After a game update:[/b] the mod finds the game code through several fallback signatures, so it adapts to minor updates. If a feature breaks, it turns itself off and the rest keeps working.
 
 [size=5]Credits & Source Code[/size]
-Built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url] for core functionality.
-
+Built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url].
+[spoiler]
 [list]
-[*][url=https://github.com/ThirteenAG/Ultimate-ASI-Loader]Ultimate ASI Loader[/url] by ThirteenAG - ASI loading layer[/*]
-[*][url=https://github.com/cursey/safetyhook]SafetyHook[/url] by cursey - inline / mid-function hooking[/*]
-[*][url=https://github.com/zyantific/zydis]Zydis[/url] / [url=https://github.com/zyantific/zycore-c]Zycore[/url] by Florian Bernd & Joel Höner - x86/x64 disassembly (used by SafetyHook)[/*]
-[*][url=https://github.com/brofield/simpleini]SimpleIni[/url] by Brodie Thiesfield - INI configuration parser[/*]
-[*][url=https://github.com/nlohmann/json]nlohmann/json[/url] by Niels Lohmann - JSON preset serialization[/*]
+[*][url=https://github.com/ThirteenAG/Ultimate-ASI-Loader]Ultimate ASI Loader[/url] by ThirteenAG - ASI loading[/*]
+[*][url=https://github.com/cursey/safetyhook]SafetyHook[/url] by cursey - function hooking[/*]
+[*][url=https://github.com/zyantific/zydis]Zydis[/url] / [url=https://github.com/zyantific/zycore-c]Zycore[/url] by Florian Bernd & Joel Höner - x86/x64 disassembly[/*]
+[*][url=https://github.com/brofield/simpleini]SimpleIni[/url] by Brodie Thiesfield - INI parser[/*]
+[*][url=https://github.com/nlohmann/json]nlohmann/json[/url] by Niels Lohmann - preset storage[/*]
 [*][url=https://github.com/ocornut/imgui]Dear ImGui[/url] by Omar Cornut - overlay GUI[/*]
-[*][url=https://github.com/microsoft/DirectXMath]DirectXMath[/url] by Microsoft - math primitives[/*]
-[*][url=https://github.com/FransBouma]Frans 'Otis_Inf' Bouma[/url] - for his camera tools and inspiration, plus modding direction and guidance[/*]
-[*]Warhorse Studios for creating this amazing game[/*]
+[*][url=https://github.com/microsoft/DirectXMath]DirectXMath[/url] by Microsoft - math[/*]
+[*][url=https://github.com/FransBouma]Frans 'Otis_Inf' Bouma[/url] - camera tools, inspiration and modding guidance[/*]
+[*]Warhorse Studios - for this amazing game[/*]
 [/list]
+[/spoiler]
 
-All my Kingdom Come: Deliverance II mods and tools can be found in this [url=https://github.com/tkhquang/KCD2Tools]GitHub repository[/url]. Feel free to contribute or suggest improvements!
+All my KC:D 2 mods and tools are in this [url=https://github.com/tkhquang/KCD2Tools]GitHub repository[/url]. Contributions and suggestions are welcome!

@@ -14,6 +14,7 @@
 #include "constants.hpp"
 #include "game_state.hpp"
 #include "presets/camera_preset.hpp"
+#include "screen_effects.hpp"
 
 #include <DetourModKit.hpp>
 
@@ -133,6 +134,10 @@ namespace TPVCamera
         // blended into the live preset each frame), so they are NOT INI settings - tune them in the overlay.
         // Only the non-preset, always-live camera options remain here:
         camera.bind<bool>("InteractFromCamera", "Interact From Camera", s.interact_from_camera, true);
+        camera.bind_parsed("HideScreenEffectsTPV", "Hide Screen Effects TPV", s.hide_screen_effects_tpv_mask,
+                           parse_screen_effect_mask, "Helmet,Wash,Sleepy,HeadBlood");
+        camera.bind_parsed("HideScreenEffectsFPV", "Hide Screen Effects FPV", s.hide_screen_effects_fpv_mask,
+                           parse_screen_effect_mask, "");
         camera.bind<float>("ViewTransitionDuration", "View Transition Duration", s.view_transition_duration, 0.0f);
         // Camera stability against engine view-shake amplified by the follow distance (see LiveSettings).
         // StableAimBasis builds the rig basis from the clean look-controller aim quat; AimBasisSmoothing

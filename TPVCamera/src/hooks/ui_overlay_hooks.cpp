@@ -12,6 +12,7 @@
 #include "ui_overlay_hooks.hpp"
 #include "aob_resolver.hpp"
 #include "global_state.hpp"
+#include "screen_effects.hpp"
 
 #include <DetourModKit.hpp>
 
@@ -41,6 +42,7 @@ namespace TPVCamera
             original(this_ptr, param_byte, param_char);
         }
         overlay_state().active.store(true, std::memory_order_relaxed);
+        capture_ui_overlay(this_ptr);
     }
 
     /**
@@ -56,6 +58,9 @@ namespace TPVCamera
             original(this_ptr, param_byte, param_char);
         }
         overlay_state().active.store(false, std::memory_order_relaxed);
+        capture_ui_overlay(this_ptr);
+        // The original turned every screen particle back on; the ones the current view hides go off again.
+        reassert_screen_effects();
     }
 
     DMK::Result<void> initialize_ui_overlay_hooks(DMK::hook::HookStack &hooks)
@@ -70,20 +75,14 @@ namespace TPVCamera
         {
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "ui_overlay_hooks/hide_anchor"});
         }
-        auto hide_result = DMK::hook::inline_at<&hide_overlays_detour>(DMK::hook::InlineRequest{
+        const auto hide_installed = hooks.install<&hide_overlays_detour>(DMK::hook::InlineInstallRequest{
             .name = "HideOverlays",
             .target = DMK::Address{hide_addr},
+            .original = &s_hide_overlays_original,
         });
-        if (!hide_result.has_value())
+        if (!hide_installed.has_value())
         {
-            return std::unexpected(hide_result.error());
-        }
-        // Publish each trampoline and store each handle BEFORE enable() arms its patch, so the stack owns a hook whose
-        // arm fails with the patch live.
-        s_hide_overlays_original.store(hide_result->original<HideOverlaysFunc>(), std::memory_order_release);
-        if (auto armed = hooks.push(std::move(*hide_result)).enable(); !armed.has_value())
-        {
-            return std::unexpected(armed.error());
+            return std::unexpected(hide_installed.error());
         }
 
         const uintptr_t show_addr = gated_anchor_address(Feature::OverlayState, AnchorId::OverlayShow);
@@ -91,18 +90,14 @@ namespace TPVCamera
         {
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "ui_overlay_hooks/show_anchor"});
         }
-        auto show_result = DMK::hook::inline_at<&show_overlays_detour>(DMK::hook::InlineRequest{
+        const auto show_installed = hooks.install<&show_overlays_detour>(DMK::hook::InlineInstallRequest{
             .name = "ShowOverlays",
             .target = DMK::Address{show_addr},
+            .original = &s_show_overlays_original,
         });
-        if (!show_result.has_value())
+        if (!show_installed.has_value())
         {
-            return std::unexpected(show_result.error());
-        }
-        s_show_overlays_original.store(show_result->original<ShowOverlaysFunc>(), std::memory_order_release);
-        if (auto armed = hooks.push(std::move(*show_result)).enable(); !armed.has_value())
-        {
-            return std::unexpected(armed.error());
+            return std::unexpected(show_installed.error());
         }
 
         return {};
