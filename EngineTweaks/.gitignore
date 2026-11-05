@@ -1,0 +1,10 @@
+# Build trees are local; only the shipped templates are tracked.
+build/*
+!build/template/
+
+# Python bytecode from the helper scripts.
+__pycache__/
+*.pyc
+
+# The local FFDec movie build; kept out of the repo.
+scripts/build_gfx.py

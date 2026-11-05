@@ -8,9 +8,6 @@ A collection of mods for Kingdom Come: Deliverance II that enhance gameplay and 
 
 ## Available Mods
 
-### [Third Person View (TPV Camera) Enabler](TPVToggle/)
-A lightweight mod that adds a hotkey to toggle between first-person and third-person camera views in Kingdom Come: Deliverance II.
-
 ### [Proper Third Person View (TPV Camera)](TPVCamera/)
 A standalone third-person camera that renders behind the player while aiming, looting, and combat keep working off the first-person frame. Includes free-look orbit, zoom, camera collision, and crosshair convergence.
 
@@ -20,17 +17,8 @@ A loot and object highlighting mod for Kingdom Come: Deliverance II. The native 
 ### [Sound Framework - Custom Sounds and Voices](SoundFramework/)
 A framework that lets mods add sounds and voice lines without code: new sounds on the game's mixer, NPC voice lines with subtitles, lip sync and facial moods, and replacements for the game's own sounds and voice lines.
 
-### [Stop Right There, Criminal Scum](CriminalScum/)
-Town guards arrest you with a certain famous line. A brief Sound Framework showcase, not meant for regular play.
-
-### [Chiuuu! Mouth-Sound Bows](MouthSoundBows/)
-Every bow and crossbow shot goes "Chiuuu!", made with a human mouth. A showcase pack for Sound Framework.
-
-### [Loot Beacon - Never Miss a Drop or Corpse (Highlight Pickable Items)](LootBeacon/)
-A mod that helps players spot dropped items in the game world. Activate the highlight feature with a keypress and watch as nearby pickable items are highlighted with a colorful particle effect. Superseded by Henry's Senses.
-
-### [Pizzle Yanked - Alternate Game Over-Death Text](PizzleYanked/)
-This mod replaces the boring "Game Over" text with the much more historically significant and spiritually accurate phrase: "Pizzle Yanked"
+### [Engine Tweaks (More Performance)](EngineTweaks/)
+Removes engine freezes that grow with the number of items Henry carries: looking at a bed, and opening or closing the inventory, a loot or trade screen, the map or the journal, and transferring all items to or from a container. Made for hoarders like me, and for anyone who uses a mod that raises or removes Henry's carry weight limit.
 
 ## Installation
 

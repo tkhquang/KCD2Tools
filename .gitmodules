@@ -34,3 +34,7 @@
 	path = HUDClock/external/DetourModKit
 	url = https://github.com/tkhquang/DetourModKit.git
 	ignore = dirty
+[submodule "EngineTweaks/external/DetourModKit"]
+	path = EngineTweaks/external/DetourModKit
+	url = https://github.com/tkhquang/DetourModKit.git
+	ignore = dirty
