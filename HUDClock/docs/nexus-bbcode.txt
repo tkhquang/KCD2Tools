@@ -1,5 +1,5 @@
 [size=5]Foreword[/size]
-[b]HUD Clock[/b] shows the game time on the HUD.
+The game shows no clock. [b]HUD Clock[/b] puts the game time on the HUD: as a clock, as the part of the day (Dawn, Late morning, Dusk...), or both, under the game's own sun and moon dial.
 
 [size=5]Features[/size]
 [list]
@@ -11,46 +11,71 @@
 [size=5]Requirements[/size]
 [list]
 [*]Kingdom Come: Deliverance II 1.5.6 on Steam.[/*]
-[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332]Kingdom Come Script Extender (KCSE)[/url], or an ASI loader with the ASI add-on.[/*]
+[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332]Kingdom Come Script Extender (KCSE)[/url], or an ASI loader for the ASI add-on.[/*]
 [/list]
 
 [size=5]Installation[/size]
-Install the main file with your mod manager, or extract it into your [b]Mods[/b] folder. With KCSE, that is all.
-[spoiler]
-[code]
-Mods/
-\-- hud_clock/
-    |-- mod.manifest
-    |-- Data/
-    |   \-- hud_clock.pak
-    \-- KCSE/
-        \-- Plugins/
-            |-- KCD2_HUDClock.dll
-            |-- KCD2_HUDClock.ini
-            \-- KCD2_HUDClock_License.txt
-[/code]
-[/spoiler]
-
-[b]Without KCSE:[/b] also put an x64 [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases]Ultimate ASI Loader[/url] dinput8.dll beside WHGame.dll, and extract the optional [b]ASI add-on[/b] into the game folder. The ASI reads the KCD2_HUDClock.ini beside it.
+[b]Main file:[/b] install it with your mod manager, or extract it into your [b]Mods[/b] folder. With KCSE, that is all.
 [spoiler]
 [code]
 <KC:D 2 folder>/
-\-- Bin/
-    \-- Win64MasterMasterSteamPGO/
-        |-- dinput8.dll
-        |-- KCD2_HUDClock.asi
-        |-- KCD2_HUDClock.ini
-        \-- KCD2_HUDClock_License.txt
+|-- Bin/
+|   \-- Win64MasterMasterSteamPGO/
+|       |-- KingdomCome.exe              (game file)
+|       \-- WHGame.dll                   (game file)
+\-- Mods/
+    \-- hud_clock/
+        |-- mod.manifest
+        |-- Data/
+        |   \-- hud_clock.pak            (the clock's movie)
+        \-- KCSE/
+            \-- Plugins/
+                |-- KCD2_HUDClock.dll    (this mod)
+                |-- KCD2_HUDClock.ini    (settings)
+                |-- KCD2_HUDClock_License.txt
+                \-- KCD2_HUDClock.log    (created when the mod loads)
+[/code]
+[/spoiler]
+
+[b]Without KCSE:[/b] install the main file too. Without an ASI loader, extract one x64 [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases]Ultimate ASI Loader[/url] DLL beside WHGame.dll. Then extract the optional [b]ASI add-on[/b] into the game folder. The ASI reads the KCD2_HUDClock.ini beside it.
+[spoiler]
+[code]
+<KC:D 2 folder>/
+|-- Bin/
+|   \-- Win64MasterMasterSteamPGO/
+|       |-- KingdomCome.exe              (game file)
+|       |-- WHGame.dll                   (game file)
+|       |-- dinput8.dll                  (ASI loader)
+|       |-- KCD2_HUDClock.asi            (this mod)
+|       |-- KCD2_HUDClock.ini            (settings)
+|       |-- KCD2_HUDClock_License.txt
+|       \-- KCD2_HUDClock.log            (created when the mod loads)
+\-- Mods/
+    \-- hud_clock/                       (main file)
 [/code]
 On Linux or Steam Deck, add [b]WINEDLLOVERRIDES="dinput8=n,b" %command%[/b] to the Steam launch options.
 [/spoiler]
 
-With both KCSE and the add-on installed, only one copy runs. To uninstall, delete Mods/hud_clock and the add-on's files.
+[b]KCD2_HUDClock.log[/b] appears beside the INI once the mod runs. With both KCSE and the add-on installed, only one copy runs. To uninstall, delete Mods/hud_clock and the add-on's files.
+
+[size=5]Settings[/size]
+[b]KCD2_HUDClock.ini[/b] explains every setting, and changes apply while the game runs.
+[spoiler]
+[list]
+[*][b]Format[/b]: what each line shows, with {time}, {tod}, {day}, {realtime}, {realdate} and any text.[/*]
+[*][b]Font, FontSize, Color, Opacity, Shadow[/b]: the look of each line.[/*]
+[*][b]AttachTo, AttachPoint, Pivot, OffsetX, OffsetY[/b]: where each part sits. The INI has recipes.[/*]
+[*][b]FollowHud, ShowInMinigames, ShowInPhotoMode[/b]: where the clock shows.[/*]
+[*][b]AlwaysShow, ToggleKey, ShowKey, ShowEveryHours[/b]: when it shows.[/*]
+[/list]
+[/spoiler]
+
+[b]ToggleKey[/b] and [b]ShowKey[/b] are empty by default. They take named keys such as F7, Numpad1, Mouse4 or Gamepad_A, combos such as LShift+T, and alternatives such as F7,Gamepad_LB+Gamepad_Y. See the [url=https://github.com/tkhquang/DetourModKit?tab=readme-ov-file#supported-input-names]Supported Input Names[/url] reference. Controllers are XInput only, see [url=https://github.com/tkhquang/DetourModKit?tab=readme-ov-file#gamepad-compatibility]Gamepad Compatibility[/url].
 
 [size=5]Compatibility[/size]
 [list]
-[*]Works beside keybind, compass and other HUD mods.[/*]
-[*]If a game update breaks it, the mod turns itself off.[/*]
+[*]Replaces no game files and binds no keys by default, so keybind, compass and other HUD mods keep working beside it.[/*]
+[*]The mod finds the game code by signature. If a game update changes that code, it turns itself off.[/*]
 [/list]
 
 [size=5]Credits[/size]
