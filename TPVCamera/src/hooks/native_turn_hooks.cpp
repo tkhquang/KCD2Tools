@@ -5,6 +5,7 @@
 
 #include "hooks/native_turn_hooks.hpp"
 #include "aob_resolver.hpp"
+#include "code_proofs.hpp"
 #include "config.hpp"
 #include "constants.hpp"
 #include "game_state.hpp"
@@ -531,9 +532,9 @@ namespace TPVCamera
          *        Best-effort: without it a crouched right turn can throw the game's broken pose late in its clip.
          * @details CActionScope::InstallAnimation calls the slot with a clip's name hash, and AnchorId::AnimIdByCrcSlot
          *          reads the slot from that call. The slot comes from CAnimationSet's RTTI vtable. Its target must lie in
-         *          the game image and still be the thunk to the name map lookup (Aob::k_animIdByCrcThunk). The hashes come
+         *          the game image and still be the thunk to the name map lookup (Proof::k_animIdByCrcThunk). The hashes come
          *          from the name hash that CAnimationSet::GetAnimIDByName calls (AnchorId::AnimNameHashCall). That function
-         *          must lie in the game image and still open as Aob::k_animNameHashBody before the mod calls it. All four
+         *          must lie in the game image and still open as Proof::k_animNameHash before the mod calls it. All four
          *          hashes must be non-zero and distinct, and the idle and the turns swap together or not at all, because
          *          one without the other slides the body between the two stances.
          */
@@ -546,9 +547,8 @@ namespace TPVCamera
             const std::optional<std::uintptr_t> vtable = class_vtable(GameClass::AnimationSet);
             const uintptr_t lookup =
                 slot_offset.has_value() && vtable.has_value()
-                    ? read_checked_vtable_slot(*vtable, static_cast<size_t>(*slot_offset) / sizeof(uintptr_t),
-                                               Aob::k_animIdByCrcThunk, Aob::k_animIdByCrcThunk.max_match_length(),
-                                               module_base, module_size)
+                    ? read_proven_vtable_slot(*vtable, static_cast<size_t>(*slot_offset) / sizeof(uintptr_t),
+                                              Proof::k_animIdByCrcThunk, module_base, module_size)
                     : 0;
             // The anchor proved that the call's target is a function entry in the image before this decode.
             uintptr_t hash_function = 0;
@@ -561,8 +561,7 @@ namespace TPVCamera
                     hash_function = callee->raw();
                 }
             }
-            if (lookup == 0 || !code_window_matches(hash_function, Aob::k_animNameHashBody,
-                                                    Aob::k_animNameHashBody.max_match_length(), image))
+            if (lookup == 0 || !code_proven(hash_function, Proof::k_animNameHash, image))
             {
                 logger.warning("Camera: crouched animation lookup not found; crouched right turns can show the game's "
                                "broken pose");
@@ -814,9 +813,8 @@ namespace TPVCamera
         const size_t is_third_person_slot = static_cast<size_t>(*is_third_person_offset) / sizeof(uintptr_t);
         const size_t handle_event_slot = static_cast<size_t>(*handle_event_offset) / sizeof(uintptr_t);
 
-        const uintptr_t target =
-            read_checked_vtable_slot(*player_vtable, is_third_person_slot, Aob::k_isThirdPersonBody,
-                                     Aob::k_isThirdPersonBodyWindow, module_base, module_size);
+        const uintptr_t target = read_proven_vtable_slot(*player_vtable, is_third_person_slot, Proof::k_isThirdPerson,
+                                                         module_base, module_size);
         if (target == 0)
         {
             logger.warning("Camera: native turn animation unavailable (C_Player slot {} is not IsThirdPerson)",

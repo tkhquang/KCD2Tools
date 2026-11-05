@@ -18,7 +18,7 @@ namespace TPVCamera
      * @brief Hooks the camera observer's update, found through its RTTI vtable (no signature scan).
      * @details Best-effort: without it the camera still works, and NPCs just beyond the pulled-back camera's reach stay
      *          hidden in third person, as they would for the unmodded game with its view camera there. The slot's
-     *          target must lie in the game image and still read the view camera (Aob::k_cameraObserverUpdateBody
+     *          target must lie in the game image and still read the view camera (Proof::k_cameraObserverUpdate
      *          among its first instructions), so a patch that moves the slot leaves the hook uninstalled rather than
      *          hooking another function.
      */

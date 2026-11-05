@@ -48,8 +48,8 @@ namespace TPVCamera
     /**
      * @brief Takes the game's C_UIOverlay from a HideOverlays / ShowOverlays call.
      * @details The object is kept once its vtable proves the class: its HideOverlays and ShowOverlays slots must hold
-     *          the anchored functions and its SetAlpha slot must match Aob::k_uiOverlaySetAlphaFrame or
-     *          Aob::k_uiOverlaySetAlphaCall. A repeat call with the same object returns at once.
+     *          the anchored functions and its SetAlpha slot must hold Proof::k_uiOverlaySetAlpha. A repeat call with
+     *          the same object returns at once.
      * @note Main thread (the overlay hooks' detours).
      */
     void capture_ui_overlay(void *ui_overlay) noexcept;
