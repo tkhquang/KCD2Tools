@@ -70,6 +70,7 @@ set(COMMON_SOURCES
   src/rtti_types.cpp
   src/version.cpp
   src/detect/loot_scanner.cpp
+  src/engine/console_commands.cpp
   src/engine/engine_env.cpp
   src/engine/entity_access.cpp
   src/engine/game_natives.cpp

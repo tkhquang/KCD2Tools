@@ -69,7 +69,8 @@ namespace HenrySenses::constants
     inline constexpr std::ptrdiff_t GENV_PARTICLE_MANAGER_OFFSET = 0x68;
     inline constexpr std::ptrdiff_t GENV_PGAME_OFFSET = 0x90;
     inline constexpr std::ptrdiff_t GENV_ENTITY_SYSTEM_OFFSET = 0xA0;
-    inline constexpr std::ptrdiff_t GENV_SYSTEM_OFFSET = 0xC0; // CSystem
+    inline constexpr std::ptrdiff_t GENV_CONSOLE_OFFSET = 0xA8; // CXConsole
+    inline constexpr std::ptrdiff_t GENV_SYSTEM_OFFSET = 0xC0;  // CSystem
     inline constexpr std::ptrdiff_t GENV_RENDERER_OFFSET = 0x108;
 
     // Local player chain: gEnv -> pGame -> IGame::GetIGameFramework (vtable slot 16) = CCryAction -> CActionGame ->
@@ -901,6 +902,28 @@ namespace HenrySenses::constants
     inline constexpr const char *C_PARTICLE_MANAGER_RTTI_NAME = ".?AVCParticleManager@@";
     // The mod's particle library: the XML utilities that parse it and the node tree they build.
     inline constexpr const char *C_XML_UTILS_RTTI_NAME = ".?AVCXmlUtils@@";
+
+    // The console command and variable Lua reaches through System.ExecuteCommand and System.GetCVar. The slots are the
+    // same on Steam 1.5.6, GOG 1.5 and Game Pass 1.4+.
+    inline constexpr const char *C_CONSOLE_RTTI_NAME = ".?AVCXConsole@@";
+    inline constexpr const char *C_CVAR_STRING_RTTI_NAME = ".?AVCXConsoleVariableString@@";
+    inline constexpr const char *C_CONSOLE_COMMAND_ARGS_RTTI_NAME = ".?AUCConsoleCommandArgs@@";
+    // CXConsole::RegisterString(name, value, flags, help, change function) -> ICVar*, vtable slot 2. The variable keeps
+    // the name and help pointers.
+    inline constexpr std::ptrdiff_t CONSOLE_VTABLE_REGISTER_STRING_OFFSET = 2 * 8;
+    // CXConsole::GetCVar(name) -> ICVar*, nullptr for an unknown name, vtable slot 23.
+    inline constexpr std::ptrdiff_t CONSOLE_VTABLE_GET_CVAR_OFFSET = 23 * 8;
+    // CXConsole::AddCommand(name, void (*)(IConsoleCmdArgs*), flags, help), vtable slot 33. It refuses a registered
+    // name, and the console keeps the function pointer.
+    inline constexpr std::ptrdiff_t CONSOLE_VTABLE_ADD_COMMAND_OFFSET = 33 * 8;
+    // CXConsole::RemoveCommand(name) -> bool, vtable slot 34.
+    inline constexpr std::ptrdiff_t CONSOLE_VTABLE_REMOVE_COMMAND_OFFSET = 34 * 8;
+    // CXConsoleVariableString::Set(const char *value), vtable slot 9.
+    inline constexpr std::ptrdiff_t CVAR_VTABLE_SET_STRING_OFFSET = 9 * 8;
+    // CConsoleCommandArgs::GetArgCount() -> int, vtable slot 1. Argument 0 is the command name.
+    inline constexpr std::ptrdiff_t COMMAND_ARGS_VTABLE_GET_ARG_COUNT_OFFSET = 1 * 8;
+    // CConsoleCommandArgs::GetArg(int index) -> const char*, nullptr out of range, vtable slot 2.
+    inline constexpr std::ptrdiff_t COMMAND_ARGS_VTABLE_GET_ARG_OFFSET = 2 * 8;
 } // namespace HenrySenses::constants
 
 #endif // HENRYSENSES_CONSTANTS_HPP

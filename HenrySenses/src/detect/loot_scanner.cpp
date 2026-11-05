@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <format>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -1321,6 +1322,34 @@ namespace HenrySenses
         }
 
         /**
+         * @brief Orders picked objects nearest the pick centre first.
+         * @details The scan classifies within a budget in pick order, so after a flush (a group switching on) the
+         *          objects beside the player get their verdicts first instead of waiting behind the whole level's map
+         *          order. One with no position goes last.
+         */
+        template <typename View>
+        void sort_nearest_first(std::vector<View> &picked, const game_structures::Vec3f &center)
+        {
+            static std::vector<std::pair<float, View>> keyed;
+            keyed.clear();
+            keyed.reserve(picked.size());
+            for (const View &view : picked)
+            {
+                const std::optional<game_structures::Vec3f> position = entity_world_position(view.entity);
+                keyed.emplace_back(
+                    position.has_value() ? distance_sq_between(*position, center)
+                                         : std::numeric_limits<float>::infinity(),
+                    view
+                );
+            }
+            std::ranges::stable_sort(keyed, {}, &std::pair<float, View>::first);
+            for (std::size_t i = 0; i < keyed.size(); ++i)
+            {
+                picked[i] = keyed[i].second;
+            }
+        }
+
+        /**
          * @brief The pick a tick without a scan should run, and why.
          */
         struct PickChoice
@@ -1443,6 +1472,7 @@ namespace HenrySenses
                     MAX_ITEMS,
                     &s_level_items
                 );
+                sort_nearest_first(s_near_items, options.origin);
             }
             else
             {
@@ -1487,6 +1517,7 @@ namespace HenrySenses
                     s_index[kept++] = entry;
                 }
                 s_index.resize(kept);
+                sort_nearest_first(s_near_index, options.origin);
                 if (gone != 0)
                 {
                     s_index_ids_valid = false;

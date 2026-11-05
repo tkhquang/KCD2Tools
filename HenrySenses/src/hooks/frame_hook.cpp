@@ -19,7 +19,7 @@ namespace HenrySenses
     {
         using PostUpdateFn = void(__fastcall *)(void *self, bool have_focus, std::uint32_t update_flags);
 
-        PostUpdateFn s_post_update_original = nullptr;
+        std::atomic<PostUpdateFn> s_post_update_original{nullptr};
         std::atomic<bool> s_armed{true};
 
         /**
@@ -30,7 +30,7 @@ namespace HenrySenses
          */
         void __fastcall post_update_detour(void *self, bool have_focus, std::uint32_t update_flags) noexcept
         {
-            s_post_update_original(self, have_focus, update_flags);
+            s_post_update_original.load(std::memory_order_acquire)(self, have_focus, update_flags);
             if (s_armed.load(std::memory_order_acquire))
             {
                 controller_tick();
@@ -45,17 +45,11 @@ namespace HenrySenses
         {
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "frame_hook/anchor"});
         }
-        DMK_TRY(
-            created,
-            DMK::hook::inline_at<&post_update_detour>(DMK::hook::InlineRequest{
-                .name = "CryActionPostUpdate",
-                .target = DMK::Address{target},
-            })
-        );
-        s_post_update_original = created.original<PostUpdateFn>();
-        // Stored before it is armed: the stack owns it through teardown even when the arm fails half-way.
-        DMK::hook::Hook &stored = hooks.push(std::move(created));
-        DMK_TRY_VOID(stored.enable());
+        DMK_TRY_VOID(hooks.install<&post_update_detour>(DMK::hook::InlineInstallRequest{
+            .name = "CryActionPostUpdate",
+            .target = DMK::Address{target},
+            .original = &s_post_update_original,
+        }));
         DMK::log().info(
             "FrameHook: CCryAction::PostUpdate hooked at {} (RVA {:#x}); the main-thread tick is live",
             DMK::format::format_address(target),

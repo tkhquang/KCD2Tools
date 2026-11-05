@@ -212,8 +212,13 @@ namespace HenrySenses
          * none.
          */
         std::atomic<std::int64_t> off_started_ms{0};
-        /// Toggle mode: switched on.
+        /// Toggle mode: switched on (by the key or by henrysenses_trigger).
         std::atomic<bool> toggled{false};
+        /**
+         * @brief Every other mode: switched on by henrysenses_trigger on/toggle. A separate flag, so a toggle left on
+         *        stops showing once an INI reload makes the group Pulse or Hold, whose keys cannot switch it off.
+         */
+        std::atomic<bool> script_on{false};
         /// Hold mode: steady-clock milliseconds from which the held key shows the group, 0 while the key is up.
         std::atomic<std::int64_t> hold_due_ms{0};
         /// Pulse mode with a hold time: steady-clock milliseconds at which the held key starts a pulse, 0 for none.
@@ -354,6 +359,40 @@ namespace HenrySenses
      * @note Main thread, once per tick, before the groups' intensities are read.
      */
     void fire_held_hotkeys(std::int64_t now) noexcept;
+
+    /**
+     * @enum TriggerAction
+     * @brief What henrysenses_trigger asks of a group.
+     */
+    enum class TriggerAction : std::uint8_t
+    {
+        /// What the group's key does: Pulse and Hold groups pulse, Toggle groups toggle.
+        Default,
+        /// Shows the group for its Duration, in any mode.
+        Pulse,
+        /// Switches the groups off when any of them is on, else on.
+        Toggle,
+        /// Switches the group on until it is switched off.
+        On,
+        /// Switches the group off, ending a pulse at full strength with a fade-out.
+        Off,
+    };
+
+    /**
+     * @brief Parses a trigger action (case-insensitive: pulse, toggle, on, off).
+     * @return The action, or std::nullopt for an unknown word.
+     */
+    [[nodiscard]] std::optional<TriggerAction> parse_trigger_action(std::string_view text) noexcept;
+
+    /**
+     * @brief Switches groups the way henrysenses_trigger asks, and logs what happened.
+     * @details An unknown name logs a warning. A disabled or Always group is skipped quietly, so a script can list
+     *          every group a key may drive. Nothing changes while the mod is switched off.
+     * @param names Group names, comma-separated, case-insensitive.
+     * @param action What to do.
+     * @note Main thread (console commands run there).
+     */
+    void trigger_groups(std::string_view names, TriggerAction action);
 
     /** @brief Logs every group with its state (the state report). */
     void log_groups();

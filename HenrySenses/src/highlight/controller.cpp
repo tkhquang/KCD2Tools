@@ -12,6 +12,7 @@
 #include "offset_heal.hpp"
 #include "rtti_types.hpp"
 #include "detect/loot_scanner.hpp"
+#include "engine/console_commands.hpp"
 #include "engine/engine_env.hpp"
 #include "engine/entity_access.hpp"
 #include "engine/herb_scan.hpp"
@@ -342,36 +343,89 @@ namespace HenrySenses
                 const std::int64_t off = activation.off_started_ms.load(std::memory_order_relaxed);
                 return off != 0 ? fade_tail(now - off, fade_out) : 0.0f;
             };
-            switch (mode)
+            if (mode == GroupMode::Always)
             {
-            case GroupMode::Always:
                 return 1.0f;
-            case GroupMode::Toggle:
-                return activation.toggled.load(std::memory_order_relaxed) ? 1.0f : after_off();
-            case GroupMode::Hold:
+            }
+            const std::atomic<bool> &switched_on =
+                mode == GroupMode::Toggle ? activation.toggled : activation.script_on;
+            if (switched_on.load(std::memory_order_relaxed))
+            {
+                return 1.0f;
+            }
+            if (mode == GroupMode::Hold)
             {
                 // Acquire pairs with the release that clears the due time on key-up, so after_off() reads the
                 // fade-out start that release stored.
                 const std::int64_t due = activation.hold_due_ms.load(std::memory_order_acquire);
-                return due != 0 && now >= due ? 1.0f : after_off();
+                if (due != 0 && now >= due)
+                {
+                    return 1.0f;
+                }
             }
-            case GroupMode::Pulse:
-            default:
-                break;
-            }
+            // Every mode can pulse: the Pulse key, or henrysenses_trigger pulse on any group.
+            float value = after_off();
             const std::int64_t started = activation.pulse_started_ms.load(std::memory_order_relaxed);
-            if (started == 0 || now < started)
+            if (started != 0 && now >= started)
             {
-                return 0.0f;
+                const auto full = static_cast<std::int64_t>(duration * 1000.0f);
+                value = std::max(value, now - started < full ? 1.0f : fade_tail(now - started - full, fade_out));
             }
-            const auto full = static_cast<std::int64_t>(duration * 1000.0f);
-            return now - started < full ? 1.0f : fade_tail(now - started - full, fade_out);
+            return value;
         }
 
         /** @brief activation_intensity() of a group. */
         [[nodiscard]] float group_intensity(const HighlightGroup &group, std::int64_t now) noexcept
         {
             return activation_intensity(*group.activation, group.mode, group.duration, group.fade_out, now);
+        }
+
+        /// Which groups the last henrysenses_active value named, as a key over their activations.
+        std::uint64_t s_switched_on_key = 0;
+
+        /**
+         * @brief Publishes the groups switched on now to henrysenses_active: at full strength (a toggle or hold that
+         *        is on, a pulse inside its Duration, an Always group), in INI order.
+         * @details A HideIn situation does not count: a script asks what is switched on, not what this frame draws.
+         * @param force Publish even when the same groups are on (the variable was just registered).
+         */
+        void publish_switched_on_groups(std::int64_t now, bool force)
+        {
+            const std::shared_ptr<const GroupSet> set = current_groups();
+            if (set == nullptr)
+            {
+                return;
+            }
+            const bool enabled = settings().enabled.load(std::memory_order_relaxed);
+            auto switched_on = [enabled, now](const HighlightGroup &group) -> bool
+            { return enabled && group.enabled && group_intensity(group, now) >= 1.0f; };
+            // The string is built only when the key changes, so a tick with the same groups on allocates nothing.
+            std::uint64_t key = mix(0xCBF29CE484222325ull, reinterpret_cast<std::uintptr_t>(set.get()));
+            for (const HighlightGroup &group : set->groups)
+            {
+                if (switched_on(group))
+                {
+                    key = mix(key, reinterpret_cast<std::uintptr_t>(group.activation.get()));
+                }
+            }
+            if (key == s_switched_on_key && !force)
+            {
+                return;
+            }
+            s_switched_on_key = key;
+            std::string names;
+            for (const HighlightGroup &group : set->groups)
+            {
+                if (switched_on(group))
+                {
+                    if (!names.empty())
+                    {
+                        names += ',';
+                    }
+                    names += group.name;
+                }
+            }
+            publish_active_groups(names);
         }
 
         /**
@@ -1539,6 +1593,9 @@ namespace HenrySenses
          */
         void shutdown_on_main_thread()
         {
+            // First: the console holds a pointer into this image, and console commands run on this thread.
+            remove_console_commands();
+            s_switched_on_key = 0;
             release_focus_effect();
             stop_loot_highlight("shutdown");
             clear_all_highlights();
@@ -1837,6 +1894,7 @@ namespace HenrySenses
             const bool see_through_changed = refresh_on_see_through_change();
             // Before the idle check, so a press that reaches its Key.HoldTimeInSeconds now shows on this tick.
             fire_held_hotkeys(now);
+            publish_switched_on_groups(now, console_commands_tick());
             if (c_player != 0 && tick_can_idle(now))
             {
                 idle_tick(now);

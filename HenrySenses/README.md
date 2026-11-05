@@ -19,6 +19,7 @@ I originally made Loot Beacon after spending a day searching for Canker's Mace i
 - Pulse, Toggle, Hold and Always activation modes, with keyboard and controller bindings
 - Filters for stolen, empty, locked and other tagged objects, using the game's own loot checks
 - Live configuration reload when you save the INI
+- A console command so other mods can switch groups
 
 The default `Auto` renderer uses model highlights, with corner brackets as a fallback. Set `[Render] SeeThrough = false` to highlight only visible surfaces.
 
@@ -277,6 +278,24 @@ The comma means "either binding"; the plus means "hold the first button and pres
 Controller input uses **XInput**. For other controllers, use Steam Input or an XInput translation layer. The [supported input names](https://github.com/tkhquang/DetourModKit?tab=readme-ov-file#supported-input-names) include the available button names.
 
 The [INI template](build/template/KCD2_HenrySenses.ini) documents all settings, defaults and further examples.
+
+### Triggering groups from other mods
+
+Lua mods can switch groups through the game console:
+
+```lua
+System.ExecuteCommand("henrysenses_trigger Loot,Books,Butcher")  -- what the shared key does by default
+System.ExecuteCommand("henrysenses_trigger Herbs toggle")
+local on = System.GetCVar("henrysenses_active")                    -- e.g. "Loot,Books,Butcher" or ""
+```
+
+`henrysenses_trigger <Group>[,<Group>...] [pulse|toggle|on|off]` takes one or more `[Highlight.<Name>]` names, case-insensitive, so groups you add work too.
+
+- With no second word, each group does what its key does: Pulse and Hold groups pulse, Toggle groups toggle.
+- `pulse` shows a group for its Duration in any mode. `on` and `off` switch it until switched again; a Toggle group shares that switch with its key. `toggle` switches the whole list off when any of its groups is on, otherwise on.
+- An unknown name logs a warning. Disabled and Always groups are skipped, so a script can list every group a key may drive.
+
+`henrysenses_active` lists the groups switched on now in INI order: a toggle or hold that is on, a pulse within its Duration, and Always groups. HideIn situations do not change it. It updates on the next frame, so a read right after `henrysenses_trigger` in the same script still shows the old value. `System.GetCVar` returns `nil` when Henry's Senses is not installed.
 
 ## Known Limitations
 
