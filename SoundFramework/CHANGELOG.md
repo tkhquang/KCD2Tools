@@ -2,6 +2,16 @@
 
 All notable changes to the SoundFramework mod will be documented in this file.
 
+## [1.3.0] - Volume Controls and Mod Compatibility
+
+- New volume settings for conversation, bark and cutscene voices, mods' lines included.
+- Packs can make chosen game sounds quieter or louder, such as every blacksmithing sound at once.
+- Mods can search every voice line of the game with its text and speaker, so they need no list of their own.
+- Fixed commands, voice lines and lip sync sometimes staying off for a whole session when another mod loaded at the same moment.
+- Works with the KCD2 Lua runner and other mods that change the same game code, in any load order.
+- Fixed a game sound that a pack replaces only near some characters sometimes staying silent elsewhere.
+- The sound event log shows the volume an adjusted sound plays at.
+
 ## [1.2.0] - Game Sounds in Packs
 
 - Packs can now play the game's own sounds at their own volume, pitch and position, without shipping any audio files.
@@ -39,6 +49,7 @@ All notable changes to the SoundFramework mod will be documented in this file.
 - Saving a pack or the settings INI applies it while playing.
 - Ships as an ASI and as a KCSE plugin.
 
+[1.3.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/SoundFramework-v1.3.0
 [1.2.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/SoundFramework-v1.2.0
 [1.1.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/SoundFramework-v1.1.1
 [1.1.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/SoundFramework-v1.1.0
