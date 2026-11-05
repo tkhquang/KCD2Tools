@@ -1,0 +1,23 @@
+<UIElements name="KCD2_HUDClock">
+
+  <!-- The game clock. The element takes no input. The mod's C++ shows it while the HUD parts it follows show, and
+       sends the movie its style, place and text. Layer 26 sits just above the HUD's 25 and below every menu.
+       force_no_unload keeps the movie loaded while the element is hidden (wh_ui_ApseUnloadMode unloads hidden
+       elements by default), so a menu never costs a reload of the movie. -->
+  <UIElement name="KCD2_HUDClock" mouseevents="0" keyevents="0" cursor="0" controller_input="0" force_no_unload="1">
+
+    <GFx file="KCD2_HUDClock.gfx" layer="26">
+      <Constraints>
+        <Align mode="fullscreen" />
+      </Constraints>
+    </GFx>
+
+    <functions>
+    </functions>
+
+    <events>
+    </events>
+
+  </UIElement>
+
+</UIElements>

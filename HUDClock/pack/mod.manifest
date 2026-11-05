@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<kcd_mod>
+  <info>
+    <name>HUD Clock - Show the Time of Day</name>
+    <modid>hud_clock</modid>
+    <description>Shows the game time on the HUD, as a clock or as Henry would name the hour.</description>
+    <author>tkhquang</author>
+    <version>0.1.0</version>
+    <created_on>2026-10-26</created_on>
+    <modifies_level>false</modifies_level>
+  </info>
+</kcd_mod>
