@@ -60,15 +60,6 @@ On Linux or Steam Deck, add [b]WINEDLLOVERRIDES="dinput8=n,b" %command%[/b] to t
 
 [size=5]Settings[/size]
 [b]KCD2_HUDClock.ini[/b] explains every setting, and changes apply while the game runs.
-[spoiler]
-[list]
-[*][b]Format[/b]: what each line shows, with {time}, {tod}, {day}, {realtime}, {realdate} and any text.[/*]
-[*][b]Font, FontSize, Color, Opacity, Shadow[/b]: the look of each line.[/*]
-[*][b]AttachTo, AttachPoint, Pivot, OffsetX, OffsetY[/b]: where each part sits. The INI has recipes.[/*]
-[*][b]FollowHud, ShowInMinigames, ShowInPhotoMode[/b]: where the clock shows.[/*]
-[*][b]AlwaysShow, ToggleKey, ShowKey, ShowEveryHours[/b]: when it shows.[/*]
-[/list]
-[/spoiler]
 
 [b]ToggleKey[/b] and [b]ShowKey[/b] are empty by default. They take named keys such as F7, Numpad1, Mouse4 or Gamepad_A, combos such as LShift+T, and alternatives such as F7,Gamepad_LB+Gamepad_Y. See the [url=https://github.com/tkhquang/DetourModKit?tab=readme-ov-file#supported-input-names]Supported Input Names[/url] reference. Controllers are XInput only, see [url=https://github.com/tkhquang/DetourModKit?tab=readme-ov-file#gamepad-compatibility]Gamepad Compatibility[/url].
 
