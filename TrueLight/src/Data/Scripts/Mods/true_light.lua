@@ -40,6 +40,8 @@ local SETTINGS = {
     { key = "third_person", default = 1, help = "1 = real torch light in third person, 0 = the game's own" },
     { key = "first_person", default = 0, help = "1 = real torch light in first person, 0 = the game's own" },
     { key = "photo_mode", default = 1, help = "1 = real torch light in photo mode, 0 = the game's own" },
+    { key = "bulb_size", default = 1, number = true,
+        help = "real torch light's size in metres, full brightness within it; 1 = the game's, 0.3 = an NPC torch" },
 }
 
 -- An unlit torch is held too, so a torch must burn. A lantern (class Lamp, from mods) gets the same fake light as a
@@ -63,19 +65,30 @@ local function FindSetting(key)
     end
 end
 
+-- A rerun of this file keeps the values already set; only keys missing from them take their defaults.
 function TrueLight:ApplyDefaults()
-    self.cfg = {}
-    for _, setting in ipairs(SETTINGS) do self.cfg[setting.key] = setting.default end
+    self.cfg = self.cfg or {}
+    for _, setting in ipairs(SETTINGS) do
+        if self.cfg[setting.key] == nil then self.cfg[setting.key] = setting.default end
+    end
 end
 
 function TrueLight:CmdSetting(key, line)
+    local setting = FindSetting(key)
     local value = tonumber(line)
     if value == nil then
-        Log(string.format("%s%s = %s (%s)", CMD_PREFIX, key, tostring(self.cfg[key]), FindSetting(key).help))
+        Log(string.format("%s%s = %s (%s)", CMD_PREFIX, key, tostring(self.cfg[key]), setting.help))
         return
     end
-    self.cfg[key] = (value ~= 0) and 1 or 0
     self.cfgCommandCount = (self.cfgCommandCount or 0) + 1
+    if not setting.number then
+        self.cfg[key] = (value ~= 0) and 1 or 0
+    elseif value > 0 then
+        self.cfg[key] = value
+    else
+        -- The engine stores the bulb size as given and the shader divides by it.
+        Log(string.format("%s%s must be above 0, keeping %s", CMD_PREFIX, key, tostring(self.cfg[key])))
+    end
 end
 
 -- One function per setting: a command typed without a value expands %line to nothing, which leaves no room for a key
@@ -140,14 +153,15 @@ local function MatchHeldLight(entity, heldLights)
 end
 
 -- Looked up from the hands, not System.GetEntitiesByClass: that walks every entity (10 ms a call) and cost a third of
--- the frame rate when run every frame.
+-- the frame rate when run every frame. A hidden prop (another mod hiding the torch during an animation) counts as not
+-- held: hiding it hides the light in its slot too, and with the game's light muted the scene would go dark.
 local function FindHeldLight(heldLights)
     local human = player and player.human
     if not human or not XGenAIModule then return nil end
     for _, hand in ipairs(LIGHT_HANDS) do
         local itemId = human:GetItemInHand(hand)
         local item = itemId and XGenAIModule.GetEntityByWUID(itemId)
-        local heldLight = item and MatchHeldLight(item, heldLights)
+        local heldLight = item and not item:IsHidden() and MatchHeldLight(item, heldLights)
         if heldLight then return item, heldLight end
     end
 end
@@ -212,11 +226,16 @@ local function FakeLightDesc(fakeLight, slot)
     return Light.GetLightDesc(fakeLight.Properties, slot)
 end
 
-local function AllDirectionsDesc(fakeLight)
+-- Past the bulb, brightness falls as (bulb / distance)^2, so the bulb size scales the whole light. Henry's torch
+-- archetype has a 1 m bulb and an NPC torch a 0.3 m one, so past 1 m his light is about 11 times brighter. The fake
+-- light hid that because his body cast no shadow; from the flame, his shadow gets only the dim NPC and ambient light
+-- while the ground around it gets his full torch.
+local function AllDirectionsDesc(fakeLight, bulbSize)
     local desc = FakeLightDesc(fakeLight, -1)
     desc.spot_shadow = false
     desc.spot_shadow_mask = 0
     desc.shadowUpdate_MinRadius = SHADOW_EVERY_FRAME_RADIUS
+    desc.attenuation_bulbsize = bulbSize
     return desc
 end
 
@@ -247,9 +266,10 @@ end
 function TrueLight:LightFlame(item, heldLight, fakeLight)
     self:RemoveFlameLight()
     local helper = FlameHelper(item, heldLight)
-    item.trueLightSlot = item:LoadLight(-1, AllDirectionsDesc(fakeLight))
+    item.trueLightSlot = item:LoadLight(-1, AllDirectionsDesc(fakeLight, self.cfg.bulb_size))
     item:SetSlotPosAndDir(item.trueLightSlot, item:GetSlotHelperPos(0, helper, true), item:GetHelperDir(helper, true))
     self.flameItemId = item.id
+    self.lightBulbSize = self.cfg.bulb_size
 end
 
 function TrueLight:IsRaised(item, heldLight, now)
@@ -280,7 +300,8 @@ end
 -- light where the game puts it, without the cone.
 function TrueLight:SetGapLight(fakeLight, enabled)
     if enabled and not self.gapSlot then
-        self.gapSlot = fakeLight:LoadLight(-1, AllDirectionsDesc(fakeLight))
+        self.gapSlot = fakeLight:LoadLight(-1, AllDirectionsDesc(fakeLight, self.cfg.bulb_size))
+        self.lightBulbSize = self.cfg.bulb_size
     elseif not enabled and self.gapSlot then
         fakeLight:FreeSlot(self.gapSlot)
         self.gapSlot = nil
@@ -294,7 +315,7 @@ function TrueLight:Restore()
         self:SetGapLight(fakeLight, false)
         if self.fakeLightMuted then UnmuteFakeLight(fakeLight) end
     end
-    self.fakeLightId, self.fakeLightMuted, self.gapSlot = nil, false, nil
+    self.fakeLightId, self.fakeLightMuted, self.gapSlot, self.lightBulbSize = nil, false, nil, nil
 end
 
 -- immediate: entering or leaving photo mode, where no later tick would finish the raise check.
@@ -314,12 +335,15 @@ function TrueLight:Update(immediate)
         MuteFakeLight(fakeLight)
         self.fakeLightMuted, self.mutedAt = true, now
     end
+    -- A bulb size set from the console or a cfg reload rebuilds the lit light.
+    local resize = self.lightBulbSize ~= nil and self.lightBulbSize ~= self.cfg.bulb_size
     local item, heldLight = FindHeldLight(self.heldLights)
     if item and (item.id == self.flameItemId or immediate or self:IsRaised(item, heldLight, now)) then
-        if item.id ~= self.flameItemId then self:LightFlame(item, heldLight, fakeLight) end
+        if item.id ~= self.flameItemId or resize then self:LightFlame(item, heldLight, fakeLight) end
         self:SetGapLight(fakeLight, false)
     else
         self:RemoveFlameLight()
+        if resize then self:SetGapLight(fakeLight, false) end
         self:SetGapLight(fakeLight, true)
     end
 end
@@ -370,7 +394,7 @@ end
 
 -- Any other rerun (the live Lua runner) gets the same teardown.
 if TrueLight.started then TrueLight:OnHotReload() end
-if not TrueLight.cfg then TrueLight:ApplyDefaults() end
+TrueLight:ApplyDefaults()
 
 if not TrueLight.eventRegistered and UIAction then
     UIAction.RegisterEventSystemListener(TrueLight, "", "", "EventListener")
