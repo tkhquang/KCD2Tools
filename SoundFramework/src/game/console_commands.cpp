@@ -7,6 +7,7 @@
 #include "audio/engine.hpp"
 #include "constants.hpp"
 #include "game/speech.hpp"
+#include "game/voice_catalog.hpp"
 #include "packs/sound_def.hpp"
 
 #include <windows.h>
@@ -15,7 +16,9 @@
 #include <array>
 #include <atomic>
 #include <charconv>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <format>
 #include <mutex>
 #include <optional>
@@ -34,8 +37,24 @@ namespace SoundFramework::game::commands
         using RemoveCommandFn = bool(__fastcall *)(void *console, const char *name);
         using ArgCountFn = int(__fastcall *)(const void *args);
         using ArgFn = const char *(__fastcall *)(const void *args, int index);
+        using GetCVarFn = void *(__fastcall *)(void *console, const char *name);
+        using GetStringFn = const char *(__fastcall *)(const void *cvar);
+        using SetStringFn = void(__fastcall *)(void *cvar, const char *value);
+        using RegisterStringFn = void *(__fastcall *)(void *console,
+                                                      const char *name,
+                                                      const char *value,
+                                                      int flags,
+                                                      const char *help,
+                                                      void *change_function);
+
+        constexpr const char *LINES_CVAR = "sfw_lines_text";
+        constexpr const char *LINES_CVAR_HELP = "The voice line catalog's search text, then its answer.";
+        // A page goes over a console variable and a script shows a few dozen rows at a time.
+        constexpr std::size_t MAX_LINES_PAGE = 200;
 
         Anchors s_anchors{};
+        /// The variable the catalog's commands talk over. Main thread only.
+        void *s_lines_cvar = nullptr;
 
         // Both flags change only under s_command_mutex; on_frame reads them first without it so that a frame with
         // nothing to do costs two loads.
@@ -73,6 +92,84 @@ namespace SoundFramework::game::commands
             return value;
         }
 
+        [[nodiscard]] std::optional<std::size_t> arg_size(const void *args, int index) noexcept
+        {
+            const std::string_view text = arg(args, index);
+            std::size_t value = 0;
+            const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+            if (error != std::errc{} || end != text.data() + text.size())
+            {
+                return std::nullopt;
+            }
+            return value;
+        }
+
+        /** @brief A NUL-terminated copy of @p text on the process heap, never freed: the console keeps the pointer. */
+        [[nodiscard]] const char *leaked_copy(std::string_view text) noexcept
+        {
+            auto *block = static_cast<char *>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, text.size() + 1));
+            if (block != nullptr)
+            {
+                std::memcpy(block, text.data(), text.size());
+            }
+            return block;
+        }
+
+        [[nodiscard]] bool is_string_variable(const void *cvar) noexcept
+        {
+            return cvar != nullptr && reinterpret_cast<std::uintptr_t>(vtable_of(cvar)) == s_anchors.cvar_string_vtable;
+        }
+
+        /**
+         * @brief The variable the catalog's commands talk over, or null when it is not a string variable. The first
+         *        loaded copy of the framework registers it; it outlives that copy, so a later copy finds it.
+         */
+        [[nodiscard]] void *find_or_register_lines_cvar(void *console) noexcept
+        {
+            void *const *slots = vtable_of(console);
+            void *cvar = reinterpret_cast<GetCVarFn>(slots[constants::CONSOLE_GET_CVAR_SLOT])(console, LINES_CVAR);
+            if (cvar == nullptr)
+            {
+                // The console keeps the name and help pointers, so they must outlive this module.
+                const char *const name = leaked_copy(LINES_CVAR);
+                const char *const help = leaked_copy(LINES_CVAR_HELP);
+                if (name == nullptr || help == nullptr)
+                {
+                    return nullptr;
+                }
+                cvar = reinterpret_cast<RegisterStringFn>(slots[constants::CONSOLE_REGISTER_STRING_SLOT])(
+                    console,
+                    name,
+                    "",
+                    0,
+                    help,
+                    nullptr
+                );
+            }
+            return is_string_variable(cvar) ? cvar : nullptr;
+        }
+
+        [[nodiscard]] std::string_view lines_text() noexcept
+        {
+            const char *const text =
+                reinterpret_cast<GetStringFn>(vtable_of(s_lines_cvar)[constants::CVAR_GET_STRING_SLOT])(s_lines_cvar);
+            return text != nullptr ? std::string_view{text} : std::string_view{};
+        }
+
+        void set_lines_text(const std::string &text) noexcept
+        {
+            const auto set = reinterpret_cast<SetStringFn>(vtable_of(s_lines_cvar)[constants::CVAR_SET_STRING_SLOT]);
+            set(s_lines_cvar, text.c_str());
+        }
+
+        [[nodiscard]] voice_catalog::Languages languages()
+        {
+            return voice_catalog::Languages{
+                .text = string_variable_lowered(constants::TEXT_LANGUAGE_CVAR),
+                .voice = string_variable_lowered(constants::VOICE_LANGUAGE_CVAR),
+            };
+        }
+
         /** @brief Runs a command body, keeping exceptions out of the game's console. */
         template <typename Body> void guarded(std::string_view command, Body &&body) noexcept
         {
@@ -88,6 +185,47 @@ namespace SoundFramework::game::commands
             {
                 (void)DMK::log().try_log(DMK::LogLevel::Error, "{}: unknown error", command);
             }
+        }
+
+        void cmd_lines_find(void *args)
+        {
+            guarded(
+                "sfw_lines_find",
+                [args]
+                {
+                    if (s_lines_cvar == nullptr)
+                    {
+                        DMK::log().warning("sfw_lines_find: {} is unavailable", LINES_CVAR);
+                        return;
+                    }
+                    const std::optional<std::size_t> first = arg_size(args, 1);
+                    const std::optional<std::size_t> count = arg_size(args, 2);
+                    if (!first || !count)
+                    {
+                        DMK::log().warning("sfw_lines_find: usage sfw_lines_find <first> <count>");
+                        return;
+                    }
+                    // A copy: the answer overwrites the variable this text lives in.
+                    const std::string wanted{lines_text()};
+                    set_lines_text(voice_catalog::find(wanted, *first, std::min(*count, MAX_LINES_PAGE), languages()));
+                }
+            );
+        }
+
+        void cmd_lines_line(void *args)
+        {
+            guarded(
+                "sfw_lines_line",
+                [args]
+                {
+                    if (s_lines_cvar == nullptr)
+                    {
+                        DMK::log().warning("sfw_lines_line: {} is unavailable", LINES_CVAR);
+                        return;
+                    }
+                    set_lines_text(voice_catalog::line(arg(args, 1), languages()));
+                }
+            );
         }
 
         void cmd_play(void *args)
@@ -348,6 +486,16 @@ namespace SoundFramework::game::commands
 
         constexpr std::array COMMANDS = {
             Command{
+                "sfw_lines_find",
+                &cmd_lines_find,
+                "sfw_lines_find <first> <count>: puts a page of the voice lines holding sfw_lines_text in that variable"
+            },
+            Command{
+                "sfw_lines_line",
+                &cmd_lines_line,
+                "sfw_lines_line <voice path>: puts that voice file's line in sfw_lines_text"
+            },
+            Command{
                 "sfw_play",
                 &cmd_play,
                 "sfw_play <sound> [x y z]: plays a SoundFramework sound at a world position, "
@@ -447,6 +595,7 @@ namespace SoundFramework::game::commands
                 {
                     add(console, command.name, command.fn, 0, command.help);
                 }
+                s_lines_cvar = find_or_register_lines_cvar(console);
                 s_registered.store(true, std::memory_order_release);
                 return Reconciled{
                     .change = Reconciled::Change::Added,
@@ -473,7 +622,7 @@ namespace SoundFramework::game::commands
                 (void)DMK::log().try_log(
                     DMK::LogLevel::Info,
                     "Commands: sfw_play, sfw_say, sfw_lipsync_offset, sfw_mood_override, sfw_mood_dump, sfw_stop, "
-                    "sfw_stop_all, sfw_reload and sfw_list added (main thread {})",
+                    "sfw_stop_all, sfw_reload, sfw_list, sfw_lines_find and sfw_lines_line added (main thread {})",
                     GetCurrentThreadId()
                 );
                 break;
@@ -494,6 +643,34 @@ namespace SoundFramework::game::commands
             }
         }
     } // namespace
+
+    std::string string_variable_lowered(const char *name)
+    {
+        if (!s_anchors.voice_language)
+        {
+            return {};
+        }
+        const auto *const genv = reinterpret_cast<const std::uint8_t *>(s_anchors.genv);
+        void *const console = *reinterpret_cast<void *const *>(genv + constants::GENV_CONSOLE);
+        if (console == nullptr || reinterpret_cast<std::uintptr_t>(vtable_of(console)) != s_anchors.console_vtable)
+        {
+            return {};
+        }
+        const void *const cvar =
+            reinterpret_cast<GetCVarFn>(vtable_of(console)[constants::CONSOLE_GET_CVAR_SLOT])(console, name);
+        if (!is_string_variable(cvar))
+        {
+            return {};
+        }
+        const char *const value = reinterpret_cast<GetStringFn>(vtable_of(cvar)[constants::CVAR_GET_STRING_SLOT])(cvar);
+        std::string lowered{value != nullptr ? value : ""};
+        std::ranges::transform(
+            lowered,
+            lowered.begin(),
+            [](char c) { return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c; }
+        );
+        return lowered;
+    }
 
     void configure(const Anchors &anchors) noexcept
     {

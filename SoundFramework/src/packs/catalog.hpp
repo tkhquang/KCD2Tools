@@ -37,6 +37,11 @@ namespace SoundFramework::packs
         std::unordered_map<std::string, LineDef> lines;
         /// Moods by lower-case name: the defaults file's, then the packs' (a later definition wins).
         std::unordered_map<std::string, MoodDef> moods;
+        /**
+         * @brief Volume adjustments in load order, one per name: a later definition of a name replaces the earlier one
+         *        and takes its place at the end. Where two adjustments name the same event, the later one wins.
+         */
+        std::vector<AdjustDef> adjusts;
         /// Every pack INI that was read, in load order, with the write time it had.
         std::vector<PackFile> files;
     };

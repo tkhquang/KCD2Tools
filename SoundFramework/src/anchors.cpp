@@ -218,6 +218,23 @@ namespace SoundFramework
             ),
         };
 
+        // The main-thread tick site in CSystem::Update: `mov [rsp+68h], r8d` right after `mov rsi, rcx`. P1 spans the
+        // site and the call into the timer at CSystem+0x28. P2 is the prologue tail (the xmm6 to xmm10 saves and the
+        // stack cookie) up to the site, so a patch on the site or on the entry leaves it intact.
+        const Candidate SYSTEM_UPDATE_TICK[] = {
+            Candidate::direct(
+                "SystemUpdateTick_P1_TimerCall",
+                Pattern::literal("48 8B F1 | 44 89 44 24 ?? 48 83 C1 28 44 8B E2 48 8B 46 28 FF 50 ??")
+            ),
+            Candidate::direct(
+                "SystemUpdateTick_P2_PrologueTail",
+                Pattern::literal(
+                    "0F 29 70 C8 0F 29 78 B8 44 0F 29 40 A8 44 0F 29 48 98 44 0F 29 50 88 48 8B 05 ?? ?? ?? ?? 48 33 C4 "
+                    "48 89 85 ?? ?? 00 00 48 8B F1 |"
+                )
+            ),
+        };
+
         /** @brief What an anchor names, which decides the validator it must pass. */
         enum class Role : std::uint8_t
         {
@@ -225,6 +242,8 @@ namespace SoundFramework
             Code,
             /// A global the framework reads through.
             Data,
+            /// An instruction inside a function, where a mid hook lands.
+            Site,
             /// The return address of a call into Speak.
             SpeakReturn,
         };
@@ -291,6 +310,12 @@ namespace SoundFramework
                    !on_executable_page(address);
         }
 
+        /** @brief Validator of a code site: an instruction in the image, on an executable page. */
+        [[nodiscard]] bool code_site_valid(std::int64_t value, const void *context) noexcept
+        {
+            return in_image(value, context) && on_executable_page(static_cast<std::uintptr_t>(value));
+        }
+
         /**
          * @brief Validator of the dialog return address: it follows an E8 call (rel32) whose target is Speak.
          * @details Both rungs end or start at the address, so this check ties the vote to the call it must name.
@@ -322,6 +347,8 @@ namespace SoundFramework
                 return code_target_valid;
             case Role::Data:
                 return data_target_valid;
+            case Role::Site:
+                return code_site_valid;
             case Role::SpeakReturn:
             default:
                 return speak_return_valid;
@@ -426,6 +453,7 @@ namespace SoundFramework
             RequestDtor,
             SpeakStop,
             SaveGameLoad,
+            SystemUpdateTick,
             DialogSpeakReturn,
         };
 
@@ -452,6 +480,7 @@ namespace SoundFramework
             make_anchor("RequestDtor", REQUEST_DTOR, Role::Code),
             make_anchor("SpeakStop", SPEAK_STOP, Role::Code),
             make_anchor("SaveGameLoad", SAVE_GAME_LOAD, Role::Code),
+            make_anchor("SystemUpdateTick", SYSTEM_UPDATE_TICK, Role::Site),
             make_quorum("DialogSpeakReturn", DIALOG_RETURN_VOTE_POINTERS, Role::SpeakReturn),
         };
         constexpr std::size_t ANCHOR_COUNT = std::size(ANCHORS);
@@ -471,7 +500,6 @@ namespace SoundFramework
 
         constexpr SlotPin SLOT_PINS[] = {
             {AnchorId::ConsoleVtable, constants::CONSOLE_SLOT_COUNT},
-            {AnchorId::SystemVtable, constants::SYSTEM_UPDATE_SLOT + 1},
             {AnchorId::EntitySystemVtable, constants::ENTITY_SYSTEM_SLOT_COUNT},
             {AnchorId::EntityVtable, constants::ENTITY_SLOT_COUNT},
             {AnchorId::ActorSystemVtable, constants::ACTOR_SYSTEM_SLOT_COUNT},
@@ -481,7 +509,7 @@ namespace SoundFramework
             {AnchorId::SkeletonVtable, constants::SKELETON_SLOT_COUNT},
             {AnchorId::PoseDataVtable, constants::POSE_DATA_SLOT_COUNT},
             {AnchorId::TimerVtable, constants::TIMER_GET_REAL_FRAME_TIME_SLOT + 1},
-            {AnchorId::CvarStringVtable, constants::CVAR_GET_STRING_SLOT + 1},
+            {AnchorId::CvarStringVtable, constants::CVAR_SET_STRING_SLOT + 1},
         };
 
         /** @brief A feature and the anchors it needs; it turns on when anchor::evaluate_gate passes over them. */
@@ -496,6 +524,7 @@ namespace SoundFramework
             AnchorId::Genv,
             AnchorId::ConsoleVtable,
             AnchorId::SystemVtable,
+            AnchorId::SystemUpdateTick,
         };
         constexpr AnchorId ENTITY_ANCHORS[] = {
             AnchorId::Genv,
@@ -618,6 +647,22 @@ namespace SoundFramework
             const ResolvedAnchor &entry = report[index_of(id)];
             return entry.status == AnchorStatus::Resolved ? static_cast<std::uintptr_t>(entry.value) : 0;
         };
+        // A vtable hook by another mod moves the slot out of the image, and the ladder then decides alone.
+        const std::uintptr_t update = slot_of(value_of(AnchorId::SystemVtable), constants::SYSTEM_UPDATE_SLOT, game);
+        ResolvedAnchor &tick = report[index_of(AnchorId::SystemUpdateTick)];
+        if (update != 0 && tick.status == AnchorStatus::Resolved &&
+            static_cast<std::uintptr_t>(tick.value) != update + constants::SYSTEM_UPDATE_TICK_OFFSET)
+        {
+            DMK::log().error(
+                "Anchor {} at {} is not CSystem::Update ({}) + {:#x}; the main-thread tick stays off",
+                tick.label,
+                DMK::format::format_address(static_cast<std::uintptr_t>(tick.value)),
+                DMK::format::format_address(update),
+                constants::SYSTEM_UPDATE_TICK_OFFSET
+            );
+            tick.status = AnchorStatus::Failed;
+            tick.value = 0;
+        }
         for (const ResolvedAnchor &entry : report)
         {
             log_entry(entry, game);
@@ -628,7 +673,7 @@ namespace SoundFramework
             .context_slot = value_of(AnchorId::Context),
             .console_vtable = value_of(AnchorId::ConsoleVtable),
             .system_vtable = value_of(AnchorId::SystemVtable),
-            .system_update = slot_of(value_of(AnchorId::SystemVtable), constants::SYSTEM_UPDATE_SLOT, game),
+            .system_update_tick = value_of(AnchorId::SystemUpdateTick),
             .entity_system_vtable = value_of(AnchorId::EntitySystemVtable),
             .entity_vtable = value_of(AnchorId::EntityVtable),
             .actor_system_vtable = value_of(AnchorId::ActorSystemVtable),

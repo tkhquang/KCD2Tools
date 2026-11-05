@@ -15,6 +15,8 @@
  * PlayAt = arrow_release:1                 ; optional: play when the game sets this event parameter, not at the start
  * KeepOriginal = true                      ; optional: leave the game's event audible and play on top of it
  * @endcode
+ *
+ * A section with `Adjusts` plays nothing of its own: it changes the volume of game events (see AdjustDef).
  */
 #ifndef SNDFW_PACKS_SOUND_DEF_HPP
 #define SNDFW_PACKS_SOUND_DEF_HPP
@@ -159,11 +161,31 @@ namespace SoundFramework::packs
         std::string origin;
     };
 
+    /**
+     * @brief A volume change for game events: every start of a matching event plays at this volume.
+     *
+     * @code
+     * [mymod_quiet_smithing]
+     * Adjusts = event:/foleys/professions/blacksmith/*, event:/world/objects/fire/fire_particle_bl_forge
+     * Volume = 0.4
+     * @endcode
+     */
+    struct AdjustDef
+    {
+        std::string name;
+        /// Game event paths (lower case; `*` matches any run) whose starts take this volume.
+        std::vector<std::string> events;
+        /// Linear gain on the event's own volume: 0 silences it, above 1 makes it louder.
+        float volume = 1.0f;
+        std::string origin;
+    };
+
     struct PackParse
     {
         std::vector<SoundDef> sounds;
         std::vector<LineDef> lines;
         std::vector<MoodDef> moods;
+        std::vector<AdjustDef> adjusts;
         /// Problems worth telling the pack author about, one per line, each naming the INI line.
         std::vector<std::string> problems;
     };
@@ -187,7 +209,7 @@ namespace SoundFramework::packs
     [[nodiscard]] bool wildcard_match(std::string_view pattern, std::string_view text) noexcept;
 
     /**
-     * @brief Parses the text of the pack INI at @p ini_path into sounds.
+     * @brief Parses the text of the pack INI at @p ini_path into sounds, voice lines, moods and volume adjustments.
      * @note Pure: file paths are resolved against the INI's directory but not checked on disk. A section with an
      *       invalid name, no files, or a value that cannot be read is skipped and reported.
      */

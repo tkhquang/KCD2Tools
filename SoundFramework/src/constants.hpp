@@ -29,8 +29,12 @@ namespace SoundFramework::constants
     inline constexpr const wchar_t *MOODS_FILE_NAME = L"KCD2_SoundFramework_moods.ini";
     /// The learned lip model ([LipSync] Mode = ADVANCED), beside the framework module.
     inline constexpr const wchar_t *LIP_MODEL_FILE_NAME = L"KCD2_SoundFramework_lipmodel.bin";
-    /// The cutscene speaker table (packs/cutscene_table.hpp): a copy beside the framework module overrides the built-in
-    /// one.
+    /// The voice line catalog (game/voice_catalog), rebuilt from the game's paks when they change, beside the module.
+    inline constexpr const wchar_t *VOICE_CATALOG_CACHE_FILE_NAME = L"KCD2_SoundFramework_lines.cache";
+    /**
+     * @brief The cutscene speaker table (packs/cutscene_table.hpp): a copy beside the framework module overrides the
+     *        built-in one.
+     */
     inline constexpr const wchar_t *CUTSCENE_TABLE_FILE_NAME = L"KCD2_SoundFramework_cutscenes.txt";
     /// The RCDATA resource holding the built-in cutscene speaker table (CMakeLists.txt, embed_cutscene_table).
     inline constexpr const wchar_t *CUTSCENE_TABLE_RESOURCE = L"CUTSCENE_TABLE";
@@ -74,18 +78,27 @@ namespace SoundFramework::constants
     inline constexpr std::size_t CONSOLE_ADD_COMMAND_SLOT = 33;
     /// IConsole::RemoveCommand(const char* name).
     inline constexpr std::size_t CONSOLE_REMOVE_COMMAND_SLOT = 34;
+    /// IConsole::RegisterString(name, value, flags, help, change function): the new variable.
+    inline constexpr std::size_t CONSOLE_REGISTER_STRING_SLOT = 2;
     /// IConsole::GetCVar(const char* name): the variable, or nullptr when none has that name (case-insensitive).
     inline constexpr std::size_t CONSOLE_GET_CVAR_SLOT = 23;
     /// The console's string variables, checked by vtable before their value is read.
     inline constexpr const char *RTTI_CVAR_STRING = ".?AVCXConsoleVariableString@@";
     /// ICVar::GetString() const: the value as text, owned by the variable.
     inline constexpr std::size_t CVAR_GET_STRING_SLOT = 5;
+    /// ICVar::Set(const char* value).
+    inline constexpr std::size_t CVAR_SET_STRING_SLOT = 9;
     /// IConsoleCmdArgs::GetArgCount() const; argument 0 is the command name.
     inline constexpr std::size_t CMD_ARGS_COUNT_SLOT = 1;
     /// IConsoleCmdArgs::GetArg(int) const.
     inline constexpr std::size_t CMD_ARGS_GET_SLOT = 2;
     /// ISystem::Update(int flags, int pause_mode), once per frame on the main thread.
     inline constexpr std::size_t SYSTEM_UPDATE_SLOT = 5;
+    /**
+     * @brief The main-thread tick site inside CSystem::Update: `mov [rsp+68h], r8d`, right after the prologue and
+     *        before the frame-start update of the timer at CSystem+0x28.
+     */
+    inline constexpr std::uintptr_t SYSTEM_UPDATE_TICK_OFFSET = 0x51;
     inline constexpr const char *RTTI_ENTITY_SYSTEM = ".?AVCEntitySystem@@";
     inline constexpr const char *RTTI_ENTITY = ".?AVCEntity@@";
     inline constexpr std::size_t ENTITY_SYSTEM_SLOT_COUNT = 98;
@@ -167,6 +180,8 @@ namespace SoundFramework::constants
      *        animation pak `Data/Facials/Facials_<language>*.pak`, or the English one when there is none.
      */
     inline constexpr const char *VOICE_LANGUAGE_CVAR = "g_languageAudio";
+    /// The text language, a string console variable.
+    inline constexpr const char *TEXT_LANGUAGE_CVAR = "g_language";
     /// The language whose facial animation the game falls back to.
     inline constexpr std::string_view FACIAL_FALLBACK_LANGUAGE = "english";
     /// A game line's speaker farther than this from the camera (metres) keeps the game's face.
@@ -214,6 +229,16 @@ namespace SoundFramework::constants
     inline constexpr std::uintptr_t GENV_SYSTEM = 0xC0;
     /// A ReplacesFor filter matches an event that starts within this many metres of a named entity.
     inline constexpr float REPLACES_FOR_RADIUS = 2.0f;
+    /**
+     * @brief The game's speech events (lower-case Studio paths). Conversation lines play through the dialog event,
+     *        cutscene lines through the cinematic event, and barks through one event per hearing distance
+     *        (bark_010 to bark_200) plus bark_inner, so the bark prefix covers them all.
+     */
+    inline constexpr std::string_view DIALOGUE_VOICE_EVENT = "event:/voice/dialog/dialog";
+    inline constexpr std::string_view CUTSCENE_VOICE_EVENT = "event:/voice/dialog/cinematic";
+    inline constexpr std::string_view BARK_VOICE_EVENT_PREFIX = "event:/voice/dialog/bark_";
+    /// The highest [Volume] setting: 4 is +12 dB, also the top of a pack's Volume range.
+    inline constexpr float MAX_EVENT_VOLUME = 4.0f;
     /// How long shutdown waits for the main thread to remove the console commands.
     inline constexpr std::chrono::milliseconds COMMAND_REMOVAL_DEADLINE{1500};
 } // namespace SoundFramework::constants

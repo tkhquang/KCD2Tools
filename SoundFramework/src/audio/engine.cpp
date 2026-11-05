@@ -190,8 +190,9 @@ namespace SoundFramework::audio
                 DMK::log().info("Packs: read {}", packs::path_text(file.ini));
             }
             DMK::log().info(
-                "Packs: {} sound(s) from {} pack file(s) under {}",
+                "Packs: {} sound(s) and {} adjustment(s) from {} pack file(s) under {}",
                 load.catalog.sounds.size(),
+                load.catalog.adjusts.size(),
                 load.catalog.files.size(),
                 packs::path_text(s_state.mods_dir)
             );
@@ -820,6 +821,16 @@ namespace SoundFramework::audio
                     line.voices.size(),
                     line.text_keys.size(),
                     line.origin
+                );
+            }
+            for (const packs::AdjustDef &adjust : s_state.catalog.adjusts)
+            {
+                DMK::log().info(
+                    "Catalog: adjustment {} (volume {:.2f}, {} event pattern(s)) from {}",
+                    adjust.name,
+                    adjust.volume,
+                    adjust.events.size(),
+                    adjust.origin
                 );
             }
         }

@@ -23,7 +23,7 @@ namespace SoundFramework::fmod
     {
         using StartFn = Result(__fastcall *)(void *instance);
 
-        StartFn s_original = nullptr;
+        std::atomic<StartFn> s_original{nullptr};
 
         /**
          * @brief The instance start_own_event() is starting, null otherwise.
@@ -40,7 +40,7 @@ namespace SoundFramework::fmod
                 game::cutscene_voices::on_event_start(instance);
                 audio::replacements::on_event_start(instance);
             }
-            return s_original(instance);
+            return s_original.load(std::memory_order_acquire)(instance);
         }
     } // namespace
 
@@ -62,17 +62,11 @@ namespace SoundFramework::fmod
             DMK::log().error("FMOD: Studio::EventInstance::start export not found");
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "event_hook/export"});
         }
-        DMK_TRY(
-            created,
-            DMK::hook::inline_at<&start_detour>(DMK::hook::InlineRequest{
-                .name = "FmodStudioEventStart",
-                .target = DMK::Address{reinterpret_cast<std::uintptr_t>(target)},
-            })
-        );
-        s_original = created.original<StartFn>();
-        // Stored before it is armed: the stack owns it through teardown even when the arm fails half-way.
-        DMK::hook::Hook &stored = hooks.push(std::move(created));
-        DMK_TRY_VOID(stored.enable());
+        DMK_TRY_VOID(hooks.install<&start_detour>(DMK::hook::InlineInstallRequest{
+            .name = "FmodStudioEventStart",
+            .target = DMK::Address{reinterpret_cast<std::uintptr_t>(target)},
+            .original = &s_original,
+        }));
         DMK::log().info(
             "FMOD: Studio::EventInstance::start hooked at {}",
             DMK::format::format_address(reinterpret_cast<std::uintptr_t>(target))

@@ -33,7 +33,7 @@ namespace SoundFramework::game::speak_hook
         constexpr std::size_t REQUEST_TEXT_KEY = 0x08;
         constexpr std::size_t REQUEST_VOLUME = 0x10;
 
-        SpeakFn s_original = nullptr;
+        std::atomic<SpeakFn> s_original{nullptr};
         std::uintptr_t s_assign = 0;
         /// Where the dialog line player's call into Speak returns to, or 0.
         std::uintptr_t s_dialog_return = 0;
@@ -137,7 +137,7 @@ namespace SoundFramework::game::speak_hook
                 assign(bytes + REQUEST_PATH, swap->voice.c_str());
                 assign(bytes + REQUEST_TEXT_KEY, swap->bubble ? swap->text_key.c_str() : "");
             }
-            const std::uintptr_t result = s_original(speak_man, request);
+            const std::uintptr_t result = s_original.load(std::memory_order_acquire)(speak_man, request);
             if (swap.has_value())
             {
                 try
@@ -179,16 +179,11 @@ namespace SoundFramework::game::speak_hook
             DMK::log().warning("SpeakHook: the Speech feature is off; game voice lines are not seen");
             return {};
         }
-        DMK_TRY(
-            created,
-            DMK::hook::inline_at<&speak_detour>(DMK::hook::InlineRequest{
-                .name = "ActorSpeak",
-                .target = DMK::Address{anchors.speak},
-            })
-        );
-        s_original = created.original<SpeakFn>();
-        DMK::hook::Hook &stored = hooks.push(std::move(created));
-        DMK_TRY_VOID(stored.enable());
+        DMK_TRY_VOID(hooks.install<&speak_detour>(DMK::hook::InlineInstallRequest{
+            .name = "ActorSpeak",
+            .target = DMK::Address{anchors.speak},
+            .original = &s_original,
+        }));
         DMK::log().info("SpeakHook: Speak hooked at {}", DMK::format::format_address(anchors.speak));
         return {};
     }

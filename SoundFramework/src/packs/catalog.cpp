@@ -259,6 +259,27 @@ namespace SoundFramework::packs
                         load.catalog.lines.emplace(std::move(key), std::move(line));
                     }
                 }
+                for (AdjustDef &adjust : parsed.adjusts)
+                {
+                    const std::string key = sound_key(adjust.name);
+                    const auto existing = std::ranges::find_if(
+                        load.catalog.adjusts,
+                        [&](const AdjustDef &entry) { return sound_key(entry.name) == key; }
+                    );
+                    if (existing != load.catalog.adjusts.end())
+                    {
+                        load.notes.push_back(
+                            std::format(
+                                "[{}] from {} overrides the adjustment from {}",
+                                adjust.name,
+                                adjust.origin,
+                                existing->origin
+                            )
+                        );
+                        load.catalog.adjusts.erase(existing);
+                    }
+                    load.catalog.adjusts.push_back(std::move(adjust));
+                }
                 load.catalog.files.push_back(std::move(file));
             }
         }

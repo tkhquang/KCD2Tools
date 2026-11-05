@@ -15,18 +15,20 @@
 
 #include <windows.h>
 
+#include <atomic>
+
 namespace SoundFramework::fmod
 {
     namespace
     {
         using SetParameterFn = Result(__fastcall *)(void *instance, const char *name, float value, bool ignore_seek);
 
-        SetParameterFn s_original = nullptr;
+        std::atomic<SetParameterFn> s_original{nullptr};
 
         Result __fastcall set_parameter_detour(void *instance, const char *name, float value, bool ignore_seek) noexcept
         {
             audio::replacements::on_event_parameter(instance, name, value);
-            return s_original(instance, name, value, ignore_seek);
+            return s_original.load(std::memory_order_acquire)(instance, name, value, ignore_seek);
         }
     } // namespace
 
@@ -42,17 +44,11 @@ namespace SoundFramework::fmod
             );
             return {};
         }
-        DMK_TRY(
-            created,
-            DMK::hook::inline_at<&set_parameter_detour>(DMK::hook::InlineRequest{
-                .name = "FmodStudioEventSetParameter",
-                .target = DMK::Address{reinterpret_cast<std::uintptr_t>(target)},
-            })
-        );
-        s_original = created.original<SetParameterFn>();
-        // Stored before it is armed: the stack owns it through teardown even when the arm fails half-way.
-        DMK::hook::Hook &stored = hooks.push(std::move(created));
-        DMK_TRY_VOID(stored.enable());
+        DMK_TRY_VOID(hooks.install<&set_parameter_detour>(DMK::hook::InlineInstallRequest{
+            .name = "FmodStudioEventSetParameter",
+            .target = DMK::Address{reinterpret_cast<std::uintptr_t>(target)},
+            .original = &s_original,
+        }));
         DMK::log().info(
             "FMOD: Studio::EventInstance::setParameterByName hooked at {}",
             DMK::format::format_address(reinterpret_cast<std::uintptr_t>(target))

@@ -122,6 +122,25 @@ PlayAt = arrow_release:1                ; the moment the arrow leaves the bow
 
 The game also sets parameters it shares across all events, such as `daytime`; in the `EventLog` lines, use the one that changes at the moment you want.
 
+### Changing the volume of the game's sounds
+
+A section with `Adjusts` plays nothing of its own. It changes how loud game events play, wherever the game starts them:
+
+```ini
+[my_mod_quiet_smithing]
+Adjusts = event:/foleys/professions/blacksmith/*, event:/world/objects/fire/fire_particle_bl_forge
+Volume = 0.4
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `Adjusts` | required | Comma-separated game event paths. `*` matches any run of characters, so `event:/foleys/professions/blacksmith/*` covers every smithing event. |
+| `Volume` | `1` | 0 to 4: `0` silences the events, `0.5` halves them, above `1` makes them louder (and can clip). |
+
+The volume is set each time the game starts an event, so a saved change applies from the next start. A sound that keeps playing, such as a grindstone's grinding or a forge fire, keeps its volume until it stops and starts again.
+
+Find the paths with `EventLog` as above: an adjusted event's line ends with the volume it plays at. When two sections name the same event, the one loaded later wins it. An event that a sound also `Replaces` stays muted; with `KeepOriginal` it plays at the adjusted volume under your sound. The player's `[Volume]` settings for voices multiply with an adjustment of a voice event.
+
 ## Voice lines
 
 A section with a `Voice` key is a voice line. NPCs speak it through the game's own speech system, so it plays on the dialog bus with the NPC's voice settings, and the framework adds the text, lip movement and mood.
@@ -233,6 +252,20 @@ Your voice lines move the speaker's mouth automatically; there is nothing to set
 | `sfw_lipsync_offset <ms>` | Moves the mouth earlier (positive) or later (negative). |
 | `sfw_reload` | Stops every framework sound and reads every pack again. Use it after adding a new pack file. |
 | `sfw_list` | Writes every sound, voice line and mood to the log. |
+| `sfw_lines_find <first> <count>` | Searches the game's voice lines (see below). |
+| `sfw_lines_line <voice path>` | Gets one voice file's line. |
+
+### Listing the game's voice lines from a script
+
+A picker needs no list of its own: the framework reads every voice file of the game, its text in the game's language and who says it from the game's files. The first request in a session starts that on a background thread, which takes a few seconds. Later sessions load `KCD2_SoundFramework_lines.cache` beside the framework, which rebuilds when the game's files or languages change. Game Lua cannot call the framework, so a search goes over a console variable, and the answer is there on the next line of the script:
+
+```lua
+System.SetCVar("sfw_lines_text", "greetings")      -- found in who says it or the text, any case; empty finds all
+System.ExecuteCommand("sfw_lines_find 0 20")       -- first match (from 0), how many, up to 200
+local answer = System.GetCVar("sfw_lines_text")    -- how many match in all, then a line each
+```
+
+The first line of the answer is the word `building` until the list is ready, so ask again in a moment, or `failed`, with the reason in `KCD2_SoundFramework.log`. A line holds tab-separated fields: the voice path to give `sfw_say` or `wh_snd_playfile` after `Localization/dialog/`, who says it (`Role (Actor)` as far as it is known, maybe empty), and the text. Henry's lines come first, shortest first.
 
 ## How voice lines share a speaker
 

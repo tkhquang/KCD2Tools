@@ -13,13 +13,15 @@
 #include "audio/engine.hpp"
 #include "game/speech.hpp"
 
+#include <atomic>
+
 namespace SoundFramework::game::save_load_hook
 {
     namespace
     {
         using LoadFn = bool(__fastcall *)(void *manager, void *chunk, void *save_path);
 
-        LoadFn s_original = nullptr;
+        std::atomic<LoadFn> s_original{nullptr};
 
         bool __fastcall load_detour(void *manager, void *chunk, void *save_path) noexcept
         {
@@ -35,7 +37,7 @@ namespace SoundFramework::game::save_load_hook
                     "SaveLoad: the framework's sounds were not stopped"
                 );
             }
-            return s_original(manager, chunk, save_path);
+            return s_original.load(std::memory_order_acquire)(manager, chunk, save_path);
         }
     } // namespace
 
@@ -48,17 +50,11 @@ namespace SoundFramework::game::save_load_hook
             );
             return {};
         }
-        DMK_TRY(
-            created,
-            DMK::hook::inline_at<&load_detour>(DMK::hook::InlineRequest{
-                .name = "SaveGameLoad",
-                .target = DMK::Address{anchors.save_game_load},
-            })
-        );
-        s_original = created.original<LoadFn>();
-        // Stored before it is armed: the stack owns it through teardown even when the arm fails half-way.
-        DMK::hook::Hook &stored = hooks.push(std::move(created));
-        DMK_TRY_VOID(stored.enable());
+        DMK_TRY_VOID(hooks.install<&load_detour>(DMK::hook::InlineInstallRequest{
+            .name = "SaveGameLoad",
+            .target = DMK::Address{anchors.save_game_load},
+            .original = &s_original,
+        }));
         DMK::log().info(
             "SaveLoad: SaveGameManager::LoadCryEngineData hooked at {}",
             DMK::format::format_address(anchors.save_game_load)

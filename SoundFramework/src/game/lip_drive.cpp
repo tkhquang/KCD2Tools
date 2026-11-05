@@ -141,7 +141,7 @@ namespace SoundFramework::game::lip_drive
         std::vector<std::vector<std::uint32_t>> s_channel_joints;
         /// Joint CRCs of the articulation poses; written before the hook is armed, read-only afterwards.
         std::vector<std::uint32_t> s_articulation_joints;
-        ExecuteFn s_original = nullptr;
+        std::atomic<ExecuteFn> s_original{nullptr};
         /// QueryPerformanceFrequency; written before the hook is armed.
         std::int64_t s_ticks_per_second = 1;
         std::atomic<std::shared_ptr<const Snapshot>> s_snapshot;
@@ -305,7 +305,7 @@ namespace SoundFramework::game::lip_drive
                     }
                 }
             }
-            return s_original(self, params);
+            return s_original.load(std::memory_order_acquire)(self, params);
         }
     } // namespace
 
@@ -325,16 +325,11 @@ namespace SoundFramework::game::lip_drive
         {
             s_articulation_joints.push_back(joint_crc(std::string("FA_POSE_").append(pose)));
         }
-        DMK_TRY(
-            created,
-            DMK::hook::inline_at<&execute_detour>(DMK::hook::InlineRequest{
-                .name = "JointPoseMorphExecute",
-                .target = DMK::Address{anchors.pose_morph_execute},
-            })
-        );
-        s_original = created.original<ExecuteFn>();
-        DMK::hook::Hook &stored = hooks.push(std::move(created));
-        DMK_TRY_VOID(stored.enable());
+        DMK_TRY_VOID(hooks.install<&execute_detour>(DMK::hook::InlineInstallRequest{
+            .name = "JointPoseMorphExecute",
+            .target = DMK::Address{anchors.pose_morph_execute},
+            .original = &s_original,
+        }));
         DMK::log().info("LipDrive: pose-morph Execute hooked");
         return {};
     }
@@ -354,7 +349,8 @@ namespace SoundFramework::game::lip_drive
 
     std::uint64_t perform(std::uint32_t entity_id, Performance performance)
     {
-        if (s_original == nullptr || (performance.mood.empty() && !performance.mouth_pending))
+        if (s_original.load(std::memory_order_acquire) == nullptr ||
+            (performance.mood.empty() && !performance.mouth_pending))
         {
             return 0;
         }
@@ -452,7 +448,7 @@ namespace SoundFramework::game::lip_drive
 
     bool active() noexcept
     {
-        return s_original != nullptr;
+        return s_original.load(std::memory_order_acquire) != nullptr;
     }
 
     void on_frame() noexcept
