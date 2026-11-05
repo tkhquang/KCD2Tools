@@ -38,6 +38,8 @@ Mods/
 | `true_light_photo_mode` | `1` | Photo mode |
 | `true_light_first_person` | `0` | First person |
 
+`true_light_bulb_size` (default `1`) is the size of the real torch light in metres. Smaller makes the light dimmer and Henry's shadow lighter, with the same reach. `1` is the game's light for Henry's torch, `0.3` an NPC's torch.
+
 The same names work as console commands. `true_light_reload` reads the file again.
 
 ### Lights From Other Mods
