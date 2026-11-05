@@ -1,0 +1,63 @@
+[size=5]Foreword[/size]
+[b]HUD Clock[/b] shows the game time on the HUD.
+
+[size=5]Features[/size]
+[list]
+[*]Shows with the HUD and in minigames (alchemy, smithing, dice, reading), optionally in photo mode. Hides in menus, dialogue and cutscenes.[/*]
+[*]Fully customizable: 24 or 12 hours, part of the day, day count, real time, sun and moon dial, fonts, colors, position, and when it shows. See KCD2_HUDClock.ini for more.[/*]
+[*]Open source, built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url].[/*]
+[/list]
+
+[size=5]Requirements[/size]
+[list]
+[*]Kingdom Come: Deliverance II 1.5.6 on Steam.[/*]
+[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332]Kingdom Come Script Extender (KCSE)[/url], or an ASI loader with the ASI add-on.[/*]
+[/list]
+
+[size=5]Installation[/size]
+Install the main file with your mod manager, or extract it into your [b]Mods[/b] folder. With KCSE, that is all.
+[spoiler]
+[code]
+Mods/
+\-- hud_clock/
+    |-- mod.manifest
+    |-- Data/
+    |   \-- hud_clock.pak
+    \-- KCSE/
+        \-- Plugins/
+            |-- KCD2_HUDClock.dll
+            |-- KCD2_HUDClock.ini
+            \-- KCD2_HUDClock_License.txt
+[/code]
+[/spoiler]
+
+[b]Without KCSE:[/b] also put an x64 [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases]Ultimate ASI Loader[/url] dinput8.dll beside WHGame.dll, and extract the optional [b]ASI add-on[/b] into the game folder. The ASI reads the KCD2_HUDClock.ini beside it.
+[spoiler]
+[code]
+<KC:D 2 folder>/
+\-- Bin/
+    \-- Win64MasterMasterSteamPGO/
+        |-- dinput8.dll
+        |-- KCD2_HUDClock.asi
+        |-- KCD2_HUDClock.ini
+        \-- KCD2_HUDClock_License.txt
+[/code]
+On Linux or Steam Deck, add [b]WINEDLLOVERRIDES="dinput8=n,b" %command%[/b] to the Steam launch options.
+[/spoiler]
+
+With both KCSE and the add-on installed, only one copy runs. To uninstall, delete Mods/hud_clock and the add-on's files.
+
+[size=5]Compatibility[/size]
+[list]
+[*]Works beside keybind, compass and other HUD mods.[/*]
+[*]If a game update breaks it, the mod turns itself off.[/*]
+[/list]
+
+[size=5]Credits[/size]
+[list]
+[*]Warhorse Studios - Kingdom Come: Deliverance II[/*]
+[*]LoriAwesome - [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/636]Show Time II[/url], for the names of the parts of the day[/*]
+[*]SkyAmigo - [url=https://www.nexusmods.com/skyrimspecialedition/mods/12937]A Matter of Time - A HUD clock widget[/url], for the timed and periodic display ideas[/*]
+[/list]
+
+All my Kingdom Come: Deliverance II mods and tools can be found in this [url=https://github.com/tkhquang/KCD2Tools]GitHub repository[/url]. Feel free to contribute or suggest improvements!
