@@ -35,4 +35,16 @@ namespace TPVCamera
         const uintptr_t target = read_image_vtable_slot(vtable, slot, module_base, module_size);
         return code_window_matches(target, signature, window, image) ? target : 0;
     }
+
+    uintptr_t read_proven_vtable_slot(uintptr_t vtable, size_t slot, const DMK::scan::Pattern &frame,
+                                      const DMK::scan::Pattern &body, size_t body_window, uintptr_t module_base,
+                                      size_t module_size)
+    {
+        const DMK::Region image{DMK::Address{module_base}, module_size};
+        const uintptr_t target = read_image_vtable_slot(vtable, slot, module_base, module_size);
+        return code_window_matches(target, frame, frame.max_match_length(), image) ||
+                       code_window_matches(target, body, body_window, image)
+                   ? target
+                   : 0;
+    }
 } // namespace TPVCamera

@@ -23,7 +23,7 @@ namespace TPVCamera
     /**
      * @brief Installs the AddOrCreatePersistentRenderObject detour from the OccluderFade anchor.
      * @details Best-effort: on a miss the camera collides with every object and never fades one.
-     * @param hooks The mod's hook stack. The handle is stored before its arm.
+     * @param hooks The mod's hook stack. A failed install leaves it unchanged.
      * @return An empty value when the hook was installed, else the library Error (ErrorCode::NoMatch when the anchor
      *         did not resolve).
      * @note Call after resolve_all_anchors().

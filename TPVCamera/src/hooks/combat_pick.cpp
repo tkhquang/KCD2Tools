@@ -13,7 +13,6 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <utility>
 
 namespace TPVCamera
 {
@@ -69,23 +68,16 @@ namespace TPVCamera
                            "camera");
             return;
         }
-        auto result = DMK::hook::mid_at(
+        const auto installed = hooks.install(
             DMK::hook::MidRequest{
                 .name = "CombatPickViewRead",
                 .target = DMK::Address{site},
             },
             detour_pick_view_read);
-        if (!result.has_value())
+        if (!installed.has_value())
         {
             logger.warning("Combat: target pick hook failed ({}); the lock-on picks along the rendered camera",
-                           result.error().message());
-            return;
-        }
-        if (auto armed = hooks.push(std::move(*result)).enable(); !armed.has_value())
-        {
-            logger.warning("Combat: target pick hook could not be armed ({}); the lock-on picks along the rendered "
-                           "camera",
-                           armed.error().message());
+                           installed.error().message());
             return;
         }
         logger.info("Combat: the lock-on's target pick goes along the opponent the game steers to, or along the look "

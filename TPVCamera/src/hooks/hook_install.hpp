@@ -1,6 +1,6 @@
 /**
  * @file hooks/hook_install.hpp
- * @brief Installs one counted inline hook into the mod's HookStack with its trampoline published before the arm.
+ * @brief Installs and arms one counted inline hook in the mod's HookStack.
  */
 #ifndef TPVCAMERA_HOOK_INSTALL_HPP
 #define TPVCAMERA_HOOK_INSTALL_HPP
@@ -13,18 +13,16 @@
 #include <expected>
 #include <string>
 #include <string_view>
-#include <utility>
 
 namespace TPVCamera
 {
 
     /**
-     * @brief Installs one counted inline hook on @p target, stores it in @p hooks, and publishes its trampoline before
-     *        the arm.
-     * @details The detour can run as soon as enable() arms the patch, so @p original holds the trampoline first. The
-     *          stack stores the hook before the arm, so a hook whose arm fails with the patch live stays owned through
-     *          teardown. DMK counts every call into @p Detour, so HookStack::retire can prove that no game thread still
-     *          runs it or returns through the trampoline.
+     * @brief Installs and arms one counted inline hook on @p target in @p hooks.
+     * @details HookStack::install stores the trampoline into @p original and arms the hook in one process coordinator
+     *          hold, so the detour never reads a null original. A failed install leaves @p hooks unchanged. DMK counts
+     *          every call into @p Detour, so HookStack::retire can prove that no game thread still runs it or returns
+     *          through the trampoline.
      * @tparam Detour The detour: noexcept, with trivially copyable parameters and result.
      * @param hooks The mod's hook stack.
      * @param name The hook name for DMK diagnostics. A later generation with the same name claims the position.
@@ -38,18 +36,14 @@ namespace TPVCamera
     [[nodiscard]] DMK::Result<void> install_inline_hook(DMK::hook::HookStack &hooks, std::string_view name,
                                                         std::uintptr_t target, std::atomic<Func> &original)
     {
-        auto result = DMK::hook::inline_at<Detour>(DMK::hook::InlineRequest{
+        const auto installed = hooks.install<Detour>(DMK::hook::InlineInstallRequest{
             .name = std::string{name},
             .target = DMK::Address{target},
+            .original = &original,
         });
-        if (!result.has_value())
+        if (!installed.has_value())
         {
-            return std::unexpected(result.error());
-        }
-        original.store(result->template original<Func>(), std::memory_order_release);
-        if (auto armed = hooks.push(std::move(*result)).enable(); !armed.has_value())
-        {
-            return std::unexpected(armed.error());
+            return std::unexpected(installed.error());
         }
         return {};
     }

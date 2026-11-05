@@ -208,29 +208,19 @@ namespace TPVCamera
         }
         else
         {
-            auto input_result = DMK::hook::inline_at<&detour_input_dispatch>(DMK::hook::InlineRequest{
+            const auto input_installed = hooks.install<&detour_input_dispatch>(DMK::hook::InlineInstallRequest{
                 .name = "CameraInputDispatch",
                 .target = DMK::Address{input_addr},
+                .original = &s_input_dispatch_original,
             });
-
-            if (!input_result.has_value())
+            if (!input_installed.has_value())
             {
                 logger.warning("Camera: Input dispatcher hook failed ({}); free-look orbit unavailable",
-                               input_result.error().message());
+                               input_installed.error().message());
             }
             else
             {
-                s_input_dispatch_original.store(input_result->original<InputDispatchFunc>(), std::memory_order_release);
-                if (auto armed = hooks.push(std::move(*input_result)).enable(); !armed.has_value())
-                {
-                    logger.warning("Camera: Input dispatcher hook could not be armed ({}); free-look orbit "
-                                   "unavailable",
-                                   armed.error().message());
-                }
-                else
-                {
-                    s_input_dispatch_hooked.store(true, std::memory_order_release);
-                }
+                s_input_dispatch_hooked.store(true, std::memory_order_release);
             }
         }
     }

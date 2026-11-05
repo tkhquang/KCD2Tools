@@ -400,20 +400,12 @@ namespace TPVCamera
             s_spin_latch_offset = layout->spin_latch_offset;
             s_installed_state_offset = layout->installed_state_offset;
             s_last_sign_offset = layout->last_sign_offset;
-            auto result = DMK::hook::mid_at(DMK::hook::MidRequest{.name = "TurnDecision", .target = DMK::Address{site}},
-                                            detour_turn_decision);
-            if (!result.has_value())
+            const auto installed = hooks.install(
+                DMK::hook::MidRequest{.name = "TurnDecision", .target = DMK::Address{site}}, detour_turn_decision);
+            if (!installed.has_value())
             {
                 logger.warning("Camera: turn decision hook failed ({}); turns rest about 35 degrees short of the look",
-                               result.error().message());
-                return;
-            }
-            const auto armed = hooks.push(std::move(*result)).enable();
-            if (!armed.has_value())
-            {
-                logger.warning("Camera: turn decision hook could not be armed ({}); turns rest about 35 degrees short "
-                               "of the look",
-                               armed.error().message());
+                               installed.error().message());
                 return;
             }
             logger.info("Camera: turn decision hooked at {} (turns finish facing the look)",
@@ -596,23 +588,14 @@ namespace TPVCamera
                 return;
             }
             s_crouched_swaps = swaps;
-            auto result =
-                DMK::hook::mid_at(DMK::hook::MidRequest{.name = "CrouchedAnimation", .target = DMK::Address{lookup}},
-                                  detour_crouched_animation);
-            if (!result.has_value())
+            const auto installed =
+                hooks.install(DMK::hook::MidRequest{.name = "CrouchedAnimation", .target = DMK::Address{lookup}},
+                              detour_crouched_animation);
+            if (!installed.has_value())
             {
                 logger.warning("Camera: crouched animation hook failed ({}); crouched right turns can show the game's "
                                "broken pose",
-                               result.error().message());
-                return;
-            }
-            const auto armed = hooks.push(std::move(*result)).enable();
-            if (!armed.has_value())
-            {
-                logger.warning(
-                    "Camera: crouched animation hook could not be armed ({}); crouched right turns can show the "
-                    "game's broken pose",
-                    armed.error().message());
+                               installed.error().message());
                 return;
             }
             logger.debug("Camera: crouched idle hash {:#x} plays as {:#x}, crouched turn hash {:#x} plays as {:#x}",
@@ -764,24 +747,15 @@ namespace TPVCamera
             return;
         }
         s_movement_type_offset = *type_offset;
-        auto result = DMK::hook::inline_at<&detour_phys_ent_movement>(DMK::hook::InlineRequest{
+        const auto installed = hooks.install<&detour_phys_ent_movement>(DMK::hook::InlineInstallRequest{
             .name = "UpdatePhysicalEntityMovement",
             .target = DMK::Address{target},
+            .original = &s_phys_ent_movement_original,
         });
-        if (!result.has_value())
+        if (!installed.has_value())
         {
             logger.warning("Camera: UpdatePhysicalEntityMovement hook failed ({}); turn steps move the body a little",
-                           result.error().message());
-            return;
-        }
-        // Published before enable() arms the patch, and never cleared: an armed or pinned hook still routes through it.
-        s_phys_ent_movement_original.store(result->original<UpdatePhysEntMovementFunc>(), std::memory_order_release);
-        const auto armed = hooks.push(std::move(*result)).enable();
-        if (!armed.has_value())
-        {
-            logger.warning("Camera: UpdatePhysicalEntityMovement hook could not be armed ({}); turn steps move "
-                           "the body a little",
-                           armed.error().message());
+                           installed.error().message());
             return;
         }
         s_turn_steps_hooked.store(true, std::memory_order_relaxed);
@@ -874,25 +848,15 @@ namespace TPVCamera
         s_turn_trigger_return = trigger_return;
         s_lock_sync_return = lock_sync_return;
 
-        auto result = DMK::hook::inline_at<&detour_is_third_person>(DMK::hook::InlineRequest{
+        const auto installed = hooks.install<&detour_is_third_person>(DMK::hook::InlineInstallRequest{
             .name = "IsThirdPerson",
             .target = DMK::Address{target},
+            .original = &s_is_third_person_original,
         });
-        if (!result.has_value())
+        if (!installed.has_value())
         {
             logger.warning("Camera: IsThirdPerson hook failed ({}); native turn animation unavailable",
-                           result.error().message());
-            return;
-        }
-        // Publish the trampoline before enable() arms the patch, so the detour never sees a null original.
-        s_is_third_person_original.store(result->original<IsThirdPersonFunc>(), std::memory_order_release);
-        const auto armed = hooks.push(std::move(*result)).enable();
-        if (!armed.has_value())
-        {
-            // The detour may still be reachable (a backend error after the patch committed leaves the hook active), so
-            // the trampoline stays; the feature simply stays off.
-            logger.warning("Camera: IsThirdPerson hook could not be armed ({}); native turn animation unavailable",
-                           armed.error().message());
+                           installed.error().message());
             return;
         }
         s_native_turn_armed.store(true, std::memory_order_release);

@@ -25,7 +25,7 @@ namespace TPVCamera
 
     /**
      * @brief Installs the player OnAction / action-dispatcher hook from the pre-resolved anchor.
-     * @param hooks The mod's hook stack. Each handle is stored before its arm.
+     * @param hooks The mod's hook stack. A failed install leaves it unchanged.
      * @return An empty value when the dispatcher was located and hooked, or the library Error that refused it
      *         (ErrorCode::NoMatch when the anchor cascade did not resolve). Best-effort at the call site: a
      *         refusal only costs the input-driven orbit move-detection, which falls back to body speed.

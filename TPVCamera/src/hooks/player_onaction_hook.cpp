@@ -207,21 +207,14 @@ namespace TPVCamera
         // branch rather than a refusal, so layering still works. The caller decides what a refusal means
         // (this hook is best-effort: a miss falls back to body speed), so the typed Error is returned rather
         // than logged and flattened to false here.
-        auto result = DMK::hook::inline_at<&detour_action_dispatch>(DMK::hook::InlineRequest{
+        const auto installed = hooks.install<&detour_action_dispatch>(DMK::hook::InlineInstallRequest{
             .name = "PlayerOnActionDispatch",
             .target = DMK::Address{dispatch_addr},
+            .original = &s_action_dispatch_original,
         });
-        if (!result.has_value())
+        if (!installed.has_value())
         {
-            return std::unexpected(result.error());
-        }
-
-        // Publish the trampoline and store the handle BEFORE enable() arms the patch, so the stack owns a hook whose
-        // arm fails with the patch live.
-        s_action_dispatch_original.store(result->original<ActionDispatchFunc>(), std::memory_order_release);
-        if (auto armed = hooks.push(std::move(*result)).enable(); !armed.has_value())
-        {
-            return std::unexpected(armed.error());
+            return std::unexpected(installed.error());
         }
 
         s_available.store(true, std::memory_order_relaxed);

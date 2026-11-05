@@ -30,7 +30,6 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
-#include <utility>
 
 namespace TPVCamera
 {
@@ -165,18 +164,14 @@ namespace TPVCamera
         {
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "occluder_fade/add_or_create_anchor"});
         }
-        auto result = DMK::hook::inline_at<&add_or_create_detour>(DMK::hook::InlineRequest{
+        const auto installed = hooks.install<&add_or_create_detour>(DMK::hook::InlineInstallRequest{
             .name = "AddOrCreatePersistentRenderObject",
             .target = DMK::Address{target},
+            .original = &s_original,
         });
-        if (!result.has_value())
+        if (!installed.has_value())
         {
-            return std::unexpected(result.error());
-        }
-        s_original.store(result->original<AddOrCreateFn>(), std::memory_order_release);
-        if (auto armed = hooks.push(std::move(*result)).enable(); !armed.has_value())
-        {
-            return std::unexpected(armed.error());
+            return std::unexpected(installed.error());
         }
         s_available.store(true, std::memory_order_release);
         DMK::log().info("OccluderFade: dissolve hook on AddOrCreatePersistentRenderObject at {}",

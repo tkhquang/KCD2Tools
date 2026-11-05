@@ -8,6 +8,7 @@
 #include "camera_rules_files.hpp"
 #include "constants.hpp"
 #include "core/occlusion/fence_coverage.hpp"
+#include "core/occlusion/scan_guard.hpp"
 #include "dev/hook_profile.hpp"
 #include "global_state.hpp"
 #include "physics_raycast.hpp"
@@ -23,6 +24,8 @@
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <memory>
+#include <new>
 #include <string>
 
 namespace TPVCamera
@@ -168,26 +171,42 @@ namespace TPVCamera
         }
     }
 
+    // The count-then-fill query's list (query_nodes()). Main-thread only, like every octree query here.
+    static void *s_filled[Constants::RENDER_OCCLUSION_MAX_NODES];
+
     /**
-     * @brief Fills @p nodes with the render nodes of @p type in @p bbox and returns how many it wrote.
-     * @details With the single walk (refresh_brush_query()), the typed query's collector gathers into s_collected
-     *          once and the nodes are copied out when they fit. Otherwise the typed query when refresh_brush_query()
-     *          selected it, else the untyped one (whose other node types the callers' own type filter drops). Both copy
-     *          their full result without a size limit, so the count is taken first and the list is filled only when it
-     *          fits with RENDER_OCCLUSION_NODE_SLACK to spare, covering nodes registered between the two calls. The
-     *          return is the FILL call's count (a node removed in between must not leave a stale slot in range),
-     *          bounded by the buffer. POD-only: called inside the callers' structured-exception frames, which contain a
-     *          fault.
+     * @brief The render nodes one octree query returned: a view valid until the next query_nodes() call.
+     * @details POD, for the callers' structured-exception frames.
+     */
+    struct NodeList
+    {
+        void *const *nodes = nullptr;
+        std::uint32_t count = 0;
+        // How many nodes the octree held for the query, whether or not they were returned.
+        std::uint64_t found = 0;
+        // The octree held more nodes than the guard allows, so none were returned.
+        bool overflow = false;
+    };
+
+    /**
+     * @brief Queries the render nodes of @p type in @p bbox.
+     * @details With the single walk (refresh_brush_query()), the typed query's collector gathers into s_collected,
+     *          the engine's own growable vector, and the list is that vector as it stands: nothing is copied, so a box
+     *          of any real size is returned whole. Only a count above RENDER_OCCLUSION_MAX_COLLECTED (or a vector whose
+     *          end lies before its start) is taken for corruption. Otherwise the typed query when
+     *          refresh_brush_query() selected it, else the untyped one (whose other node types the callers' own type
+     *          filter drops). Both copy their full result without a size limit, so the count is taken first and
+     *          s_filled is filled only when it fits with RENDER_OCCLUSION_NODE_SLACK to spare, covering nodes
+     *          registered between the two calls. The count is then the FILL call's (a node removed in between must
+     *          not leave a stale slot in range), bounded by the buffer. POD-only: called inside the callers'
+     *          structured-exception frames, which contain a fault.
      * @param p3d The engine object.
      * @param type The EERType to collect (ignored by the untyped fallback).
      * @param bbox Query box {min.xyz, max.xyz}.
-     * @param nodes Buffer of RENDER_OCCLUSION_MAX_NODES entries.
-     * @param overflow Set to true when the box holds more candidates than fit; left untouched otherwise. May be
-     *        nullptr.
-     * @return The number of entries written, 0 when the box is empty or holds more candidates than fit.
+     * @return The nodes and how many the octree held; empty when the box holds none, or flagged overflow when it holds
+     *         more than the guard allows.
      */
-    static std::uint32_t query_nodes(QueryLedger::Tag tag, void *p3d, std::uint32_t type, const float *bbox,
-                                     void **nodes, bool *overflow = nullptr) noexcept
+    static NodeList query_nodes(QueryLedger::Tag tag, void *p3d, std::uint32_t type, const float *bbox) noexcept
     {
         constexpr auto k_capacity = static_cast<std::uint32_t>(Constants::RENDER_OCCLUSION_MAX_NODES);
         constexpr auto k_fit =
@@ -195,22 +214,25 @@ namespace TPVCamera
         const GetObjectsByTypeInBoxFn typed = s_get_objects_by_type_in_box;
         if (typed != nullptr && s_single_walk)
         {
-            // One walk: nothing can register between a count and a fill, so the whole buffer is usable.
             const std::int64_t started = QueryLedger::begin();
             s_collected.last = s_collected.first;
             s_octree_collect(p3d, type, bbox, &s_collected, Constants::ENGINE3D_QUERY_ANY_RNDFLAGS);
             QueryLedger::end(tag, QueryLedger::Kind::Octree, started);
-            const auto found = static_cast<std::size_t>(s_collected.last - s_collected.first);
-            if (found == 0 || found > k_capacity)
+            const ScanGuard::Collected got = ScanGuard::collected(
+                reinterpret_cast<std::uintptr_t>(s_collected.first), reinterpret_cast<std::uintptr_t>(s_collected.last),
+                static_cast<std::uint64_t>(Constants::RENDER_OCCLUSION_MAX_COLLECTED));
+            if (got.count == 0 || got.overflow)
             {
-                if (overflow != nullptr && found > k_capacity)
-                {
-                    *overflow = true;
-                }
-                return 0;
+                return {
+                    .found = got.count,
+                    .overflow = got.overflow,
+                };
             }
-            std::copy_n(s_collected.first, found, nodes);
-            return static_cast<std::uint32_t>(found);
+            return {
+                .nodes = s_collected.first,
+                .count = static_cast<std::uint32_t>(got.count),
+                .found = got.count,
+            };
         }
 
         const std::int64_t ledger_started = QueryLedger::begin();
@@ -220,17 +242,20 @@ namespace TPVCamera
         if (count == 0 || count > k_fit)
         {
             QueryLedger::end(tag, QueryLedger::Kind::Octree, ledger_started);
-            if (overflow != nullptr && count > k_fit)
-            {
-                *overflow = true;
-            }
-            return 0;
+            return {
+                .found = count,
+                .overflow = count > k_fit,
+            };
         }
         const std::uint32_t copied = (typed != nullptr)
-                                         ? typed(p3d, type, bbox, nodes, Constants::ENGINE3D_QUERY_ANY_RNDFLAGS)
-                                         : s_get_objects_in_box(p3d, bbox, nodes);
+                                         ? typed(p3d, type, bbox, s_filled, Constants::ENGINE3D_QUERY_ANY_RNDFLAGS)
+                                         : s_get_objects_in_box(p3d, bbox, s_filled);
         QueryLedger::end(tag, QueryLedger::Kind::Octree, ledger_started, 2);
-        return (copied < k_capacity) ? copied : k_capacity;
+        return {
+            .nodes = s_filled,
+            .count = (copied < k_capacity) ? copied : k_capacity,
+            .found = count,
+        };
     }
 
     void release_render_occlusion() noexcept
@@ -245,6 +270,9 @@ namespace TPVCamera
         s_single_walk = false;
     }
 
+    /** @brief Allocates the scan tables once (see s_scan). False when the allocation fails. */
+    static bool allocate_scan_tables() noexcept;
+
     bool initialize_render_occlusion(uintptr_t module_base, size_t module_size, uintptr_t g_env)
     {
         DMK::Logger &logger = DMK::log();
@@ -254,6 +282,12 @@ namespace TPVCamera
         {
             logger.warning(
                 "RenderOcclusion: GetObjectsInBox or g_env not found (game patched?); render occlusion unavailable");
+            return false;
+        }
+        if (!allocate_scan_tables())
+        {
+            logger.warning("RenderOcclusion: the occluder scan tables could not be allocated; render occlusion "
+                           "unavailable");
             return false;
         }
 
@@ -869,8 +903,11 @@ namespace TPVCamera
         }
     }
 
-    // The cached scan. Main-thread only (the camera frame), so plain statics are race-free.
-    static ScannedNode s_scan[Constants::OCCLUDER_SCAN_MAX];
+    // The cached scan. Main-thread only (the camera frame), so plain statics are race-free. The tables of
+    // OCCLUDER_SCAN_MAX entries (this one and the next scan's) are allocated once by allocate_scan_tables(): as
+    // statics they would fill the DLL image with initialized data.
+    static std::unique_ptr<ScannedNode[]> s_scan_storage;
+    static ScannedNode *s_scan = nullptr;
     static int s_scan_count = 0;
     static float s_scan_box[6] = {};
     // When the scan was taken (GetTickCount64), so a scan from before a pause, a first-person stretch or a load is
@@ -879,6 +916,9 @@ namespace TPVCamera
     // When the scan's static part (brushes, vegetation, merged patches) was queried: by the full scan only, while the
     // dynamic refresh moves s_scan_stamp_ms on.
     static std::uint64_t s_scan_static_stamp_ms = 0;
+    // Counts the scans put in use (a full scan, a dynamic refresh, a scan built ahead): what a consumer of the table
+    // keys its per-scan state on. A stamp can repeat (GetTickCount64 steps every 10-16 ms), a generation never does.
+    static std::uint64_t s_scan_generation = 0;
     static bool s_scan_valid = false;
     // The rule set the scan was classified with: its verdicts index its rules, and a set of another generation takes a
     // new scan. A scan with a new set reports a class change once (advance_fence_classification()).
@@ -1145,6 +1185,22 @@ namespace TPVCamera
         return true;
     }
 
+    /** @brief What a scan's octree queries found, and whether a guard cut it short. POD, for the SEH frames. */
+    struct ScanStats
+    {
+        // The query slots: the typed passes in scan order (vegetation, merged patches, entity proxies, movable
+        // brushes, brushes), then the untyped fallback's one query.
+        static constexpr int k_untyped = 5;
+        static constexpr int k_slots = 6;
+        // The most nodes a query of each slot found (several frames of a scan built ahead each add theirs).
+        std::uint64_t found[k_slots] = {};
+        // A query found more nodes than its guard (overflow_slot names it) or the table filled: the scan holds only
+        // part of its box.
+        bool truncated = false;
+        bool table_full = false;
+        int overflow_slot = -1;
+    };
+
     /**
      * @brief Collects the visible brushes, vegetation and entity proxies in @p qbox into @p out, each with the verdict
      *        of its camera rule and its class.
@@ -1159,17 +1215,16 @@ namespace TPVCamera
      *        brushes (see refresh_occluder_scan()).
      * @param pass_mask With the typed query, collect only the types of the passes whose bits are set (bit n for the
      *        n-th of vegetation, merged patches, entity proxies, movable brushes, brushes); ~0u for all.
-     * @param truncated Set when a type had more nodes than the octree query or the table holds.
+     * @param stats Accumulates what the queries found and whether a guard cut the scan short.
      * @return The number of nodes written.
      */
     static int scan_nodes_guarded(void *p3d, const float *qbox, const Rules::RuleSet &rules, bool trace,
-                                  bool dynamic_only, ScannedNode *out, int cap, bool *truncated,
+                                  bool dynamic_only, ScannedNode *out, int cap, ScanStats &stats,
                                   unsigned pass_mask = ~0u) noexcept
     {
         int n = 0;
         __try
         {
-            void *nodes[Constants::RENDER_OCCLUSION_MAX_NODES];
             const bool typed = s_get_objects_by_type_in_box != nullptr;
             static constexpr std::uint32_t k_types[] = {static_cast<std::uint32_t>(Constants::EERTYPE_VEGETATION),
                                                         static_cast<std::uint32_t>(Constants::EERTYPE_MERGED_MESH),
@@ -1189,16 +1244,23 @@ namespace TPVCamera
                 {
                     continue;
                 }
-                const std::uint32_t count =
-                    query_nodes(QueryLedger::Tag::OccluderScan, p3d, k_types[pass], qbox, nodes, truncated);
-                for (std::uint32_t i = 0; i < count; ++i)
+                const NodeList list = query_nodes(QueryLedger::Tag::OccluderScan, p3d, k_types[pass], qbox);
+                const int slot = typed ? pass : ScanStats::k_untyped;
+                stats.found[slot] = std::max(stats.found[slot], list.found);
+                if (list.overflow)
+                {
+                    stats.truncated = true;
+                    stats.overflow_slot = slot;
+                }
+                for (std::uint32_t i = 0; i < list.count; ++i)
                 {
                     if (n >= cap)
                     {
-                        *truncated = true;
+                        stats.truncated = true;
+                        stats.table_full = true;
                         break;
                     }
-                    void *node = nodes[i];
+                    void *node = list.nodes[i];
                     if (node == nullptr)
                     {
                         continue;
@@ -1368,12 +1430,16 @@ namespace TPVCamera
         {
             return false;
         }
-        bool truncated = false;
+        ScanStats stats;
         HookProfile::count(HookProfile::Counter::ScanDynamic);
-        s_scan_count +=
-            scan_nodes_guarded(reinterpret_cast<void *>(*p3d), s_scan_box, rules, trace, true, s_scan + s_scan_count,
-                               Constants::OCCLUDER_SCAN_MAX - s_scan_count, &truncated);
-        return !truncated;
+        s_scan_count += scan_nodes_guarded(reinterpret_cast<void *>(*p3d), s_scan_box, rules, trace, true,
+                                           s_scan + s_scan_count, Constants::OCCLUDER_SCAN_MAX - s_scan_count, stats);
+        if (stats.truncated)
+        {
+            return false;
+        }
+        ++s_scan_generation;
+        return true;
     }
 
     // The next scan's frames (advance_next_scan()), each a set of scan_nodes_guarded() passes: the vegetation, the
@@ -1384,13 +1450,14 @@ namespace TPVCamera
 
     // The next scan, built ahead of the one in use over a few camera frames (advance_next_scan()). Main-thread
     // only.
-    static ScannedNode s_next[Constants::OCCLUDER_SCAN_MAX];
+    static std::unique_ptr<ScannedNode[]> s_next_storage;
+    static ScannedNode *s_next = nullptr;
     static int s_next_count = 0;
     static int s_next_pass = -1; // the next frame of k_ahead_frames to query; -1 while no build runs
     static float s_next_box[6] = {};
     static std::uint64_t s_next_started_ms = 0;
     static std::uint64_t s_next_rules_generation = 0;
-    static bool s_next_truncated = false;
+    static ScanStats s_next_stats{};
     // The points' box on the last call, and the most any of its faces moved in one call lately (a decaying peak).
     static float s_last_want[6] = {};
     static bool s_last_want_valid = false;
@@ -1451,7 +1518,7 @@ namespace TPVCamera
             s_next_pass = 0;
             s_next_started_ms = now_ms;
             s_next_rules_generation = rules.generation();
-            s_next_truncated = false;
+            s_next_stats = {};
         }
         const auto drop = []() noexcept
         {
@@ -1469,9 +1536,9 @@ namespace TPVCamera
             DMK_PROFILE_SCOPE("render.scan_ahead");
             s_next_count += scan_nodes_guarded(reinterpret_cast<void *>(*p3d), s_next_box, rules, trace, false,
                                                s_next + s_next_count, Constants::OCCLUDER_SCAN_MAX - s_next_count,
-                                               &s_next_truncated, k_ahead_frames[s_next_pass]);
+                                               s_next_stats, k_ahead_frames[s_next_pass]);
         }
-        if (s_next_truncated || !box_holds(s_next_box, want, inner))
+        if (s_next_stats.truncated || !box_holds(s_next_box, want, inner))
         {
             drop();
             return;
@@ -1485,8 +1552,56 @@ namespace TPVCamera
         std::copy_n(s_next_box, 6, s_scan_box);
         s_scan_stamp_ms = s_next_started_ms;
         s_scan_static_stamp_ms = s_next_started_ms;
+        ++s_scan_generation;
         s_next_pass = -1;
         HookProfile::count(HookProfile::Counter::ScanAhead);
+    }
+
+    // The query slots of ScanStats, for the log.
+    constexpr const char *k_scan_slot_names[ScanStats::k_slots] = {"vegetation",    "merged patch", "entity proxy",
+                                                                   "movable brush", "brush",        "untyped"};
+
+    /**
+     * @brief Logs a full scan that a guard cut short: at once the first time, then at most once a minute with the count
+     *        since the last line. The guards sit far above any box measured in game, so a line means corrupt engine
+     *        data or a box denser than any seen, and names which guard and where.
+     */
+    static void note_truncated_scan(const ScanStats &stats, const float *qbox, int kept, std::uint64_t now_ms) noexcept
+    {
+        static ScanGuard::ReportLimiter s_limiter{60000};
+        const std::uint64_t scans = s_limiter.note(now_ms);
+        if (scans == 0)
+        {
+            return;
+        }
+        const int slot = stats.overflow_slot;
+        (void)DMK::log().try_log(
+            DMK::LogLevel::Warning,
+            "RenderOcclusion: {} occluder scan(s) since the last report held more render nodes than they keep, the "
+            "last around ({:.0f}, {:.0f}, {:.0f}) with {} kept ({} query found {}, table full: {}); an object left "
+            "out may not fade, a plant or prop left out stops the camera like a wall, and the see-through may miss it",
+            scans, (qbox[0] + qbox[3]) * 0.5f, (qbox[1] + qbox[4]) * 0.5f, (qbox[2] + qbox[5]) * 0.5f, kept,
+            slot >= 0 ? k_scan_slot_names[slot] : "no", slot >= 0 ? stats.found[slot] : 0, stats.table_full);
+    }
+
+    static bool allocate_scan_tables() noexcept
+    {
+        if (s_scan != nullptr)
+        {
+            return true;
+        }
+        try
+        {
+            s_scan_storage = std::make_unique<ScannedNode[]>(Constants::OCCLUDER_SCAN_MAX);
+            s_next_storage = std::make_unique<ScannedNode[]>(Constants::OCCLUDER_SCAN_MAX);
+        }
+        catch (const std::bad_alloc &)
+        {
+            return false;
+        }
+        s_scan = s_scan_storage.get();
+        s_next = s_next_storage.get();
+        return true;
     }
 
     void refresh_occluder_scan(const Vector3 *points, int n_points)
@@ -1593,7 +1708,7 @@ namespace TPVCamera
         refresh_brush_query(*vtable);
         const float m = Constants::OCCLUDER_SCAN_MARGIN;
         float qbox[6] = {want[0] - m, want[1] - m, want[2] - m, want[3] + m, want[4] + m, want[5] + m};
-        bool truncated = false;
+        ScanStats stats;
         HookProfile::count(HookProfile::Counter::ScanFull);
         HookProfile::count(!had_scan || !same_rules ? HookProfile::Counter::ScanFullFirst
                            : !inside                ? HookProfile::Counter::ScanFullExit
@@ -1602,7 +1717,7 @@ namespace TPVCamera
         {
             DMK_PROFILE_SCOPE("render.scan_full");
             s_scan_count = scan_nodes_guarded(reinterpret_cast<void *>(*p3d), qbox, *rules, trace, false, s_scan,
-                                              Constants::OCCLUDER_SCAN_MAX, &truncated);
+                                              Constants::OCCLUDER_SCAN_MAX, stats);
         }
         if (!same_rules)
         {
@@ -1615,21 +1730,14 @@ namespace TPVCamera
             s_scan_box[k] = qbox[k];
         }
         // A truncated scan holds only part of the box, so it is not reused: the next refresh queries again.
-        s_scan_stamp_ms = truncated ? 0 : now_ms;
+        s_scan_stamp_ms = stats.truncated ? 0 : now_ms;
         s_scan_static_stamp_ms = s_scan_stamp_ms;
-        if (truncated)
+        ++s_scan_generation;
+        s_scan_valid = true;
+        if (stats.truncated)
         {
             HookProfile::count(HookProfile::Counter::ScanTruncated);
-        }
-        s_scan_valid = true;
-        static bool s_logged_truncation = false;
-        if (truncated && !s_logged_truncation)
-        {
-            s_logged_truncation = true;
-            DMK::log().warning("RenderOcclusion: the occluder scan around the camera holds more render nodes than it "
-                               "keeps ({} kept); an object left out may not fade, a plant or prop left out stops "
-                               "the camera like a wall, and the see-through may miss it",
-                               s_scan_count);
+            note_truncated_scan(stats, qbox, s_scan_count, now_ms);
         }
     }
 
@@ -3172,18 +3280,159 @@ namespace TPVCamera
         return budget <= 0;
     }
 
+    /** @brief What the sightline pass made of one fade-class prop whose box a sightline enters. */
+    enum class SightlineVerdict : std::uint8_t
+    {
+        /// A sightline crosses its mesh, and the tube around that sightline spans it.
+        Faded,
+        /// A sightline crosses its mesh, and it spans the tube together with the fade-class brushes beside it.
+        FadedWithNeighbours,
+        /// Its mesh cannot be read, so its box on a sightline fades it.
+        FadedByBox,
+        /// A sightline crosses its mesh, but the tube around that sightline does not span it.
+        Thin,
+        /// The sightlines enter its box without crossing its mesh.
+        Missed,
+        /// An entity at a sightline's far end: what the character or an opponent carries, or stands at.
+        AtCharacter,
+        /// An entity whose mesh cannot be read, or a read that faulted.
+        Unreadable,
+        /// The triangle budget ran out before or during its test.
+        OverBudget,
+    };
+
+    /** @brief The log name of @p verdict. */
+    [[nodiscard]] static constexpr const char *sightline_verdict_name(SightlineVerdict verdict) noexcept
+    {
+        switch (verdict)
+        {
+        case SightlineVerdict::Faded:
+            return "fades";
+        case SightlineVerdict::FadedWithNeighbours:
+            return "fades with neighbours";
+        case SightlineVerdict::FadedByBox:
+            return "fades by box";
+        case SightlineVerdict::Thin:
+            return "thin";
+        case SightlineVerdict::Missed:
+            return "missed";
+        case SightlineVerdict::AtCharacter:
+            return "at character";
+        case SightlineVerdict::Unreadable:
+            return "unreadable";
+        case SightlineVerdict::OverBudget:
+            return "over budget";
+        }
+        return "?";
+    }
+
+    /** @brief One prop of the last sightline pass with its verdict, kept for the Trace log. */
+    struct SightlineProp
+    {
+        void *node = nullptr;
+        SightlineVerdict verdict = SightlineVerdict::Missed;
+    };
+
+    // The fade-class props the last sightline pass met, recorded only while Trace is enabled (log_sightline_props()).
+    // Main-thread only, like the scan.
+    constexpr int k_sightline_trace_max = 12;
+    static SightlineProp s_sightline_props[k_sightline_trace_max];
+    static int s_sightline_prop_count = 0;
+    static bool s_sightline_trace = false;
+
+    /**
+     * @brief Whether a fade-class brush other than @p node crosses one of the two @p pair lines.
+     * @details Entities are left out: one at the character (the torch he carries) would span the tube for any post in
+     *          front of him. A brush whose mesh cannot be read is judged by its box, as in sightline_nodes().
+     */
+    static bool neighbour_crosses(const void *node, const Sightline *pair, float end_margin,
+                                  std::span<void *const> skip, int &budget) noexcept
+    {
+        for (int i = 0; i < s_scan_count && budget > 0; ++i)
+        {
+            const ScannedNode &t = s_scan[i];
+            if (t.node == node || t.cls != Rules::Behaviour::Fade || t.entity ||
+                std::find(skip.begin(), skip.end(), t.node) != skip.end() ||
+                (!segment_hits_box(pair[0].from, pair[0].to, t.bbox) &&
+                 !segment_hits_box(pair[1].from, pair[1].to, t.bbox)) ||
+                !node_alive(t))
+            {
+                continue;
+            }
+            const int r = node_crosses_guarded(QueryLedger::Tag::Sightline, t.node, pair, 2, end_margin, budget);
+            if (r == 1 || r == -1)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @brief How the tube around a sightline is spanned (tube_spanned_by_props()). */
+    enum class TubeSpan : std::uint8_t
+    {
+        None,
+        Alone,
+        WithNeighbours,
+    };
+
+    /**
+     * @brief Whether the tube around a sightline that crosses @p node is spanned both ways: a side line and a lift line
+     *        each cross @p node, or else a fade-class brush beside it.
+     * @details Props side by side that each fall short of the tube, such as planks stacked against a scaffold, hide the
+     *          character together as one wide prop would, so each one a sightline crosses fades. A lone post or rail
+     *          spans neither side and stays. A mesh that cannot be read counts as spanning, as in tube_spanned().
+     * @param tube The five lines of tube_around(), in its order.
+     */
+    static TubeSpan tube_spanned_by_props(void *node, const Sightline *tube, float end_margin,
+                                          std::span<void *const> skip, int &budget) noexcept
+    {
+        bool neighbours = false;
+        for (const Sightline *pair : {tube + 1, tube + 3})
+        {
+            if (node_crosses_guarded(QueryLedger::Tag::Sightline, node, pair, 2, end_margin, budget) != 0)
+            {
+                continue;
+            }
+            if (!neighbour_crosses(node, pair, end_margin, skip, budget))
+            {
+                return TubeSpan::None;
+            }
+            neighbours = true;
+        }
+        return neighbours ? TubeSpan::WithNeighbours : TubeSpan::Alone;
+    }
+
     /**
      * @brief The scan pass of occluders_on_sightlines. Each node is read under its own SEH frame, so a fault in one
      *        (a mesh streaming out between the reads) skips that node only.
+     * @details While s_sightline_trace is set, every fade-class prop whose box a sightline enters is recorded with its
+     *          verdict, and the props the spent triangle budget leaves untested are recorded as OverBudget.
      */
     static int sightline_nodes(const Sightline *lines, int n_lines, float end_margin, std::span<void *const> skip,
                                SightlineOccluder *out, int cap) noexcept
     {
         const auto skipped = [skip](void *node) { return std::find(skip.begin(), skip.end(), node) != skip.end(); };
+        const auto note = [](void *node, SightlineVerdict verdict) noexcept
+        {
+            if (s_sightline_trace && s_sightline_prop_count < k_sightline_trace_max)
+            {
+                s_sightline_props[s_sightline_prop_count++] = {
+                    .node = node,
+                    .verdict = verdict,
+                };
+            }
+        };
+        s_sightline_prop_count = 0;
         int n = 0;
         int budget = Constants::OCCLUDER_TRIANGLE_BUDGET;
-        for (int i = 0; i < s_scan_count && n < cap && budget > 0; ++i)
+        for (int i = 0; i < s_scan_count && n < cap; ++i)
         {
+            // A spent budget ends the pass. Under Trace the box tests go on, so the props it left untested are named.
+            if (budget <= 0 && !s_sightline_trace)
+            {
+                break;
+            }
             const ScannedNode &s = s_scan[i];
             // Only a prop fades for hiding the character. A tree, a bush or a grass patch opens the tree see-through
             // window instead (see trees_in_window), so a leaf on a sightline never fades a whole plant.
@@ -3200,10 +3449,15 @@ namespace TPVCamera
             {
                 continue;
             }
+            if (budget <= 0)
+            {
+                note(s.node, SightlineVerdict::OverBudget);
+                continue;
+            }
             if (s.entity)
             {
-                // An entity right at the character is its own (the torch or weapon he carries) or something he stands
-                // at; it is not between him and the camera.
+                // An entity right at a sightline's far end is what the character or an opponent carries (a torch, a
+                // weapon) or stands at; it is not between him and the camera.
                 bool at_character = false;
                 for (int l = 0; l < n_lines && !at_character; ++l)
                 {
@@ -3211,16 +3465,21 @@ namespace TPVCamera
                 }
                 if (at_character)
                 {
+                    note(s.node, SightlineVerdict::AtCharacter);
                     continue;
                 }
             }
             // A prop brush whose mesh cannot be read (-1) is judged by its box alone: fading a small prop by mistake
             // costs less than leaving the character hidden behind it. An entity counts only on an exact crossing. A
             // read that faulted (-2) is skipped this time. A prop a sightline crosses fades only where it is wide:
-            // a tube of k_thin_half_width around that sightline meets it both ways, so a post or a rail thinner than
-            // the tube stays. Each sightline is tested alone and each test stops at its first crossing, so the mesh
-            // is walked in full only along a line it does not cross.
+            // a tube of k_thin_half_width around that sightline meets it, or the fade-class brushes beside it, both
+            // ways, so a lone post or rail thinner than the tube stays (tube_spanned_by_props()). Each sightline is
+            // tested alone and each test stops at its first crossing, so the mesh is walked in full only along a line
+            // it does not cross.
             bool fades = false;
+            bool crossed = false;
+            int unreadable = 0;
+            TubeSpan span = TubeSpan::None;
             for (int l = 0; l < n_lines && !fades; ++l)
             {
                 const int r =
@@ -3228,19 +3487,35 @@ namespace TPVCamera
                 if (r < 0)
                 {
                     fades = r == -1 && !s.entity;
+                    unreadable = r;
                     break;
                 }
                 if (r == 1)
                 {
+                    crossed = true;
                     Sightline tube[5];
                     tube_around(lines[l], k_thin_half_width, tube);
-                    fades = tube_spanned(QueryLedger::Tag::Sightline, s.node, tube, end_margin, budget);
+                    span = tube_spanned_by_props(s.node, tube, end_margin, skip, budget);
+                    fades = span != TubeSpan::None;
                 }
             }
+            SightlineVerdict verdict = crossed ? SightlineVerdict::Thin : SightlineVerdict::Missed;
             if (fades)
             {
                 out[n++] = {s.node, false};
+                verdict = unreadable == -1                   ? SightlineVerdict::FadedByBox
+                          : span == TubeSpan::WithNeighbours ? SightlineVerdict::FadedWithNeighbours
+                                                             : SightlineVerdict::Faded;
             }
+            else if (unreadable != 0)
+            {
+                verdict = SightlineVerdict::Unreadable;
+            }
+            else if (budget <= 0)
+            {
+                verdict = SightlineVerdict::OverBudget;
+            }
+            note(s.node, verdict);
         }
         // The camera buried in a prop or a bush (the hay on a wagon, a hawthorn): it fills the view whichever way it
         // lies from the sightlines, and the near clip plane cuts only what touches the lens, so it fades all the way.
@@ -3359,6 +3634,35 @@ namespace TPVCamera
                                  n_near == 0 ? std::string{"nothing"} : text);
     }
 
+    /**
+     * @brief Logs at Trace the fade-class props of the last sightline pass with their verdicts, when that list changes,
+     *        so a prop that hides the character or an opponent without fading is identifiable from the log.
+     */
+    static void log_sightline_props()
+    {
+        static SightlineProp s_last[k_sightline_trace_max] = {};
+        static int s_last_count = 0;
+        const auto same = [](const SightlineProp &a, const SightlineProp &b)
+        { return a.node == b.node && a.verdict == b.verdict; };
+        if (s_sightline_prop_count == s_last_count &&
+            std::equal(s_sightline_props, s_sightline_props + s_sightline_prop_count, s_last, same))
+        {
+            return;
+        }
+        std::copy_n(s_sightline_props, s_sightline_prop_count, s_last);
+        s_last_count = s_sightline_prop_count;
+        std::string text;
+        for (int i = 0; i < s_sightline_prop_count; ++i)
+        {
+            char name[160];
+            name_of_node_guarded(s_sightline_props[i].node, name, static_cast<int>(sizeof(name)));
+            text += std::format("{}{}({})", i == 0 ? "" : ", ", name[0] != '\0' ? name : "?",
+                                sightline_verdict_name(s_sightline_props[i].verdict));
+        }
+        (void)DMK::log().try_log(DMK::LogLevel::Trace, "RenderOcclusion: props on the sightlines: {}",
+                                 s_sightline_prop_count == 0 ? std::string{"nothing"} : text);
+    }
+
     int occluders_on_sightlines(const Sightline *lines, int n_lines, float end_margin, std::span<void *const> skip,
                                 SightlineOccluder *out, int cap) noexcept
     {
@@ -3367,11 +3671,16 @@ namespace TPVCamera
         {
             return 0;
         }
-        const int n =
-            sightline_nodes(lines, std::min(n_lines, Constants::OCCLUDER_FADE_SIGHTLINES), end_margin, skip, out, cap);
+        s_sightline_trace = DMK::log().is_enabled(DMK::LogLevel::Trace);
+        const int n = sightline_nodes(lines, std::min(n_lines, Constants::OCCLUDER_FADE_MAX_SIGHTLINES), end_margin,
+                                      skip, out, cap);
         try
         {
             log_nodes_at_camera(lines[0].from, 0.4f, out, n);
+            if (s_sightline_trace)
+            {
+                log_sightline_props();
+            }
         }
         catch (...)
         {
@@ -3717,9 +4026,9 @@ namespace TPVCamera
         static std::uint64_t s_builds_seen = 0;
         const bool measured_since = s_mesh_builds != s_builds_seen;
         s_builds_seen = s_mesh_builds;
-        if (s_done_scan != s_scan_stamp_ms)
+        if (s_done_scan != s_scan_generation)
         {
-            s_done_scan = s_scan_stamp_ms;
+            s_done_scan = s_scan_generation;
             s_done_count = 0;
         }
         if (measured_since || !s_scan_valid || lines == nullptr || n_lines <= 0)

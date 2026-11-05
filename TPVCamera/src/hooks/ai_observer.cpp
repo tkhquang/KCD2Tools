@@ -21,9 +21,9 @@ namespace TPVCamera
     namespace
     {
         // wh::engine3d::C_CameraObserver update (vtable slot CAMERA_OBSERVER_VTABLE_UPDATE_SLOT):
-        // bool __fastcall(observer /*rcx*/, Vec3 *position /*rdx*/, bool *position_valid /*r8*/, Vec3 *direction /*r9*/,
-        // bool *direction_valid, float *fov). It copies the system view camera's translation, forward column and field
-        // of view.
+        // bool __fastcall(observer /*rcx*/, Vec3 *position /*rdx*/, bool *position_valid /*r8*/,
+        // Vec3 *direction /*r9*/, bool *direction_valid, float *fov). It copies the system view camera's translation,
+        // forward column and field of view.
         using CameraObserverUpdateFunc = bool(__fastcall *)(uintptr_t observer, float *position, bool *position_valid,
                                                             float *direction, bool *direction_valid, float *fov);
         std::atomic<CameraObserverUpdateFunc> s_camera_observer_update_original{nullptr};
@@ -79,26 +79,16 @@ namespace TPVCamera
             return;
         }
 
-        auto result = DMK::hook::inline_at<&detour_camera_observer_update>(DMK::hook::InlineRequest{
+        const auto installed = hooks.install<&detour_camera_observer_update>(DMK::hook::InlineInstallRequest{
             .name = "CameraObserverUpdate",
             .target = DMK::Address{target},
+            .original = &s_camera_observer_update_original,
         });
-        if (!result.has_value())
+        if (!installed.has_value())
         {
             logger.warning("Camera: camera-observer hook failed ({}); in third person the AI keeps judging NPCs from "
                            "the pulled-back camera",
-                           result.error().message());
-            return;
-        }
-        // Publish the trampoline before enable() arms the patch, so the detour never sees a null original.
-        s_camera_observer_update_original.store(result->original<CameraObserverUpdateFunc>(),
-                                                std::memory_order_release);
-        const auto armed = hooks.push(std::move(*result)).enable();
-        if (!armed.has_value())
-        {
-            logger.warning("Camera: camera-observer hook could not be armed ({}); in third person the AI keeps judging "
-                           "NPCs from the pulled-back camera",
-                           armed.error().message());
+                           installed.error().message());
             return;
         }
         logger.info("Camera: the AI camera observer follows the first-person eye in third person (C_CameraObserver "

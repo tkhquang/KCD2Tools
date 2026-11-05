@@ -84,34 +84,24 @@ namespace TPVCamera
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "ui_menu_hooks/anchor"});
         }
 
-        auto open_result = DMK::hook::inline_at<&menu_open_detour>(DMK::hook::InlineRequest{
+        const auto open_installed = hooks.install<&menu_open_detour>(DMK::hook::InlineInstallRequest{
             .name = "MenuOpen",
             .target = DMK::Address{menu_open_addr},
+            .original = &s_menu_open_original,
         });
-        if (!open_result.has_value())
+        if (!open_installed.has_value())
         {
-            return std::unexpected(open_result.error());
-        }
-        // Publish each trampoline and store each handle BEFORE enable() arms its patch, so the stack owns a hook whose
-        // arm fails with the patch live.
-        s_menu_open_original.store(open_result->original<MenuOpenFunc>(), std::memory_order_release);
-        if (auto armed = hooks.push(std::move(*open_result)).enable(); !armed.has_value())
-        {
-            return std::unexpected(armed.error());
+            return std::unexpected(open_installed.error());
         }
 
-        auto close_result = DMK::hook::inline_at<&menu_close_detour>(DMK::hook::InlineRequest{
+        const auto close_installed = hooks.install<&menu_close_detour>(DMK::hook::InlineInstallRequest{
             .name = "MenuClose",
             .target = DMK::Address{menu_close_addr},
+            .original = &s_menu_close_original,
         });
-        if (!close_result.has_value())
+        if (!close_installed.has_value())
         {
-            return std::unexpected(close_result.error());
-        }
-        s_menu_close_original.store(close_result->original<MenuCloseFunc>(), std::memory_order_release);
-        if (auto armed = hooks.push(std::move(*close_result)).enable(); !armed.has_value())
-        {
-            return std::unexpected(armed.error());
+            return std::unexpected(close_installed.error());
         }
 
         return {};

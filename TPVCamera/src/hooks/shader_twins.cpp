@@ -223,16 +223,12 @@ namespace TPVCamera
         std::string window_error;
         if (window_miss == nullptr)
         {
-            auto mid = DMK::hook::mid_at(
-                DMK::hook::MidRequest{.name = "PerViewConstantUpload", .target = DMK::Address{upload}},
-                per_view_upload_detour);
+            const auto mid =
+                hooks.install(DMK::hook::MidRequest{.name = "PerViewConstantUpload", .target = DMK::Address{upload}},
+                              per_view_upload_detour);
             if (!mid.has_value())
             {
                 window_error = std::format("the per-view upload hook did not install ({})", mid.error().message());
-            }
-            else if (auto armed = hooks.push(std::move(*mid)).enable(); !armed.has_value())
-            {
-                window_error = std::format("the per-view upload hook did not arm ({})", armed.error().message());
             }
         }
         else

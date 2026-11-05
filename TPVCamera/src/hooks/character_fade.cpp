@@ -25,7 +25,6 @@
 #include <cmath>
 #include <cstdint>
 #include <span>
-#include <utility>
 
 namespace TPVCamera
 {
@@ -319,18 +318,14 @@ namespace TPVCamera
         {
             return std::unexpected(DMK::Error{DMK::ErrorCode::NoMatch, "character_fade/proxy_render_anchor"});
         }
-        auto result = DMK::hook::inline_at<&proxy_render_detour>(DMK::hook::InlineRequest{
+        const auto installed = hooks.install<&proxy_render_detour>(DMK::hook::InlineInstallRequest{
             .name = "CRenderProxyRender",
             .target = DMK::Address{target},
+            .original = &s_original,
         });
-        if (!result.has_value())
+        if (!installed.has_value())
         {
-            return std::unexpected(result.error());
-        }
-        s_original.store(result->original<ProxyRenderFn>(), std::memory_order_release);
-        if (auto armed = hooks.push(std::move(*result)).enable(); !armed.has_value())
-        {
-            return std::unexpected(armed.error());
+            return std::unexpected(installed.error());
         }
         s_available.store(true, std::memory_order_release);
         DMK::log().info("CharacterFade: hook on CRenderProxy::Render at {}", DMK::format::format_address(target));

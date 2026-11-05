@@ -40,6 +40,11 @@ namespace TPVCamera
         constexpr float k_fade_side_min_across = 1e-4f;
         static_assert(Constants::OCCLUDER_FADE_SIGHTLINES == k_fade_spine_sightlines + 2,
                       "fade_sightlines() writes the spine lines, then one side line each way");
+        static_assert(Constants::OCCLUDER_FADE_OPPONENT_SIGHTLINES == k_fade_spine_sightlines,
+                      "opponent_sightlines() writes the spine lines only");
+        /// How far round from the character an opponent may stand, seen across the ground from the camera (radians),
+        /// for the fade to look for what hides him: a little past the side of the view.
+        constexpr float k_fade_opponent_max_angle = 0.9f;
 
         /** @brief How one drain of the collision hold left it. */
         enum class HoldDrain : std::uint8_t
@@ -99,8 +104,15 @@ namespace TPVCamera
             {
                 state.sight_age = 0.0f;
                 state.sight_cam = from;
-                std::array<Sightline, Constants::OCCLUDER_FADE_SIGHTLINES> lines{};
-                const int n_lines = fade_sightlines(from, in.head, in.hip, in.world_up, in.fade_body_width, lines);
+                std::array<Sightline, Constants::OCCLUDER_FADE_MAX_SIGHTLINES> lines{};
+                const std::span<Sightline> all_lines(lines);
+                int n_lines = fade_sightlines(from, in.head, in.hip, in.world_up, in.fade_body_width,
+                                              all_lines.first<Constants::OCCLUDER_FADE_SIGHTLINES>());
+                const auto n_opponents =
+                    static_cast<std::size_t>(std::clamp(in.opponent_count, 0, Constants::OCCLUDER_FADE_MAX_OPPONENTS));
+                n_lines += opponent_sightlines(from, (in.head + in.hip) * 0.5f,
+                                               std::span<const FadeOpponent>(in.opponents.data(), n_opponents),
+                                               all_lines.subspan(static_cast<std::size_t>(n_lines)));
                 // The props the arm found the camera inside already fade at once; their meshes are not read again.
                 std::array<void *, Constants::OCCLUDER_FADE_MAX_NODES> inside{};
                 std::size_t n_inside = 0;
@@ -581,6 +593,39 @@ namespace TPVCamera
         out[3] = {from, chest + side};
         out[4] = {from, chest - side};
         return Constants::OCCLUDER_FADE_SIGHTLINES;
+    }
+
+    int opponent_sightlines(const Vector3 &from, const Vector3 &character_chest,
+                            std::span<const FadeOpponent> opponents, std::span<Sightline> out) noexcept
+    {
+        const float view_x = character_chest.x - from.x;
+        const float view_y = character_chest.y - from.y;
+        const float view_length = std::hypot(view_x, view_y);
+        if (view_length < k_fade_side_min_across)
+        {
+            return 0;
+        }
+        std::size_t n = 0;
+        for (const FadeOpponent &opponent : opponents)
+        {
+            if (n + k_fade_spine_sightlines > out.size())
+            {
+                break;
+            }
+            const Vector3 chest = (opponent.head + opponent.hip) * 0.5f;
+            const float to_x = chest.x - from.x;
+            const float to_y = chest.y - from.y;
+            if (std::hypot(to_x, to_y) < k_fade_side_min_across ||
+                std::abs(std::atan2(view_x * to_y - view_y * to_x, view_x * to_x + view_y * to_y)) >
+                    k_fade_opponent_max_angle)
+            {
+                continue;
+            }
+            out[n++] = {from, opponent.head};
+            out[n++] = {from, chest};
+            out[n++] = {from, opponent.hip};
+        }
+        return static_cast<int>(n);
     }
 
     ProbeVerdict classify_probe_hit(WorldProbe &probe, QueryLedger::Tag tag, const RayHit &hit, float along,

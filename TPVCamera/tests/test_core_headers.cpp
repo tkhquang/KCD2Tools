@@ -19,11 +19,13 @@
 #include "core/math/angle.hpp"
 #include "core/math/vec.hpp"
 #include "core/occlusion/fence_coverage.hpp"
+#include "core/occlusion/scan_guard.hpp"
 #include "core/policy/state_policy.hpp"
 #include "core/rig/rig_math.hpp"
 #include "core/rig/rig_record.hpp"
 #include "core/rig/rig_stage.hpp"
 #include "core/rules/camera_rules.hpp"
+#include "core/text/token_list.hpp"
 #include "core/view/view_blend.hpp"
 #include "core/view/view_box.hpp"
 

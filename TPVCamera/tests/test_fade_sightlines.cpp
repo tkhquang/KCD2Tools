@@ -1,7 +1,7 @@
 /**
  * @file test_fade_sightlines.cpp
- * @brief The fade's sightlines (core/collision/arm.hpp fade_sightlines()): the spine lines, the side lines across the
- *        view, and the cases that leave the side lines out.
+ * @brief The fade's sightlines (core/collision/arm.hpp fade_sightlines() and opponent_sightlines()): the spine lines,
+ *        the side lines across the view, the cases that leave the side lines out, and the combat opponents' lines.
  */
 
 #include "core/collision/arm.hpp"
@@ -14,6 +14,8 @@
 namespace
 {
     using TPVCamera::fade_sightlines;
+    using TPVCamera::FadeOpponent;
+    using TPVCamera::opponent_sightlines;
     using TPVCamera::Sightline;
     using TPVCamera::Vector3;
 
@@ -97,4 +99,63 @@ TEST(FadeSightlines, CameraStraightAboveTheChestLeavesOnlyTheSpineLines)
 {
     Lines lines{};
     EXPECT_EQ(fade_sightlines(Vector3{0.0f, 0.0f, 4.0f}, k_head, k_hip, k_up, 0.25f, lines), 3);
+}
+
+TEST(OpponentSightlines, SpineLinesRunFromTheCameraToHeadChestAndHips)
+{
+    const Vector3 camera{0.0f, -3.5f, 2.0f};
+    const std::array<FadeOpponent, 1> opponents{
+        FadeOpponent{.head = Vector3{0.5f, 2.0f, 1.65f}, .hip = Vector3{0.5f, 2.0f, 0.9f}}};
+    std::array<Sightline, 3> lines{};
+    ASSERT_EQ(opponent_sightlines(camera, k_chest, opponents, lines), 3);
+    for (const Sightline &line : lines)
+    {
+        expect_near(line.from, camera);
+    }
+    expect_near(lines[0].to, opponents[0].head);
+    expect_near(lines[1].to, Vector3{0.5f, 2.0f, 1.275f});
+    expect_near(lines[2].to, opponents[0].hip);
+}
+
+TEST(OpponentSightlines, OpponentOffTheSideOfTheViewGetsNone)
+{
+    // The view looks along +y; one opponent stands square to the side, the other behind the camera.
+    const Vector3 camera{0.0f, -3.5f, 2.0f};
+    const std::array<FadeOpponent, 2> opponents{
+        FadeOpponent{.head = Vector3{4.0f, -3.5f, 1.65f}, .hip = Vector3{4.0f, -3.5f, 0.9f}},
+        FadeOpponent{.head = Vector3{0.0f, -8.0f, 1.65f}, .hip = Vector3{0.0f, -8.0f, 0.9f}},
+    };
+    std::array<Sightline, 6> lines{};
+    EXPECT_EQ(opponent_sightlines(camera, k_chest, opponents, lines), 0);
+}
+
+TEST(OpponentSightlines, OnlyTheOpponentsInViewAreWritten)
+{
+    const Vector3 camera{0.0f, -3.5f, 2.0f};
+    const std::array<FadeOpponent, 2> opponents{
+        FadeOpponent{.head = Vector3{0.0f, -8.0f, 1.65f}, .hip = Vector3{0.0f, -8.0f, 0.9f}},
+        FadeOpponent{.head = Vector3{-1.0f, 3.0f, 1.65f}, .hip = Vector3{-1.0f, 3.0f, 0.9f}},
+    };
+    std::array<Sightline, 6> lines{};
+    ASSERT_EQ(opponent_sightlines(camera, k_chest, opponents, lines), 3);
+    expect_near(lines[0].to, opponents[1].head);
+}
+
+TEST(OpponentSightlines, StopsWhenTheOutputIsFull)
+{
+    const Vector3 camera{0.0f, -3.5f, 2.0f};
+    const std::array<FadeOpponent, 2> opponents{
+        FadeOpponent{.head = Vector3{0.5f, 2.0f, 1.65f}, .hip = Vector3{0.5f, 2.0f, 0.9f}},
+        FadeOpponent{.head = Vector3{-0.5f, 2.0f, 1.65f}, .hip = Vector3{-0.5f, 2.0f, 0.9f}},
+    };
+    std::array<Sightline, 5> lines{};
+    EXPECT_EQ(opponent_sightlines(camera, k_chest, opponents, lines), 3);
+}
+
+TEST(OpponentSightlines, CameraStraightAboveTheChestWritesNone)
+{
+    const std::array<FadeOpponent, 1> opponents{
+        FadeOpponent{.head = Vector3{0.5f, 2.0f, 1.65f}, .hip = Vector3{0.5f, 2.0f, 0.9f}}};
+    std::array<Sightline, 3> lines{};
+    EXPECT_EQ(opponent_sightlines(Vector3{0.0f, 0.0f, 4.0f}, k_chest, opponents, lines), 0);
 }

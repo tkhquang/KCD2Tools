@@ -13,6 +13,7 @@
 #include "config.hpp"
 #include "rtti_types.hpp"
 #include "constants.hpp"
+#include "core/text/token_list.hpp"
 #include "global_state.hpp"
 #include "offset_heal.hpp"
 #include "hooks/ui_menu_hooks.hpp"
@@ -22,7 +23,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <cmath>
 #include <initializer_list>
 #include <string>
@@ -499,90 +499,60 @@ namespace TPVCamera
             return stance ? *stance : 0u;
         }
 
-        /// Trims leading and trailing ASCII whitespace from a view (no allocation).
-        [[nodiscard]] std::string_view trim_view(std::string_view text) noexcept
-        {
-            constexpr std::string_view whitespace = " \t\r\n";
-            const size_t begin = text.find_first_not_of(whitespace);
-            if (begin == std::string_view::npos)
-            {
-                return {};
-            }
-            const size_t end = text.find_last_not_of(whitespace);
-            return text.substr(begin, end - begin + 1);
-        }
-
-        /// ASCII case-insensitive equality of a token against a lowercase literal.
-        [[nodiscard]] bool token_equals(std::string_view token, std::string_view lower_literal) noexcept
-        {
-            if (token.size() != lower_literal.size())
-            {
-                return false;
-            }
-            for (size_t i = 0; i < token.size(); ++i)
-            {
-                if (static_cast<char>(std::tolower(static_cast<unsigned char>(token[i]))) != lower_literal[i])
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
-
         /// Maps a single trimmed token to its GameState bit, or 0 when unrecognized.
         [[nodiscard]] uint32_t token_to_bit(std::string_view token) noexcept
         {
-            if (token_equals(token, "menu"))
+            if (TokenList::equals(token, "menu"))
             {
                 return state_bit(GameState::Menu);
             }
-            if (token_equals(token, "overlay"))
+            if (TokenList::equals(token, "overlay"))
             {
                 return state_bit(GameState::Overlay);
             }
-            if (token_equals(token, "combat"))
+            if (TokenList::equals(token, "combat"))
             {
                 return state_bit(GameState::Combat);
             }
-            if (token_equals(token, "mount"))
+            if (TokenList::equals(token, "mount"))
             {
                 return state_bit(GameState::Mount);
             }
-            if (token_equals(token, "dialogue"))
+            if (TokenList::equals(token, "dialogue"))
             {
                 return state_bit(GameState::Dialogue);
             }
-            if (token_equals(token, "minigame"))
+            if (TokenList::equals(token, "minigame"))
             {
                 return state_bit(GameState::Minigame);
             }
-            if (token_equals(token, "aiming"))
+            if (TokenList::equals(token, "aiming"))
             {
                 return state_bit(GameState::Aiming);
             }
             // Crouch and Stealth are aliases: KCD2 crouch IS the sneak/stealth stance.
-            if (token_equals(token, "crouch") || token_equals(token, "stealth"))
+            if (TokenList::equals(token, "crouch") || TokenList::equals(token, "stealth"))
             {
                 return state_bit(GameState::Crouch);
             }
             // Remaining E_StanceCategory stances (see poll_stance): lying / sitting / kneel / cart.
-            if (token_equals(token, "lying"))
+            if (TokenList::equals(token, "lying"))
             {
                 return state_bit(GameState::Lying);
             }
-            if (token_equals(token, "sitting"))
+            if (TokenList::equals(token, "sitting"))
             {
                 return state_bit(GameState::Sitting);
             }
-            if (token_equals(token, "kneel"))
+            if (TokenList::equals(token, "kneel"))
             {
                 return state_bit(GameState::Kneel);
             }
-            if (token_equals(token, "cart"))
+            if (TokenList::equals(token, "cart"))
             {
                 return state_bit(GameState::Cart);
             }
-            if (token_equals(token, "focus"))
+            if (TokenList::equals(token, "focus"))
             {
                 return state_bit(GameState::Focus);
             }
@@ -591,7 +561,7 @@ namespace TPVCamera
             // child token reacts only to that minigame while "minigame" reacts to all of them.
             for (const MinigameInfo &def : k_minigames)
             {
-                if (token_equals(token, def.token))
+                if (TokenList::equals(token, def.token))
                 {
                     return state_bit(def.bit);
                 }
@@ -605,31 +575,19 @@ namespace TPVCamera
     {
         DMK::Logger &logger = DMK::log();
         uint32_t mask = 0;
-
-        size_t start = 0;
-        while (start <= csv.size())
-        {
-            const size_t comma = csv.find(',', start);
-            const size_t end = (comma == std::string_view::npos) ? csv.size() : comma;
-            const std::string_view token = trim_view(csv.substr(start, end - start));
-            if (!token.empty())
-            {
-                const uint32_t bit = token_to_bit(token);
-                if (bit != 0)
-                {
-                    mask |= bit;
-                }
-                else
-                {
-                    logger.warning("GameState: ignoring unknown state token '{}'", std::string(token));
-                }
-            }
-            if (comma == std::string_view::npos)
-            {
-                break;
-            }
-            start = comma + 1;
-        }
+        TokenList::for_each(csv,
+                            [&](std::string_view token)
+                            {
+                                const uint32_t bit = token_to_bit(token);
+                                if (bit != 0)
+                                {
+                                    mask |= bit;
+                                }
+                                else
+                                {
+                                    logger.warning("GameState: ignoring unknown state token '{}'", std::string(token));
+                                }
+                            });
         return mask;
     }
 

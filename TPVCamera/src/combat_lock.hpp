@@ -111,6 +111,8 @@ namespace TPVCamera
         float distance{0.0f};
         /// Heading from the player to the candidate (world yaw, forward = (-sin, cos)).
         float heading{0.0f};
+        /// The candidate's entity position (his feet), world meters.
+        std::array<float, 3> position{};
     };
 
     /**

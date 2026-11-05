@@ -62,21 +62,6 @@ namespace TPVCamera
         }
 
         /**
-         * @brief The target of console slot @p slot when it matches @p frame at its first byte or @p body within
-         *        @p body_window bytes, else 0.
-         */
-        [[nodiscard]] std::uintptr_t console_slot(std::uintptr_t vtable, std::size_t slot,
-                                                  const DMK::scan::Pattern &frame, const DMK::scan::Pattern &body,
-                                                  std::size_t body_window)
-        {
-            const ModuleInfo &game = module_info();
-            const std::uintptr_t target =
-                read_checked_vtable_slot(vtable, slot, frame, frame.max_match_length(), game.base, game.size);
-            return target != 0 ? target
-                               : read_checked_vtable_slot(vtable, slot, body, body_window, game.base, game.size);
-        }
-
-        /**
          * @brief Finds the variable, or registers it when no mod has yet, and returns the address of its value, or 0.
          * @details The console must be CXConsole, and its RegisterInt and GetCVar slots must hold the functions that
          *          Aob::k_consoleRegisterInt* and Aob::k_consoleGetCVar* describe. The variable must be a
@@ -91,12 +76,13 @@ namespace TPVCamera
             {
                 return 0;
             }
-            const auto get_cvar = reinterpret_cast<GetCVarFunc>(
-                console_slot(console_vtable, Constants::CONSOLE_VTABLE_GET_CVAR_SLOT, Aob::k_consoleGetCVarFrame,
-                             Aob::k_consoleGetCVarLookup, Aob::k_consoleGetCVarLookupWindow));
-            const auto register_int = reinterpret_cast<RegisterIntFunc>(console_slot(
+            const ModuleInfo &game = module_info();
+            const auto get_cvar = reinterpret_cast<GetCVarFunc>(read_proven_vtable_slot(
+                console_vtable, Constants::CONSOLE_VTABLE_GET_CVAR_SLOT, Aob::k_consoleGetCVarFrame,
+                Aob::k_consoleGetCVarLookup, Aob::k_consoleGetCVarLookupWindow, game.base, game.size));
+            const auto register_int = reinterpret_cast<RegisterIntFunc>(read_proven_vtable_slot(
                 console_vtable, Constants::CONSOLE_VTABLE_REGISTER_INT_SLOT, Aob::k_consoleRegisterIntFrame,
-                Aob::k_consoleRegisterIntStore, Aob::k_consoleRegisterIntStoreWindow));
+                Aob::k_consoleRegisterIntStore, Aob::k_consoleRegisterIntStoreWindow, game.base, game.size));
             if (get_cvar == nullptr || register_int == nullptr)
             {
                 return 0;
@@ -122,7 +108,6 @@ namespace TPVCamera
             {
                 return 0;
             }
-            const ModuleInfo &game = module_info();
             const bool value_proven =
                 read_checked_vtable_slot(variable_vtable, Constants::CVAR_INT_VTABLE_GET_IVAL_SLOT,
                                          Aob::k_cvarIntGetIVal, Aob::k_cvarIntGetIVal.max_match_length(), game.base,

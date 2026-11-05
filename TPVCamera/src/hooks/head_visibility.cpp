@@ -164,26 +164,15 @@ namespace TPVCamera
         }
         else
         {
-            auto head_result = DMK::hook::inline_at<&detour_set_head_visibility>(DMK::hook::InlineRequest{
+            const auto head_installed = hooks.install<&detour_set_head_visibility>(DMK::hook::InlineInstallRequest{
                 .name = "SetHeadVisibility",
                 .target = DMK::Address{head_addr},
+                .original = &s_set_head_visibility_original,
             });
-
-            if (!head_result.has_value())
+            if (!head_installed.has_value())
             {
                 logger.warning("Camera: Head visibility hook failed ({}); player may appear headless from behind",
-                               head_result.error().message());
-            }
-            else
-            {
-                s_set_head_visibility_original.store(head_result->original<SetHeadVisibilityFunc>(),
-                                                     std::memory_order_release);
-                if (auto armed = hooks.push(std::move(*head_result)).enable(); !armed.has_value())
-                {
-                    logger.warning("Camera: Head visibility hook could not be armed ({}); player may appear "
-                                   "headless from behind",
-                                   armed.error().message());
-                }
+                               head_installed.error().message());
             }
         }
     }

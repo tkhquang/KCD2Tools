@@ -28,15 +28,20 @@ namespace Constants
     // and roof of a tent model that draws only its wooden frame) and is walked past.
     constexpr float COLLISION_DRAWN_REACH = 0.25f;
 
-    // The render-octree occluder scan (render_occlusion.cpp).
-    // Safety cap on the per-query node count: if the box overlaps more nodes than this the query returns nothing
-    // for that call. Also sizes the stack list buffer for the count-then-fill query (uncapped memcpy).
-    constexpr int RENDER_OCCLUSION_MAX_NODES = 1024;
+    // The render-octree occluder scan (render_occlusion.cpp). Its caps are corruption guards, set far above the
+    // counts measured in game (a furnished Kuttenberg interior: up to 1695 brushes in one typed query, 519 nodes
+    // kept), so a real box never loses a node to them.
+    // The count-then-fill query's list buffer: the engine copies its full result into it without a size limit, so a
+    // count that does not fit (less the slack below) fills nothing and the query returns no node.
+    constexpr int RENDER_OCCLUSION_MAX_NODES = 8192;
     // Headroom kept free in that buffer between the counting query and the filling one. The fill copies whatever
     // the octree holds at that moment, so a node registered between the two calls would otherwise land past the
     // end of the buffer. A count above RENDER_OCCLUSION_MAX_NODES - RENDER_OCCLUSION_NODE_SLACK is treated like a
     // count above the cap.
     constexpr int RENDER_OCCLUSION_NODE_SLACK = 64;
+    // The most nodes one single-walk query (the collector filling the engine's own growable vector) may return before
+    // its vector is taken for corrupt and the query for empty.
+    constexpr int RENDER_OCCLUSION_MAX_COLLECTED = 65536;
 
     // The character fade (hooks/character_fade.cpp).
     // A fade value older than this is ignored, so a faded object comes back on its own when the camera stops setting
@@ -48,6 +53,14 @@ namespace Constants
     constexpr int OCCLUDER_FADE_MAX_NODES = 32;
     /// The fade's sightlines from the camera: the head, the chest, the hips and either side of the chest.
     constexpr int OCCLUDER_FADE_SIGHTLINES = 5;
+    // In combat the fade also casts spine sightlines (the head, the chest and the hips) to the living opponents the
+    // lock-on can pick within OCCLUDER_FADE_OPPONENT_REACH meters of the character, the nearest
+    // OCCLUDER_FADE_MAX_OPPONENTS of them, so a prop that hides an opponent fades too.
+    constexpr float OCCLUDER_FADE_OPPONENT_REACH = 15.0f;
+    constexpr int OCCLUDER_FADE_MAX_OPPONENTS = 4;
+    constexpr int OCCLUDER_FADE_OPPONENT_SIGHTLINES = 3;
+    constexpr int OCCLUDER_FADE_MAX_SIGHTLINES =
+        OCCLUDER_FADE_SIGHTLINES + OCCLUDER_FADE_OPPONENT_SIGHTLINES * OCCLUDER_FADE_MAX_OPPONENTS;
     // Fade timing. A node must hide the character for the delay before it starts to fade, so an object that crosses a
     // sightline for an instant (a post the camera swings past) never blinks; then it fades in, is held while it
     // flickers on and off the sightline, and fades back out. An object at the lens skips the delay.
@@ -55,8 +68,9 @@ namespace Constants
     constexpr float OCCLUDER_FADE_IN_SECONDS = 0.15f;
     constexpr float OCCLUDER_FADE_HOLD_SECONDS = 0.4f;
     constexpr float OCCLUDER_FADE_OUT_SECONDS = 0.4f;
-    // Render nodes the occluder scan keeps per query (the brushes, trees and entities near the arm and the character).
-    constexpr int OCCLUDER_SCAN_MAX = 768;
+    // Render nodes the occluder scan keeps (the brushes, trees and entities near the arm and the character): a
+    // corruption guard far above a real box's count, since a node left out stops the camera like a wall.
+    constexpr int OCCLUDER_SCAN_MAX = 8192;
     // The scan's octree query covers the arm plus this margin (meters), and is reused until the camera or the
     // character leaves it, so a walking camera does not pay the octree query every frame. Its entity proxies and
     // movable brushes, which move and appear with the box held still, are queried again every OCCLUDER_SCAN_MAX_AGE

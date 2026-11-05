@@ -65,6 +65,9 @@ namespace TPVCamera
         std::atomic<float> occluder_fade_body_width{0.25f};
         /// The meters at the character's end of each fade sightline that do not count, 0 .. 1: what he holds or wears.
         std::atomic<float> occluder_fade_body_margin{0.15f};
+        // In the combat stance the fade also casts sightlines to the nearest opponents on the screen
+        // (CollisionInput::opponents), so the props that hide them fade too.
+        std::atomic<bool> occluder_fade_opponents{true};
         // Tree see-through (see hooks/shader_twins.hpp): the trees, bushes and grass between the camera and the
         // character open a dithered window around the character, only where they stand nearer than him. The rest of
         // the plant and its shadow stay. Independent of the occluder fade. Off = trees and bushes stay solid (the
@@ -152,6 +155,13 @@ namespace TPVCamera
         // Re-origin the player use/interaction cone onto the render camera + crosshair (third person)
         // so the use-target matches screen centre at all ranges.
         std::atomic<bool> interact_from_camera{true};
+
+        // The game's screen effects hidden in each view (ScreenEffect bits, parsed from the comma-separated
+        // HideScreenEffectsTPV / HideScreenEffectsFPV lists by parse_screen_effect_mask): the helmet's visor, the hit
+        // flashes, the wash's eyelids and water drops, the sleepy eyelids and the head-wound blood. The TPV list
+        // applies while mod_camera_view is 1, the FPV list at every other time.
+        std::atomic<uint32_t> hide_screen_effects_tpv_mask{0};
+        std::atomic<uint32_t> hide_screen_effects_fpv_mask{0};
 
         // First-person <-> third-person view-switch easing. The frustum detour eases a 0..1 blend
         // toward the target view over this many seconds (smoothstepped) so toggling and UI

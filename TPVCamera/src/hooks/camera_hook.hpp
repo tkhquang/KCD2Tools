@@ -42,7 +42,7 @@ namespace TPVCamera
      *          the offset is toggled off, so they are harmless when the view is first-person.
      * @param module_base Base address of the target game module.
      * @param module_size Size of the target game module in bytes.
-     * @param hooks The mod's hook stack. Each handle is stored before its arm.
+     * @param hooks The mod's hook stack. A failed install leaves it unchanged.
      * @return An empty value when the mandatory frustum-builder hook was installed (best-effort head/input
      *         hooks may still warn), or the library Error that refused it (ErrorCode::NoMatch when the anchor
      *         cascade did not resolve).

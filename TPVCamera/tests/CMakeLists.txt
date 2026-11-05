@@ -31,8 +31,10 @@ add_executable(tpvcamera_tests
   test_preset_filter.cpp
   test_rig_focus.cpp
   test_rig_math.cpp
+  test_scan_guard.cpp
   test_state_policy.cpp
   test_stick.cpp
+  test_token_list.cpp
   test_view_blend.cpp
   test_view_box.cpp
 )
