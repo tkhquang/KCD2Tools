@@ -1,0 +1,11 @@
+<anim_event_list>
+	<animation name="animations/humans/male/tpvidle/tpv_idle_weight_shift_right.caf">
+		<event name="footstep" time="0.009092306" endTime="0.009092306" parameter="fdq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.02148462" endTime="0.02148462" parameter="fdq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.2738846" endTime="0.2738846" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.2937077" endTime="0.2937077" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.3218462" endTime="0.3218462" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.3919038" endTime="0.3919038" parameter="fdq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.4026846" endTime="0.4026846" parameter="fdq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+	</animation>
+</anim_event_list>

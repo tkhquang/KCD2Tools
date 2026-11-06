@@ -1,0 +1,13 @@
+<CombinedBlendSpace>
+
+<Dimensions>
+    <Param name="MoveSpeed" />
+    <Param name="TravelAngle" ParaScale="2" />
+    <Param name="TurnSpeed" ParaScale="2" />
+</Dimensions>
+
+<BlendSpaces>
+    <BlendSpace AName="animations/humans/male/blendspace/tpvtorch/2d_relaxed_sprint_strafe_spd_fwd_ext_player_tpvt_a2.bspace" />
+    <BlendSpace AName="animations/humans/male/blendspace/tpvtorch/2d_sprint_turn_player_tpvt_a2.bspace" />
+</BlendSpaces>
+</CombinedBlendSpace>

@@ -1,0 +1,6 @@
+<anim_event_list>
+	<animation name="animations/humans/male/tpvidle/tpv_idle_fidget03.caf">
+		<event name="foley" time="0.01935381" endTime="0.01935381" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.1601121" endTime="0.1601121" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+	</animation>
+</anim_event_list>

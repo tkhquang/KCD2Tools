@@ -1,0 +1,5 @@
+<anim_event_list>
+	<animation name="animations/humans/male/tpvidle/tpv_idle_look_around.caf">
+		<event name="foley" time="0.01769851" endTime="0.01769851" parameter="foleybq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+	</animation>
+</anim_event_list>

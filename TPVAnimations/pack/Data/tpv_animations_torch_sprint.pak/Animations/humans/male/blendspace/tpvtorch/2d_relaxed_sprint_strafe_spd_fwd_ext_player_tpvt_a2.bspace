@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="us-ascii"?>
+<ParaGroup>
+  <Dimensions>
+    <Param Name="MoveSpeed" Min="3.1199999" Max="6.1999998" Cells="9" Scale="2" />
+    <Param Name="TravelAngle" Min="-1.5700001" Max="1.5700001" Cells="9" />
+  </Dimensions>
+  <ExampleList>
+    <Example AName="tpvt_a2_relaxed_sprint_fast_right_player" PlaybackScale="0.5" />
+    <Example AName="tpvt_a2_relaxed_sprint_fast_player" PlaybackScale="0.5" />
+    <Example AName="tpvt_a2_relaxed_sprint_fast_left_player" PlaybackScale="0.5" />
+    <Example AName="tpvt_a2_relaxed_sprint_fast_right_player" />
+    <Example AName="tpvt_a2_relaxed_sprint_fast_player" />
+    <Example AName="tpvt_a2_relaxed_sprint_fast_left_player" />
+  </ExampleList>
+  <Blendable>
+    <Face p0="0" p1="3" p2="4" p3="1" />
+    <Face p0="1" p1="4" p2="5" p3="2" />
+  </Blendable>
+</ParaGroup>
