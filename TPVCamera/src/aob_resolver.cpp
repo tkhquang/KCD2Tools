@@ -445,6 +445,8 @@ namespace TPVCamera
             code_ladder("CombatPickViewRead", Aob::k_combatPickViewReadCandidates, Role::Site),
             quorum("FocusController", k_focus_controller_votes, 0, k_pointer_field_range),
             quorum("FocusFlags", k_focus_flags_votes, 0, k_dword_field_range),
+            code_ladder("HapticPlayArgs", Aob::k_hapticPlayArgsCandidates, Role::Site),
+            code_ladder("HapticPlay", Aob::k_hapticPlayCandidates, Role::Entry),
 #if defined(TPVCAMERA_DEV_BUILD)
             code_ladder("HardwareShaderForName", Aob::k_hardwareShaderForNameCandidates, Role::Entry),
             code_ladder("HardwareShaderLockSite", Aob::k_hardwareShaderLockSiteCandidates, Role::Site),
@@ -525,6 +527,9 @@ namespace TPVCamera
         constexpr AnchorId k_combat_retarget_anchors[] = {AnchorId::SetCombatOpponent, AnchorId::CombatThreat};
         constexpr AnchorId k_combat_pick_forward_anchors[] = {AnchorId::CombatPickViewRead};
         constexpr AnchorId k_focused_look_anchors[] = {AnchorId::FocusController, AnchorId::FocusFlags};
+        // The argument setup's mid hook measures the eye distance and the play's entry hook hands it to the range test,
+        // so one without the other changes nothing.
+        constexpr AnchorId k_haptics_from_eye_anchors[] = {AnchorId::HapticPlayArgs, AnchorId::HapticPlay};
 #if defined(TPVCAMERA_DEV_BUILD)
         // The DEV twin clone's dry-run reads CShader, SShaderTechnique, CBaseResource and CHWShader_D3D fields only
         // where every one of their layouts is proven, HW shader token maps only under the factory's own lock, and
@@ -578,6 +583,7 @@ namespace TPVCamera
             {"CombatRetarget", k_combat_retarget_anchors},
             {"CombatPickForward", k_combat_pick_forward_anchors},
             {"FocusedLook", k_focused_look_anchors},
+            {"HapticsFromEye", k_haptics_from_eye_anchors},
 #if defined(TPVCAMERA_DEV_BUILD)
             {"TwinCloneDryRun", k_twin_clone_dry_run_anchors},
 #endif
@@ -620,6 +626,8 @@ namespace TPVCamera
             AnchorId::AddOrCreateRO,
             AnchorId::PerViewUpload,
             AnchorId::CombatPickViewRead,
+            AnchorId::HapticPlayArgs,
+            AnchorId::HapticPlay,
 #if defined(TPVCAMERA_DEV_BUILD)
             AnchorId::HardwareShaderForName,
 #endif

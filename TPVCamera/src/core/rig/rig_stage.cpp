@@ -680,10 +680,11 @@ namespace TPVCamera
         // one rate per axis so each can be inverted with a negative value) sets the rate - a SEPARATE knob from the
         // mouse's OrbitSensitivity X/Y, because a relative mouse (delta) and an absolute stick (rate) cannot share
         // one linear scale; the pitch is clamped to the same limits.
-        // Gated on the cursor-shown freeze (a UI up holds
-        // still, mirroring the mouse path); when not orbiting or frozen the latch is cleared so re-engaging with
-        // the stick centred does not jump.
-        if (orbit_held && !port.cursor_shown())
+        // Gated on the cursor-shown freeze (a UI up holds still, as on the mouse path) and on the game clock, whose
+        // pause also stops the input hook latching the stick. When not orbiting, frozen or paused the latch is cleared,
+        // so re-engaging with the stick centred does not jump and a stick let go during the pause leaves no deflection
+        // behind.
+        if (orbit_held && !port.cursor_shown() && !in.paused)
         {
             // The preset's response curve, then its smoothing: a curve of 1 and 0 s use the latched deflection as it
             // is. A deflection easing back to a centred stick lands on 0 below k_pad_rest instead of turning the
