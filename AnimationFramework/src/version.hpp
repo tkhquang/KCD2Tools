@@ -9,9 +9,9 @@
 #ifndef ANIMFW_VERSION_HPP
 #define ANIMFW_VERSION_HPP
 
-#define VERSION_MAJOR 0
+#define VERSION_MAJOR 1
 #define VERSION_MINOR 0
-#define VERSION_PATCH 1
+#define VERSION_PATCH 0
 
 /// Stringification helpers for the version macros.
 #define VERSION_STR_HELPER(x) #x
