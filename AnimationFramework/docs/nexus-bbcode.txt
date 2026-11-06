@@ -1,0 +1,108 @@
+[size=5]Foreword[/size]
+Animation mods for Kingdom Come: Deliverance II replace whole game files: the animation databases and the clip index. Two mods that touch the same file cannot both work, so the last one installed wins and the others are lost.
+
+[b]Animation Framework[/b] lets them work together. A mod ships only what it changes, and the framework merges every mod's changes into what the game loads. Mods that still ship whole files are merged too.
+
+On its own it changes nothing you can see: install it for the mods that need it. For mod authors it also brings the tools to make animation mods: a clip compiler, a checker, an action maker, retargeting from motion capture and a Blender add-on (see For Mod Authors below).
+
+[size=5]Key Features[/size]
+[list]
+[*][b]Mods together:[/b] database, fragment, tag, event and skeleton changes from every mod merge, and mods that ship whole copies of the same file (First Person Overhaul, Greatswords, True Combat Overhaul, Very Important Activities, Swords on the Back) are merged instead of overwriting each other[/*]
+[*][b]New and replaced clips:[/b] every .caf a mod ships plays, without shipping the game's whole clip index, including clips the game keeps in .dba packs[/*]
+[*][b]Animations from scripts:[/b] [b]human:PlayAnim[/b] and [b]StopAnim[/b] work on NPCs too, play over what a character is doing, and new actions get the rows the game needs to play them in quests and NPC behaviours[/*]
+[*][b]Third-person animations and custom tags:[/b] options that play only while a camera mod shows Henry from outside, or while a mod's own state is on[/*]
+[*][b]Mod maker:[/b] turn a clip into a finished mod in the game, from the command line, in a window or from Blender, with clip reload while you play[/*]
+[*]The log names the mod that wins when two mods change the same thing[/*]
+[*][url=https://github.com/tkhquang/KCD2Tools]Open source[/url], built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url][/*]
+[/list]
+
+[size=5]Requirements[/size]
+[list]
+[*]Kingdom Come: Deliverance II on Steam[/*]
+[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332]Kingdom Come Script Extender (KCSE)[/url] for the KCSE build, or an ASI loader such as [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases]Ultimate ASI Loader[/url] (x64) for the ASI build.[/*]
+[/list]
+
+[size=5]Installation[/size]
+Both main files are the same mod. [b]Install one of them, not both.[/b]
+
+[b](KCSE) Animation Framework[/b], the default: install it with your mod manager, or extract it into your [b]Mods[/b] folder.
+[spoiler]
+[code]
+<KC:D 2 folder>/
+|-- Bin/
+|   \-- Win64MasterMasterSteamPGO/
+|       |-- WHGame.dll                            (game file)
+|       \-- KCD2_AnimationFramework.log           (created when the mod loads)
+\-- Mods/
+    \-- animation_framework/
+        |-- mod.manifest
+        \-- KCSE/
+            \-- Plugins/
+                |-- KCD2_AnimationFramework.dll   (this mod)
+                |-- KCD2_AnimationFramework.ini   (settings)
+                \-- KCD2_AnimationFramework_License.txt
+[/code]
+[/spoiler]
+
+[b](ASI) Animation Framework[/b], for players without KCSE: extract it into the folder that contains [b]WHGame.dll[/b], beside your ASI loader.
+[spoiler]
+[code]
+Bin/Win64MasterMasterSteamPGO/
+|-- WHGame.dll                        (game file)
+|-- dinput8.dll                       (ASI loader)
+|-- KCD2_AnimationFramework.asi       (this mod)
+|-- KCD2_AnimationFramework.ini       (settings)
+\-- KCD2_AnimationFramework.log       (created when the mod loads)
+[/code]
+[/spoiler]
+To uninstall, remove the mod folder (KCSE build) or every [b]KCD2_AnimationFramework*[/b] file beside WHGame.dll (ASI build). The miscellaneous files (tools and Blender add-on) are only for making mods.
+
+[size=5]Configuration[/size]
+[b]KCD2_AnimationFramework.ini[/b], beside the mod, switches each part on or off. Changes apply on the next game start.
+[spoiler]
+[list]
+[*][b]AnimationPatches[/b] - database patches, clip swaps and whole-file merges[/*]
+[*][b]ModClips[/b] - mods' clips and clip indexes[/*]
+[*][b]SkeletonMerge[/b] - skeletons several mods ship whole merge bone by bone[/*]
+[*][b]NpcActions[/b] - PlayAnim and StopAnim on NPCs[/*]
+[*][b]ThirdPersonVariants[/b] - third-person animations (needs AnimationPatches)[/*]
+[*][b]CustomTags[/b] - mods' own animation tags (needs AnimationPatches); the [b][CustomTags][/b] section ranks them ([b]Priority[/b]) and switches them off ([b]Disabled[/b])[/*]
+[/list]
+[/spoiler]
+
+[size=5]Third-Person Animations[/size]
+The supported camera mod is [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3263]Proper Third Person View (TPV Camera)[/url]. While it shows Henry from outside, animation options tagged [b]thirdPerson[/b] play in place of the game's; in first person the game's own animations play. Other camera mods need to publish their view in the [b]mod_camera_view[/b] console variable; the rules are in the [url=https://github.com/tkhquang/KCD2Tools/blob/main/AnimationFramework/README.md]README[/url].
+
+[size=5]For Mod Authors[/size]
+A mod ships only what it changes: name a patch after the game file plus your mod id, such as [b]Animations/Mannequin/ADB/kcd_male_database__mymod.adb[/b], and put in it only the options you add, replace or remove. The [url=https://github.com/tkhquang/KCD2Tools/blob/main/AnimationFramework/docs/MODDING.md]modding guide[/url] covers every rule, with examples such as [url=https://github.com/tkhquang/KCD2Tools/tree/main/SprintStartFix]Sprint Start Fix[/url].
+[spoiler]
+[list]
+[*][b]In the game:[/b] put a .caf in the framework's DEV folder and run [b]animfw_reload_clips[/b] to play it without a restart; [b]animfw_check_clip[/b] prints what would break it; [b]animfw_make_mod[/b] turns it into a new action set up like a game action, and [b]animfw_pack_mod[/b] writes the finished mod[/*]
+[*][b]Tools (miscellaneous file):[/b] [b]animfw.exe[/b], the command line, does the same without the game running, compiles Blender exports (.i_caf) without rc.exe and keeps every bone a full-body clip needs, and retargets motion capture and other rigs' animations (BVH, FBX: Mixamo, SMPL, Unreal, CMU, 100STYLE) onto Henry's skeleton. [b]AnimFW Studio[/b] (animfw-studio.exe) does it in a window with a mannequin preview, and [b]animfw mcp[/b] serves it to AI assistants[/*]
+[*][b]Blender add-on (miscellaneous file):[/b] for the armatures [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3639]Bohemian Animator[/url] builds: export, check and play the action on Henry in the running game in seconds, retarget mocap onto the armature, make and pack the mod. Play in game uses the [url=https://github.com/yobson1/kcd2lua]KCD2 Lua runner[/url][/*]
+[/list]
+[/spoiler]
+
+[size=5]Troubleshooting[/size]
+[list]
+[*]Check [b]KCD2_AnimationFramework.log[/b] beside WHGame.dll: it lists every patch it merged, every mod clip it registered and every conflict between mods.[/*]
+[*]Set LogLevel = DEBUG under [Settings] and restart the game for more detail.[/*]
+[/list]
+Please [url=https://github.com/tkhquang/KCD2Tools/issues]report issues[/url] with the log, INI, game/mod versions and reproduction steps.
+
+[size=5]Credits & License[/size]
+Built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url] for core functionality.
+[list]
+[*][url=https://github.com/ThirteenAG/Ultimate-ASI-Loader]Ultimate ASI Loader[/url] by ThirteenAG - ASI loading layer[/*]
+[*][url=https://github.com/cursey/safetyhook]SafetyHook[/url] by cursey - hooking[/*]
+[*][url=https://github.com/zyantific/zydis]Zydis[/url] / [url=https://github.com/zyantific/zycore-c]Zycore[/url] by Florian Bernd & Joel Hoener - disassembly used by SafetyHook[/*]
+[*][url=https://github.com/brofield/simpleini]SimpleIni[/url] by Brodie Thiesfield - INI configuration[/*]
+[*][url=https://github.com/ufbx/ufbx]ufbx[/url] by Samuli Raivio - FBX reading in the tools[/*]
+[*][url=https://github.com/raysan5/raylib]raylib[/url], [url=https://github.com/ocornut/imgui]Dear ImGui[/url] and [url=https://github.com/raylib-extras/rlImGui]rlImGui[/url] - the Studio window; [url=https://github.com/nlohmann/json]nlohmann/json[/url] - the tools' MCP server[/*]
+[*]SirVanir - [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3639]Bohemian Animator[/url], the Blender add-on the Blender bridge works with[/*]
+[*]Warhorse Studios - Kingdom Come: Deliverance II[/*]
+[/list]
+
+[b]License:[/b] MIT. The third-party notices are in [b]KCD2_AnimationFramework_License.txt[/b].
+
+All my Kingdom Come: Deliverance II mods and tools can be found in this [url=https://github.com/tkhquang/KCD2Tools]GitHub repository[/url]. Feel free to contribute or suggest improvements!

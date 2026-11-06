@@ -38,3 +38,7 @@
 	path = EngineTweaks/external/DetourModKit
 	url = https://github.com/tkhquang/DetourModKit.git
 	ignore = dirty
+[submodule "AnimationFramework/external/DetourModKit"]
+	path = AnimationFramework/external/DetourModKit
+	url = https://github.com/tkhquang/DetourModKit.git
+	ignore = dirty
