@@ -2,6 +2,11 @@
 
 All notable changes to the TPVCamera mod will be documented in this file.
 
+## [3.2.0] - Controller Vibration Fix
+
+- The controller vibrates again in third person: hits, footsteps and landings rumble it as in first person.
+- While the game is paused, free-look leaves the right stick to the open screen, such as the Gesture Wheel.
+
 ## [3.1.0] - Screen Effects and Combat Fades
 
 - Hides the helmet visor, the washing and sleepy eyelids, the water drops and head wound blood in third person; the INI sets what each view hides, first person included.
@@ -185,6 +190,7 @@ All notable changes to the TPVCamera mod will be documented in this file.
 - Third person stays out of every minigame (lockpicking, reading, alchemy, pickpocketing, and more), and you can give any minigame its own framing
 - Configurable hotkeys, with most changes applying while you play
 
+[3.2.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v3.2.0
 [3.1.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v3.1.0
 [3.0.2]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v3.0.2
 [3.0.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v3.0.1
