@@ -97,6 +97,13 @@ namespace TPVCamera
     [[nodiscard]] bool game_cursor_shown() noexcept;
 
     /**
+     * @brief Whether the game clock stood still (a paused screen is up) on the frustum detour's last game-view frame.
+     * @note Any thread: one relaxed atomic load. The free-look input gate leaves the right stick to the paused screen
+     *       while it holds.
+     */
+    [[nodiscard]] bool game_clock_paused() noexcept;
+
+    /**
      * @brief Whether the third-person offset should be applied right now.
      * @details Suppressed (forced first-person) while a cutscene plays, whatever the INI lists, and while the game
      *          is in any state listed in SuppressTPVState, so that context renders from the game's own untouched

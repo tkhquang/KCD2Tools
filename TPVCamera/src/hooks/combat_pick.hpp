@@ -32,8 +32,8 @@ namespace TPVCamera
 
     /**
      * @brief Sets the horizontal forward (@p x, @p y) the target pick goes along instead of the rendered camera's.
-     * @details It lapses on its own shortly after the last call, so a camera that stops building leaves the pick on the
-     *          rendered camera again.
+     * @details It lapses on its own soon after the last call (FramePublication), so a camera that stops building
+     *          leaves the pick on the rendered camera again.
      * @note Any thread. The camera calls it every frame the lock-on steers or the lock framing turns the camera.
      */
     void publish_combat_pick_forward(float x, float y) noexcept;

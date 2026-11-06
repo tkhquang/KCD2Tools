@@ -5,12 +5,12 @@
 
 #include "hooks/combat_pick.hpp"
 #include "aob_resolver.hpp"
+#include "hooks/frame_publication.hpp"
 
 #include <DetourModKit.hpp>
 
 #include <array>
 #include <atomic>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 
@@ -26,21 +26,10 @@ namespace TPVCamera
         static_assert(sizeof(std::atomic<float>) == sizeof(float) && std::atomic<float>::is_always_lock_free,
                       "the pick reads the lanes as plain floats");
         alignas(64) std::array<std::atomic<float>, 6> s_view{};
-
-        // The steady clock (ns) the published forward lapses at, 0 for none.
-        std::atomic<std::int64_t> s_valid_until{0};
-        // A frame's forward stands this long, so the pick falls back to the rendered camera soon after the camera stops
-        // publishing (a load, a rig that fails to build, first person).
-        constexpr std::int64_t k_publish_lifetime_ns = 250'000'000;
+        // Without a live forward the pick reads the rendered camera.
+        FramePublication s_forward_publication;
 
         std::atomic<std::uint32_t> s_used{0};
-
-        [[nodiscard]] std::int64_t steady_now_ns() noexcept
-        {
-            return std::chrono::duration_cast<std::chrono::nanoseconds>(
-                       std::chrono::steady_clock::now().time_since_epoch())
-                .count();
-        }
 
         /**
          * @brief Mid hook at the pick's first forward read: rax holds the CCamera ISystem::GetViewCamera returned.
@@ -49,7 +38,7 @@ namespace TPVCamera
          */
         void detour_pick_view_read(DMK::hook::MidContext &ctx) noexcept
         {
-            if (steady_now_ns() >= s_valid_until.load(std::memory_order_acquire))
+            if (!s_forward_publication.live())
             {
                 return;
             }
@@ -89,12 +78,12 @@ namespace TPVCamera
     {
         s_view[k_forward_x_lane].store(x, std::memory_order_relaxed);
         s_view[k_forward_y_lane].store(y, std::memory_order_relaxed);
-        s_valid_until.store(steady_now_ns() + k_publish_lifetime_ns, std::memory_order_release);
+        s_forward_publication.renew();
     }
 
     void withdraw_combat_pick_forward() noexcept
     {
-        s_valid_until.store(0, std::memory_order_release);
+        s_forward_publication.withdraw();
     }
 
     std::uint32_t take_combat_pick_forward_count() noexcept

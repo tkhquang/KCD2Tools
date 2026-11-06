@@ -1192,6 +1192,56 @@ namespace TPVCamera
                                                "44 0F 10 88 0C 01 00 00")),
         };
 
+        // The argument setup of the audio event start's call of the haptic preset play (sub_1803AF620 at 0x1803AF755,
+        // GOG 0x1803AEF55, Game Pass 0x18038A175), the instruction site the mid hook sits on: `xorps xmm2, xmm2; lea
+        // rdx, [rbp-50h]; cvtsd2ss xmm2, xmm6; call`. The hook moves only the first two instructions, so the call stays
+        // in place and the play sees its own return address. The call hands the play the distance the start measured
+        // from the event's FMOD 3D attributes in rbx (event+0x80) to the audio listener, and the result goes to `xchg
+        // ebx, [rdi+68h]` in the event in rdi. P1 is the attributes handed to set3DAttributes (`mov rdx, rbx`), the
+        // instance start, the preset name test, a bounded gap over the return and the culled path, and the setup
+        // through the result store. P2 is the distance measure of the same attributes (`lea rbx, [rcx+80h]`, `movaps
+        // xmm6, xmm0`), a bounded gap and the setup through the call. Each matches once on all three builds.
+        inline const Candidate k_hapticPlayArgsCandidates[] = {
+            Candidate::direct(
+                "HapticPlayArgs_P1_AttributesThroughCall",
+                Pattern::literal("48 8B D3 FF 15 ?? ?? ?? ?? 85 C0 0F 85 ?? ?? ?? ?? 48 8B 4F 78 FF 15 ?? "
+                                 "?? ?? ?? 85 C0 0F 85 ?? ?? ?? ?? 48 8B 47 10 48 85 C0 74 ?? 48 8B 50 20 "
+                                 "48 85 D2 74 ?? 48 8B 52 18 39 72 F8 48 0F 46 D6 48 85 D2 75 ?? [48-127] "
+                                 "48 8D 4D ?? E8 ?? ?? ?? ?? | 0F 57 D2 48 8D 55 ?? F2 0F 5A D6 E8 ?? ?? "
+                                 "?? ?? 48 8D 4D ?? 8B D8 E8 ?? ?? ?? ?? 87 5F 68")),
+            Candidate::direct(
+                "HapticPlayArgs_P2_DistanceThroughCall",
+                Pattern::literal("48 8D 99 80 00 00 00 48 8B D3 E8 ?? ?? ?? ?? 48 8B 57 30 0F 28 F0 "
+                                 "[208-256] | 0F 57 D2 48 8D 55 ?? F2 0F 5A D6 E8 ?? ?? ?? ?? 48 8D 4D ?? "
+                                 "8B D8")),
+        };
+        // The play's `call rel32` (E8), its byte offset from the argument setup.
+        inline constexpr std::size_t k_hapticPlayCallOffset = 0x0B;
+        // The haptic preset play (sub_1803B2BE8, GOG 0x1803B23E8, Game Pass 0x18038D608), an entry hook: int32(unused,
+        // const CryString &preset, float distance). It drops the preset when the distance exceeds the preset's
+        // max_player_dist (`comiss xmm6, [rsi+88h]`; libs/GameAudio/oldschool_haptics.xml). P1 is the prologue through
+        // the synthesizer load and the first lookup call. P2 is the synthesizer load and the argument moves through the
+        // second call, walking back 0x37. P3 is the distance gate, walking back 0xF1. Each matches once on all three
+        // builds.
+        inline const Candidate k_hapticPlayCandidates[] = {
+            Candidate::direct(
+                "HapticPlay_P1_Prologue",
+                Pattern::literal("48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 4C 89 78 20 55 48 8D A8 ?? "
+                                 "?? ?? ?? 48 81 EC ?? ?? ?? ?? 0F 29 70 E8 48 8B 05 ?? ?? ?? ?? 48 33 C4 "
+                                 "48 89 85 ?? ?? ?? ?? 48 8B 3D ?? ?? ?? ?? 48 8B DA 4C 8B C2 48 8B CF 48 "
+                                 "8D 54 24 ?? 0F 28 F2 E8")),
+            Candidate::direct(
+                "HapticPlay_P2_ArgumentsBody",
+                Pattern::literal("48 8B 3D ?? ?? ?? ?? 48 8B DA 4C 8B C2 48 8B CF 48 8D 54 24 ?? 0F 28 F2 "
+                                 "E8 ?? ?? ?? ?? 48 8B 74 24 ?? 4C 8B C3 48 8B D6 E8"),
+                -0x37),
+            Candidate::direct(
+                "HapticPlay_P3_DistanceGate",
+                Pattern::literal("48 8B F0 0F 2F B6 88 00 00 00 0F 87 ?? ?? ?? ?? 44 8A 87 ?? ?? ?? ?? 48 "
+                                 "8D 55"),
+                -0xF1),
+        };
+
         // The focused look (the focus key turns the view onto what the player looks at, with a slight zoom) is read
         // through two scalars. Each is a quorum of two code sites in different functions that must decode the same
         // value: FocusController, the C_Player member that points at the focus controller (0xCF0), and FocusFlags, the
@@ -1720,9 +1770,10 @@ namespace TPVCamera
      *          that only proves two member offsets. ClipVolumeManager is a global, and GetClipVolumeByPos,
      *          OctreeCollectByType, EngineDeallocate, SetCombatOpponent and CombatThreat are addresses, and
      *          CombatPickViewRead an instruction site the mid hook sits on. FocusController and FocusFlags are scalars
-     *          decoded from game code. Of the DEV-only ids,
-     *          HardwareShaderForName is an address and HardwareShaderLockSite an instruction site its consumer decodes;
-     *          the ids from TechniqueLayout to HardwareShaderCache are instruction sites that only prove layouts.
+     *          decoded from game code. HapticPlayArgs is an instruction site the mid hook sits on, and HapticPlay an
+     *          address. Of the DEV-only ids, HardwareShaderForName is an address and HardwareShaderLockSite an
+     *          instruction site its consumer decodes; the ids from TechniqueLayout to HardwareShaderCache are
+     *          instruction sites that only prove layouts.
      */
     enum class AnchorId : std::size_t
     {
@@ -1797,6 +1848,8 @@ namespace TPVCamera
         CombatPickViewRead,       // the lock-on target pick's read of the view camera forward (a mid hook site)
         FocusController,          // C_Player's focused-look controller pointer offset (quorum: update, enabled test)
         FocusFlags,               // the focused-look controller's flags offset (quorum: enabled test, focus start)
+        HapticPlayArgs,           // the event start's argument setup for the haptic preset play (a mid hook site)
+        HapticPlay,               // the haptic preset play (its listener distance is replaced from the eye)
 #if defined(TPVCAMERA_DEV_BUILD)
         HardwareShaderForName,  // CHWShader::mfForName (the DEV twin clone's factory)
         HardwareShaderLockSite, // the HW shader factory's SRWLOCK lea (an instruction site the consumer decodes)
@@ -1863,6 +1916,8 @@ namespace TPVCamera
         CombatPickForward,    // CombatPickViewRead: the lock-on's target pick goes along the opponent the game steers
                               // to, or along the look before the lock framing
         FocusedLook,          // FocusController, FocusFlags: the Focus state of the game's focused look
+        HapticsFromEye,       // HapticPlayArgs, HapticPlay: controller vibration measures its range from the eye, not
+                              // from the third-person camera the audio listener follows
 #if defined(TPVCAMERA_DEV_BUILD)
         TwinCloneDryRun, // the layout proofs (TechniqueLayout to HardwareShaderCache), the HW shader factory and
                          // its lock, ResourceLookup: the twin clone's read-only dry-run (needs ShaderTwins)

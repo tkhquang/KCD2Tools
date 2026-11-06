@@ -60,6 +60,7 @@
 #include "hooks/character_fade.hpp"
 #include "hooks/combat_pick.hpp"
 #include "hooks/combat_retarget.hpp"
+#include "hooks/haptic_distance.hpp"
 #include "hooks/head_visibility.hpp"
 #include "hooks/input_hook.hpp"
 #include "hooks/native_turn_hooks.hpp"
@@ -230,6 +231,17 @@ namespace TPVCamera
     bool game_cursor_shown() noexcept
     {
         return s_cursor_shown.load(std::memory_order_relaxed);
+    }
+
+    // Published beside s_cursor_shown: true while the game clock stands still. A screen opened with the gamepad
+    // pauses the game but counts no cursor, because the game raises the cursor count only while its UI input device
+    // is the mouse. The free-look gate reads this flag too, so a paused screen that reads the right stick (a mod's
+    // radial menu) gets the stick's values instead of the zeros the orbit leaves in its events.
+    static std::atomic<bool> s_clock_paused{false};
+
+    bool game_clock_paused() noexcept
+    {
+        return s_clock_paused.load(std::memory_order_relaxed);
     }
 
     // Situations in which the game sets which way the character faces, so the aim hand-off leaves the facing alone:
@@ -1269,6 +1281,9 @@ namespace TPVCamera
         {
             return; // the CView pose did not read; leave the view untouched this frame
         }
+        // The audio listener follows the rendered camera, so the pad's vibration range is measured from the eye
+        // instead (hooks/haptic_distance.hpp).
+        publish_haptic_eye(rig.eye_position.x, rig.eye_position.y, rig.eye_position.z);
         if (rig.look_forward.x * rig.look_forward.x + rig.look_forward.y * rig.look_forward.y > 1e-6f)
         {
             s_camera_heading = std::atan2(-rig.look_forward.x, rig.look_forward.y);
@@ -1940,9 +1955,10 @@ namespace TPVCamera
             {
                 resolve_c_player();
             }
-            // Offset disengaged: the orbit cannot be capturing, and the cursor flag is only refreshed on
-            // the game-view path below, so clear it here to keep it from latching true across the gap.
+            // Offset disengaged: the orbit cannot be capturing, and the cursor and pause flags are only refreshed
+            // on the game-view path below, so clear them here to keep them from latching true across the gap.
             s_cursor_shown.store(false, std::memory_order_relaxed);
+            s_clock_paused.store(false, std::memory_order_relaxed);
             // The next combat opponent is chosen by the third-person camera only; its standing request ends with it.
             request_combat_retarget(0, 0, 0);
             // First person hides the HideScreenEffectsFPV list. It runs on idle frames too, so a hot reload in first
@@ -2339,6 +2355,7 @@ namespace TPVCamera
             }
         }
         s_cursor_shown.store(cursor_shown, std::memory_order_relaxed);
+        s_clock_paused.store(step.paused, std::memory_order_relaxed);
 
         // Drive the player head from the offset state every frame (the engine only sets it on its own
         // transitions, so toggling the offset would otherwise leave the head stuck), then offset the
@@ -2499,6 +2516,7 @@ namespace TPVCamera
             s_pick_heading.reset();
             s_lock_steer_heading.reset();
             withdraw_combat_pick_forward(); // first person: the lock-on picks along its own camera
+            withdraw_haptic_eye();          // first person: the audio listener is at the eye again
 
             // Back to first person: the next engaged frame should snap the preset, not ease across the gap.
             Presets::reset_transition();
@@ -2707,6 +2725,9 @@ namespace TPVCamera
         // Hand the lock-on's own target pick the camera's direction, so neither a block that moves the lock to the
         // attacker nor the lock framing makes the next pick move the lock back. Best-effort.
         install_combat_pick_forward_hook(hooks);
+        // Measure the controller vibration's range from the eye, not from the camera the audio listener follows, so
+        // hits, steps and landings vibrate the pad as in first person. Best-effort.
+        install_haptic_distance_hooks(hooks);
 
         // Let the body play the game's own turn-in-place animations while the third-person view is engaged.
         // Best-effort, like the hooks above.

@@ -92,9 +92,11 @@ namespace TPVCamera
             // OrbitExcludeState policy turns it off when ENTERING a listed state (edge-triggered, see
             // apply_orbit_exclude_policy), so capture stops there without forbidding a manual re-enable: a
             // player who toggles free-look back on in an excluded state (e.g. for a photo on a mount) still
-            // gets mouse-look here. The cursor-shown gate freezes the orbit while any UI cursor is up.
+            // gets mouse-look here. The cursor-shown gate freezes the orbit while any UI cursor is up. The paused
+            // gate does the same for a screen opened with the gamepad, which pauses the game but counts no cursor,
+            // so the stick's events keep their values for the paused screen.
             if (!camera_offset_active() || !camera_controls().orbit_active.load(std::memory_order_relaxed) ||
-                game_cursor_shown() || !should_apply_view())
+                game_cursor_shown() || game_clock_paused() || !should_apply_view())
             {
                 return false;
             }

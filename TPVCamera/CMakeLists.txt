@@ -159,6 +159,7 @@ set(COMMON_SOURCES
   src/hooks/character_fade.cpp
   src/hooks/combat_pick.cpp
   src/hooks/combat_retarget.cpp
+  src/hooks/haptic_distance.cpp
   src/hooks/head_visibility.cpp
   src/hooks/input_hook.cpp
   src/hooks/ui_menu_hooks.cpp
