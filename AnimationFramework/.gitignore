@@ -1,0 +1,4 @@
+# Build trees are local; only the shipped templates are tracked.
+build/*
+!build/template/
+!build/template_tools/

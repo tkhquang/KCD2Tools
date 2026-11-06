@@ -20,6 +20,9 @@ A framework that lets mods add sounds and voice lines without code: new sounds o
 ### [Engine Tweaks (More Performance)](EngineTweaks/)
 Removes engine freezes that grow with the number of items Henry carries: looking at a bed, and opening or closing the inventory, a loot or trade screen, the map or the journal, and transferring all items to or from a container. Made for hoarders like me, and for anyone who uses a mod that raises or removes Henry's carry weight limit.
 
+### [Animation Framework](AnimationFramework/)
+Lets animation mods work together instead of overwriting each other: mods that ship the same animation files are merged, and mods add or replace clips without shipping the game's whole clip index. Comes with tools for mod authors: a clip compiler, a checker, an action maker, motion capture retargeting and a Blender add-on.
+
 ## Installation
 
 Each mod has its own installation instructions. See the respective mod's README for details.

@@ -1,0 +1,433 @@
+name: Animation Framework - Version Bump and Release
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_part:
+        description: "Version part to bump"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      version_title:
+        description: "Version title (defaults to the heading in NEXT_CHANGELOG.md)"
+        required: false
+        type: string
+      nexus_description:
+        description: "Nexus file note (appended after each file's lead line; truncated to fit 255 chars total)"
+        required: false
+        type: string
+      prerelease:
+        description: "Is this a pre-release?"
+        required: false
+        default: false
+        type: boolean
+
+# Releases share the same version header and tag namespace across branches.
+concurrency:
+  group: release-animationframework
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  bump-and-release:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check release branch and initialize dependencies
+        run: |
+          if ($env:GITHUB_REF_TYPE -ne 'branch') {
+            throw 'Run this workflow on a branch, not a tag.'
+          }
+          # Fetch only this mod's dependency tree. Other mods and CryEngine are not needed.
+          git submodule update --init --recursive -- AnimationFramework/external/DetourModKit
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to initialize AnimationFramework submodules.' }
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+
+      - name: Read changelog and determine title
+        id: read-changelog
+        env:
+          TITLE_INPUT: ${{ inputs.version_title }}
+        run: |
+          $content = Get-Content -LiteralPath 'AnimationFramework/docs/NEXT_CHANGELOG.md' -Raw -Encoding utf8
+          $lines = $content -split "`r?`n"
+          if ($lines[0] -notmatch '^##\s+(.+)$') {
+            throw 'NEXT_CHANGELOG.md must start with ## followed by a release title.'
+          }
+          $suggestedTitle = $matches[1].Trim()
+          if ($suggestedTitle -eq '[Title for next release]') {
+            throw 'Replace the NEXT_CHANGELOG.md template with release notes before publishing.'
+          }
+          $title = ([string]$env:TITLE_INPUT).Trim()
+          if ([string]::IsNullOrWhiteSpace($title)) { $title = $suggestedTitle }
+          if ($title -match '[\r\n]') { throw 'The release title must be a single line.' }
+          $changelog = ($lines | Select-Object -Skip 1) -join "`n"
+          if ([string]::IsNullOrWhiteSpace($changelog)) { throw 'The changelog must not be empty.' }
+          $notesPath = Join-Path $env:RUNNER_TEMP 'animationframework-changelog.txt'
+          Set-Content -LiteralPath $notesPath -Value $changelog.Trim() -Encoding utf8
+          "TITLE=$title" >> $env:GITHUB_OUTPUT
+          "NOTES_PATH=$notesPath" >> $env:GITHUB_OUTPUT
+
+      - name: Bump version and update changelog
+        env:
+          VERSION_PART: ${{ inputs.version_part }}
+          RELEASE_TITLE: ${{ steps.read-changelog.outputs.TITLE }}
+          NOTES_PATH: ${{ steps.read-changelog.outputs.NOTES_PATH }}
+        run: |
+          python AnimationFramework/scripts/version_updater.py bump $env:VERSION_PART --title $env:RELEASE_TITLE --changelog-file $env:NOTES_PATH
+          if ($LASTEXITCODE -ne 0) { throw 'Version update failed.' }
+
+          $header = Get-Content "AnimationFramework\src\version.hpp" -Raw
+          $major = [regex]::Match($header, '#define\s+VERSION_MAJOR\s+(\d+)').Groups[1].Value
+          $minor = [regex]::Match($header, '#define\s+VERSION_MINOR\s+(\d+)').Groups[1].Value
+          $patch = [regex]::Match($header, '#define\s+VERSION_PATCH\s+(\d+)').Groups[1].Value
+          $version = "$major.$minor.$patch"
+          # The KCSE mod folder's manifest carries the same version, and the updater bumps both.
+          $manifest = Get-Content 'AnimationFramework/pack/mod.manifest' -Raw
+          $manifestVersion = [regex]::Match($manifest, '<version>\s*(\d+\.\d+\.\d+)\s*</version>').Groups[1].Value
+          if ($manifestVersion -ne $version) { throw "mod.manifest version '$manifestVersion' does not match version.hpp $version." }
+          $tag = "AnimationFramework-v$version"
+          git show-ref --verify --quiet "refs/tags/$tag"
+          if ($LASTEXITCODE -eq 0) { throw "Tag $tag already exists. Choose a different version bump." }
+          if ($LASTEXITCODE -ne 1) { throw 'Failed to check existing release tags.' }
+          "NEW_VERSION=$version" >> $env:GITHUB_ENV
+          "VERSION_TAG=v$version" >> $env:GITHUB_ENV
+          "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+          "KCSE_ARTIFACT_NAME=KCD2_AnimationFramework_KCSE_v$version.zip" >> $env:GITHUB_ENV
+          "ASI_ARTIFACT_NAME=KCD2_AnimationFramework_ASI_v$version.zip" >> $env:GITHUB_ENV
+          "TOOLS_ARTIFACT_NAME=KCD2_AnimationFramework_Tools_v$version.zip" >> $env:GITHUB_ENV
+          "BLENDER_ARTIFACT_NAME=KCD2_AnimationFramework_Blender_v$version.zip" >> $env:GITHUB_ENV
+          # show-ref returns 1 for the expected missing tag, which is not a step failure.
+          exit 0
+
+      # The ASI, the KCSE plugin, the modder tools (animfw command line and MCP server, AnimFW Studio window), the Blender
+      # add-on with the tool inside, and the unit tests. The Studio fetches raylib, Dear ImGui and rlImGui, and the tools
+      # fetch ufbx and nlohmann/json.
+      - name: Build ASI, KCSE plugin, tools, Blender add-on and tests
+        working-directory: AnimationFramework
+        run: |
+          cmake --preset msvc-release
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed.' }
+          cmake --build --preset msvc-release --parallel --target KCD2_AnimationFramework-ASI KCD2_AnimationFramework-KCSE animfw_tool animfw_studio animfw_blender_addon animfw_core_tests
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
+          foreach ($artifact in 'build\release-msvc\KCD2_AnimationFramework.asi',
+                                'build\release-msvc\KCSE\KCD2_AnimationFramework.dll',
+                                'build\release-msvc\Release\animfw.exe',
+                                'build\release-msvc\Release\animfw-studio.exe',
+                                'build\release-msvc\KCD2_AnimationFramework_Blender.zip') {
+            if (-not (Test-Path $artifact)) { throw "$artifact was not produced" }
+          }
+
+      - name: Run unit tests
+        working-directory: AnimationFramework
+        run: |
+          ctest --test-dir build\release-msvc -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Unit tests failed.' }
+
+      # Four archives. The two builds are alternatives, and a player installs one. KCSE build: a regular Mods folder
+      # entry that mod managers install, with the plugin and its INI in KCSE/Plugins/. ASI build: the ASI and its own
+      # INI at the root, extracted beside WHGame.dll, where mod managers do not deploy. A player with both runs one copy,
+      # because the second load fails the mod's per-process instance mutex. The tools: a folder with the command-line
+      # tool, the Studio, a short readme that links the modding guide and the license. The guide stays on GitHub, its
+      # only copy. The Blender add-on: the installable zip CMake builds (an animfw_bridge folder with the tool inside),
+      # uploaded as it is so Blender installs it from disk.
+      - name: Assemble release archives
+        run: |
+          $license = "AnimationFramework\LICENSE"
+          $build = "AnimationFramework\build\release-msvc"
+
+          $package = "AnimationFramework\package\framework"
+          $modDir = Join-Path $package 'animation_framework'
+          $pluginDir = Join-Path $modDir 'KCSE\Plugins'
+          New-Item -ItemType Directory -Force -Path $pluginDir | Out-Null
+          Copy-Item "AnimationFramework\pack\mod.manifest" $modDir
+          Copy-Item "$build\KCSE\KCD2_AnimationFramework.dll" $pluginDir
+          Copy-Item "AnimationFramework\build\template\*" $pluginDir -Recurse
+          Copy-Item $license (Join-Path $pluginDir 'KCD2_AnimationFramework_License.txt')
+          $required = @(
+            'animation_framework/mod.manifest',
+            'animation_framework/KCSE/Plugins/KCD2_AnimationFramework.dll',
+            'animation_framework/KCSE/Plugins/KCD2_AnimationFramework.ini'
+          )
+          foreach ($file in $required) {
+            if (-not (Test-Path (Join-Path $package $file))) { throw "$file is missing from the KCSE build" }
+          }
+          Compress-Archive -Path $modDir -DestinationPath $env:KCSE_ARTIFACT_NAME -Force
+
+          $asiPackage = "AnimationFramework\package\asi"
+          New-Item -ItemType Directory -Force -Path $asiPackage | Out-Null
+          Copy-Item "$build\KCD2_AnimationFramework.asi" $asiPackage
+          Copy-Item "AnimationFramework\build\template\*" $asiPackage -Recurse
+          Copy-Item $license (Join-Path $asiPackage 'KCD2_AnimationFramework_License.txt')
+          foreach ($file in 'KCD2_AnimationFramework.asi', 'KCD2_AnimationFramework.ini') {
+            if (-not (Test-Path (Join-Path $asiPackage $file))) { throw "$file is missing from the ASI build" }
+          }
+          Compress-Archive -Path "$asiPackage\*" -DestinationPath $env:ASI_ARTIFACT_NAME -Force
+
+          $tools = "AnimationFramework\package\tools\KCD2_AnimationFramework_Tools"
+          New-Item -ItemType Directory -Force -Path $tools | Out-Null
+          Copy-Item "$build\Release\animfw.exe" $tools
+          Copy-Item "$build\Release\animfw-studio.exe" $tools
+          Copy-Item "AnimationFramework\build\template_tools\*" $tools -Recurse
+          Copy-Item $license (Join-Path $tools 'KCD2_AnimationFramework_License.txt')
+          Compress-Archive -Path $tools -DestinationPath $env:TOOLS_ARTIFACT_NAME -Force
+
+          Copy-Item "$build\KCD2_AnimationFramework_Blender.zip" $env:BLENDER_ARTIFACT_NAME
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $addon = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $env:BLENDER_ARTIFACT_NAME))
+          $names = $addon.Entries | ForEach-Object { $_.FullName }
+          $addon.Dispose()
+          foreach ($entry in 'animfw_bridge/__init__.py', 'animfw_bridge/animfw.exe', 'animfw_bridge/LICENSE') {
+            if ($names -notcontains $entry) { throw "$entry is missing from the Blender add-on" }
+          }
+
+          Get-ChildItem -Recurse "AnimationFramework\package" | Select-Object FullName, Length | Format-Table -AutoSize | Out-String -Width 200
+
+      - name: Prepare release body and Nexus metadata
+        id: prepare-release
+        env:
+          RELEASE_TITLE: ${{ steps.read-changelog.outputs.TITLE }}
+          NOTES_PATH: ${{ steps.read-changelog.outputs.NOTES_PATH }}
+          NEXUS_DESC_INPUT: ${{ inputs.nexus_description }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          $changelog = Get-Content -LiteralPath $env:NOTES_PATH -Raw -Encoding utf8
+          $releaseBody = @'
+          # Kingdom Come: Deliverance II - Animation Framework
+
+          ## Release {0} - {1}
+
+          Lets animation mods work together instead of overwriting each other, and lets them add or replace animation clips without shipping the game's whole clip index. For mod authors: a clip compiler, a checker, an action maker, retargeting from motion capture and a Blender add-on.
+
+          ## Changelog
+
+          {2}
+
+          ### Installation
+
+          The framework comes in two builds. **Install one of them, not both.**
+
+          **KCSE build** (`{4}`, the default): install [Kingdom Come Script Extender](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332), then install the archive with your mod manager, or extract it into `<game>/Mods/`. The plugin and its INI land in `Mods/animation_framework/KCSE/Plugins/`.
+
+          **ASI build** (`{7}`), for players without KCSE:
+
+          1. Install one **x64** variant of [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases) if you do not already have a working ASI loader. Extract its DLL beside `WHGame.dll` in `<game>/Bin/Win64MasterMasterSteamPGO/`. Choose an unused DLL name:
+             - [dinput8.dll](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/dinput8-x64.zip) - usual choice if unused
+             - [version.dll](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/version-x64.zip) - alternative when `dinput8.dll` is already used
+             - [winmm.dll](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/x64-latest/winmm-x64.zip) - another alternative
+          2. Extract the archive directly into that same binary folder, beside `WHGame.dll`, without an extra archive-named subfolder.
+
+          Start the game and check `KCD2_AnimationFramework.log` in `<game>/Bin/Win64MasterMasterSteamPGO/` (both builds write it there): it lists every patch it merged and every mod clip it registered.
+
+          **Mod authors** (optional):
+
+          - `{5}`: `animfw.exe`, the command line (check clips, make and pack mods, compile Blender exports without rc.exe, retarget BVH and FBX animations onto Henry's skeleton, and an MCP server for AI assistants) and AnimFW Studio, `animfw-studio.exe` (the same in a window with a mannequin preview). Extract anywhere.
+          - `{6}`: a Blender add-on for [Bohemian Animator](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3639)'s armatures. Install it with Edit > Preferences > Add-ons > Install from Disk, without extracting it.
+
+          See the [README](https://github.com/{3}/blob/main/AnimationFramework/README.md) for configuration and the [modding guide](https://github.com/{3}/blob/main/AnimationFramework/docs/MODDING.md) to make animation mods.
+
+          ### Technical Details
+
+          Animation Framework is built on [DetourModKit (DMK)](https://github.com/tkhquang/DetourModKit), a full-featured C++23 framework for Windows game modding. It provides:
+
+          - Function hooking via [SafetyHook](https://github.com/cursey/safetyhook) and vtable hooking
+          - AOB (Array of Bytes) pattern scanning and memory access utilities
+          - INI configuration with live reload
+          - Thread-safe logging and runtime diagnostics
+          - Mod lifecycle management and hot-reload support
+          '@
+          $releaseBody = $releaseBody -f $env:VERSION_TAG, $env:RELEASE_TITLE, $changelog.Trim(), $env:GITHUB_REPOSITORY, $env:KCSE_ARTIFACT_NAME, $env:TOOLS_ARTIFACT_NAME, $env:BLENDER_ARTIFACT_NAME, $env:ASI_ARTIFACT_NAME
+          if ($env:PRERELEASE -eq 'true') {
+            $releaseBody = "## PRE-RELEASE VERSION`n`nThis build is for testing and may contain bugs or incomplete features.`n`n" + $releaseBody
+          }
+          $bodyPath = Join-Path $env:RUNNER_TEMP 'animationframework-release-body.md'
+          Set-Content -LiteralPath $bodyPath -Value $releaseBody -Encoding utf8
+          "RELEASE_BODY_PATH=$bodyPath" >> $env:GITHUB_OUTPUT
+
+          # Nexus accepts a 255-character file note, BBCode tags included, and a plain bullet-list changelog. Each
+          # file opens with its own lead line, and the optional note fills what is left.
+          $kcseLead = 'KCSE build: needs [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332]KCSE[/url]. Installs into Mods, or with a mod manager. Install this or the ASI build, not both.'
+          $asiLead = 'ASI build: needs an [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases]ASI loader[/url]. Extract it beside WHGame.dll by hand. Install this or the KCSE build, not both.'
+          $toolsLead = 'animfw.exe: the command line (check, make, pack, compile, retarget, MCP). animfw-studio.exe: the same in a window. Extract anywhere.'
+          $blenderLead = 'For Bohemian Animator armatures. Install it in Blender from disk without extracting it.'
+          $note = ($env:NEXUS_DESC_INPUT -replace "`r`n", "`n").Trim()
+          function Format-FileNote([string]$lead) {
+            if ($note -eq '') { return $lead }
+            $remaining = 255 - $lead.Length - 2
+            if ($remaining -le 0) { return $lead }
+            return "$lead`n`n" + $note.Substring(0, [Math]::Min($note.Length, $remaining))
+          }
+          $nexusChangelog = (($changelog -split "`r?`n") |
+            ForEach-Object { ($_.Trim() -replace '^[-*+]\s+', '') } |
+            Where-Object { $_ -ne '' }) -join "`n"
+          $delimiter = "NEXUS_$([guid]::NewGuid().ToString('N'))"
+          "NEXUS_KCSE_DESCRIPTION<<$delimiter" >> $env:GITHUB_OUTPUT
+          (Format-FileNote $kcseLead) >> $env:GITHUB_OUTPUT
+          $delimiter >> $env:GITHUB_OUTPUT
+          "NEXUS_ASI_DESCRIPTION<<$delimiter" >> $env:GITHUB_OUTPUT
+          (Format-FileNote $asiLead) >> $env:GITHUB_OUTPUT
+          $delimiter >> $env:GITHUB_OUTPUT
+          "NEXUS_TOOLS_DESCRIPTION<<$delimiter" >> $env:GITHUB_OUTPUT
+          (Format-FileNote $toolsLead) >> $env:GITHUB_OUTPUT
+          $delimiter >> $env:GITHUB_OUTPUT
+          "NEXUS_BLENDER_DESCRIPTION<<$delimiter" >> $env:GITHUB_OUTPUT
+          (Format-FileNote $blenderLead) >> $env:GITHUB_OUTPUT
+          $delimiter >> $env:GITHUB_OUTPUT
+          "NEXUS_CHANGELOG<<$delimiter" >> $env:GITHUB_OUTPUT
+          $nexusChangelog >> $env:GITHUB_OUTPUT
+          $delimiter >> $env:GITHUB_OUTPUT
+
+      - name: Commit version changes and create release tag
+        env:
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          git config --local user.email 'github-actions[bot]@users.noreply.github.com'
+          git config --local user.name 'github-actions[bot]'
+          git add -- AnimationFramework/src/version.hpp AnimationFramework/CHANGELOG.md AnimationFramework/pack/mod.manifest AnimationFramework/blender/animfw_bridge/__init__.py
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to stage version changes.' }
+          git commit -m "Bump AnimationFramework version to $env:NEW_VERSION"
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to commit version changes.' }
+          git tag -a $env:RELEASE_TAG -m "Release $env:VERSION_TAG"
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to create release tag.' }
+
+          # The tag always contains the source used to build the archives. Pre-releases keep
+          # the bump on the tag only, leaving the selected branch and pending notes untouched.
+          if ($env:PRERELEASE -eq 'true') {
+            git push origin "refs/tags/$env:RELEASE_TAG"
+          } else {
+            git push --atomic origin "HEAD:refs/heads/$env:GITHUB_REF_NAME" "refs/tags/$env:RELEASE_TAG"
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to push release changes.' }
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: |
+            ${{ env.KCSE_ARTIFACT_NAME }}
+            ${{ env.ASI_ARTIFACT_NAME }}
+            ${{ env.TOOLS_ARTIFACT_NAME }}
+            ${{ env.BLENDER_ARTIFACT_NAME }}
+          name: KCD2 AnimationFramework ${{ env.VERSION_TAG }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          body_path: ${{ steps.prepare-release.outputs.RELEASE_BODY_PATH }}
+          draft: false
+          prerelease: ${{ inputs.prerelease }}
+
+      # The account API key is shared, and the file and v3 mod IDs identify this mod. Each archive is its own Nexus
+      # file. Leave a file ID unset to skip that upload. mod_id is required only for changelogs, which the main file
+      # posts. Both builds are main files, and the KCSE build, a regular Mods folder entry, is the mod manager download.
+      # The ASI build goes beside WHGame.dll, where mod managers do not deploy, and the tools and the Blender add-on are
+      # not game mods, so their mod manager downloads stay off.
+      - name: Publish the KCSE build to Nexus Mods
+        if: ${{ !inputs.prerelease && vars.NEXUSMODS_ANIMATIONFRAMEWORK_FILE_ID != '' }}
+        uses: Nexus-Mods/upload-action@c96019556046053aa26044b44396cd38929daf23 # v1.0.0-beta.10
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_id: ${{ vars.NEXUSMODS_ANIMATIONFRAMEWORK_FILE_ID }}
+          filename: ${{ env.KCSE_ARTIFACT_NAME }}
+          version: ${{ env.NEW_VERSION }}
+          display_name: (KCSE) Animation Framework
+          description: ${{ steps.prepare-release.outputs.NEXUS_KCSE_DESCRIPTION }}
+          category: main
+          archive_existing_version: false
+          primary_mod_manager_download: true
+          allow_mod_manager_download: true
+          show_requirements_pop_up: true
+          update_mod_version: true
+          mod_id: ${{ vars.NEXUSMODS_ANIMATIONFRAMEWORK_MOD_ID }}
+          changelog: ${{ vars.NEXUSMODS_ANIMATIONFRAMEWORK_MOD_ID != '' && steps.prepare-release.outputs.NEXUS_CHANGELOG || '' }}
+
+      - name: Publish the ASI build to Nexus Mods
+        if: ${{ !inputs.prerelease && vars.NEXUSMODS_ANIMATIONFRAMEWORK_ASI_FILE_ID != '' }}
+        uses: Nexus-Mods/upload-action@c96019556046053aa26044b44396cd38929daf23 # v1.0.0-beta.10
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_id: ${{ vars.NEXUSMODS_ANIMATIONFRAMEWORK_ASI_FILE_ID }}
+          filename: ${{ env.ASI_ARTIFACT_NAME }}
+          version: ${{ env.NEW_VERSION }}
+          display_name: (ASI) Animation Framework
+          description: ${{ steps.prepare-release.outputs.NEXUS_ASI_DESCRIPTION }}
+          category: main
+          archive_existing_version: false
+          primary_mod_manager_download: false
+          allow_mod_manager_download: false
+          show_requirements_pop_up: true
+          update_mod_version: false
+
+      - name: Publish the tools to Nexus Mods
+        if: ${{ !inputs.prerelease && vars.NEXUSMODS_ANIMATIONFRAMEWORK_TOOLS_FILE_ID != '' }}
+        uses: Nexus-Mods/upload-action@c96019556046053aa26044b44396cd38929daf23 # v1.0.0-beta.10
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_id: ${{ vars.NEXUSMODS_ANIMATIONFRAMEWORK_TOOLS_FILE_ID }}
+          filename: ${{ env.TOOLS_ARTIFACT_NAME }}
+          version: ${{ env.NEW_VERSION }}
+          display_name: (Modding Tools) animfw and AnimFW Studio
+          description: ${{ steps.prepare-release.outputs.NEXUS_TOOLS_DESCRIPTION }}
+          category: miscellaneous
+          archive_existing_version: false
+          primary_mod_manager_download: false
+          allow_mod_manager_download: false
+          show_requirements_pop_up: false
+          update_mod_version: false
+
+      - name: Publish the Blender add-on to Nexus Mods
+        if: ${{ !inputs.prerelease && vars.NEXUSMODS_ANIMATIONFRAMEWORK_BLENDER_FILE_ID != '' }}
+        uses: Nexus-Mods/upload-action@c96019556046053aa26044b44396cd38929daf23 # v1.0.0-beta.10
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_id: ${{ vars.NEXUSMODS_ANIMATIONFRAMEWORK_BLENDER_FILE_ID }}
+          filename: ${{ env.BLENDER_ARTIFACT_NAME }}
+          version: ${{ env.NEW_VERSION }}
+          display_name: (Blender Add-on) Animation Framework Bridge
+          description: ${{ steps.prepare-release.outputs.NEXUS_BLENDER_DESCRIPTION }}
+          category: miscellaneous
+          archive_existing_version: false
+          primary_mod_manager_download: false
+          allow_mod_manager_download: false
+          show_requirements_pop_up: false
+          update_mod_version: false
+
+      - name: Archive NEXT_CHANGELOG.md
+        if: ${{ !inputs.prerelease && success() }}
+        run: |
+          git pull --ff-only origin $env:GITHUB_REF_NAME
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to update the release branch before archiving.' }
+          $archiveDir = 'AnimationFramework/docs/archive'
+          $notesPath = 'AnimationFramework/docs/NEXT_CHANGELOG.md'
+          $archivePath = "$archiveDir/CHANGELOG_$env:VERSION_TAG.md"
+          New-Item -ItemType Directory -Path $archiveDir -Force | Out-Null
+          Move-Item -LiteralPath $notesPath -Destination $archivePath
+          $template = @'
+          ## [Title for next release]
+
+          - New feature
+          - Bug fix
+          - Improvement
+          '@
+          Set-Content -LiteralPath $notesPath -Value $template -Encoding utf8
+          git add -- $notesPath $archivePath
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to stage the archived changelog.' }
+          git commit -m "Chore: Archive AnimationFramework changelog for $env:VERSION_TAG and prepare for next release"
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to commit the archived changelog.' }
+          git push origin "HEAD:refs/heads/$env:GITHUB_REF_NAME"
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to push the archived changelog.' }
