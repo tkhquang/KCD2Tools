@@ -16,7 +16,7 @@ Lets Kingdom Come: Deliverance II animation mods work together instead of overwr
 - **Third-person animations.** An option tagged `thirdPerson` plays for Henry only while a camera mod shows him from outside (below); in first person the game's own option plays.
 - **Custom tags.** A mod declares its own tag (a state the game does not tag, such as tired or wet) that turns on through a console variable any script can set; options tagged with it play for Henry while it is on. The INI ranks the tags and can switch any of them off.
 
-[Sprint Start Fix](../SprintStartFix/) is a complete patch mod: one small `.adb` that makes Henry's sprint start in step with his run. The [modding guide](docs/MODDING.md) covers every file format, what a clip should key so it doesn't undo other mods, and how to test.
+The [modding guide](docs/MODDING.md) covers every file format, what a clip should key so it doesn't undo other mods, and how to test.
 
 ## Installing
 

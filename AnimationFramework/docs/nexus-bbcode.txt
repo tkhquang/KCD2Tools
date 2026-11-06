@@ -5,6 +5,8 @@ Animation mods for Kingdom Come: Deliverance II replace whole game files: the an
 
 On its own it changes nothing you can see: install it for the mods that need it. For mod authors it also brings the tools to make animation mods: a clip compiler, a checker, an action maker, retargeting from motion capture and a Blender add-on (see For Mod Authors below).
 
+[youtube]D-ySAs1s0oM[/youtube]
+
 [size=5]Key Features[/size]
 [list]
 [*][b]Mods together:[/b] database, fragment, tag, event and skeleton changes from every mod merge, and mods that ship whole copies of the same file (First Person Overhaul, Greatswords, True Combat Overhaul, Very Important Activities, Swords on the Back) are merged instead of overwriting each other[/*]
@@ -74,7 +76,7 @@ To uninstall, remove the mod folder (KCSE build) or every [b]KCD2_AnimationFrame
 The supported camera mod is [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3263]Proper Third Person View (TPV Camera)[/url]. While it shows Henry from outside, animation options tagged [b]thirdPerson[/b] play in place of the game's; in first person the game's own animations play. Other camera mods need to publish their view in the [b]mod_camera_view[/b] console variable; the rules are in the [url=https://github.com/tkhquang/KCD2Tools/blob/main/AnimationFramework/README.md]README[/url].
 
 [size=5]For Mod Authors[/size]
-A mod ships only what it changes: name a patch after the game file plus your mod id, such as [b]Animations/Mannequin/ADB/kcd_male_database__mymod.adb[/b], and put in it only the options you add, replace or remove. The [url=https://github.com/tkhquang/KCD2Tools/blob/main/AnimationFramework/docs/MODDING.md]modding guide[/url] covers every rule, with examples such as [url=https://github.com/tkhquang/KCD2Tools/tree/main/SprintStartFix]Sprint Start Fix[/url].
+A mod ships only what it changes: name a patch after the game file plus your mod id, such as [b]Animations/Mannequin/ADB/kcd_male_database__mymod.adb[/b], and put in it only the options you add, replace or remove. The [url=https://github.com/tkhquang/KCD2Tools/blob/main/AnimationFramework/docs/MODDING.md]modding guide[/url] covers every rule.
 [spoiler]
 [list]
 [*][b]In the game:[/b] put a .caf in the framework's DEV folder and run [b]animfw_reload_clips[/b] to play it without a restart; [b]animfw_check_clip[/b] prints what would break it; [b]animfw_make_mod[/b] turns it into a new action set up like a game action, and [b]animfw_pack_mod[/b] writes the finished mod[/*]
@@ -100,6 +102,7 @@ Built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url] for 
 [*][url=https://github.com/ufbx/ufbx]ufbx[/url] by Samuli Raivio - FBX reading in the tools[/*]
 [*][url=https://github.com/raysan5/raylib]raylib[/url], [url=https://github.com/ocornut/imgui]Dear ImGui[/url] and [url=https://github.com/raylib-extras/rlImGui]rlImGui[/url] - the Studio window; [url=https://github.com/nlohmann/json]nlohmann/json[/url] - the tools' MCP server[/*]
 [*]SirVanir - [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3639]Bohemian Animator[/url], the Blender add-on the Blender bridge works with[/*]
+[*]Ian Mason - [url=https://zenodo.org/records/8127870]100STYLE[/url] motion capture (CC BY 4.0), retargeted in the showcase video[/*]
 [*]Warhorse Studios - Kingdom Come: Deliverance II[/*]
 [/list]
 

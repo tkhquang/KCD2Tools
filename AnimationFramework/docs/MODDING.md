@@ -10,7 +10,7 @@ A mod can:
 - move skeleton bones (such as where a weapon sits on the back) and keep the bones other mods move
 - give Henry different animations in third person, or while a state of your own is on
 
-The framework writes what it merged, and every conflict it found, to `KCD2_AnimationFramework.log` beside `WHGame.dll`. For a complete example, see [Sprint Start Fix](../../SprintStartFix/): one 26-line `.adb` patch.
+The framework writes what it merged, and every conflict it found, to `KCD2_AnimationFramework.log` beside `WHGame.dll`.
 
 ## Folder layout
 
