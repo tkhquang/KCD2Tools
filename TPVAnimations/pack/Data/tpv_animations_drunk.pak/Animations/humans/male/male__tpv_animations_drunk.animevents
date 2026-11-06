@@ -1,0 +1,54 @@
+<anim_event_list>
+	<animation name="animations/humans/male/tpvidle/tpv_idle_drunk.caf">
+		<event name="foley" time="0.03784133" endTime="0.03784133" parameter="foleybq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.05429889" endTime="0.05626803" parameter="foleybq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.08953203" endTime="0.08953203" parameter="foleybq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.1310315" endTime="0.1310315" parameter="foleybq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.1982925" endTime="0.1982925" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.2001291" endTime="0.2001291" parameter="fd_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.2013536" endTime="0.2013536" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.2016605" endTime="0.2016605" parameter="fd_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.2161976" endTime="0.2161976" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.2173448" endTime="0.2173448" parameter="fdq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.2256089" endTime="0.2256089" parameter="fd_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.2295086" endTime="0.2305049" parameter="fq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.237162" endTime="0.237162" parameter="fdq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.2645052" endTime="0.2692653" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.2841513" endTime="0.2841513" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.3030359" endTime="0.3030359" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.3138913" endTime="0.3138913" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.329896" endTime="0.3340255" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="0.3307648" endTime="0.3307648" parameter="male_hiccup" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.3847048" endTime="0.3847048" parameter="foleybq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.4011624" endTime="0.4031315" parameter="foleybq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.4363955" endTime="0.4363955" parameter="foleybq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.477895" endTime="0.477895" parameter="foleybq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.5331147" endTime="0.5331147" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="0.5333814" endTime="0.5333814" parameter="male_hiccup" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.5480694" endTime="0.5480694" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="0.548425" endTime="0.548425" parameter="male_hiccup" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.5492419" endTime="0.5492419" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.5512714" endTime="0.5512714" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.5735827" endTime="0.5735827" parameter="foleybq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.6017461" endTime="0.6017461" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.6044901" endTime="0.6061355" parameter="foleybq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.6296713" endTime="0.6296713" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.7164727" endTime="0.7164727" parameter="foleybq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.7329302" endTime="0.7348994" parameter="foleybq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.7681634" endTime="0.7681634" parameter="foleybq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.8096629" endTime="0.8096629" parameter="foleybq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.8659376" endTime="0.8664207" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="0.8713167" endTime="0.8713167" parameter="f_ge_head_scratch" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="0.8742419" endTime="0.8742419" parameter="f_ge_head_scratch" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="0.8774086" endTime="0.8774086" parameter="f_ge_head_scratch" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="0.8806961" endTime="0.8806961" parameter="f_ge_head_scratch" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.8865834" endTime="0.8865834" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.8950923" endTime="0.8950923" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="0.9035508" endTime="0.9035508" parameter="male_hiccup" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.9038662" endTime="0.9038662" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.9195455" endTime="0.9234871" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="0.9466488" endTime="0.9466488" parameter="male_hiccup" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.9471956" endTime="0.9498423" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.9928916" endTime="0.9928916" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+	</animation>
+</anim_event_list>

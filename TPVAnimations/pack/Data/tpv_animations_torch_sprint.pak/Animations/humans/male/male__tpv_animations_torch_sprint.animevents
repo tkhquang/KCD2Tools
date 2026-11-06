@@ -1,0 +1,141 @@
+<anim_event_list>
+	<animation name="animations/humans/male/blendspace/tpvtorch/3d_tpvt_sprint_turn_strafe_a2.comb">
+		<event name="foley" time="0.04909633" endTime="0.15" parameter="move2_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.2999063" endTime="0.3" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="0.3269283" endTime="0.3269283" parameter="special_haptic_sprint_left" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.5960067" endTime="0.5960067" parameter="move2_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.8000038" endTime="0.8000039" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="0.8171304" endTime="0.8171305" parameter="special_haptic_sprint_right" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="1.150148" endTime="1" parameter="move2_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="1.300101" endTime="1" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="1.322176" endTime="0.3221757" parameter="special_haptic_sprint_left" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="1.608761" endTime="0.6087613" parameter="move2_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="1.799818" endTime="1" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="1.815042" endTime="0.8150421" parameter="special_haptic_sprint_right" bone="" offset="0,0,0" dir="0,0,0" model="" />
+	</animation>
+	<animation name="animations/humans/male/blendspace/tpvtorch/2d_relaxed_sprint_strafe_spd_fwd_ext_player_tpvt_a2.bspace">
+		<event name="foley" time="0.332399" endTime="0.332399" parameter="foleybq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.3723384" endTime="0.3723384" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.4225847" endTime="0.4779846" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.8709369" endTime="0.8709369" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.9308459" endTime="0.9630552" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="1.377266" endTime="1" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="1.449414" endTime="1" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="1.872643" endTime="1" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="1.931264" endTime="1" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+	</animation>
+	<animation name="animations/humans/male/blendspace/tpvtorch/2d_sprint_turn_player_tpvt_a2.bspace">
+		<event name="foley" time="0.07400224" endTime="0.07400224" parameter="foleybq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.3500252" endTime="0.3587497" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="0.3683907" endTime="0.3683907" parameter="special_haptic_sprint_left" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.4534663" endTime="0.4534663" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.8499454" endTime="0.852106" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="0.8639896" endTime="0.8639896" parameter="special_haptic_sprint_right" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.9231374" endTime="0.9231374" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="1.349866" endTime="0.3674387" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="1.366341" endTime="0.3663405" parameter="special_haptic_sprint_left" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="1.4317" endTime="1" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="1.850056" endTime="0.8500559" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="1.86329" endTime="0.86329" parameter="special_haptic_sprint_right" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="1.918116" endTime="1" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+	</animation>
+	<animation name="animations/humans/male/tpvtorch/tpvt_a2_relaxed_run_fast_player.caf">
+		<event name="foley" time="0.03421053" endTime="0.03421053" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.1680263" endTime="0.1680263" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.3067105" endTime="0.3067105" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.408421" endTime="0.4336667" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="segment1" time="0.5" endTime="0.5" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.5272368" endTime="0.5272368" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.6552631" endTime="0.6656666" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.774079" endTime="0.774079" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.8967106" endTime="0.9298334" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+	</animation>
+	<animation name="animations/humans/male/tpvtorch/tpvt_a2_relaxed_run_fast_turn_left_player.caf">
+		<event name="foley" time="0.03421053" endTime="0.03421053" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.1680263" endTime="0.1680263" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.3067105" endTime="0.3067105" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.408421" endTime="0.4336667" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="segment1" time="0.5" endTime="0.5" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.5272368" endTime="0.5272368" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.6552631" endTime="0.6656666" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.774079" endTime="0.774079" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.8967106" endTime="0.9298334" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+	</animation>
+	<animation name="animations/humans/male/tpvtorch/tpvt_a2_relaxed_run_fast_turn_right_player.caf">
+		<event name="foley" time="0.03421053" endTime="0.03421053" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.1680263" endTime="0.1680263" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.3067105" endTime="0.3067105" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.408421" endTime="0.4336667" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="segment1" time="0.5" endTime="0.5" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.5272368" endTime="0.5272368" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.6552631" endTime="0.6656666" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.774079" endTime="0.774079" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.8967106" endTime="0.9298334" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+	</animation>
+	<animation name="animations/humans/male/tpvtorch/tpvt_a2_relaxed_sprint_fast_left_player.caf">
+		<event name="foley" time="0.1390323" endTime="0.1390323" parameter="foleybm_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.1562903" endTime="0.1656452" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.2317742" endTime="0.2317742" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.4254839" endTime="0.4254839" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="segment1" time="0.483871" endTime="0.5" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.4972581" endTime="0.4972581" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.6864517" endTime="0.6864517" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.7451613" endTime="0.7451613" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.9206452" endTime="0.9206452" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.9756452" endTime="0.9756452" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+	</animation>
+	<animation name="animations/humans/male/tpvtorch/tpvt_a2_relaxed_sprint_fast_player.caf">
+		<event name="foley" time="0.1408065" endTime="0.1408065" parameter="foleybm_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.1562903" endTime="0.1656452" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.2403226" endTime="0.2403226" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.4254839" endTime="0.4254839" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="segment1" time="0.483871" endTime="0.5" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.5043549" endTime="0.5043549" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.6864517" endTime="0.6864517" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.753871" endTime="0.753871" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.9206452" endTime="0.9206452" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.9770968" endTime="0.9770968" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+	</animation>
+	<animation name="animations/humans/male/tpvtorch/tpvt_a2_relaxed_sprint_fast_right_player.caf">
+		<event name="foley" time="0.1396774" endTime="0.1396774" parameter="foleybm_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.1562903" endTime="0.1656452" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.2433871" endTime="0.2433871" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.4254839" endTime="0.4254839" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="segment1" time="0.483871" endTime="0.5" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.5100001" endTime="0.5100001" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.6864517" endTime="0.6864517" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.7522581" endTime="0.7522581" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.9206452" endTime="0.9206452" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.9841936" endTime="0.9841936" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+	</animation>
+	<animation name="animations/humans/male/tpvtorch/tpvt_a2_relaxed_sprint_fast_turn_left_90_player.caf">
+		<event name="foley" time="0.1429032" endTime="0.1429032" parameter="foleybm_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.1562903" endTime="0.1656452" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.2153226" endTime="0.2153226" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.4254839" endTime="0.4254839" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="segment1" time="0.483871" endTime="0.5" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.495" endTime="0.495" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.6864517" endTime="0.6864517" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.7475806" endTime="0.7475806" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.9206452" endTime="0.9206452" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.9795161" endTime="0.9795161" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+	</animation>
+	<animation name="animations/humans/male/tpvtorch/tpvt_a2_relaxed_sprint_fast_turn_right_90_player.caf">
+		<event name="foley" time="0.1403226" endTime="0.1403226" parameter="foleybm_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.1562903" endTime="0.1656452" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.191129" endTime="0.191129" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.4254839" endTime="0.4254839" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.4629032" endTime="0.7230645" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="segment1" time="0.483871" endTime="0.5" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.6864517" endTime="0.6864517" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.7243549" endTime="0.7243549" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="footstep" time="0.9206452" endTime="0.9206452" parameter="" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.9585484" endTime="0.9585484" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+	</animation>
+	<animation name="animations/humans/male/tpvtorch/tpv_torch_sprint_grip.caf">
+		<event name="foley" time="0.05290323" endTime="0.1019355" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="0.07774194" endTime="0.07774194" parameter="a_o_fire_torch_l_sprint" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.491129" endTime="0.491129" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="0.5159677" endTime="0.5159677" parameter="a_o_fire_torch_l_sprint" bone="" offset="0,0,0" dir="0,0,0" model="" />
+	</animation>
+</anim_event_list>

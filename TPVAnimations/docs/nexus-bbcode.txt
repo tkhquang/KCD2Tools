@@ -1,0 +1,56 @@
+[size=5]Foreword[/size]
+Third-person animations for Henry, so he no longer stands like a statue. In first person the game's own animations play.
+
+[size=5]Key Features[/size]
+[list]
+[*][b]Idle gestures:[/b] standing still, Henry stretches, scratches, yawns, spits, looks around and shifts his weight. Moving, crouching or turning stops the gesture at once.[/*]
+[*][b]Pick your gestures:[/b] each gesture is its own file. Delete the ones you don't want.[/*]
+[*][b]Drunk idle[/b] for a drunk Henry.[/*]
+[*][b]Torch sprint:[/b] Henry holds the torch low in front of him instead of up.[/*]
+[*][b]Sounds kept:[/b] footsteps, cloth and torch sounds play as in the game.[/*]
+[*][url=https://github.com/tkhquang/KCD2Tools/tree/main/TPVAnimations]Open source[/url], built on [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3981]Animation Framework[/url] (built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url])[/*]
+[/list]
+
+[size=5]Requirements[/size]
+[list]
+[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3981]Animation Framework[/url] 1.0.0 or newer[/*]
+[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3263]Proper Third Person View (TPV Camera)[/url] 3.0.0 or newer, or another camera mod that sets [b]mod_camera_view[/b][/*]
+[/list]
+
+[size=5]Installation[/size]
+Install with your mod manager, or extract into your [b]Mods[/b] folder. To uninstall, delete [b]Mods/tpv_animations[/b].
+[spoiler]
+[code]
+Mods/
+\-- tpv_animations/
+    |-- mod.manifest
+    \-- Data/
+        |-- tpv_animations_idle.pak
+        |-- tpv_animations_idle_<gesture>.pak   (14 files)
+        |-- tpv_animations_drunk.pak
+        \-- tpv_animations_torch_sprint.pak
+[/code]
+[/spoiler]
+
+[size=5]Choosing What Plays[/size]
+Each part is its own pak in [b]Mods/tpv_animations/Data[/b]. Delete one to remove that part.
+[list]
+[*][b]tpv_animations_idle.pak[/b] - the calm idle, needed for any gesture[/*]
+[*][b]tpv_animations_idle_<gesture>.pak[/b] - one gesture each[/*]
+[*][b]tpv_animations_drunk.pak[/b] - drunk idle[/*]
+[*][b]tpv_animations_torch_sprint.pak[/b] - torch sprint[/*]
+[/list]
+[spoiler]
+Gestures: neck_stretch, back_stretch, scratch_face, forehead_wipe, yawn, spit, look_around, weight_shift_left, weight_shift_right, fidget02, fidget03, fidget04, fidget05, fidget07.
+[/spoiler]
+
+[size=5]Troubleshooting[/size]
+Nothing changes in third person? Check that [b]KCD2_AnimationFramework.log[/b] exists beside WHGame.dll. Please [url=https://github.com/tkhquang/KCD2Tools/issues]report issues[/url] with that log and your mod list.
+
+[size=5]Credits & License[/size]
+[list]
+[*]Warhorse Studios - Kingdom Come: Deliverance II[/*]
+[/list]
+The scripts are MIT licensed. The animations are made from the game's own and are not covered by it: see the [url=https://github.com/tkhquang/KCD2Tools/blob/main/TPVAnimations/LICENSE]LICENSE[/url].
+
+All my Kingdom Come: Deliverance II mods and tools can be found in this [url=https://github.com/tkhquang/KCD2Tools]GitHub repository[/url]. Feel free to contribute or suggest improvements!

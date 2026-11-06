@@ -1,0 +1,11 @@
+<anim_event_list>
+	<animation name="animations/humans/male/tpvidle/tpv_idle_fidget07.caf">
+		<event name="foley" time="0.00646162" endTime="0.00646162" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="0.02626709" endTime="0.02626709" parameter="f_ge_body_scratch" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="0.044653" endTime="0.044653" parameter="f_ge_body_scratch" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="0.05924816" endTime="0.05924816" parameter="f_ge_body_scratch" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="0.07324395" endTime="0.07324395" parameter="f_ge_body_scratch" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="0.08617245" endTime="0.08617245" parameter="f_ge_body_scratch" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.1073922" endTime="0.1073922" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+	</animation>
+</anim_event_list>

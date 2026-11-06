@@ -1,0 +1,7 @@
+<anim_event_list>
+	<animation name="animations/humans/male/tpvidle/tpv_idle_forehead_wipe.caf">
+		<event name="foley" time="0.01042002" endTime="0.01042002" parameter="move_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="audio_trigger" time="0.05456271" endTime="0.05456271" parameter="f_ge_forehead_swipe" bone="" offset="0,0,0" dir="0,0,0" model="" />
+		<event name="foley" time="0.06441311" endTime="0.06511507" parameter="foleyaq_mat" bone="" offset="0,0,0" dir="0,0,0" model="" />
+	</animation>
+</anim_event_list>

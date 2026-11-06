@@ -1,0 +1,5 @@
+<anim_event_list>
+	<animation name="animations/humans/male/tpvidle/tpv_idle_neck_stretch.caf">
+		<event name="audio_trigger" time="0.02442595" endTime="0.02442595" parameter="f_ge_cracking_body" bone="" offset="0,0,0" dir="0,0,0" model="" />
+	</animation>
+</anim_event_list>
