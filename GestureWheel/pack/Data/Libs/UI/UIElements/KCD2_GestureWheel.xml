@@ -1,0 +1,47 @@
+<UIElements name="KCD2_GestureWheel">
+
+  <!-- The gesture wheel. The movie reads the mouse itself and sends Lua an event only when the hovered slot changes.
+       force_no_unload keeps the movie loaded while the wheel is hidden (wh_ui_ApseUnloadMode unloads hidden elements by
+       default), so it opens at once every time. -->
+  <UIElement name="KCD2_GestureWheel" mouseevents="1" keyevents="0" cursor="1" controller_input="0" force_no_unload="1">
+
+    <GFx file="KCD2_GestureWheel.gfx" layer="40">
+      <Constraints>
+        <Align mode="dynamic" valign="center" halign="center" scale="1" max="0" />
+      </Constraints>
+    </GFx>
+
+    <functions>
+      <function name="SetSlots" funcname="fc_setSlots">
+        <param name="Labels" desc="" type="string" />
+      </function>
+      <function name="SetCenter" funcname="fc_setCenter">
+        <param name="Text" desc="" type="string" />
+      </function>
+      <function name="Reset" funcname="fc_reset" />
+      <function name="SetHover" funcname="fc_setHover">
+        <param name="Slot" desc="" type="string" />
+      </function>
+      <function name="Settle" funcname="fc_settle">
+        <param name="Serial" desc="" type="string" />
+        <param name="Ms" desc="" type="string" />
+      </function>
+    </functions>
+
+    <events>
+      <event name="OnReady" fscommand="onReady" />
+      <event name="OnHover" fscommand="onHover">
+        <param name="Slot" desc="" type="string" />
+      </event>
+      <event name="OnPick" fscommand="onPick">
+        <param name="Slot" desc="" type="string" />
+      </event>
+      <event name="OnCancel" fscommand="onCancel" />
+      <event name="OnSettle" fscommand="onSettle">
+        <param name="Serial" desc="" type="string" />
+      </event>
+    </events>
+
+  </UIElement>
+
+</UIElements>

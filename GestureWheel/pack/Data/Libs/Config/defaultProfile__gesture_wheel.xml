@@ -1,0 +1,8 @@
+<profile version="0">
+	<!-- The game's chat prompt is exclusive above the wheel's own map, so the key also sits in open_menu, which that
+	     prompt includes and dialogue and minigames do not. PTF extender merges this file into the game's profile.
+	     Without it the wheel only stays shut while that prompt shows. -->
+	<actionmap name="open_menu">
+		<action consoleCmd="1" name="gesturewheel_open" onPress="1" keyboard="g" />
+	</actionmap>
+</profile>

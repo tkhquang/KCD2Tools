@@ -1,0 +1,74 @@
+[size=5]Foreword[/size]
+A wheel of gestures for Henry. Hold G, point at a gesture and let go: Henry plays it, says a line, and the person in front of him reacts.
+
+[b]This mod is a showcase of what the [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3981]Animation Framework[/url] can do.[/b] It is made for posing, screenshots and third-person play, and adds little to the gameplay itself.
+
+[size=5]Key Features[/size]
+[list]
+[*][b]Eight gestures ready to use:[/b] wave, sword pose, play the flute, sit on the ground, read, laugh, rude and threaten.[/*]
+[*][b]Henry speaks:[/b] each gesture plays one of Henry's own voice lines.[/*]
+[*][b]People react:[/b] they nod or refuse, answer, like Henry more or less, and may attack after repeated threats.[/*]
+[*][b]Make your own:[/b] change any slot in game, with any animation, voice line, reaction and item from the game.[/*]
+[*][b]Seated and on horseback:[/b] Henry plays the upper body of the gesture and stays in his seat or saddle.[/*]
+[*][url=https://github.com/tkhquang/KCD2Tools/tree/main/GestureWheel]Open source[/url], built on [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3981]Animation Framework[/url] (built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url])[/*]
+[/list]
+
+[size=5]Requirements[/size]
+[list]
+[*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3981]Animation Framework[/url] 1.0.0 or newer[/*]
+[*]Optional: [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3860]Sound Framework[/url] 1.3.0 or newer, to search the game's voice lines in the editor and to give people exact lines to say[/*]
+[*]Optional: PTF extender, so the wheel also opens while a person's chat prompt is on screen[/*]
+[/list]
+
+[size=5]Installation[/size]
+Install with your mod manager, or extract into your [b]Mods[/b] folder. To uninstall, delete [b]Mods/gesture_wheel[/b].
+[spoiler]
+[code]
+Mods/
+\-- gesture_wheel/
+    |-- mod.manifest
+    |-- gesture_wheel.settings   (your own gestures, made when you first save one)
+    \-- Data/
+        \-- gesture_wheel.pak
+[/code]
+With Mod Organizer 2, [b]gesture_wheel.settings[/b] goes to its [b]overwrite[/b] folder.
+[/spoiler]
+
+[size=5]Controls[/size]
+[list]
+[*][b]Open the wheel:[/b] hold G (controller: hold RB, press Y)[/*]
+[*][b]Point at a gesture:[/b] mouse (controller: right stick)[/*]
+[*][b]Play it:[/b] let go of G, or click (controller: let go of RB)[/*]
+[*][b]Close without playing:[/b] let go in the middle, or right click (controller: B)[/*]
+[*][b]Edit the slot:[/b] E[/*]
+[/list]
+W, A, S, D, Space, the left stick or B end a gesture at once, so a pose such as sitting on the ground lasts until you move. Only these default keys work, not rebound ones.
+
+When a gesture has no version for a torch, the torch is hidden while it plays. Its light stays on.
+
+[size=5]Making Your Own Gestures[/size]
+Hold G, point at a slot and press E. The editor shows the slot's choices in gold. Click a row to add or remove it, then Save.
+[spoiler]
+[list]
+[*][b]Animation:[/b] any animation in the game. With several, Henry picks one at random. The buttons on top choose what plays standing, on a seat or on horseback.[/*]
+[*][b]Sequence:[/b] a start, a loop and an end that play in order, for poses that last. Choose whether the pose holds and when it ends.[/*]
+[*][b]Voice line:[/b] any voice line in the game, found by its words, speaker or actor.[/*]
+[*][b]NPC reaction:[/b] how the person in front of Henry (within 6 m) reacts: their animation, what they say, how much they like Henry, and when they attack. Use a built-in reaction or press New to make your own.[/*]
+[*][b]Name & options:[/b] the name on the wheel, collision, locking Henry in the gesture, drawing a weapon or torch for it, and items to hold (a fishing rod, a mug, a book).[/*]
+[/list]
+Nothing stops odd choices: an animation made for a chair sits Henry on the air.
+[/spoiler]
+
+[size=5]For Mod Authors[/size]
+Other mods can add gestures and reactions with one table in their own Lua script. See the [url=https://github.com/tkhquang/KCD2Tools/tree/main/GestureWheel#for-mod-authors]README[/url].
+
+[size=5]Troubleshooting[/size]
+The wheel does not open? Check that [b]KCD2_AnimationFramework.log[/b] exists beside WHGame.dll. Please [url=https://github.com/tkhquang/KCD2Tools/issues]report issues[/url] with that log, the game's [b]kcd.log[/b] and your mod list.
+
+[size=5]Credits & License[/size]
+[list]
+[*]Warhorse Studios - Kingdom Come: Deliverance II[/*]
+[/list]
+The mod's code is MIT licensed. The game text and animation data made from the game's own are not covered by it: see the [url=https://github.com/tkhquang/KCD2Tools/blob/main/GestureWheel/LICENSE]LICENSE[/url].
+
+All my Kingdom Come: Deliverance II mods and tools can be found in this [url=https://github.com/tkhquang/KCD2Tools]GitHub repository[/url]. Feel free to contribute or suggest improvements!
