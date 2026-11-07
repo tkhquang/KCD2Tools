@@ -512,6 +512,35 @@ namespace TPVCamera
                               Pattern::literal("84 C0 74 0C 0F 2F 3D ?? ?? ?? ?? | 0F 97 C1 EB 02 32 C9")),
         };
 
+        // C_PlayerMovementAction::Update's turn re-queue, reached while the same turn kind stays installed:
+        //   cmp [rdi+0D0h], esi ; jnz ; test al, al ; jnz    the installed kind is the wanted one and did not change
+        //   mov rbx, [rdi+30h]                               the action's root scope
+        //   call [rax+0E0h] ; movaps xmm6, xmm0              the fragment time
+        //   call [rax+0D8h] ; mulss xmm0, xmm14              the fragment duration, halved (xmm14 = 0.5)
+        //   comiss xmm6, xmm0 ; ja reinstall ; jmp tag-check
+        // The `|` is the `ja`, which the mid hook steers. Every rung keeps the scope in rbx, which the hook reads. P1
+        // is the call pair through the `ja`. P2 opens at the kind-change test and spans the calls with bounded gaps. P3
+        // is the duration call through the `ja` and the `jmp` after it, with the multiply's registers free.
+        inline const Candidate k_turnRequeueSiteCandidates[] = {
+            Candidate::direct("TurnRequeue_P1_HalfDuration",
+                              Pattern::literal("FF 90 ?? ?? ?? ?? 48 8B 03 48 8B CB 0F 28 F0 FF 90 ?? ?? ?? ?? F3 41 "
+                                               "0F 59 C6 0F 2F F0 | 0F 87 ?? ?? ?? ?? E9")),
+            Candidate::direct("TurnRequeue_P2_KindTestThroughCompare",
+                              Pattern::literal("84 C0 0F 85 ?? ?? ?? ?? 48 8B 5? ?? [3-6] FF 90 ?? ?? ?? ?? 48 8B 03 "
+                                               "[3-10] FF 90 ?? ?? ?? ?? [4-12] 0F 2F ?? | 0F 87")),
+            Candidate::direct("TurnRequeue_P3_DurationThroughBranch",
+                              Pattern::literal("48 8B 03 48 8B CB [3-6] FF 90 ?? ?? ?? ?? F3 ?? 0F 59 ?? 0F 2F ?? | 0F "
+                                               "87 ?? ?? ?? ?? E9")),
+        };
+
+        // The call that hands ComputeMoveState its output pointers in Update's stack frame, the `|` marking the
+        // `call rel32`: the first shape takes all three (`lea r9`, `lea r8`, then the turn angle's `lea rdx`), the
+        // second the turn angle's alone. UpdatePending passes null in rdx (`xor edx, edx`) and never reinstalls a turn.
+        inline constexpr Pattern k_turnAngleOutputCallShapes[] = {
+            Pattern::literal("4C 8D 4C 24 ?? [0-8] 4C 8D 44 24 ?? [0-8] 48 8D 54 24 ?? [0-12] | E8"),
+            Pattern::literal("48 8D 54 24 ?? [0-12] | E8"),
+        };
+
         // ComputeMoveState's turn-angle output pointer: `mov r12, rdx` in the prologue (searched within the prologue
         // length the unwind info declares) and `test r12, r12; jz; movss [r12], xmm` storing through it.
         inline const Candidate k_turnOutputSaveCandidates[] = {
@@ -1939,6 +1968,16 @@ namespace TPVCamera
     };
 
     /**
+     * @brief Where C_PlayerMovementAction::Update decides to reinstall a turn of the kind already playing.
+     */
+    struct TurnRequeueLayout
+    {
+        /// The `ja` after the half-duration compare. The mid hook sets the flags it reads. rbx holds the action's
+        /// CActionScope and r15 the actor.
+        std::uintptr_t site = 0;
+    };
+
+    /**
      * @brief Resolves every game-image anchor, applies the signature file's repairs, and evaluates the feature gates.
      * @details Builds the declarative DMK::anchor table over the cascade candidate arrays above and resolves it with
      *          anchor::resolve_all_parallel, confined to the WHGame.dll image [module_base, module_base +
@@ -2004,6 +2043,18 @@ namespace TPVCamera
      * @note Setup/control-plane only. Call on the init thread after resolve_all_anchors().
      */
     [[nodiscard]] std::optional<TurnDecisionLayout> resolve_turn_decision_layout(std::uintptr_t trigger_return);
+
+    /**
+     * @brief Finds the turn re-queue inside C_PlayerMovementAction::Update.
+     * @details ComputeMoveState is the function around @p trigger_return. Update is the first slot of the action's RTTI
+     *          vtable that starts a .pdata fragment holding a k_turnAngleOutputCallShapes call whose target is
+     *          ComputeMoveState's entry. k_turnRequeueSiteCandidates is searched in that fragment only, and the scoped
+     *          anchor is appended to anchor_report().
+     * @param trigger_return The return address of ComputeMoveState's IsThirdPerson call.
+     * @return The layout, or std::nullopt when the vtable, Update or the site does not resolve.
+     * @note Setup/control-plane only. Call on the init thread after resolve_all_anchors() and init_game_types().
+     */
+    [[nodiscard]] std::optional<TurnRequeueLayout> resolve_turn_requeue_layout(std::uintptr_t trigger_return);
 
     /**
      * @brief Reads CAnimatedCharacter's movement request type offset from UpdatePhysicalEntityMovement.

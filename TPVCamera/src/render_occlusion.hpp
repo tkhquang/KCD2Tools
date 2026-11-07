@@ -71,16 +71,19 @@ namespace TPVCamera
 
     /**
      * @brief The scanned render node a physics collider belongs to, or nullptr.
-     * @details A runtime-physicalized brush or tree names its node in the collider's foreign data, which is used as is.
-     *          Otherwise baked level geometry (the static foreign id with no link) is matched by its world box
-     *          (CPhysicalEntity m_BBox): it belongs to the smallest scanned node that holds at least half of it, so a
-     *          wall hit never matches a small window frame on the wall. Trees, bushes, grass and characters never take
-     *          a box match. An entity's physics names its CEntity, and matches the scanned entity proxy that entity
-     *          owns. Any other collider returns nullptr.
+     * @details Only an owner the physics proves is returned. A runtime-physicalized brush or tree names its node in the
+     *          collider's foreign data, and an entity's physics names its CEntity, which matches the scanned entity
+     *          proxy that entity owns. Baked level geometry (the static foreign id with no link) was built from one
+     *          placed brush's model: it belongs to the scanned brush whose model, or one of its sub-objects, holds the
+     *          phys_geometry the hit part was built from (a rescaled clone names its original), and of the placements
+     *          of that model to the one whose box meets the collider's. Trees, bushes, grass and characters placed as
+     *          brushes never take that match. Any other collider, a baked one included whose model the scan does not
+     *          hold, returns nullptr, so it stops the camera.
      * @param collider The RayHit::m_collider of a hit (the IPhysicalEntity pointer).
+     * @param part The RayHit::m_part of the hit: the index of the collider's geometry part it met.
      * @param cls Receives the node's class; left untouched when nullptr is returned. May be nullptr.
      */
-    [[nodiscard]] void *occluder_node_for_collider(uintptr_t collider, Rules::Behaviour *cls) noexcept;
+    [[nodiscard]] void *occluder_node_for_collider(uintptr_t collider, int part, Rules::Behaviour *cls) noexcept;
 
     /**
      * @brief Whether a man-made structure is drawn where the physics of scanned structure @p node was hit.

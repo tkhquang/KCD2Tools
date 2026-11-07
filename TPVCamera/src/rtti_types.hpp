@@ -125,6 +125,10 @@ namespace TPVCamera
         ConsoleVariableInt,
         /// CViewSystem (IGameFramework::GetIViewSystem), which counts the cutscenes playing.
         ViewSystem,
+        /// wh::entitymodule::C_PlayerMovementAction, the free-roam locomotion action that plays the turns in place.
+        PlayerMovementAction,
+        /// CActionScope, a Mannequin scope, whose newest animation shows how far a turn has played.
+        ActionScope,
         /// Enumerator count. Not a class.
         Count,
     };

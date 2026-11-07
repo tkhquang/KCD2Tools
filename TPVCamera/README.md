@@ -230,7 +230,7 @@ Rules: KCD2_TPVCamera_rules_User.txt:1: 'objects/manmade/structures/industrial/h
 The rules decide what the mod does with the collision the camera meets, not which collision that is:
 
 - The camera meets only collision fixed in the world, and the ground. Physics objects (crates, barrels) never stop it: `collide` only keeps them from fading, `exclude` lets the camera through. People and animals have only a few small colliders (0.3 to 0.7 m), so even `@actor = collide` would stop the camera only now and then; the built-in rules use `character`.
-- Collision built into the level is matched to its model by its box, and never to `tree`, `bush`, `grass` or `character` models. Such a model placed as `brush` still stops the camera at that collision. Vegetation-tool plants and `entity` objects carry their own collision and follow their rule.
+- Collision built into the level is matched to the model it was built from, and never to `tree`, `bush`, `grass` or `character` models. Such a model placed as `brush` still stops the camera at that collision, as does level collision the mod cannot trace to a model. Vegetation-tool plants and `entity` objects carry their own collision and follow their rule.
 
 ### Folders listed model by model
 

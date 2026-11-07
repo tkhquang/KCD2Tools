@@ -60,6 +60,20 @@ namespace TPVCamera::Proof
         Shape::at_entry(Pattern::literal("48 83 C1 ?? E9")),
     };
 
+    // CActionScope's non-const GetTopAnim(layer) (native_turn_hooks.cpp): the frame, the character instance from the
+    // scope context (`mov rax, [rcx+20h]; mov rcx, [rax+10h]`) and its skeleton animation (`call [rax+28h]`), then the
+    // scope's first layer (`mov edx, [rdi+30h]`). The second shape is the animation FIFO's count (`call [rax+78h]`) and
+    // its newest entry (`lea r8d, [rax-1]`, `call [rax+90h]`). The const overload in the slot before inlines the count
+    // and matches neither. Both shapes match once in the image.
+    inline constexpr Shape k_actionScopeGetTopAnim[] = {
+        Shape::at_entry(
+            Pattern::literal("48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 41 56 48 83 EC 20 48 8B 41 20 48 "
+                             "8B F9 33 DB 44 8B F2 48 8B 48 10 48 85 C9 74 ?? 48 8B 01 FF 50 28 8B 57 30")),
+        Shape::within(Pattern::literal("FF 50 78 85 C0 7E ?? 8B 57 30 44 8D 40 FF 48 8B 06 41 03 D6 48 8B CE "
+                                       "FF 90 90 00 00 00"),
+                      0x60),
+    };
+
     // The animation-name hash (native_turn_hooks.cpp), the target of the AnimNameHashCall anchor's call: the register
     // saves and pushes, the frame, `mov edi, edx` (the length), `mov rbp, rcx` (the name), then `cmp edx, 20h` (its
     // first branch on the length).

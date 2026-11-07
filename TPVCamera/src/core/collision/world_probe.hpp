@@ -41,7 +41,7 @@ namespace TPVCamera
         virtual void refresh_scan(const Vector3 *points, int n_points) = 0;
 
         /** @brief occluder_node_for_collider(): the scanned node a collider belongs to, with its class. */
-        [[nodiscard]] virtual void *node_for_collider(std::uintptr_t collider, Rules::Behaviour *cls) = 0;
+        [[nodiscard]] virtual void *node_for_collider(std::uintptr_t collider, int part, Rules::Behaviour *cls) = 0;
 
         /** @brief structure_drawn_on(): whether structure @p node draws something along @p lines. */
         [[nodiscard]] virtual bool structure_drawn_on(QueryLedger::Tag tag, void *node, const Sightline *lines,

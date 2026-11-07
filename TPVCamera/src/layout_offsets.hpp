@@ -232,15 +232,36 @@ namespace Constants
 
     // CPhysicalEntity / CPhysicalPlaceholder world AABB (m_BBox): min @ +0x08, max @ +0x14, each a Vec3. Static world
     // is physicalized one entity per brush (the whole CGF goes into it), so this box spans the whole object: a house
-    // or barn reads 16-26m, while a window frame or a prop on it is its own collider under 1m. The occluder scan
-    // matches a hit to the render node that holds this box.
+    // or barn reads 16-26m, while a window frame or a prop on it is its own collider under 1m. Of the scanned
+    // placements of the model a baked collider was built from, the occluder scan takes the one whose box meets this
+    // box.
     constexpr ptrdiff_t PHYS_ENTITY_BBOX_MIN_OFFSET = 0x08;
     constexpr ptrdiff_t PHYS_ENTITY_BBOX_MAX_OFFSET = 0x14;
     // CPhysicalEntity m_parts (geom part array) and one part's stride and flags (its geom_colltype bits, which decide
-    // which probes stop on it), for the Trace collision line only.
+    // which probes stop on it).
     constexpr ptrdiff_t PHYS_ENTITY_PARTS_OFFSET = 0x118;
     constexpr ptrdiff_t PHYS_PART_STRIDE = 0x88;
     constexpr ptrdiff_t PHYS_PART_FLAGS_OFFSET = 0x50;
+    // The geometry a baked collider was built from, which names the model it belongs to. The level's baked physics
+    // (sub_180845740, Steam 1.5.6) makes one static entity per placed brush and has the brush's CStatObj physicalize
+    // into it (IStatObj::Physicalize, vtable slot 69), and CPhysicalEntity::AddGeometry (vtable slot 8,
+    // sub_18084B2D4) stores the phys_geometry it is given in the part, so a part holds one of that model's own
+    // phys_geometry pointers. A brush placed at an uneven scale gets a rescaled clone instead (sub_18080FA28), and the
+    // clone's IGeometry names the original as its foreign data under id -999 (CGeometry::SetForeignData writes the id
+    // at +0x1C and the data at +0x20; GetForeignData reads them back).
+    constexpr ptrdiff_t PHYS_ENTITY_PART_COUNT_OFFSET = 0x120; // int m_nParts
+    constexpr ptrdiff_t PHYS_PART_GEOMETRY_OFFSET = 0x38;      // phys_geometry* pPhysGeom
+    constexpr ptrdiff_t PHYS_GEOMETRY_SHAPE_OFFSET = 0x00;     // phys_geometry -> IGeometry* pGeom
+    constexpr ptrdiff_t GEOMETRY_FOREIGN_ID_OFFSET = 0x1C;     // CGeometry int m_iForeignData
+    constexpr ptrdiff_t GEOMETRY_FOREIGN_DATA_OFFSET = 0x20;   // CGeometry void* m_pForeignData
+    constexpr int GEOMETRY_FOREIGN_ID_SCALED_SOURCE = -999;
+    // CStatObj's physics: a std::vector of 16-byte entries {phys_geometry*, int type} (CStatObj::Physicalize,
+    // sub_1804AA744, reads it through sub_1804AAC8C). A compound model keeps its physics in its sub-objects' CStatObjs.
+    constexpr ptrdiff_t STATOBJ_PHYS_GEOMS_BEGIN_OFFSET = 0x128;
+    constexpr ptrdiff_t STATOBJ_PHYS_GEOMS_END_OFFSET = 0x130;
+    constexpr size_t STATOBJ_PHYS_GEOM_STRIDE = 0x10;
+    // Cap on the entries read per model: a model has one per physics type (default, no-collide, obstruct, ...).
+    constexpr int STATOBJ_PHYS_GEOMS_MAX = 16;
 
     // CPhysicalEntity foreign data: m_pForeignData @ +0x20, and at +0x28 two 16-bit fields: m_iForeignData (the
     // PHYS_FOREIGN_ID, low word; 1 == PHYS_FOREIGN_ID_STATIC = a static brush) and m_iForeignFlags (high word: the
@@ -1203,6 +1224,16 @@ namespace Constants
     // hook sites are all read from the game's code at startup (aob_resolver.hpp: AnchorId::IsThirdPersonSlot onwards
     // and resolve_turn_decision_layout).
     constexpr const char *SGAME_OBJECT_EVENT_RTTI_NAME = ".?AUSGameObjectEvent@@";
+
+    // Turn re-queue (native_turn_hooks.cpp). C_PlayerMovementAction is the free-roam locomotion action whose Update
+    // holds the re-queue site (resolve_turn_requeue_layout). CActionScope's GetTopAnim(layer), vtable slot 19
+    // (Proof::k_actionScopeGetTopAnim), returns the newest CAnimation in the layer's FIFO. CAnimation's current segment
+    // time is normalized to 0..1: CSkeletonAnim::GetAnimationNormalizedTime returns it as is for a single-segment clip,
+    // the case of the turn blend spaces.
+    constexpr const char *C_PLAYER_MOVEMENT_ACTION_RTTI_NAME = ".?AVC_PlayerMovementAction@entitymodule@wh@@";
+    constexpr const char *CACTION_SCOPE_RTTI_NAME = ".?AVCActionScope@@";
+    constexpr std::size_t ACTION_SCOPE_VTABLE_GET_TOP_ANIM_SLOT = 19;
+    constexpr ptrdiff_t CANIMATION_SEGMENT_TIME_OFFSET = 0x44;
 
     // CAnimatedCharacter movement request type values (1 absolute, 2 impulse), read by UpdatePhysicalEntityMovement
     // from the field resolve_movement_type_offset finds. An impulse's translation is a push, not a step, and the

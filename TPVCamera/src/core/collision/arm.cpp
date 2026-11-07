@@ -633,7 +633,8 @@ namespace TPVCamera
                                     Rules::Behaviour *cls)
     {
         *cls = Rules::Behaviour::Collide;
-        *node = (hit.m_terrain == 0 && hit.m_collider != 0) ? probe.node_for_collider(hit.m_collider, cls) : nullptr;
+        *node = (hit.m_terrain == 0 && hit.m_collider != 0) ? probe.node_for_collider(hit.m_collider, hit.m_part, cls)
+                                                            : nullptr;
         if (*node == nullptr)
         {
             return ProbeVerdict::Stop;

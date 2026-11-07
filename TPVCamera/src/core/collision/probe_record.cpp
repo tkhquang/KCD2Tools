@@ -178,11 +178,12 @@ namespace TPVCamera::ProbeRecord
         }
     }
 
-    void *RecordingProbe::node_for_collider(std::uintptr_t collider, Rules::Behaviour *cls)
+    void *RecordingProbe::node_for_collider(std::uintptr_t collider, int part, Rules::Behaviour *cls)
     {
-        void *node = m_inner.node_for_collider(collider, cls);
+        void *node = m_inner.node_for_collider(collider, part, cls);
         m_out.put(Call::NodeForCollider);
         m_out.put(collider);
+        m_out.put(part);
         m_out.put(reinterpret_cast<std::uintptr_t>(node));
         m_out.put(*cls);
         return node;
@@ -345,11 +346,12 @@ namespace TPVCamera::ProbeRecord
         }
     }
 
-    void *ReplayProbe::node_for_collider(std::uintptr_t collider, Rules::Behaviour *cls)
+    void *ReplayProbe::node_for_collider(std::uintptr_t collider, int part, Rules::Behaviour *cls)
     {
         *cls = Rules::Behaviour::Collide;
         std::uintptr_t node = 0;
-        if (!expect(Call::NodeForCollider) || !expect_value(collider, "collider") || !m_in.get(node) || !m_in.get(*cls))
+        if (!expect(Call::NodeForCollider) || !expect_value(collider, "collider") || !expect_value(part, "part") ||
+            !m_in.get(node) || !m_in.get(*cls))
         {
             *cls = Rules::Behaviour::Collide;
             return nullptr;
