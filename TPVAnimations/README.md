@@ -22,7 +22,8 @@ Install with your mod manager, or extract into `<game>/Mods/`. To uninstall, del
 
 ## Choosing what plays
 
-Each part is its own pak in `Mods/tpv_animations/Data/`. Delete one to remove that part.
+Each part is its own pak in `Mods/tpv_animations/Data/`. Delete one to remove that part. See every animation, and what it
+replaces, in the [catalog](https://tkhquang.github.io/KCD2Tools/tpv_animations/).
 
 | Pak | Contains |
 |---|---|

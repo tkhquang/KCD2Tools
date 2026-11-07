@@ -7,7 +7,6 @@ Third-person animations for Henry, so he no longer stands like a statue. In firs
 [*][b]Pick your gestures:[/b] each gesture is its own file. Delete the ones you don't want.[/*]
 [*][b]Drunk idle[/b] for a drunk Henry.[/*]
 [*][b]Torch sprint:[/b] Henry holds the torch low in front of him instead of up.[/*]
-[*][b]Sounds kept:[/b] footsteps, cloth and torch sounds play as in the game.[/*]
 [*][url=https://github.com/tkhquang/KCD2Tools/tree/main/TPVAnimations]Open source[/url], built on [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3981]Animation Framework[/url] (built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url])[/*]
 [/list]
 
@@ -33,7 +32,7 @@ Mods/
 [/spoiler]
 
 [size=5]Choosing What Plays[/size]
-Each part is its own pak in [b]Mods/tpv_animations/Data[/b]. Delete one to remove that part.
+Each part is its own pak in [b]Mods/tpv_animations/Data[/b]. Delete one to remove that part. See every animation, and what it replaces, in the [url=https://tkhquang.github.io/KCD2Tools/tpv_animations/]catalog[/url].
 [list]
 [*][b]tpv_animations_idle.pak[/b] - the calm idle, needed for any gesture[/*]
 [*][b]tpv_animations_idle_<gesture>.pak[/b] - one gesture each[/*]
