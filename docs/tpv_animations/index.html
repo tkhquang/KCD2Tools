@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TPV Animations</title>
+<style>
+  body { font-family: sans-serif; margin: 20px; }
+  .grid { display: flex; flex-wrap: wrap; gap: 16px; }
+  figure { margin: 0; width: 240px; }
+  figure img { width: 240px; height: 300px; display: block; }
+  figcaption { font-size: 14px; margin-top: 4px; }
+  code { font-size: 12px; }
+  .pair { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; }
+</style>
+</head>
+<body>
+
+<h1>TPV Animations</h1>
+<p>Third person only: in first person the game's own animations play. Delete a pak from <code>Mods/tpv_animations/Data</code> to remove that animation.
+<a href="https://github.com/tkhquang/KCD2Tools/tree/main/TPVAnimations">TPV Animations on GitHub</a></p>
+
+<h2>Added: idle gestures</h2>
+<p>The game has no idle gestures for Henry. While he stands still he now plays one of these at random every few seconds, with the game's own idle in between (<code>tpv_animations_idle.pak</code>, needed for any gesture).</p>
+<div class="grid">
+  <figure><img src="previews/neck_stretch.webp" alt="Neck stretch"><figcaption><b>Neck stretch</b> (3.3 s)<br><code>tpv_animations_idle_neck_stretch.pak</code></figcaption></figure>
+  <figure><img src="previews/back_stretch.webp" alt="Back stretch"><figcaption><b>Back stretch</b> (2.2 s)<br><code>tpv_animations_idle_back_stretch.pak</code></figcaption></figure>
+  <figure><img src="previews/scratch_face.webp" alt="Scratch face"><figcaption><b>Scratch face</b> (2.4 s)<br><code>tpv_animations_idle_scratch_face.pak</code></figcaption></figure>
+  <figure><img src="previews/forehead_wipe.webp" alt="Forehead wipe"><figcaption><b>Forehead wipe</b> (3.3 s)<br><code>tpv_animations_idle_forehead_wipe.pak</code></figcaption></figure>
+  <figure><img src="previews/yawn.webp" alt="Yawn"><figcaption><b>Yawn</b> (5.0 s)<br><code>tpv_animations_idle_yawn.pak</code></figcaption></figure>
+  <figure><img src="previews/spit.webp" alt="Spit"><figcaption><b>Spit</b> (2.0 s)<br><code>tpv_animations_idle_spit.pak</code></figcaption></figure>
+  <figure><img src="previews/look_around.webp" alt="Look around"><figcaption><b>Look around</b> (3.3 s)<br><code>tpv_animations_idle_look_around.pak</code></figcaption></figure>
+  <figure><img src="previews/weight_shift_left.webp" alt="Weight shift left"><figcaption><b>Weight shift left</b> (19.8 s)<br><code>tpv_animations_idle_weight_shift_left.pak</code></figcaption></figure>
+  <figure><img src="previews/weight_shift_right.webp" alt="Weight shift right"><figcaption><b>Weight shift right</b> (17.6 s)<br><code>tpv_animations_idle_weight_shift_right.pak</code></figcaption></figure>
+  <figure><img src="previews/fidget02.webp" alt="Fidget 2"><figcaption><b>Fidget 2</b> (7.2 s)<br><code>tpv_animations_idle_fidget02.pak</code></figcaption></figure>
+  <figure><img src="previews/fidget03.webp" alt="Fidget 3"><figcaption><b>Fidget 3</b> (7.3 s)<br><code>tpv_animations_idle_fidget03.pak</code></figcaption></figure>
+  <figure><img src="previews/fidget04.webp" alt="Fidget 4"><figcaption><b>Fidget 4</b> (7.2 s)<br><code>tpv_animations_idle_fidget04.pak</code></figcaption></figure>
+  <figure><img src="previews/fidget05.webp" alt="Fidget 5"><figcaption><b>Fidget 5</b> (5.0 s)<br><code>tpv_animations_idle_fidget05.pak</code></figcaption></figure>
+  <figure><img src="previews/fidget07.webp" alt="Fidget 7"><figcaption><b>Fidget 7</b> (6.0 s)<br><code>tpv_animations_idle_fidget07.pak</code></figcaption></figure>
+</div>
+
+<h2>Replaced</h2>
+
+<h3>Torch sprint (<code>tpv_animations_torch_sprint.pak</code>)</h3>
+<div class="pair">
+  <figure><img src="previews/torch_sprint_before.webp" alt="Game: torch sprint"><figcaption><b>Game</b>: torch held up in front of his face<br><code>relaxed_sprint_fast_player</code> + <code>holditem_sprint_medium_torch_lhand_over</code></figcaption></figure>
+  <figure><img src="previews/torch_sprint.webp" alt="Mod: torch sprint"><figcaption><b>With the mod</b>: torch carried low, the arm swinging with the stride</figcaption></figure>
+</div>
+
+<h3>Drunk idle (<code>tpv_animations_drunk.pak</code>)</h3>
+<div class="pair">
+  <figure><img src="previews/drunk_before.webp" alt="Game: drunk idle"><figcaption><b>Game</b><br><code>drunkard_idle</code></figcaption></figure>
+  <figure><img src="previews/drunk.webp" alt="Mod: drunk idle"><figcaption><b>With the mod</b>: the drunkard idle with its fidgets</figcaption></figure>
+</div>
+
+<p>Previews play on the Animation Framework Studio mannequin. The torch is not drawn.</p>
+
+</body>
+</html>
