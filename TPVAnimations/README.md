@@ -7,7 +7,6 @@ Third-person animations for Henry. In first person the game's own animations pla
 - **Pick your gestures:** each gesture is its own file. Delete the ones you don't want.
 - **Drunk idle** for a drunk Henry.
 - **Torch sprint:** Henry holds the torch low in front of him instead of up.
-- **Sounds kept:** footsteps, cloth and torch sounds play as in the game.
 - Open source, built on the Animation Framework (built with DetourModKit).
 
 ## Requirements
