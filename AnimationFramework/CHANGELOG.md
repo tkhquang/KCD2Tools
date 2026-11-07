@@ -2,6 +2,13 @@
 
 All notable changes to the Animation Framework will be documented in this file.
 
+## [1.1.0] - Play in Game Without the Lua Runner
+
+- The Blender add-on's Play in game and Stop work with only the Animation Framework installed, no KCD2 Lua runner needed.
+- Play in game tells you at once when no save is loaded.
+- Play in game works when the game runs as administrator and Blender does not.
+- The new INI option BlenderBridge switches this off. The add-on then uses the KCD2 Lua runner.
+
 ## [1.0.0] - Initial Release
 
 - Animation mods work together: each mod ships only what it changes, and mods that ship whole copies of the same files (databases, tags, sounds, skeletons, clip indexes) are merged instead of overwriting each other.
@@ -14,4 +21,5 @@ All notable changes to the Animation Framework will be documented in this file.
 - Installs as a KCSE plugin with a mod manager, or as an ASI for players without KCSE.
 - Each part can be switched off in the INI.
 
+[1.1.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/AnimationFramework-v1.1.0
 [1.0.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/AnimationFramework-v1.0.0
