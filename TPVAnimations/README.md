@@ -8,6 +8,7 @@ Third-person animations for Henry. In first person the game's own animations pla
   you don't want.
 - **Drunk idle** for a drunk Henry.
 - **Torch sprint:** Henry holds the torch low in front of him instead of up.
+- **Smooth turns:** turn the camera further while Henry turns on the spot, and he carries on turning instead of restarting his step or standing still.
 - Open source, built on the Animation Framework (built with DetourModKit).
 
 ## Requirements
@@ -15,6 +16,7 @@ Third-person animations for Henry. In first person the game's own animations pla
 - [Animation Framework](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3981) 1.0.0 or newer.
 - A third-person camera mod that sets `mod_camera_view`, such as
   [TPV Camera](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3263) 3.0.0 or newer.
+- Smooth turns need TPV Camera 3.2.1 or newer. With an older version, delete `tpv_animations_smooth_turn.pak`, or Henry's big turns restart mid-step.
 
 ## Installation
 
@@ -32,6 +34,7 @@ this mod replaces.
 | `tpv_animations_idle_<gesture>.pak` | One gesture: `neck_stretch`, `back_stretch`, `scratch_face`, `forehead_wipe`, `yawn`, `spit`, `look_around`, `weight_shift_left`, `weight_shift_right`, `fidget02`, `fidget03`, `fidget04`, `fidget05`, `fidget07` |
 | `tpv_animations_drunk.pak` | Drunk idle |
 | `tpv_animations_torch_sprint.pak` | Torch sprint |
+| `tpv_animations_smooth_turn.pak` | Smooth turns |
 
 ## How it works
 
@@ -39,6 +42,7 @@ this mod replaces.
   a new idle at random from the installed gestures, while Henry stays in his normal movement, so the torch grip and
   turning in place keep working.
 - **Drunk idle and torch sprint:** options tagged `thirdPerson` added next to the game's own.
+- **Smooth turns:** transitions between the game's own turn fragments, tagged `thirdPerson`. A requested turn starts at once instead of waiting for the blend space's average length, and crossing 90 degrees keeps the current step. TPV Camera decides when the next turn is requested.
 - Each pak gives its clips the sounds of the game animations they are made from.
 
 All clips are made from the game's own animations. Each gesture is a game fidget or gesture followed by calm idle in

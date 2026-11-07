@@ -7,6 +7,7 @@ Third-person animations for Henry, so he no longer stands like a statue. In firs
 [*][b]Pick your gestures:[/b] each gesture is its own file. Watch them on the [url=https://tkhquang.github.io/KCD2Tools/tpv_animations/]preview page[/url] and delete the ones you don't want.[/*]
 [*][b]Drunk idle[/b] for a drunk Henry.[/*]
 [*][b]Torch sprint:[/b] Henry holds the torch low in front of him instead of up.[/*]
+[*][b]Smooth turns:[/b] turn the camera further while Henry turns on the spot, and he carries on turning instead of restarting his step or standing still.[/*]
 [*][url=https://github.com/tkhquang/KCD2Tools/tree/main/TPVAnimations]Open source[/url], built on [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3981]Animation Framework[/url] (built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url])[/*]
 [/list]
 
@@ -14,6 +15,7 @@ Third-person animations for Henry, so he no longer stands like a statue. In firs
 [list]
 [*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3981]Animation Framework[/url] 1.0.0 or newer[/*]
 [*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3263]Proper Third Person View (TPV Camera)[/url] 3.0.0 or newer, or another camera mod that sets [b]mod_camera_view[/b][/*]
+[*]Smooth turns need TPV Camera 3.2.1 or newer. With an older version, delete [b]tpv_animations_smooth_turn.pak[/b], or Henry's big turns restart mid-step.[/*]
 [/list]
 
 [size=5]Installation[/size]
@@ -27,7 +29,8 @@ Mods/
         |-- tpv_animations_idle.pak
         |-- tpv_animations_idle_<gesture>.pak   (14 files)
         |-- tpv_animations_drunk.pak
-        \-- tpv_animations_torch_sprint.pak
+        |-- tpv_animations_torch_sprint.pak
+        \-- tpv_animations_smooth_turn.pak
 [/code]
 [/spoiler]
 
@@ -38,6 +41,7 @@ Each part is its own pak in [b]Mods/tpv_animations/Data[/b]. Delete one to remov
 [*][b]tpv_animations_idle_<gesture>.pak[/b] - one gesture each[/*]
 [*][b]tpv_animations_drunk.pak[/b] - drunk idle[/*]
 [*][b]tpv_animations_torch_sprint.pak[/b] - torch sprint[/*]
+[*][b]tpv_animations_smooth_turn.pak[/b] - smooth turns[/*]
 [/list]
 [spoiler]
 Gestures: neck_stretch, back_stretch, scratch_face, forehead_wipe, yawn, spit, look_around, weight_shift_left, weight_shift_right, fidget02, fidget03, fidget04, fidget05, fidget07.
