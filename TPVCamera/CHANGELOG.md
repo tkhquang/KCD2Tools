@@ -2,6 +2,11 @@
 
 All notable changes to the TPVCamera mod will be documented in this file.
 
+## [3.2.1] - Wall Collision Fix
+
+- The camera no longer passes through a stone wall standing beside a wooden gate, which hid Henry behind the wall.
+- Groundwork for smoother turns on the spot from a later TPV Animations update. Turns look the same for now.
+
 ## [3.2.0] - Controller Vibration Fix
 
 - The controller vibrates again in third person: hits, footsteps and landings rumble it as in first person.
@@ -190,6 +195,7 @@ All notable changes to the TPVCamera mod will be documented in this file.
 - Third person stays out of every minigame (lockpicking, reading, alchemy, pickpocketing, and more), and you can give any minigame its own framing
 - Configurable hotkeys, with most changes applying while you play
 
+[3.2.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v3.2.1
 [3.2.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v3.2.0
 [3.1.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v3.1.0
 [3.0.2]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVCamera-v3.0.2
