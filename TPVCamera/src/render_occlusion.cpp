@@ -1789,7 +1789,124 @@ namespace TPVCamera
         }
     }
 
-    void *occluder_node_for_collider(uintptr_t collider, Rules::Behaviour *cls) noexcept
+    /**
+     * @brief The phys_geometry part @p part of baked collider @p collider was built from: the placed model's own, or
+     *        the original a rescaled clone names (Constants::GEOMETRY_FOREIGN_ID_SCALED_SOURCE). 0 when the part
+     *        cannot be read. POD body under SEH.
+     */
+    static uintptr_t source_phys_geometry(uintptr_t collider, int part) noexcept
+    {
+        __try
+        {
+            const auto *entity = reinterpret_cast<const std::byte *>(collider);
+            const int n_parts = *reinterpret_cast<const int *>(entity + Constants::PHYS_ENTITY_PART_COUNT_OFFSET);
+            if (part < 0 || part >= n_parts)
+            {
+                return 0;
+            }
+            const auto *parts =
+                *reinterpret_cast<const std::byte *const *>(entity + Constants::PHYS_ENTITY_PARTS_OFFSET);
+            const auto *geometry = *reinterpret_cast<const std::byte *const *>(
+                parts + static_cast<ptrdiff_t>(part) * Constants::PHYS_PART_STRIDE +
+                Constants::PHYS_PART_GEOMETRY_OFFSET);
+            if (geometry == nullptr)
+            {
+                return 0;
+            }
+            const auto *shape =
+                *reinterpret_cast<const std::byte *const *>(geometry + Constants::PHYS_GEOMETRY_SHAPE_OFFSET);
+            if (shape != nullptr && *reinterpret_cast<const int *>(shape + Constants::GEOMETRY_FOREIGN_ID_OFFSET) ==
+                                        Constants::GEOMETRY_FOREIGN_ID_SCALED_SOURCE)
+            {
+                return *reinterpret_cast<const uintptr_t *>(shape + Constants::GEOMETRY_FOREIGN_DATA_OFFSET);
+            }
+            return reinterpret_cast<uintptr_t>(geometry);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return 0;
+        }
+    }
+
+    /**
+     * @brief Whether the physics list of model @p statobj holds @p geometry.
+     * @note Unguarded POD reads: call only inside an SEH frame (model_built_geometry()).
+     */
+    static bool phys_geoms_hold(const std::byte *statobj, uintptr_t geometry) noexcept
+    {
+        const auto *begin =
+            *reinterpret_cast<const std::byte *const *>(statobj + Constants::STATOBJ_PHYS_GEOMS_BEGIN_OFFSET);
+        const auto *end =
+            *reinterpret_cast<const std::byte *const *>(statobj + Constants::STATOBJ_PHYS_GEOMS_END_OFFSET);
+        if (begin == nullptr || end < begin)
+        {
+            return false;
+        }
+        const std::ptrdiff_t count =
+            std::min<std::ptrdiff_t>((end - begin) / static_cast<std::ptrdiff_t>(Constants::STATOBJ_PHYS_GEOM_STRIDE),
+                                     Constants::STATOBJ_PHYS_GEOMS_MAX);
+        for (std::ptrdiff_t i = 0; i < count; ++i)
+        {
+            if (*reinterpret_cast<const uintptr_t *>(
+                    begin + i * static_cast<std::ptrdiff_t>(Constants::STATOBJ_PHYS_GEOM_STRIDE)) == geometry)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @brief Whether model @p statobj, or one of its sub-objects, was physicalized with @p geometry. False on a fault.
+     *        POD body under SEH.
+     */
+    static bool model_built_geometry(const void *statobj, uintptr_t geometry) noexcept
+    {
+        __try
+        {
+            const auto *model = static_cast<const std::byte *>(statobj);
+            if (phys_geoms_hold(model, geometry))
+            {
+                return true;
+            }
+            const auto *sub =
+                *reinterpret_cast<const std::byte *const *>(model + Constants::STATOBJ_SUBOBJ_BEGIN_OFFSET);
+            const auto *end = *reinterpret_cast<const std::byte *const *>(model + Constants::STATOBJ_SUBOBJ_END_OFFSET);
+            if (sub == nullptr || end < sub)
+            {
+                return false;
+            }
+            const std::ptrdiff_t count = std::min<std::ptrdiff_t>(
+                (end - sub) / static_cast<std::ptrdiff_t>(Constants::SUBOBJ_STRIDE), Constants::SUBOBJ_MAX);
+            for (std::ptrdiff_t i = 0; i < count; ++i)
+            {
+                const auto *child = *reinterpret_cast<const std::byte *const *>(
+                    sub + i * static_cast<std::ptrdiff_t>(Constants::SUBOBJ_STRIDE) +
+                    Constants::SUBOBJ_PSTATOBJ_OFFSET);
+                if (child != nullptr && phys_geoms_hold(child, geometry))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    /** @brief The volume boxes @p a and @p b share, each grown by 5 cm so a flat collider (a wall plane) meets one. */
+    static float padded_box_overlap(const float *a, const float *b) noexcept
+    {
+        constexpr float k_pad = 0.05f;
+        const float ox = std::min(a[3], b[3]) - std::max(a[0], b[0]) + 2.0f * k_pad;
+        const float oy = std::min(a[4], b[4]) - std::max(a[1], b[1]) + 2.0f * k_pad;
+        const float oz = std::min(a[5], b[5]) - std::max(a[2], b[2]) + 2.0f * k_pad;
+        return (ox > 0.0f && oy > 0.0f && oz > 0.0f) ? ox * oy * oz : 0.0f;
+    }
+
+    void *occluder_node_for_collider(uintptr_t collider, int part, Rules::Behaviour *cls) noexcept
     {
         if (collider == 0 || !s_scan_valid || s_scan_count == 0)
         {
@@ -1804,7 +1921,7 @@ namespace TPVCamera
             return s.node;
         };
         // A brush the engine physicalized at runtime (a cart, a basket, furniture) or a tree names its own render node
-        // in the collider's foreign data: that is the exact owner, so no box comparison is needed.
+        // in the collider's foreign data: that is the exact owner.
         if (const uintptr_t linked = static_brush_render_node(collider); linked != 0)
         {
             for (int i = 0; i < s_scan_count; ++i)
@@ -1839,50 +1956,39 @@ namespace TPVCamera
             }
             return nullptr; // owned by an entity the scan does not hold: a collision
         }
-        // Box matching names the owner of baked level geometry only (the static foreign id with no link). Anything else
-        // unlinked has an owner the box test cannot name, so it is a collision.
+        // Baked level geometry (the static foreign id with no link) names no owner, but each such collider was built
+        // from the model of one placed brush (source_phys_geometry()), so its owner is the scanned brush whose model
+        // holds that geometry. Every placement of a model shares its geometry: of those, the one whose box meets the
+        // collider's box is the placement that was hit, and two placements whose boxes both meet it are the same model
+        // under the same rule. A collider no scanned brush was built with (a WallTool wall, whose wall model the scan
+        // does not hold) is a collision: the camera passes only physics proven to belong to a model that lets it
+        // through. Brushes classed as a tree, a bush, grass or a character never take the match, so their baked
+        // physics stops the camera.
         float cb[6];
         if (!foreign_id || *foreign_id != Constants::PHYS_FOREIGN_ID_STATIC || !read_collider_box(collider, cb))
         {
             return nullptr;
         }
-        // Pad both boxes a little so a flat collider (a wall plane, a board) has a volume to compare.
-        constexpr float k_pad = 0.05f;
-        for (int k = 0; k < 3; ++k)
+        const uintptr_t geometry = source_phys_geometry(collider, part);
+        if (geometry == 0)
         {
-            cb[k] -= k_pad;
-            cb[k + 3] += k_pad;
+            return nullptr;
         }
-        const float collider_volume = (cb[3] - cb[0]) * (cb[4] - cb[1]) * (cb[5] - cb[2]);
-        // The collider belongs to the smallest scanned node that holds at least half of its box. A post's collider
-        // sits inside its own brush; a building's collider spans the building and never fits inside a window frame
-        // on its wall, so a hit on the wall never borrows the frame's node. Trees never compete: a tree's trunk
-        // collider names its tree through the link, and a crown's box can hold a whole shed whose own node the scan
-        // missed, which would let the camera through the shed. Nor do grass patches, which have no physics and whose
-        // 16 m box holds any rock beside them.
         const ScannedNode *best = nullptr;
-        float best_volume = 1e30f;
+        float best_overlap = 0.0f;
         for (int i = 0; i < s_scan_count; ++i)
         {
             const ScannedNode &s = s_scan[i];
-            if (s.cls == Rules::Behaviour::Bush || s.cls == Rules::Behaviour::Tree ||
+            if (s.model == nullptr || s.cls == Rules::Behaviour::Bush || s.cls == Rules::Behaviour::Tree ||
                 s.cls == Rules::Behaviour::Grass || s.cls == Rules::Behaviour::Character)
             {
                 continue;
             }
-            const float ox = std::min(cb[3], s.bbox[3] + k_pad) - std::max(cb[0], s.bbox[0] - k_pad);
-            const float oy = std::min(cb[4], s.bbox[4] + k_pad) - std::max(cb[1], s.bbox[1] - k_pad);
-            const float oz = std::min(cb[5], s.bbox[5] + k_pad) - std::max(cb[2], s.bbox[2] - k_pad);
-            if (ox <= 0.0f || oy <= 0.0f || oz <= 0.0f || ox * oy * oz < 0.5f * collider_volume)
-            {
-                continue;
-            }
-            const float volume = (s.bbox[3] - s.bbox[0] + 2.0f * k_pad) * (s.bbox[4] - s.bbox[1] + 2.0f * k_pad) *
-                                 (s.bbox[5] - s.bbox[2] + 2.0f * k_pad);
-            if (volume < best_volume && node_alive(s))
+            const float overlap = padded_box_overlap(cb, s.bbox);
+            if (overlap > best_overlap && model_built_geometry(s.model, geometry) && node_alive(s))
             {
                 best = &s;
-                best_volume = volume;
+                best_overlap = overlap;
             }
         }
         return (best != nullptr) ? found(*best) : nullptr;

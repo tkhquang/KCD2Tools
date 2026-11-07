@@ -78,10 +78,10 @@
 #   colliders (about 0.3 to 0.7 m across) that the camera's rays meet now and then. With @actor = collide the camera
 #   would stop at a person only where a ray happens to meet one of those. The @actor line of this file says
 #   character, which lets the camera pass them.
-#   Collision built into the level is matched to its model by its box, and tree, bush, grass and character models
-#   never take that match. A model placed as level scenery (brush) with one of those words still stops the camera at
-#   its built-in collision. Plants placed with the vegetation tool and game objects (entity) carry their own
-#   collision, and the camera passes them as their rule says.
+#   Collision built into the level is matched to the model it was built from, and tree, bush, grass and character
+#   models never take that match. A model placed as level scenery (brush) with one of those words still stops the
+#   camera at its built-in collision, as does level collision that cannot be traced to a model. Plants placed with the
+#   vegetation tool and game objects (entity) carry their own collision, and the camera passes them as their rule says.
 #
 # WHICH RULE WINS: the first of these that matches the object.
 #   1. a state with a model path   (@animated objects/...)      in one file, the longest path wins

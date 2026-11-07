@@ -12,6 +12,7 @@
 
 #include "aob_resolver.hpp"
 #include "constants.hpp"
+#include "rtti_types.hpp"
 
 #include <DetourModKit.hpp>
 
@@ -633,9 +634,9 @@ namespace TPVCamera
 #endif
         };
 
-        // Room after the startup pass for the function-scoped anchors resolve_turn_decision_layout() (six) and
-        // resolve_movement_type_offset() (one) append.
-        constexpr std::size_t k_max_scoped_report = 7;
+        // Room after the startup pass for the function-scoped anchors resolve_turn_decision_layout() (six),
+        // resolve_movement_type_offset() (one) and resolve_turn_requeue_layout() (one) append.
+        constexpr std::size_t k_max_scoped_report = 8;
         constexpr std::size_t k_max_report = k_anchor_count + k_max_scoped_report;
 
         // Resolved absolute addresses, indexed by AnchorId. 0 means unresolved or a scalar anchor. Zero-initialized
@@ -1220,6 +1221,81 @@ namespace TPVCamera
             .installed_state_offset = static_cast<std::ptrdiff_t>(*installed_state),
             .last_sign_offset = static_cast<std::ptrdiff_t>(*last_sign),
         };
+    }
+
+    std::optional<TurnRequeueLayout> resolve_turn_requeue_layout(std::uintptr_t trigger_return)
+    {
+        DMK::Logger &logger = DMK::log();
+        const auto refuse = [&logger](std::string_view proof) -> std::optional<TurnRequeueLayout>
+        {
+            logger.warning("Turn re-queue: {} did not resolve", proof);
+            return std::nullopt;
+        };
+
+        const std::optional<FunctionBounds> compute_move_state = function_bounds(trigger_return);
+        if (!compute_move_state || !s_image_range.contains(compute_move_state->entry.base))
+        {
+            return refuse("ComputeMoveState's unwind entry");
+        }
+        const std::uintptr_t compute_move_state_entry = compute_move_state->entry.base.raw();
+
+        const std::optional<std::uintptr_t> vtable = class_vtable(GameClass::PlayerMovementAction);
+        if (!vtable)
+        {
+            return refuse("C_PlayerMovementAction's vtable");
+        }
+
+        // A shape can also end on another call (UpdatePending's rdx-only shape reaches its SetFragment call), so each
+        // match is decoded until one lands on ComputeMoveState.
+        const auto calls_compute_move_state = [compute_move_state_entry](DMK::Region body) -> bool
+        {
+            constexpr std::size_t k_max_matches = 8;
+            for (const DMK::scan::Pattern &shape : Aob::k_turnAngleOutputCallShapes)
+            {
+                for (std::size_t occurrence = 1; occurrence <= k_max_matches; ++occurrence)
+                {
+                    const DMK::Result<DMK::Address> call = DMK::scan::scan(shape, body, occurrence, Pages::Executable);
+                    if (!call)
+                    {
+                        break;
+                    }
+                    const DMK::Result<DMK::Address> callee = DMK::scan::resolve_rip_relative(*call, 1, 5);
+                    if (callee && callee->raw() == compute_move_state_entry)
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+
+        // The vtable's length is not recorded, so the walk stops at the first slot that proves to be Update, well
+        // inside this bound.
+        constexpr std::size_t k_max_slots = 32;
+        for (std::size_t slot = 0; slot < k_max_slots; ++slot)
+        {
+            const auto target =
+                DMK::memory::read<std::uintptr_t>(DMK::Address{*vtable + slot * sizeof(std::uintptr_t)});
+            if (!target || !s_image_range.contains(DMK::Address{*target}))
+            {
+                continue;
+            }
+            const std::optional<FunctionBounds> bounds = function_bounds(*target);
+            if (!bounds || bounds->fragment.base.raw() != *target || !calls_compute_move_state(bounds->fragment))
+            {
+                continue;
+            }
+            const std::uintptr_t site = scoped_address(
+                code_ladder("TurnRequeueSite", Aob::k_turnRequeueSiteCandidates, Role::Site), bounds->fragment);
+            if (site == 0)
+            {
+                return refuse("the half-duration re-queue in C_PlayerMovementAction::Update");
+            }
+            logger.debug("Turn re-queue: Update is slot {} at {}, site {}", slot, DMK::format::format_address(*target),
+                         DMK::format::format_address(site));
+            return TurnRequeueLayout{.site = site};
+        }
+        return refuse("C_PlayerMovementAction::Update");
     }
 
     std::optional<std::ptrdiff_t> resolve_movement_type_offset(std::uintptr_t update_physical_entity_movement)

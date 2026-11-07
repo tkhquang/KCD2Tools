@@ -59,8 +59,9 @@ namespace TPVCamera
                 char linked_name[160] = {};
                 render_node_name(linked, linked_name, static_cast<int>(sizeof(linked_name)));
                 Rules::Behaviour matched_cls = Rules::Behaviour::Collide;
-                void *matched =
-                    (hit_terrain == 0 && collider != 0) ? occluder_node_for_collider(collider, &matched_cls) : nullptr;
+                void *matched = (hit_terrain == 0 && collider != 0)
+                                    ? occluder_node_for_collider(collider, hit.m_part, &matched_cls)
+                                    : nullptr;
                 char matched_name[160] = {};
                 render_node_name(matched, matched_name, static_cast<int>(sizeof(matched_name)));
                 char rule[160] = {};

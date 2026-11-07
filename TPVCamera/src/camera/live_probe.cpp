@@ -24,9 +24,9 @@ namespace TPVCamera
         refresh_occluder_scan(points, n_points);
     }
 
-    void *LiveProbe::node_for_collider(std::uintptr_t collider, Rules::Behaviour *cls)
+    void *LiveProbe::node_for_collider(std::uintptr_t collider, int part, Rules::Behaviour *cls)
     {
-        return occluder_node_for_collider(collider, cls);
+        return occluder_node_for_collider(collider, part, cls);
     }
 
     bool LiveProbe::structure_drawn_on(QueryLedger::Tag tag, void *node, const Sightline *lines, int n_lines)

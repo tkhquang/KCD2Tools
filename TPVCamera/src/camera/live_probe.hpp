@@ -26,7 +26,7 @@ namespace TPVCamera
                                                 int objtypes, unsigned int flags, const std::uintptr_t *skip,
                                                 int n_skip) override;
         void refresh_scan(const Vector3 *points, int n_points) override;
-        [[nodiscard]] void *node_for_collider(std::uintptr_t collider, Rules::Behaviour *cls) override;
+        [[nodiscard]] void *node_for_collider(std::uintptr_t collider, int part, Rules::Behaviour *cls) override;
         [[nodiscard]] bool structure_drawn_on(QueryLedger::Tag tag, void *node, const Sightline *lines,
                                               int n_lines) override;
         [[nodiscard]] float structure_on_arm(QueryLedger::Tag tag, const Sightline *lines, int n_lines, int min_lines,

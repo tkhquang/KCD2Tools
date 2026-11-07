@@ -36,7 +36,7 @@
 namespace TPVCamera::ProbeRecord
 {
     inline constexpr std::uint32_t k_magic = 0x52565054u; // "TPVR"
-    inline constexpr std::uint32_t k_version = 6;
+    inline constexpr std::uint32_t k_version = 7;
 
     /** @brief The bytes of the rig's carry-over in a recording (core/rig/rig_record.cpp). */
     [[nodiscard]] std::uint32_t rig_carry_bytes() noexcept;
@@ -168,7 +168,7 @@ namespace TPVCamera::ProbeRecord
                                                 int objtypes, unsigned int flags, const std::uintptr_t *skip,
                                                 int n_skip) override;
         void refresh_scan(const Vector3 *points, int n_points) override;
-        [[nodiscard]] void *node_for_collider(std::uintptr_t collider, Rules::Behaviour *cls) override;
+        [[nodiscard]] void *node_for_collider(std::uintptr_t collider, int part, Rules::Behaviour *cls) override;
         [[nodiscard]] bool structure_drawn_on(QueryLedger::Tag tag, void *node, const Sightline *lines,
                                               int n_lines) override;
         [[nodiscard]] float structure_on_arm(QueryLedger::Tag tag, const Sightline *lines, int n_lines, int min_lines,
@@ -204,7 +204,7 @@ namespace TPVCamera::ProbeRecord
                                                 int objtypes, unsigned int flags, const std::uintptr_t *skip,
                                                 int n_skip) override;
         void refresh_scan(const Vector3 *points, int n_points) override;
-        [[nodiscard]] void *node_for_collider(std::uintptr_t collider, Rules::Behaviour *cls) override;
+        [[nodiscard]] void *node_for_collider(std::uintptr_t collider, int part, Rules::Behaviour *cls) override;
         [[nodiscard]] bool structure_drawn_on(QueryLedger::Tag tag, void *node, const Sightline *lines,
                                               int n_lines) override;
         [[nodiscard]] float structure_on_arm(QueryLedger::Tag tag, const Sightline *lines, int n_lines, int min_lines,

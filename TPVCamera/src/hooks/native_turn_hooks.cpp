@@ -146,6 +146,19 @@ namespace TPVCamera
         std::atomic<uintptr_t> s_player_animchar{0};
         ptrdiff_t s_movement_type_offset = 0;
 
+        // Turn re-queue: the mid hook on the `ja` in C_PlayerMovementAction::Update (see resolve_turn_requeue_layout).
+        // While a turn of the kind the action wants stays installed, the game requests it again once the fragment ran
+        // half its duration. Mannequin takes that duration from the blend space's average clip length (2.07 s for the
+        // idle turns), not from the clip playing. With the game's own turn-to-turn transitions Mannequin holds the
+        // queued turn until the playing one ends, so the request time does not show. A transition that starts a queued
+        // turn at once (the TPV Animations turn data) plays it at the request: on the game's timer a large turn then
+        // restarts in the middle of its step, and a small one stands on its last frame until the timer runs out. The
+        // hook requests the next turn once the scope's newest animation passed k_turn_requeue_progress of its
+        // normalized time, about where the idle turn clips stop rotating. s_get_top_anim is CActionScope's GetTopAnim,
+        // proven and written before the hook arms.
+        constexpr float k_turn_requeue_progress = 0.85f;
+        uintptr_t s_get_top_anim = 0;
+
         // Crouched animations (see Constants::CROUCHED_IDLE_PLAYER_ANIMATION). The game looks a clip's animation up by
         // the 64-bit hash of its name. The hook on that lookup (detour_crouched_animation) swaps the hash of each
         // player clip for its NPC twin while the native turn is on. The hashes come from the game's own name hash at
@@ -302,6 +315,18 @@ namespace TPVCamera
         }
 
         /**
+         * @brief Sets the flags an unsigned "above" test (`seta`, `ja`) reads after a mid hook: CF and ZF clear when
+         *        @p above, ZF set otherwise.
+         */
+        void steer_above(DMK::hook::MidContext &ctx, bool above) noexcept
+        {
+            constexpr uintptr_t k_carry_flag = 0x1;
+            constexpr uintptr_t k_zero_flag = 0x40;
+            uintptr_t &cpu_flags = DMK::hook::flags(ctx);
+            cpu_flags = above ? (cpu_flags & ~(k_carry_flag | k_zero_flag)) : (cpu_flags | k_zero_flag);
+        }
+
+        /**
          * @brief Turn-decision mid hook: decides turn versus idle for the player through the flags `seta cl` reads.
          * @details Runs at the `seta cl` right after the game compared |angle| (xmm7) with its 35 degrees. The game
          *          reaches it only after IsThirdPerson answered true, so for the player only while the native turn is on
@@ -373,11 +398,7 @@ namespace TPVCamera
             {
                 s_turn_tail_frames.store(tail - 1, std::memory_order_relaxed);
             }
-
-            constexpr uintptr_t k_carry_flag = 0x1;
-            constexpr uintptr_t k_zero_flag = 0x40;
-            uintptr_t &cpu_flags = DMK::hook::flags(ctx);
-            cpu_flags = turn ? (cpu_flags & ~(k_carry_flag | k_zero_flag)) : (cpu_flags | k_zero_flag);
+            steer_above(ctx, turn);
         }
 
         /**
@@ -411,6 +432,111 @@ namespace TPVCamera
             }
             logger.info("Camera: turn decision hooked at {} (turns finish facing the look)",
                         DMK::format::format_address(site));
+        }
+
+        // CActionScope::GetTopAnim(layer): the newest CAnimation in the scope layer's FIFO, or null.
+        using GetTopAnimFunc = uintptr_t(__fastcall *)(uintptr_t scope, int layer);
+
+        /**
+         * @brief Calls GetTopAnim(0) on @p scope through s_get_top_anim. Kept free of objects that need unwinding, so
+         *        the SEH frame compiles.
+         * @return The animation, or 0 when the call faulted or the layer holds none.
+         */
+        uintptr_t call_get_top_anim(uintptr_t scope) noexcept
+        {
+            __try
+            {
+                return reinterpret_cast<GetTopAnimFunc>(s_get_top_anim)(scope, 0);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return 0;
+            }
+        }
+
+        /**
+         * @brief Normalized time (0 to 1) of the newest animation on the first layer of @p scope.
+         * @return The time, or std::nullopt when @p scope is not a CActionScope or has no readable animation.
+         */
+        std::optional<float> scope_top_animation_time(uintptr_t scope) noexcept
+        {
+            const auto vtable = DMK::memory::read<uintptr_t>(DMK::Address{scope});
+            if (!vtable || !vtable_is(GameClass::ActionScope, *vtable))
+            {
+                return std::nullopt;
+            }
+            const uintptr_t animation = call_get_top_anim(scope);
+            if (animation == 0)
+            {
+                return std::nullopt;
+            }
+            const auto time =
+                DMK::memory::read<float>(DMK::Address{animation + Constants::CANIMATION_SEGMENT_TIME_OFFSET});
+            if (!time || !std::isfinite(*time))
+            {
+                return std::nullopt;
+            }
+            return *time;
+        }
+
+        /**
+         * @brief Turn re-queue mid hook: requests the player's next turn when the playing clip stopped rotating, not on
+         *        the game's half-duration timer.
+         * @details Runs at the `ja` after Update compared the turn fragment's time with half its duration, reached only
+         *          while the installed turn kind is the one the action wants. Leaves any other actor, and a scope whose
+         *          animation cannot be read, to the game. Otherwise steers the `ja` to request the turn once the newest
+         *          animation passed k_turn_requeue_progress, and to fall through to the game's tag check before that.
+         */
+        void detour_turn_requeue(DMK::hook::MidContext &ctx) noexcept
+        {
+            const uintptr_t actor = DMK::hook::gpr(ctx, DMK::hook::Gpr::R15);
+            if (actor == 0 || actor != s_native_turn_actor.load(std::memory_order_relaxed))
+            {
+                return;
+            }
+            const std::optional<float> time = scope_top_animation_time(DMK::hook::gpr(ctx, DMK::hook::Gpr::Rbx));
+            if (time.has_value())
+            {
+                steer_above(ctx, *time >= k_turn_requeue_progress);
+            }
+        }
+
+        /**
+         * @brief Installs the turn re-queue mid hook on the site resolve_turn_requeue_layout finds in Update.
+         * @details Best-effort: without it the game's own timer requests the next turn, which shows only with
+         *          transitions that start a queued turn at once. CActionScope's GetTopAnim comes from the class's RTTI
+         *          vtable and must hold Proof::k_actionScopeGetTopAnim. It is written before the hook arms.
+         */
+        void install_turn_requeue_hook(uintptr_t trigger_return, uintptr_t module_base, size_t module_size,
+                                       DMK::hook::HookStack &hooks)
+        {
+            DMK::Logger &logger = DMK::log();
+            const std::optional<std::uintptr_t> scope_vtable = class_vtable(GameClass::ActionScope);
+            const uintptr_t get_top_anim =
+                scope_vtable.has_value()
+                    ? read_proven_vtable_slot(*scope_vtable, Constants::ACTION_SCOPE_VTABLE_GET_TOP_ANIM_SLOT,
+                                              Proof::k_actionScopeGetTopAnim, module_base, module_size)
+                    : 0;
+            const std::optional<TurnRequeueLayout> layout =
+                get_top_anim != 0 ? resolve_turn_requeue_layout(trigger_return) : std::nullopt;
+            if (!layout.has_value())
+            {
+                logger.warning("Camera: turn re-queue hook skipped (GetTopAnim {}); turns keep the game's own timing",
+                               DMK::format::format_address(get_top_anim));
+                return;
+            }
+            s_get_top_anim = get_top_anim;
+            const auto installed =
+                hooks.install(DMK::hook::MidRequest{.name = "TurnRequeue", .target = DMK::Address{layout->site}},
+                              detour_turn_requeue);
+            if (!installed.has_value())
+            {
+                logger.warning("Camera: turn re-queue hook failed ({}); turns keep the game's own timing",
+                               installed.error().message());
+                return;
+            }
+            logger.info("Camera: turn re-queue hooked at {} (the next turn follows the clip)",
+                        DMK::format::format_address(layout->site));
         }
 
         // The movement request is a QuatT: the rotation (x, y, z, w), then the world translation (x, y, z).
@@ -866,6 +992,8 @@ namespace TPVCamera
 
         // Lets turns finish facing the look instead of resting 35 degrees short. Best-effort.
         install_turn_decision_hook(trigger_return, hooks);
+        // Requests the next turn when the playing clip stopped rotating. Best-effort.
+        install_turn_requeue_hook(trigger_return, module_base, module_size, hooks);
         install_crouched_animation_hook(module_base, module_size, hooks);
     }
 
