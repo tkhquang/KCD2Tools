@@ -84,7 +84,7 @@ A mod ships only what it changes: name a patch after the game file plus your mod
 [list]
 [*][b]In the game:[/b] put a .caf in the framework's DEV folder and run [b]animfw_reload_clips[/b] to play it without a restart; [b]animfw_check_clip[/b] prints what would break it; [b]animfw_make_mod[/b] turns it into a new action set up like a game action, and [b]animfw_pack_mod[/b] writes the finished mod[/*]
 [*][b]Tools (miscellaneous file):[/b] [b]animfw.exe[/b], the command line, does the same without the game running, compiles Blender exports (.i_caf) without rc.exe and keeps every bone a full-body clip needs, and retargets motion capture and other rigs' animations (BVH, FBX: Mixamo, SMPL, Unreal, CMU, 100STYLE) onto Henry's skeleton. [b]AnimFW Studio[/b] (animfw-studio.exe) does it in a window with a mannequin preview, and [b]animfw mcp[/b] serves it to AI assistants[/*]
-[*][b]Blender add-on (miscellaneous file):[/b] for the armatures [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3639]Bohemian Animator[/url] builds: export, check and play the action on Henry in the running game in seconds, retarget mocap onto the armature, make and pack the mod. Play in game needs nothing else installed[/*]
+[*][b]Blender add-on (miscellaneous file):[/b] for the armatures [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3639]Bohemian Animator[/url] builds: export, check and play the action on Henry in the running game in seconds, retarget mocap onto the armature, make and pack the mod.[/*]
 [/list]
 [/spoiler]
 
