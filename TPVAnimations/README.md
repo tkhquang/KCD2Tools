@@ -4,7 +4,8 @@ Third-person animations for Henry. In first person the game's own animations pla
 
 - **Idle gestures:** standing still, Henry stretches, scratches, yawns, spits, looks around and shifts his weight.
   Moving, crouching or turning stops the gesture at once.
-- **Pick your gestures:** each gesture is its own file. Delete the ones you don't want.
+- **Pick your gestures:** each gesture is its own file. Watch them on the [preview page](https://tkhquang.github.io/KCD2Tools/tpv_animations/) and delete the ones
+  you don't want.
 - **Drunk idle** for a drunk Henry.
 - **Torch sprint:** Henry holds the torch low in front of him instead of up.
 - Open source, built on the Animation Framework (built with DetourModKit).
@@ -21,8 +22,9 @@ Install with your mod manager, or extract into `<game>/Mods/`. To uninstall, del
 
 ## Choosing what plays
 
-Each part is its own pak in `Mods/tpv_animations/Data/`. Delete one to remove that part. See every animation, and what it
-replaces, in the [catalog](https://tkhquang.github.io/KCD2Tools/tpv_animations/).
+Each part is its own pak in `Mods/tpv_animations/Data/`. Delete one to remove that part. The
+[preview page](https://tkhquang.github.io/KCD2Tools/tpv_animations/) plays every animation, with its pak, and shows the game's animation next to the ones
+this mod replaces.
 
 | Pak | Contains |
 |---|---|

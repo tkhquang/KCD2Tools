@@ -150,7 +150,7 @@ jobs:
 
           1. Install [Animation Framework](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3981) and a third-person camera mod that sets `mod_camera_view`, such as [TPV Camera](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3263).
           2. Install this archive with your mod manager, or extract it into `<game>/Mods/`.
-          3. To drop a gesture, delete its `Data/tpv_animations_idle_<gesture>.pak`.
+          3. To drop a gesture, delete its `Data/tpv_animations_idle_<gesture>.pak`. The [preview page](https://tkhquang.github.io/KCD2Tools/tpv_animations/) plays every animation.
 
           See the [README](https://github.com/{3}/blob/main/TPVAnimations/README.md) for what each pak holds.
 
