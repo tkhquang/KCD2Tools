@@ -3,10 +3,12 @@
 
 Bumps the version in src/version.hpp, the single source of truth, in the KCSE mod folder's mod.manifest and in the
 Blender add-on's bl_info, and adds release entries to CHANGELOG.md. The release workflow runs it, and it also runs by hand.
+A release that does not publish the Blender add-on passes --skip-addon, so the add-on keeps the version it was last
+published with.
 
 Usage:
   python version_updater.py bump [major|minor|patch] [--changelog "Changelog entry"]
-  python version_updater.py bump patch --title "Title" --changelog-file notes.txt
+  python version_updater.py bump patch --title "Title" --changelog-file notes.txt [--skip-addon]
   python version_updater.py update-changelog --version X.Y.Z --title "Title" --changelog "Changelog entry"
 """
 
@@ -37,9 +39,9 @@ def get_current_version():
     return tuple(int(match.group(1)) for match in matches)
 
 
-def bump_version(part):
-    """Bumps @p part ("major", "minor" or "patch") in version.hpp, mod.manifest and the Blender add-on, and returns the
-    new version."""
+def bump_version(part, bump_addon=True):
+    """Bumps @p part ("major", "minor" or "patch") in version.hpp, mod.manifest and, with @p bump_addon, the Blender
+    add-on, and returns the new version."""
     major, minor, patch = get_current_version()
     if part == "major":
         major, minor, patch = major + 1, 0, 0
@@ -64,7 +66,8 @@ def bump_version(part):
         sys.exit(f"Error: {MANIFEST} has no <version>.")
     VERSION_HEADER.write_text(version_h, encoding="utf-8")
     MANIFEST.write_text(manifest, encoding="utf-8")
-    BLENDER_ADDON.write_text(addon, encoding="utf-8")
+    if bump_addon:
+        BLENDER_ADDON.write_text(addon, encoding="utf-8")
     print(f"Version bumped to {version_str}")
     return version_str
 
@@ -119,6 +122,8 @@ def main():
     bump_parser.add_argument("--changelog", help="Changelog entry for the version")
     bump_parser.add_argument("--changelog-file", type=Path,
                              help="UTF-8 file containing the changelog entry (instead of --changelog)")
+    bump_parser.add_argument("--skip-addon", action="store_true",
+                             help="Leave the Blender add-on's bl_info version as it is (the release does not publish it)")
 
     changelog_parser = subparsers.add_parser("update-changelog", help="Update changelog with current version")
     changelog_parser.add_argument("--version", help="Version to use (defaults to current version)")
@@ -146,7 +151,7 @@ def main():
                 parser.error("--version must use the X.Y.Z format")
 
     if args.command == "bump":
-        version = bump_version(args.part)
+        version = bump_version(args.part, bump_addon=not args.skip_addon)
         if args.changelog:
             update_changelog(version, args.title, args.changelog)
         elif args.title:
