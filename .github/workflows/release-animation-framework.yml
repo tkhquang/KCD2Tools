@@ -122,6 +122,8 @@ jobs:
           "blender=$($blender.ToString().ToLower())" >> $env:GITHUB_OUTPUT
           "changelog_file=$changelogFile" >> $env:GITHUB_OUTPUT
           Write-Host "Since $(if ($baseline) { $baseline } else { 'the first release' }): framework $framework, tools $tools, Blender add-on $blender"
+          # git diff --quiet returns 1 for a changed file set, and the runner would report that last exit code.
+          exit 0
 
       - name: Set up Python
         uses: actions/setup-python@v6
