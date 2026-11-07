@@ -32,6 +32,7 @@
 #include "core/clip_cache.hpp"
 #include "core/clip_header.hpp"
 #include "core/legacy_merge.hpp"
+#include "core/mod_maker.hpp"
 #include "core/text_util.hpp"
 #include "core/zip_reader.hpp"
 #include "core/zip_writer.hpp"
@@ -4322,7 +4323,6 @@ namespace AnimationFramework
             return true;
         }
 
-        constexpr const char *RELOAD_CLIPS_COMMAND = "animfw_reload_clips";
         constexpr const char *RELOAD_CLIPS_HELP =
             "Animation Framework: picks up clips without a restart. Packs the loose .caf, .bspace and .comb files "
             "under KCD2_AnimationFramework_Dev\\Animations\\ (at their game paths), mounts the DEV folder's new paks, "

@@ -3,7 +3,9 @@ Animation mods for Kingdom Come: Deliverance II replace whole game files: the an
 
 [b]Animation Framework[/b] lets them work together. A mod ships only what it changes, and the framework merges every mod's changes into what the game loads. Mods that still ship whole files are merged too.
 
-On its own it changes nothing you can see: install it for the mods that need it. For mod authors it also brings the tools to make animation mods: a clip compiler, a checker, an action maker, retargeting from motion capture and a Blender add-on (see For Mod Authors below).
+On its own it changes nothing you can see: install it for the mods that need it. [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3982]Third-Person Animation Pack[/url] and [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3983]Gesture Wheel[/url] are two. For mod authors it also brings the tools to make animation mods: a clip compiler, a checker, an action maker, retargeting from motion capture and a Blender add-on (see For Mod Authors below).
+
+Questions, mods to share or ideas? Join the [url=https://discord.gg/wzhhsQRnkZ]KCD Modding Community[/url] on Discord.
 
 [youtube]D-ySAs1s0oM[/youtube]
 
@@ -69,6 +71,7 @@ To uninstall, remove the mod folder (KCSE build) or every [b]KCD2_AnimationFrame
 [*][b]NpcActions[/b] - PlayAnim and StopAnim on NPCs[/*]
 [*][b]ThirdPersonVariants[/b] - third-person animations (needs AnimationPatches)[/*]
 [*][b]CustomTags[/b] - mods' own animation tags (needs AnimationPatches); the [b][CustomTags][/b] section ranks them ([b]Priority[/b]) and switches them off ([b]Disabled[/b])[/*]
+[*][b]BlenderBridge[/b] - the Blender add-on's Play in game reaches the running game[/*]
 [/list]
 [/spoiler]
 
@@ -81,7 +84,7 @@ A mod ships only what it changes: name a patch after the game file plus your mod
 [list]
 [*][b]In the game:[/b] put a .caf in the framework's DEV folder and run [b]animfw_reload_clips[/b] to play it without a restart; [b]animfw_check_clip[/b] prints what would break it; [b]animfw_make_mod[/b] turns it into a new action set up like a game action, and [b]animfw_pack_mod[/b] writes the finished mod[/*]
 [*][b]Tools (miscellaneous file):[/b] [b]animfw.exe[/b], the command line, does the same without the game running, compiles Blender exports (.i_caf) without rc.exe and keeps every bone a full-body clip needs, and retargets motion capture and other rigs' animations (BVH, FBX: Mixamo, SMPL, Unreal, CMU, 100STYLE) onto Henry's skeleton. [b]AnimFW Studio[/b] (animfw-studio.exe) does it in a window with a mannequin preview, and [b]animfw mcp[/b] serves it to AI assistants[/*]
-[*][b]Blender add-on (miscellaneous file):[/b] for the armatures [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3639]Bohemian Animator[/url] builds: export, check and play the action on Henry in the running game in seconds, retarget mocap onto the armature, make and pack the mod. Play in game uses the [url=https://github.com/yobson1/kcd2lua]KCD2 Lua runner[/url][/*]
+[*][b]Blender add-on (miscellaneous file):[/b] for the armatures [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3639]Bohemian Animator[/url] builds: export, check and play the action on Henry in the running game in seconds, retarget mocap onto the armature, make and pack the mod. Play in game needs nothing else installed[/*]
 [/list]
 [/spoiler]
 
@@ -90,7 +93,7 @@ A mod ships only what it changes: name a patch after the game file plus your mod
 [*]Check [b]KCD2_AnimationFramework.log[/b] beside WHGame.dll: it lists every patch it merged, every mod clip it registered and every conflict between mods.[/*]
 [*]Set LogLevel = DEBUG under [Settings] and restart the game for more detail.[/*]
 [/list]
-Please [url=https://github.com/tkhquang/KCD2Tools/issues]report issues[/url] with the log, INI, game/mod versions and reproduction steps.
+Please [url=https://github.com/tkhquang/KCD2Tools/issues]report issues[/url] with the log, INI, game/mod versions and reproduction steps, or ask in the [url=https://discord.gg/wzhhsQRnkZ]KCD Modding Community[/url] Discord.
 
 [size=5]Credits & License[/size]
 Built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url] for core functionality.

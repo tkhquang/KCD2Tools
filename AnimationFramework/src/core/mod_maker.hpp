@@ -49,6 +49,10 @@ namespace AnimationFramework
     inline constexpr std::string_view UPPER_BODY_SCOPE = "UpperBody";
     /// The tag that plays a fragment on its own scopes, over what the character does.
     inline constexpr std::string_view OWN_SCOPES_TAG = "animfw_own_scopes";
+    /// The console command that adds an action to a mod made in the DEV folder (mod_maker_console.cpp).
+    inline constexpr const char *MAKE_MOD_COMMAND = "animfw_make_mod";
+    /// The console command that picks up new and changed clips without a restart (hooks/anim_patch.cpp).
+    inline constexpr const char *RELOAD_CLIPS_COMMAND = "animfw_reload_clips";
 
     /** @brief The name of @p modid's upper-body blend space for @p clip (what its option plays). */
     [[nodiscard]] std::string upper_blend_space_name(std::string_view modid, std::string_view clip);

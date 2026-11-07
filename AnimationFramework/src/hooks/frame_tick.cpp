@@ -9,6 +9,7 @@
 #include "mod_maker_console.hpp"
 #include "camera_view.hpp"
 #include "custom_tags.hpp"
+#include "live_bridge.hpp"
 #include "mod_settings.hpp"
 #include "hooks/anim_patch.hpp"
 #include "hooks/hook_install.hpp"
@@ -46,6 +47,9 @@ namespace AnimationFramework
         /** @brief The framework's per-frame work. Main thread only. */
         void run_frame_work() noexcept
         {
+            // First, so the clip reload that a request's animfw_reload_clips asks for runs in
+            // run_anim_patch_frame_work below on the same frame.
+            run_live_bridge_frame_work();
             run_mod_settings_frame_work();
             run_anim_catalog_frame_work();
             run_clip_check_frame_work();

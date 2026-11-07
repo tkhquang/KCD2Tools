@@ -30,7 +30,6 @@ namespace AnimationFramework
     namespace
     {
         constexpr char COMMAND_FAILED[] = "ModMaker: a command failed";
-        constexpr const char *MAKE_COMMAND = "animfw_make_mod";
         constexpr const char *MAKE_HELP =
             "Animation Framework: adds an action to a mod made in the DEV folder. animfw_make_mod <modid> <new "
             "fragment> <clip> <game fragment> [loop] [upper]: the new fragment plays the clip, set up like the game "
@@ -113,7 +112,10 @@ namespace AnimationFramework
             if (words.size() != 4)
             {
                 print(
-                    std::format("usage: {} <modid> <new fragment> <clip> <game fragment> [loop] [upper]", MAKE_COMMAND)
+                    std::format(
+                        "usage: {} <modid> <new fragment> <clip> <game fragment> [loop] [upper]",
+                        MAKE_MOD_COMMAND
+                    )
                 );
                 return;
             }
@@ -323,7 +325,7 @@ namespace AnimationFramework
         {
             return;
         }
-        add_console_command(MAKE_COMMAND, &guarded_command<&make, COMMAND_FAILED>, MAKE_HELP);
+        add_console_command(MAKE_MOD_COMMAND, &guarded_command<&make, COMMAND_FAILED>, MAKE_HELP);
         add_console_command(PACK_COMMAND, &guarded_command<&pack, COMMAND_FAILED>, PACK_HELP);
         s_added = true;
     }
@@ -332,7 +334,7 @@ namespace AnimationFramework
     {
         if (s_added)
         {
-            remove_console_command(MAKE_COMMAND);
+            remove_console_command(MAKE_MOD_COMMAND);
             remove_console_command(PACK_COMMAND);
         }
         s_added = false;

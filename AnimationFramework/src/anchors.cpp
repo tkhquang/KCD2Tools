@@ -255,6 +255,24 @@ namespace AnimationFramework
             Pattern::literal("48 8B 4F 18 33 D2 48 83 C1 10 4C 8B C7 4C 2B C1 42 8A 84 01 90 00 00 00 38 01");
         constexpr std::size_t IS_DIFFERENT_LAYOUT_WINDOW = 0xA0;
 
+        // CScriptSystem::ExecuteBuffer(buffer, size, description, env) (slot 6) at its entry: the frame and
+        // `mov rdi, rcx`, then the lua_load reader data built on the stack from the arguments (`mov [rax-18h], rdx`
+        // the buffer, `mov [rax-10h], r8` the size), the Lua state (`mov rcx, [rcx+10h]`) and the description kept in
+        // r14 (`mov r14, r9`), up to the lua_load call. Then, within its first 0x80 bytes, the load result test, the
+        // LUA_GLOBALSINDEX argument (`mov edx, 0FFFFD8F0h`, -10000) and the null test of the fifth argument
+        // (`mov rcx, [rsp+80h]`, the env), which a null env skips. Together they prove the argument order the bridge
+        // calls it with.
+        constexpr Pattern EXECUTE_BUFFER_BODY = Pattern::literal(
+            "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 50 48 8B F9 48 89 50 E8 "
+            "48 8B 49 10 48 8D 15 ?? ?? ?? ?? 4C 89 40 F0 4D 8B F1 4C 8D 40 E8 E8"
+        );
+        constexpr std::size_t EXECUTE_BUFFER_BODY_LENGTH = 55;
+        constexpr Pattern EXECUTE_BUFFER_LAYOUT = Pattern::literal(
+            "85 C0 75 ?? 48 8B 4F 10 BA F0 D8 FF FF 44 8B 47 58 48 8B 69 10 48 2B 69 18 48 C1 FD 04 E8 ?? ?? ?? ?? "
+            "48 8B 4F 10 8B D5 E8 ?? ?? ?? ?? 48 8B 8C 24 80 00 00 00 48 85 C9 74"
+        );
+        constexpr std::size_t EXECUTE_BUFFER_LAYOUT_WINDOW = 0x80;
+
         /// What an anchor names, which decides the validator it must pass.
         enum class Role : std::uint8_t
         {
@@ -486,6 +504,7 @@ namespace AnimationFramework
             ActionScopeVtable,
             PlayAnimBind,
             StopAnimBind,
+            ScriptSystemVtable,
         };
 
         const Anchor ANCHORS[] = {
@@ -503,9 +522,10 @@ namespace AnimationFramework
             make_vtable("ActionScopeVtable", constants::RTTI_ACTION_SCOPE),
             make_anchor("PlayAnimBind", PLAY_ANIM_BIND, Role::Code),
             make_anchor("StopAnimBind", STOP_ANIM_BIND, Role::Code),
+            make_vtable("ScriptSystemVtable", constants::RTTI_SCRIPT_SYSTEM),
         };
         constexpr std::size_t ANCHOR_COUNT = std::size(ANCHORS);
-        static_assert(static_cast<std::size_t>(AnchorId::StopAnimBind) + 1 == ANCHOR_COUNT);
+        static_assert(static_cast<std::size_t>(AnchorId::ScriptSystemVtable) + 1 == ANCHOR_COUNT);
 
         [[nodiscard]] constexpr std::size_t index_of(AnchorId id) noexcept
         {
@@ -525,6 +545,7 @@ namespace AnimationFramework
             SkeletonMerge,
             ActionScope,
             NpcActions,
+            LiveBridge,
         };
 
         /** @brief A feature and the anchors it needs. It turns on when anchor::evaluate_gate passes over them. */
@@ -557,6 +578,11 @@ namespace AnimationFramework
             AnchorId::PlayAnimBind,
             AnchorId::StopAnimBind,
         };
+        constexpr AnchorId LIVE_BRIDGE_ANCHORS[] = {
+            AnchorId::Genv,
+            AnchorId::ConsoleVtable,
+            AnchorId::ScriptSystemVtable,
+        };
 
         constexpr FeatureSpec FEATURES[] = {
             {"FrameTick", FRAME_TICK_ANCHORS},
@@ -569,9 +595,10 @@ namespace AnimationFramework
             {"SkeletonMerge", SKELETON_MERGE_ANCHORS},
             {"ActionScope", ACTION_SCOPE_ANCHORS},
             {"NpcActions", NPC_ACTION_ANCHORS},
+            {"LiveBridge", LIVE_BRIDGE_ANCHORS},
         };
         constexpr std::size_t FEATURE_COUNT = std::size(FEATURES);
-        static_assert(static_cast<std::size_t>(Feature::NpcActions) + 1 == FEATURE_COUNT);
+        static_assert(static_cast<std::size_t>(Feature::LiveBridge) + 1 == FEATURE_COUNT);
         constexpr std::size_t MAX_FEATURE_ANCHORS = []
         {
             std::size_t most = 0;
@@ -787,6 +814,36 @@ namespace AnimationFramework
             );
             return target;
         }
+
+        /**
+         * @brief CScriptSystem's vtable when its ExecuteBuffer slot checks out at its entry and for its argument
+         *        layout, else 0.
+         * @details The bridge calls the slot through the live object's vtable. Another virtual in slot 6 takes other
+         *          arguments, so a vtable whose slot fails the check turns the bridge off.
+         */
+        [[nodiscard]] std::uintptr_t resolve_script_system(std::uintptr_t vtable, DMK::Region game)
+        {
+            if (vtable == 0)
+            {
+                return 0;
+            }
+            const std::uintptr_t target = slot_of(vtable, constants::SCRIPT_EXECUTE_BUFFER_SLOT, game);
+            if (!is_function_entry(target, game) ||
+                !code_window_matches(target, EXECUTE_BUFFER_BODY, EXECUTE_BUFFER_BODY_LENGTH, game) ||
+                !code_window_matches(target, EXECUTE_BUFFER_LAYOUT, EXECUTE_BUFFER_LAYOUT_WINDOW, game))
+            {
+                DMK::log().warning(
+                    "Anchors: CScriptSystem::ExecuteBuffer did not check out; the Blender add-on cannot reach the game"
+                );
+                return 0;
+            }
+            DMK::log().info(
+                "Anchors: CScriptSystem::ExecuteBuffer at {} (RVA {:#x})",
+                DMK::format::format_address(target),
+                target - game.base.raw()
+            );
+            return vtable;
+        }
     } // namespace
 
     Anchors resolve_anchors(DMK::Region game)
@@ -859,6 +916,8 @@ namespace AnimationFramework
             resolve_is_different(gated(Feature::ActionScope, AnchorId::ActionScopeVtable), game);
         anchors.play_anim_bind = gated(Feature::NpcActions, AnchorId::PlayAnimBind);
         anchors.stop_anim_bind = gated(Feature::NpcActions, AnchorId::StopAnimBind);
+        anchors.script_system_vtable =
+            resolve_script_system(gated(Feature::LiveBridge, AnchorId::ScriptSystemVtable), game);
         return anchors;
     }
 } // namespace AnimationFramework

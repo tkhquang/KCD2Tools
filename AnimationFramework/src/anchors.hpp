@@ -4,7 +4,8 @@
  *
  * The functions resolve through the DMK anchor registry: a ladder of two byte signatures each, a validator that checks
  * the result against the game image and its unwind data, and a feature gate (anchor::evaluate_gate) per part of the
- * framework. The database's virtuals come from its RTTI vtable, each slot checked against the code shapes it must hold.
+ * framework. Engine virtuals (the animation database's, the script system's) come from their RTTI vtables, each slot
+ * checked against the code shapes it must hold.
  */
 #ifndef ANIMFW_ANCHORS_HPP
 #define ANIMFW_ANCHORS_HPP
@@ -62,6 +63,8 @@ namespace AnimationFramework
         std::uintptr_t play_anim_bind = 0;
         /// C_ScriptBindHuman StopAnim: a Henry-only bind the framework opens to NPCs.
         std::uintptr_t stop_anim_bind = 0;
+        /// Primary vtable of CScriptSystem, with its ExecuteBuffer slot checked. The bridge's Lua runs through it.
+        std::uintptr_t script_system_vtable = 0;
     };
 
     /**

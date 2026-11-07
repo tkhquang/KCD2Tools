@@ -21,6 +21,7 @@
 #include "hooks/anim_patch.hpp"
 #include "hooks/frame_tick.hpp"
 #include "hooks/view_variants.hpp"
+#include "live_bridge.hpp"
 #include "npc_actions.hpp"
 #include "version.hpp"
 
@@ -84,12 +85,14 @@ namespace AnimationFramework
         const Anchors anchors = resolve_anchors(game);
         bind_console(anchors.genv, anchors.console_vtable);
         bind_camera_view();
-        // The frame tick carries the late clip registration and the camera-view read. The load-time hooks below work
-        // without it.
-        if (auto ticking = install_frame_tick_hook(anchors.character_manager_update, s_hooks); !ticking.has_value())
+        // The frame tick carries the late clip registration, the camera-view read and the Blender bridge's requests.
+        // The load-time hooks below work without it.
+        const auto ticking = install_frame_tick_hook(anchors.character_manager_update, s_hooks);
+        if (!ticking.has_value())
         {
             logger.warning(
-                "Init: no frame tick ({}); clips register at load only and the camera view is not read",
+                "Init: no frame tick ({}); clips register at load only, the camera view is not read and the Blender "
+                "add-on cannot reach the game",
                 ticking.error().message()
             );
         }
@@ -117,6 +120,14 @@ namespace AnimationFramework
             install_view_variant_hooks(anchors, s_hooks);
         }
         install_npc_actions(anchors, settings.npc_actions, s_hooks);
+        if (!settings.blender_bridge)
+        {
+            logger.info("Bridge: off in the INI; the Blender add-on's Play in game needs the Lua runner");
+        }
+        else if (ticking.has_value())
+        {
+            start_live_bridge(anchors.genv, anchors.script_system_vtable);
+        }
         logger.info("Init: ready");
         return {};
     }
@@ -158,6 +169,8 @@ namespace AnimationFramework
                 .hooks = retirement,
             };
         }
+        // The frame tick that ran its requests is gone, so the worker only has its pipe left to close.
+        stop_live_bridge();
         unbind_camera_view();
         reset_custom_tags();
         unbind_console();

@@ -13,6 +13,7 @@
 
 #include "check.hpp"
 #include "core/anim_catalog.hpp"
+#include "core/bridge_protocol.hpp"
 #include "core/caf_reader.hpp"
 #include "core/clip_check.hpp"
 #include "core/clip_compiler.hpp"
@@ -171,6 +172,58 @@ namespace
         CHECK(pak_mod_id("d:\\games\\kcd2x\\mods\\my_mod\\data\\x.pak", "D:\\Games\\KCD2").empty());
         CHECK(pak_mod_id("mods\\my_mod", "").empty());
         CHECK(pak_mod_id("mods\\\\data\\x.pak", "").empty());
+    }
+
+    void test_bridge_protocol()
+    {
+        using namespace AnimationFramework::bridge;
+        CHECK(is_fragment_name("MyMod_Wave2"));
+        CHECK(!is_fragment_name("2Wave"));
+        CHECK(!is_fragment_name("Wave\")"));
+        CHECK(!is_fragment_name(""));
+        CHECK(!is_fragment_name(std::string(MAX_NAME_LENGTH + 1, 'a')));
+        CHECK(is_clip_name("wave_01"));
+        CHECK(!is_clip_name("Wave"));
+        CHECK(!is_clip_name("wave;x"));
+
+        const auto hello = parse_request("hello");
+        CHECK(hello && hello->operation == Operation::Hello);
+        CHECK(!parse_request("hello\tx"));
+        CHECK(!parse_request(""));
+        CHECK(!parse_request("run\tprint(1)"));
+        CHECK(!parse_request(std::string(MAX_REQUEST_BYTES + 1, 'a')));
+
+        const auto make = parse_request("make\tmy_mod\tMyMod_Wave\tmy_mod_wave\tADLG_Wave\t1\t0");
+        CHECK(make && make->operation == Operation::Make && make->modid == "my_mod" && make->fragment == "MyMod_Wave");
+        CHECK(make && make->clip == "my_mod_wave" && make->like == "ADLG_Wave" && make->loop && !make->upper);
+        CHECK(!parse_request("make\tmy_mod2\tMyMod_Wave\tmy_mod_wave\tADLG_Wave\t1\t0"));
+        CHECK(!parse_request("make\tmy_mod\tMyMod_Wave\tmy_mod_wave\tADLG_Wave\t1\t2"));
+        CHECK(!parse_request("make\tmy_mod\tMyMod_Wave; x\tmy_mod_wave\tADLG_Wave\t1\t0"));
+        CHECK(!parse_request("make\tmy_mod\tMyMod_Wave\tmy_mod_wave\tADLG_Wave\t1"));
+        CHECK(!parse_request("make\tmy_mod\tMyMod_Wave\tmy_mod_wave\tADLG_Wave\t1\t0\t0"));
+
+        const auto play = parse_request("play\tMyMod_Wave\t1");
+        CHECK(play && play->operation == Operation::Play && play->fragment == "MyMod_Wave" && play->upper);
+        CHECK(!parse_request("play\tMyMod_Wave\")\t0"));
+        const auto stop = parse_request("stop");
+        CHECK(stop && stop->operation == Operation::Stop);
+
+        // The Lua matches the add-on's Lua runner fallback, inside the world check and the error hand-off.
+        const std::string played = lua_for(*play);
+        CHECK(played.contains("player.human:PlayAnim(\"MyMod_Wave\", \"animfw_own_scopes\")"));
+        CHECK(played.contains("pcall(function()"));
+        CHECK(played.contains("System.SetCVar(\"animfw_bridge_error\", tostring(message))"));
+        CHECK(played.contains("error(\"no game world: load a save first\", 0)"));
+        CHECK(lua_for(*parse_request("play\tMyMod_Wave\t0")).contains("PlayAnim(\"MyMod_Wave\", \"\")"));
+        CHECK(lua_for(*stop).contains("player.human:StopAnim()"));
+        CHECK(lua_for(*make).contains(
+            "System.ExecuteCommand(\"animfw_make_mod my_mod MyMod_Wave my_mod_wave ADLG_Wave loop\")"
+        ));
+        CHECK(lua_for(*parse_request("make\tmy_mod\tA\tb\tC\t0\t1")).contains("animfw_make_mod my_mod A b C upper\")"));
+        CHECK(lua_for(*parse_request("reload_clips")).contains("System.ExecuteCommand(\"animfw_reload_clips\")"));
+
+        CHECK(answer(true, "done") == "ok\tdone");
+        CHECK(answer(false, "a\tb\nc") == "error\ta b c");
     }
 
     void test_clip_path_hash()
@@ -2520,6 +2573,7 @@ int main(int argc, char **argv)
         return run_delta(argv[1], argv[2], argv[3], argc >= 5 ? argv[4] : nullptr);
     }
     test_text_util();
+    test_bridge_protocol();
     test_clip_path_hash();
     test_clip_header();
     test_clip_cache();

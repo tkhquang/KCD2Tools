@@ -27,6 +27,8 @@ namespace AnimationFramework
         bool third_person_variants{true};
         /// Tags mods declare in their patches to Henry's tag definition (custom_tags.hpp) count.
         bool custom_tags{true};
+        /// The Blender add-on's "Play in game" reaches the live game through a local pipe (live_bridge.hpp).
+        bool blender_bridge{true};
         /// [CustomTags] Priority: tag names, highest first, ranked above every other tag.
         std::string custom_tag_priority;
         /// [CustomTags] Disabled: tag names that never turn on.

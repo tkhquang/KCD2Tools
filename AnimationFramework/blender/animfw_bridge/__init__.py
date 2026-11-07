@@ -218,9 +218,9 @@ class ANIMFW_OT_play(bpy.types.Operator):
     bl_idname = "animfw.play_in_game"
     bl_label = "Play in game"
     bl_description = ("Export into the DEV folder, reload the game's clips, make the action and play it on Henry "
-                      "(needs the game in a world with the Lua runner, vscodelua.asi)")
+                      "(needs the game in a world with the Animation Framework)")
 
-    # Each step sends a console command to the game, then waits for the framework's log line that confirms it.
+    # Each step sends a request to the game, then waits for the framework's log line that confirms it.
     # The operator is modal and polls the log on a timer, so Blender stays responsive while the game works.
     POLL_SECONDS = 0.1
     STEP_TIMEOUT = 30.0
@@ -236,18 +236,16 @@ class ANIMFW_OT_play(bpy.types.Operator):
                 return {"CANCELLED"}
         finally:
             settings.destination = destination
-        make = " ".join(
-            ["animfw_make_mod", settings.mod_id, settings.fragment, settings.clip_name, settings.like] +
-            (["loop"] if settings.loop == "ON" else []) + (["upper"] if settings.upper else []))
+        action = (settings.mod_id, settings.fragment, settings.clip_name, settings.like, settings.loop == "ON",
+                  settings.upper)
         # The database line is the last patch of the reload that matters for Henry. The game finishes the whole
-        # mn_reload inside one console update, so the PlayAnim sent after that line runs on a later frame.
+        # mn_reload inside one console update, so the play sent after that line runs on a later frame.
         self._steps = [
-            ("System.ExecuteCommand('animfw_reload_clips')", "AnimClips: clip reload:", "Reloading the game's clips"),
-            ("System.ExecuteCommand(" + live.lua_string(make) + ")", f"kcd_male_database__{settings.mod_id}.adb",
-             "Making the action"),
+            (live.reload_clips, "AnimClips: clip reload:", "Reloading the game's clips"),
+            (lambda: live.make_action(*action), f"kcd_male_database__{settings.mod_id}.adb", "Making the action"),
         ]
-        tags = "animfw_own_scopes" if settings.upper else ""
-        self._play = f"player.human:PlayAnim({live.lua_string(settings.fragment)}, {live.lua_string(tags)})"
+        fragment, upper = settings.fragment, settings.upper
+        self._play = lambda: live.play(fragment, upper)
         self._fragment = settings.fragment
         self._watch = live.LogWatch(tool.framework_log(preferences(context)))
         self._step = -1
@@ -260,9 +258,9 @@ class ANIMFW_OT_play(bpy.types.Operator):
     def start_next_step(self, context):
         """Sends the next step's command; False after reporting why the game refused it."""
         self._step += 1
-        code, _, what = self._steps[self._step]
+        send, _, what = self._steps[self._step]
         context.workspace.status_text_set(f"AnimFW: {what}...")
-        ok, reply = live.run_lua(code)
+        ok, reply = send()
         if not ok:
             self.report({"ERROR"}, reply)
             context.workspace.status_text_set(None)
@@ -286,7 +284,7 @@ class ANIMFW_OT_play(bpy.types.Operator):
             return self.finish(context, {"CANCELLED"})
         if self._step + 1 < len(self._steps):
             return {"PASS_THROUGH"} if self.start_next_step(context) else self.finish(context, {"CANCELLED"})
-        ok, reply = live.run_lua(self._play)
+        ok, reply = self._play()
         if not ok:
             self.report({"ERROR"}, reply)
             return self.finish(context, {"CANCELLED"})
@@ -300,7 +298,7 @@ class ANIMFW_OT_stop(bpy.types.Operator):
     bl_description = "Stop the action on Henry"
 
     def execute(self, context):
-        ok, reply = live.run_lua("player.human:StopAnim()")
+        ok, reply = live.stop()
         self.report({"INFO"} if ok else {"ERROR"}, "Stopped" if ok else reply)
         return {"FINISHED"} if ok else {"CANCELLED"}
 
