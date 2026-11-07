@@ -1,0 +1,43 @@
+MIT License
+
+Copyright (c) 2026-present Quang Trinh (tkhquang) <khacquang.trinh@gmail.com>
+https://tkhquang.dev
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-------------------------------------------------------------------------------
+
+Game data exclusion
+
+The lists made from the game's data in Scripts/GestureWheel/ (Catalog.lua with
+its bark types, sample lines, reputation changes and item names,
+PropAnimations.lua and UpperBody.lua), and the blend spaces, animation events
+and Mannequin database patches in pack/Data/Animations/ (in this repository,
+and the .pak file in every release), are NOT part of the Software and are NOT
+covered by the MIT License above.
+
+They are taken or made from Kingdom Come: Deliverance II's own data, which
+belongs to Warhorse Studios and PLAION. They are provided only for use with
+Kingdom Come: Deliverance II, under the game's end-user license agreement and
+Warhorse's modding guidelines. No other rights are granted: do not
+redistribute them outside this mod, use them in other games or products, or
+use them commercially.
+
+The MIT License above covers the mod's own code, such as its Lua scripts and
+its user interface movies.

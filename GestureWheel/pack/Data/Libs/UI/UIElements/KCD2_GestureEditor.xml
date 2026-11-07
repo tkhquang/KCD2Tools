@@ -1,0 +1,76 @@
+<UIElements name="KCD2_GestureEditor">
+
+  <!-- The wheel's picker. keyevents gives the movie the raw keys its search box needs, and events_exclusive keeps them
+       from the game while it is open. -->
+  <UIElement name="KCD2_GestureEditor" mouseevents="1" keyevents="1" cursor="1" controller_input="0" events_exclusive="1" force_no_unload="1">
+
+    <GFx file="KCD2_GestureEditor.gfx" layer="41">
+      <Constraints>
+        <Align mode="dynamic" valign="center" halign="center" scale="1" max="0" />
+      </Constraints>
+    </GFx>
+
+    <functions>
+      <function name="SetTitle" funcname="fc_setTitle">
+        <param name="Text" desc="" type="string" />
+      </function>
+      <function name="SetTabs" funcname="fc_setTabs">
+        <param name="Labels" desc="" type="string" />
+      </function>
+      <function name="SetTab" funcname="fc_setTab">
+        <param name="Tab" desc="" type="int" />
+      </function>
+      <function name="SetResults" funcname="fc_setResults">
+        <param name="Results" desc="" type="string" />
+      </function>
+      <function name="SetPostures" funcname="fc_setPostures">
+        <param name="State" desc="" type="string" />
+      </function>
+      <function name="SetFilter" funcname="fc_setFilter">
+        <param name="Label" desc="" type="string" />
+      </function>
+      <function name="SetClear" funcname="fc_setClear">
+        <param name="Label" desc="" type="string" />
+      </function>
+      <function name="SetHelp" funcname="fc_setHelp">
+        <param name="Text" desc="" type="string" />
+      </function>
+      <function name="SetScroll" funcname="fc_setScroll">
+        <param name="State" desc="" type="string" />
+      </function>
+      <function name="SetSummary" funcname="fc_setSummary">
+        <param name="Text" desc="" type="string" />
+      </function>
+      <function name="SetField" funcname="fc_setField">
+        <param name="Text" desc="" type="string" />
+      </function>
+    </functions>
+
+    <events>
+      <event name="OnSearch" fscommand="onSearch">
+        <param name="Text" desc="" type="string" />
+      </event>
+      <event name="OnPick" fscommand="onPick">
+        <param name="Row" desc="" type="string" />
+      </event>
+      <event name="OnTab" fscommand="onTab">
+        <param name="Tab" desc="" type="string" />
+      </event>
+      <event name="OnScroll" fscommand="onScroll">
+        <param name="Delta" desc="" type="string" />
+      </event>
+      <event name="OnScrollTo" fscommand="onScrollTo">
+        <param name="Row" desc="" type="string" />
+      </event>
+      <event name="OnPosture" fscommand="onPosture">
+        <param name="Posture" desc="" type="string" />
+      </event>
+      <event name="OnFilter" fscommand="onFilter" />
+      <event name="OnClear" fscommand="onClear" />
+      <event name="OnSave" fscommand="onSave" />
+      <event name="OnCancel" fscommand="onCancel" />
+    </events>
+
+  </UIElement>
+
+</UIElements>

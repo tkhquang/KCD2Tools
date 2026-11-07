@@ -1,0 +1,71 @@
+<profile version="0">
+	<!-- The wheel's key: hold to open, release to act. Each action runs the console command of its name, which
+	     Scripts/Mods/gesture_wheel.lua adds. exclusivity 0 keeps every other action map working. At gameplay priority
+	     the exclusive maps above it keep the key out of the inventory, the map, menus, dialogue and minigames, while it
+	     still works on a seat and on a horse. The release sits in a map of its own, on only while the wheel is open,
+	     so nothing can take it away from an open wheel. -->
+	<actionmap name="gesture_wheel" priority="gameplay" exclusivity="0">
+		<action consoleCmd="1" name="gesturewheel_open" onPress="1" keyboard="g" />
+		<!-- Gamepad: hold RB, press Y. The game acts on the release of both (talk, the horse whistle, dismount), and
+		     the open wheel's exclusive map takes those releases, so the game never sees them. RB's state comes from
+		     its own press and release here. -->
+		<action consoleCmd="1" name="gesturewheel_pad_hold_down" onPress="1" xboxpad="xi_shoulderr" pspad="pad_r1" />
+		<action consoleCmd="1" name="gesturewheel_pad_hold_up" onRelease="1" xboxpad="xi_shoulderr" pspad="pad_r1" />
+		<action consoleCmd="1" name="gesturewheel_pad_open" onPress="1" xboxpad="xi_y" pspad="pad_triangle" />
+	</actionmap>
+	<!-- Exclusive: while the wheel is open no map below it hears anything (the game is paused anyway), which keeps the
+	     releases of the gamepad's RB and Y from the game. Releasing G or RB acts, B cancels. The right stick picks a slot
+	     through gesture_wheel_pad; its two axes are listed here only to keep them from the camera. -->
+	<actionmap name="gesture_wheel_open" priority="modal_dialog" exclusivity="1">
+		<action consoleCmd="1" name="gesturewheel_release" onRelease="1" keyboard="g" xboxpad="xi_shoulderr" pspad="pad_r1" />
+		<action consoleCmd="1" name="gesturewheel_edit" onPress="1" keyboard="e" />
+		<action consoleCmd="1" name="gesturewheel_cancel" onPress="1" xboxpad="xi_b" pspad="pad_circle" />
+		<action name="gesturewheel_pad_r_x" xboxpad="xi_thumbrx" pspad="pad_stickrx" />
+		<action name="gesturewheel_pad_r_y" xboxpad="xi_thumbry" pspad="pad_stickry" />
+	</actionmap>
+	<!-- The right stick's four directions, always on and above every other map (not exclusive, so the camera and the
+	     menus still get the stick): the wheel picks a slot from them. The camera stick, as the left one, still pushed
+	     when RB is let go, would walk Henry off in the gesture's pose. A direction is on past 0.38 (on) and off back
+	     under 0.3 (the release of a compare past 0.3), so two on at once make a diagonal; at full tilt a diagonal
+	     reaches about 0.6 on each axis after the controller's dead zone. Always on, because an analog compare keeps its
+	     state between events: one whose map was off when the stick came back stays pushed and gives no new press, so
+	     the stick would stop picking. Not the stick's digital directions (xi_thumbr_up...): they press only past 25000
+	     of 32767 (WHGame XInput update), which a diagonal never reaches on both axes. -->
+	<actionmap name="gesture_wheel_pad" priority="platform_interrupt" exclusivity="0">
+		<action consoleCmd="1" name="gesturewheel_pad_r_up_on" onPress="1" useAnalogCompare="1" analogCompareOp="GREATERTHAN" analogCompareVal="0.38" xboxpad="xi_thumbry" pspad="pad_stickry" />
+		<action consoleCmd="1" name="gesturewheel_pad_r_up_off" onRelease="1" useAnalogCompare="1" analogCompareOp="GREATERTHAN" analogCompareVal="0.3" xboxpad="xi_thumbry" pspad="pad_stickry" />
+		<action consoleCmd="1" name="gesturewheel_pad_r_down_on" onPress="1" useAnalogCompare="1" analogCompareOp="LESSTHAN" analogCompareVal="-0.38" xboxpad="xi_thumbry" pspad="pad_stickry" />
+		<action consoleCmd="1" name="gesturewheel_pad_r_down_off" onRelease="1" useAnalogCompare="1" analogCompareOp="LESSTHAN" analogCompareVal="-0.3" xboxpad="xi_thumbry" pspad="pad_stickry" />
+		<action consoleCmd="1" name="gesturewheel_pad_r_right_on" onPress="1" useAnalogCompare="1" analogCompareOp="GREATERTHAN" analogCompareVal="0.38" xboxpad="xi_thumbrx" pspad="pad_stickrx" />
+		<action consoleCmd="1" name="gesturewheel_pad_r_right_off" onRelease="1" useAnalogCompare="1" analogCompareOp="GREATERTHAN" analogCompareVal="0.3" xboxpad="xi_thumbrx" pspad="pad_stickrx" />
+		<action consoleCmd="1" name="gesturewheel_pad_r_left_on" onPress="1" useAnalogCompare="1" analogCompareOp="LESSTHAN" analogCompareVal="-0.38" xboxpad="xi_thumbrx" pspad="pad_stickrx" />
+		<action consoleCmd="1" name="gesturewheel_pad_r_left_off" onRelease="1" useAnalogCompare="1" analogCompareOp="LESSTHAN" analogCompareVal="-0.3" xboxpad="xi_thumbrx" pspad="pad_stickrx" />
+	</actionmap>
+	<!-- On while a gesture plays: the movement keys and jump end it, each through a console command of its name. The
+	     game's own movement keys come from the player's keybinds, which only its maps can read, so these are the
+	     defaults. A gesture with Locked in leaves the map off, and the game's noninteractive map holds Henry in it
+	     instead. It sits one priority above gameplay: on a horse the game's horse_mounted map is exclusive at gameplay
+	     and takes the movement keys, so at gameplay a held gesture on horseback could never end. Not exclusive, so the
+	     keys still reach the horse. -->
+	<actionmap name="gesture_wheel_playing" priority="minigames_ignore_weapon" exclusivity="0">
+		<action consoleCmd="1" name="gesturewheel_stop_forward" onPress="1" keyboard="w" />
+		<action consoleCmd="1" name="gesturewheel_stop_back" onPress="1" keyboard="s" />
+		<action consoleCmd="1" name="gesturewheel_stop_left" onPress="1" keyboard="a" />
+		<action consoleCmd="1" name="gesturewheel_stop_right" onPress="1" keyboard="d" />
+		<action consoleCmd="1" name="gesturewheel_stop_jump" onPress="1" keyboard="space" xboxpad="xi_b" pspad="pad_circle" />
+	</actionmap>
+	<!-- Always on (the stop map above is on only during a gesture): any movement of the left stick past the controller's
+	     dead zone, which ends a gesture playing. Plain presses: on the left stick the game fires them on every change of
+	     the axis, gestures or not, while an analog compare there (useAnalogCompare) does not fire at any priority, and
+	     the stick would slide Henry along in the gesture's pose. This map sits above the game's movement, so the gesture
+	     ends on the same input as the walk begins, as with the W key. -->
+	<actionmap name="gesture_wheel_stick" priority="minigames_ignore_weapon" exclusivity="0">
+		<action consoleCmd="1" name="gesturewheel_move_y" onPress="1" xboxpad="xi_thumbly" pspad="pad_stickly" />
+		<action consoleCmd="1" name="gesturewheel_move_x" onPress="1" xboxpad="xi_thumblx" pspad="pad_sticklx" />
+	</actionmap>
+	<!-- On while the editor is open: exclusive above the game's own maps, so typing in its search box presses no hotkey.
+	     The action is here because a map needs one, and does nothing. -->
+	<actionmap name="gesture_wheel_editor" priority="modal_dialog" exclusivity="1">
+		<action name="gesturewheel_editor_idle" onPress="1" keyboard="f15" />
+	</actionmap>
+</profile>

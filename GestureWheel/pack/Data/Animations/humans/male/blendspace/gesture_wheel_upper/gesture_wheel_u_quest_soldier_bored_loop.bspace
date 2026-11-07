@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="us-ascii"?>
+<ParaGroup>
+  <Dimensions>
+    <Param Name="BlendWeight2" Min="0" Max="1" Cells="9" />
+  </Dimensions>
+  <ExampleList>
+    <Example SetPara0="0" AName="quest_soldier_bored_loop" />
+    <Example SetPara0="1" AName="quest_soldier_bored_loop" />
+  </ExampleList>
+  <Blendable>
+    <Face p0="0" p1="1" />
+  </Blendable>
+  <JointList>
+    <Joint Name="Spine3" />
+    <Joint Name="Spine4" />
+    <Joint Name="Neck" />
+    <Joint Name="Neck1" />
+    <Joint Name="Head" />
+    <Joint Name="HeadEnd" />
+    <Joint Name="eye_right_bone" />
+    <Joint Name="eye_left_bone" />
+    <Joint Name="LeftShoulder" />
+    <Joint Name="LeftArm" />
+    <Joint Name="LeftArmRoll" />
+    <Joint Name="LeftArmRoll1" />
+    <Joint Name="LeftForeArm" />
+    <Joint Name="LeftElbow" />
+    <Joint Name="LeftForeArmRoll" />
+    <Joint Name="LeftForeArmRoll1" />
+    <Joint Name="LeftForeArmRoll2" />
+    <Joint Name="LeftHand" />
+    <Joint Name="LeftInHandPinky" />
+    <Joint Name="LeftInHandRing" />
+    <Joint Name="LeftHandSlot" />
+    <Joint Name="RightShoulder" />
+    <Joint Name="RightArm" />
+    <Joint Name="RightArmRoll" />
+    <Joint Name="RightArmRoll1" />
+    <Joint Name="RightForeArm" />
+    <Joint Name="RightElbow" />
+    <Joint Name="RightForeArmRoll" />
+    <Joint Name="RightForeArmRoll1" />
+    <Joint Name="RightForeArmRoll2" />
+    <Joint Name="RightHand" />
+    <Joint Name="RightInHandPinky" />
+    <Joint Name="RightInHandRing" />
+    <Joint Name="RightHandSlot" />
+    <Joint Name="LeftHandThumb1" />
+    <Joint Name="LeftHandThumb2" />
+    <Joint Name="LeftHandThumb3" />
+    <Joint Name="LeftHandThumb4" />
+    <Joint Name="LeftHandIndex1" />
+    <Joint Name="LeftHandIndex2" />
+    <Joint Name="LeftHandIndex3" />
+    <Joint Name="LeftHandIndex4" />
+    <Joint Name="LeftHandMiddle1" />
+    <Joint Name="LeftHandMiddle2" />
+    <Joint Name="LeftHandMiddle3" />
+    <Joint Name="LeftHandMiddle4" />
+    <Joint Name="LeftHandRing1" />
+    <Joint Name="LeftHandRing2" />
+    <Joint Name="LeftHandRing3" />
+    <Joint Name="LeftHandRing4" />
+    <Joint Name="LeftHandPinky1" />
+    <Joint Name="LeftHandPinky2" />
+    <Joint Name="LeftHandPinky3" />
+    <Joint Name="LeftHandPinky4" />
+    <Joint Name="RightHandThumb1" />
+    <Joint Name="RightHandThumb2" />
+    <Joint Name="RightHandThumb3" />
+    <Joint Name="RightHandThumb4" />
+    <Joint Name="RightHandIndex1" />
+    <Joint Name="RightHandIndex2" />
+    <Joint Name="RightHandIndex3" />
+    <Joint Name="RightHandIndex4" />
+    <Joint Name="RightHandMiddle1" />
+    <Joint Name="RightHandMiddle2" />
+    <Joint Name="RightHandMiddle3" />
+    <Joint Name="RightHandMiddle4" />
+    <Joint Name="RightHandRing1" />
+    <Joint Name="RightHandRing2" />
+    <Joint Name="RightHandRing3" />
+    <Joint Name="RightHandRing4" />
+    <Joint Name="RightHandPinky1" />
+    <Joint Name="RightHandPinky2" />
+    <Joint Name="RightHandPinky3" />
+    <Joint Name="RightHandPinky4" />
+  </JointList>
+</ParaGroup>
