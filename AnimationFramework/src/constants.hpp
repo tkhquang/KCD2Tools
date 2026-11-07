@@ -39,6 +39,14 @@ namespace AnimationFramework::constants
     inline constexpr const wchar_t *DEV_PAK_DIR = L"KCD2_AnimationFramework_Dev";
     /// The mod clip summary cache next to the game executable (core/clip_cache.hpp), which is safe to delete.
     inline constexpr const char *CLIP_CACHE_FILE = "KCD2_AnimationFramework.clipcache";
+    /// The local pipe the Blender add-on sends its requests to (live_bridge.hpp).
+    inline constexpr const char *BRIDGE_PIPE_NAME = "\\\\.\\pipe\\KCD2_AnimationFramework";
+    /// The pipe's buffer in each direction. A request or an answer is one message well below it.
+    inline constexpr unsigned long BRIDGE_PIPE_BUFFER_BYTES = 4096;
+    /// How long a request waits for the main thread's next frame before it is withdrawn.
+    inline constexpr std::chrono::milliseconds BRIDGE_FRAME_DEADLINE{10000};
+    /// How long the listener waits before it tries again for a pipe name another process still holds.
+    inline constexpr std::chrono::milliseconds BRIDGE_RETRY_INTERVAL{2000};
 
     /// MSVC-mangled RTTI type names, the source of the vtables the anchors resolve.
     inline constexpr const char *RTTI_CHARACTER_MANAGER = ".?AVCharacterManager@@";
@@ -46,9 +54,14 @@ namespace AnimationFramework::constants
     inline constexpr const char *RTTI_CONSOLE = ".?AVCXConsole@@";
     inline constexpr const char *RTTI_READ_ONLY_CHUNK_FILE = ".?AVCReadOnlyChunkFile@@";
     inline constexpr const char *RTTI_ACTION_SCOPE = ".?AVCActionScope@@";
+    inline constexpr const char *RTTI_SCRIPT_SYSTEM = ".?AVCScriptSystem@@";
 
-    /// SSystemGlobalEnvironment (gEnv) member offsets: I3DEngine, ICryPak, IConsole and the CharacterManager.
+    /**
+     * @brief SSystemGlobalEnvironment (gEnv) member offsets: I3DEngine, IScriptSystem, ICryPak, IConsole and the
+     *        CharacterManager.
+     */
     inline constexpr std::ptrdiff_t GENV_3D_ENGINE_OFFSET = 0x08;
+    inline constexpr std::ptrdiff_t GENV_SCRIPT_SYSTEM_OFFSET = 0x28;
     inline constexpr std::ptrdiff_t GENV_CRYPAK_OFFSET = 0x50;
     inline constexpr std::ptrdiff_t GENV_CONSOLE_OFFSET = 0xA8;
     inline constexpr std::ptrdiff_t GENV_CHARACTER_MANAGER_OFFSET = 0xD0;
@@ -137,6 +150,15 @@ namespace AnimationFramework::constants
     inline constexpr std::size_t CVAR_SET_STRING_SLOT = 9;
     inline constexpr std::size_t COMMAND_ARGS_COUNT_SLOT = 1;
     inline constexpr std::size_t COMMAND_ARGS_GET_SLOT = 2;
+
+    /**
+     * @brief CScriptSystem slot 6 is ExecuteBuffer(buffer, size, description, env), the same on the Steam 1.5.6, GOG
+     *        1.5 and Game Pass 1.4 builds (Steam 0x1804D4484, GOG 0x180C66E70, Game Pass 0x18087FB94).
+     * @details It loads the buffer as a Lua chunk named by the description and runs it on the main state. It returns
+     *          false on a load or run error, and the engine's error handler writes the message and the call stack to
+     *          kcd.log. Slot 5 next to it is ExecuteFile.
+     */
+    inline constexpr std::size_t SCRIPT_EXECUTE_BUFFER_SLOT = 6;
 
     /**
      * @brief CryEngine's DynArray is one pointer to its elements, with the element count in the int32 before them

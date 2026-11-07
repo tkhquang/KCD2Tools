@@ -49,6 +49,7 @@ endfunction()
 # compiler and the mod maker): plain C++ with no game, Windows or DetourModKit dependency.
 add_library(animfw_core STATIC
   src/core/anim_catalog.cpp
+  src/core/bridge_protocol.cpp
   src/core/caf_reader.cpp
   src/core/clip_check.cpp
   src/core/clip_compiler.cpp
@@ -191,6 +192,7 @@ set(COMMON_SOURCES
   src/console_vars.cpp
   src/custom_tags.cpp
   src/forced_options.cpp
+  src/live_bridge.cpp
   src/mod_settings.cpp
   src/npc_actions.cpp
   src/version.cpp
@@ -205,7 +207,7 @@ set(COMMON_SOURCES
 function(configure_logic_target target)
   configure_mod_compile(${target})
   target_include_directories(${target} PRIVATE src)
-  target_link_libraries(${target} PRIVATE animfw_core DetourModKit user32 kernel32)
+  target_link_libraries(${target} PRIVATE animfw_core DetourModKit user32 kernel32 advapi32)
   target_compile_options(${target} PRIVATE $<$<CONFIG:Release>:/O2 /Gy /Gw>)
   target_link_options(${target} PRIVATE $<$<CONFIG:Release>:/OPT:REF /OPT:ICF>)
 endfunction()

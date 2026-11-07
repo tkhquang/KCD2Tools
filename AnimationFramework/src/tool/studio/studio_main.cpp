@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <exception>
 #include <filesystem>
 #include <format>
@@ -138,10 +139,38 @@ namespace
         ImGui::EndChild();
     }
 
+    /** @brief `--render`: a clip drawn on the mannequin, saved as one PNG per frame instead of shown in a window. */
+    struct RenderRequest
+    {
+        std::string clip;
+        fs::path out;
+        int width = 480;
+        int height = 640;
+        double from = 0.0;    ///< Seconds into the clip.
+        double to = -1.0;     ///< Seconds into the clip; below zero: its end.
+        int every = 1;        ///< Saves every n-th frame.
+        float yaw = 1.25F;    ///< The camera's turn around Henry, in radians.
+        float pitch = 0.18F;  ///< The camera's height angle, in radians.
+        float distance = 3.0F;
+        /// A clip played over it on a layer, as a HoldItem overlay plays: the bones it keys follow it instead.
+        std::string overlay;
+    };
+
     /** @brief The Studio window: the game, the mod, the tabs and the mannequin viewport. */
     class Studio
     {
     public:
+        /**
+         * @brief Renders @p request's clip on the mannequin in a hidden window, one PNG per frame
+         *        (`frame_0000.png`, ...) in its out folder. Returns the process exit code.
+         */
+        int render(const RenderRequest &request);
+        /**
+         * @brief Lays the clip @p name over the loaded clip, as a layer in the game would: every bone it keys takes
+         *        its keys, repeated over the loaded clip's length when it is shorter. False when it is not found.
+         */
+        bool apply_overlay(const std::string &name);
+
         /**
          * @brief A clip (and a reference) to check and play once the game has loaded, from "Open with" or the command
          *        line. A `.bvh` or `.fbx` opens the Retarget tab instead.
@@ -1047,10 +1076,194 @@ namespace
         rlImGuiShutdown();
         CloseWindow();
     }
+
+    bool Studio::apply_overlay(const std::string &name)
+    {
+        auto found = m_game->find_clip(name, mod_folder());
+        if (!found)
+        {
+            std::fprintf(stderr, "%s\n", found.error().c_str());
+            return false;
+        }
+        CafClip &base = m_clip->found.clip;
+        const CafClip &overlay = found->clip;
+        const int base_length = std::max(base.end_frame - base.start_frame, 1);
+        const int overlay_length = std::max(overlay.end_frame - overlay.start_frame, 1);
+        for (const ClipTrack &track : overlay.tracks)
+        {
+            ClipTrack tiled{.controller = track.controller};
+            for (int start = 0; start <= base_length; start += overlay_length)
+            {
+                const double shift = base.start_frame + start - overlay.start_frame;
+                for (std::size_t k = 0; k < track.rotation_frames.size(); ++k)
+                {
+                    tiled.rotation_frames.push_back(track.rotation_frames[k] + shift);
+                    tiled.rotations.push_back(track.rotations[k]);
+                }
+                for (std::size_t k = 0; k < track.position_frames.size(); ++k)
+                {
+                    tiled.position_frames.push_back(track.position_frames[k] + shift);
+                    tiled.positions.push_back(track.positions[k]);
+                }
+            }
+            std::erase_if(base.tracks, [&](const ClipTrack &t) { return t.controller == track.controller; });
+            base.tracks.push_back(std::move(tiled));
+        }
+        m_clip->poser = std::make_unique<ClipPoser>(*m_game->skeleton(), base);
+        return true;
+    }
+
+    int Studio::render(const RenderRequest &request)
+    {
+        SetTraceLogLevel(LOG_WARNING);
+        SetConfigFlags(FLAG_WINDOW_HIDDEN);
+        InitWindow(request.width, request.height, "AnimFW Studio render");
+        m_yaw = request.yaw;
+        m_pitch = request.pitch;
+        m_distance = request.distance;
+        m_show_reference = false;
+        load_game();
+        int code = 0;
+        if (!m_mannequin)
+        {
+            std::fprintf(stderr, "%s\n", m_game_status.c_str());
+            code = 1;
+        }
+        else if (load_preview(request.clip, false); !m_clip)
+        {
+            for (const ReportLine &line : m_report)
+            {
+                std::fprintf(stderr, "%s\n", line.text.c_str());
+            }
+            code = 1;
+        }
+        else if (!request.overlay.empty() && !apply_overlay(request.overlay))
+        {
+            code = 1;
+        }
+        else
+        {
+            const CafClip &clip = m_clip->found.clip;
+            const double frames = std::max(clip.end_frame - clip.start_frame, 1);
+            const double rate = frames / std::max(clip.seconds(), 1e-6);
+            const double first = std::clamp(request.from * rate, 0.0, frames);
+            const double last = request.to < 0.0 ? frames : std::clamp(request.to * rate, first, frames);
+            std::error_code error;
+            fs::create_directories(request.out, error);
+            // The camera eases toward the hips: settle it on the first frame before saving any.
+            m_time = first;
+            for (int i = 0; i < 60; ++i)
+            {
+                render_scene(request.width, request.height);
+            }
+            int saved = 0;
+            for (double frame = first; frame <= last; frame += std::max(request.every, 1))
+            {
+                m_time = frame;
+                render_scene(request.width, request.height);
+                Image image = LoadImageFromTexture(m_view.texture);
+                ImageFlipVertical(&image);
+                const fs::path path = request.out / std::format("frame_{:04}.png", saved++);
+                ExportImage(image, path.string().c_str());
+                UnloadImage(image);
+            }
+            std::printf("%d frames at %.3f fps from %s\n", saved, rate / std::max(request.every, 1), clip_stem(m_clip->found.path).c_str());
+        }
+        m_clip.reset();
+        m_mannequin.reset();
+        if (m_view.id != 0)
+        {
+            UnloadRenderTexture(m_view);
+        }
+        CloseWindow();
+        return code;
+    }
+
+    /** @brief Parses `--render <clip> <out folder> [--size WxH] [--from s] [--to s] [--every n] [--yaw r]
+     *         [--pitch r] [--distance m]`. */
+    [[nodiscard]] std::optional<RenderRequest> parse_render(int argc, char **argv)
+    {
+        if (argc < 4)
+        {
+            return std::nullopt;
+        }
+        RenderRequest request{.clip = argv[2], .out = fs::path{argv[3]}};
+        for (int i = 4; i + 1 < argc; i += 2)
+        {
+            const std::string_view key = argv[i];
+            const std::string value = argv[i + 1];
+            if (key == "--size")
+            {
+                const std::size_t x = value.find('x');
+                if (x == std::string::npos)
+                {
+                    return std::nullopt;
+                }
+                request.width = std::stoi(value.substr(0, x));
+                request.height = std::stoi(value.substr(x + 1));
+            }
+            else if (key == "--from")
+            {
+                request.from = std::stod(value);
+            }
+            else if (key == "--to")
+            {
+                request.to = std::stod(value);
+            }
+            else if (key == "--every")
+            {
+                request.every = std::stoi(value);
+            }
+            else if (key == "--yaw")
+            {
+                request.yaw = std::stof(value);
+            }
+            else if (key == "--pitch")
+            {
+                request.pitch = std::stof(value);
+            }
+            else if (key == "--overlay")
+            {
+                request.overlay = value;
+            }
+            else if (key == "--distance")
+            {
+                request.distance = std::stof(value);
+            }
+            else
+            {
+                return std::nullopt;
+            }
+        }
+        return request;
+    }
 } // namespace
 
 int main(int argc, char **argv)
 {
+    if (argc > 1 && std::string_view{argv[1]} == "--render")
+    {
+        try
+        {
+            const std::optional<RenderRequest> request = parse_render(argc, argv);
+            if (!request)
+            {
+                std::fprintf(
+                    stderr,
+                    "usage: animfw-studio --render <clip> <out folder> [--size WxH] [--from s] [--to s] [--every n] "
+                    "[--yaw r] [--pitch r] [--distance m]\n"
+                );
+                return 2;
+            }
+            Studio studio;
+            return studio.render(*request);
+        }
+        catch (const std::exception &error)
+        {
+            std::fprintf(stderr, "%s\n", error.what());
+            return 1;
+        }
+    }
     Studio studio;
     studio.open_on_start(argc > 1 ? argv[1] : "", argc > 2 ? argv[2] : "");
     studio.run();
