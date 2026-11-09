@@ -2,6 +2,14 @@
 
 All notable changes to the SoundFramework mod will be documented in this file.
 
+## [1.4.0] - Lip Sync for Mod Cutscenes
+
+- New: mouths now move in mods' own cutscenes, in every language.
+- New: `sfw_cutscene_actors` console command sets who speaks a cutscene line.
+- Fixed: lines with no mouth animation now move the mouth in English too, including about 3,600 of the game's own.
+- New: optional **Sound Framework Fixes** download for the game's own sound bugs. It works without the framework.
+- Fixed (Sound Framework Fixes): sword draw and sheathe sounds no longer go silent after fighting someone with a mace or club.
+
 ## [1.3.0] - Volume Controls and Mod Compatibility
 
 - New volume settings for conversation, bark and cutscene voices, mods' lines included.
@@ -49,6 +57,7 @@ All notable changes to the SoundFramework mod will be documented in this file.
 - Saving a pack or the settings INI applies it while playing.
 - Ships as an ASI and as a KCSE plugin.
 
+[1.4.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/SoundFramework-v1.4.0
 [1.3.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/SoundFramework-v1.3.0
 [1.2.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/SoundFramework-v1.2.0
 [1.1.1]: https://github.com/tkhquang/KCD2Tools/releases/tag/SoundFramework-v1.1.1
