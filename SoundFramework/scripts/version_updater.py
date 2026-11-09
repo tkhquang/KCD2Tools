@@ -6,7 +6,8 @@ This script provides a complete solution for version management:
 1. Bumps the version in version.hpp (the single source of truth)
 2. Updates the CHANGELOG.md file with new release information
 3. Updates version in KCD2_SoundFramework_Readme.txt
-4. Can be run manually or through GitHub Actions
+4. Updates version in pack/mod.manifest (the Sound Framework Fixes mod)
+5. Can be run manually or through GitHub Actions
 
 Usage:
   python version_updater.py bump [major|minor|patch] [--changelog "Changelog entry"]
@@ -24,6 +25,7 @@ BASE_DIR = Path(__file__).parent.parent
 VERSION_HEADER = BASE_DIR / "src" / "version.hpp"
 CHANGELOG_MD = BASE_DIR / "CHANGELOG.md"
 README_TXT = BASE_DIR / "build" / "template" / "KCD2_SoundFramework_Readme.txt"
+FIXES_MANIFEST = BASE_DIR / "pack" / "mod.manifest"
 
 def get_current_version():
     """Parse version.hpp to extract version information."""
@@ -128,6 +130,16 @@ def update_readme_txt(version):
         import traceback
         traceback.print_exc()
         sys.exit(1)
+
+def update_fixes_manifest(version):
+    """Keep the Sound Framework Fixes mod.manifest version in step with the framework."""
+    content = FIXES_MANIFEST.read_text(encoding="utf-8")
+    updated, count = re.subn(r"<version>\s*[0-9]+\.[0-9]+\.[0-9]+\s*</version>", f"<version>{version}</version>", content)
+    if count != 1:
+        print(f"Error: expected one <version> tag in {FIXES_MANIFEST}, found {count}.")
+        sys.exit(1)
+    FIXES_MANIFEST.write_text(updated, encoding="utf-8")
+    print(f"Updated {FIXES_MANIFEST}")
 
 def update_changelog(version, title="", changelog_entry=""):
     """Update CHANGELOG.md with a new version entry and maintain proper structure."""
@@ -276,6 +288,7 @@ def main():
         version = bump_version(args.part)
         # Update KCD2_SoundFramework_Readme.txt with the new version
         update_readme_txt(version)
+        update_fixes_manifest(version)
         if args.changelog:
             update_changelog(version, args.title, args.changelog)
         elif args.title:

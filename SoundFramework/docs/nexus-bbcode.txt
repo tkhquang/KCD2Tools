@@ -76,6 +76,12 @@ Mods/
             \-- KCD2_SoundFramework_lipmodel.bin
 [/code]
 
+[size=4]Optional: Sound Framework Fixes[/size]
+The [b]Sound Framework Fixes[/b] file in the Files tab fixes the game's own sound bugs. It works with or without the framework: install it with your mod manager, or extract it into your [b]Mods[/b] folder.
+[list]
+[*]Longsword draw and sheathe sounds no longer go silent after a fight with an NPC that uses a wooden or blunt weapon.[/*]
+[/list]
+
 [size=4]Verify[/size]
 Load a save, then open [b]KCD2_SoundFramework.log[/b] beside the mod's DLL or ASI. It lists every sound pack the framework found and any problem in them.
 

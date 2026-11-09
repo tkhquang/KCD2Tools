@@ -77,6 +77,12 @@ Mods/
             \-- KCD2_SoundFramework.log    (created when the mod loads)
 ```
 
+### Optional: Sound Framework Fixes
+
+`KCD2_SoundFramework_Fixes_vX.Y.Z.zip` fixes the game's own sound bugs. It works with or without the framework: install it with a mod manager, or extract it into `<KC:D 2 installation folder>/Mods/` (it lands in `Mods/soundframework_fixes/`).
+
+- Longsword draw and sheathe sounds no longer go silent after a fight with an NPC that uses a wooden or blunt weapon. The game only plays them while its last opponent's weapon counts as metal and keeps that value after the fight.
+
 ### Verify
 
 After loading a save, open `KCD2_SoundFramework.log` beside the mod's DLL or ASI. It lists every pack the framework found and any problem in them.

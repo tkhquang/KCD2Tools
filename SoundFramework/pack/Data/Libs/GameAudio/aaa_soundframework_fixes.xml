@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="us-ascii"?>
+<!--
+  Sound Framework Fixes: vanilla sound bug fixes.
+  The trigger parser skips an atl_name that is already registered (audio log: trigger "..." already exists!), and
+  CryPak lists Libs/GameAudio/*.xml from every pak in sorted file-name order. The "aaa_" prefix therefore makes these
+  definitions load, and win, before the vanilla ones in combat.xml.
+
+  sword_mat / sword_mat_opponent select an FmodEvent by switch state: 0 = metal, 1 = wood, -1 = any.
+
+  Longsword draw/sheathe: vanilla requires sword_mat_opponent = metal. The game sets that switch on Henry from the
+  current opponent's weapon only while he has one, so after a fight with a wooden weapon (clubs, and maces, axes and
+  polearms whose shaft counts as wood) both sounds stay silent until a fight with a metal weapon or a restart. The
+  opponent check is dropped; Henry's own weapon must still be metal, so wooden swords stay silent as in vanilla.
+-->
+<ATLConfig atl_name="aaa_soundframework_fixes">
+	<AudioTriggers>
+		<ATLTrigger atl_name="c_w_sword_draw" path="c_w_sword">
+			<FmodEvent fmod_id="3563054" fmod_name="event:/combat/weapons/sword/draw" distance_culling="15" osh_preset="-1" pausable="0" sword_mat="0" sword_mat_opponent="-1" />
+		</ATLTrigger>
+		<ATLTrigger atl_name="c_w_sword_holster" path="c_w_sword">
+			<FmodEvent fmod_id="606022" fmod_name="event:/combat/weapons/sword/holster" distance_culling="15" osh_preset="-1" pausable="0" sword_mat="0" sword_mat_opponent="-1" />
+		</ATLTrigger>
+	</AudioTriggers>
+</ATLConfig>
