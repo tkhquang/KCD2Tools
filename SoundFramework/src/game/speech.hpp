@@ -109,17 +109,26 @@ namespace SoundFramework::game::speech
     void set_dubbed_voices(DubbedVoices mode) noexcept;
 
     /**
-     * @brief Whether the framework animates the mouths of the game's own voice lines now: [LipSync] DubbedVoices, and
-     *        for AUTO whether the voice language has facial animation of its own.
-     * @note Main thread only, from the Speak hook, before the game's Speak runs.
+     * @brief Whether the framework can move the mouths of the lines the game plays now: the Speech feature and the lip
+     *        drive are installed, and no sfw_say is inside the game's Speak.
+     * @note Main thread only.
+     */
+    [[nodiscard]] bool follows_game_lines();
+
+    /**
+     * @brief Whether the voice also drives the mouths of the game's lines that have lip-sync animation:
+     *        follows_game_lines(), and [LipSync] DubbedVoices (for AUTO, whether the voice language lacks facial
+     *        animation of its own).
+     * @note Main thread only.
      */
     [[nodiscard]] bool drives_game_lines();
 
     /**
-     * @brief After the game's Speak played its own line @p voice_path through @p speak_man: the mouth from the voice,
-     *        in place of the game's lip-sync animation. A speaker farther from the camera than the engine animates
-     *        faces keeps the game's face.
-     * @note Main thread only, from the Speak hook, when drives_game_lines() said so.
+     * @brief After the game's Speak played its line @p voice_path through @p speak_man: the voice drives the mouth when
+     *        Speak found no lip-sync animation for the line (such as a mod's own recording), or when
+     *        drives_game_lines() replaces the animation. Otherwise, and for a speaker farther from the camera than the
+     *        engine animates faces, the game's face stays.
+     * @note Main thread only, from the Speak hook, when follows_game_lines() said so before Speak ran.
      */
     void follow_game_line(const void *speak_man, const std::string &voice_path);
 
@@ -135,7 +144,7 @@ namespace SoundFramework::game::speech
      * @brief A cutscene voice line @p voice_file (localization path plus .ogg) has just started its sound: its voice
      *        drives the mouths of @p faces from now on, in place of the cutscene's own articulation.
      * @return An id for end_cutscene_line(), or 0 when no face started.
-     * @note Main thread only, when drives_game_lines() said so.
+     * @note Main thread only, when follows_game_lines() said so.
      */
     [[nodiscard]] std::uint64_t
     follow_cutscene_line(const std::string &voice_file, const std::vector<CutsceneFace> &faces);

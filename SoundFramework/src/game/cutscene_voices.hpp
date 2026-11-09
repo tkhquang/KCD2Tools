@@ -6,7 +6,8 @@
  * never through an actor's speak manager, and their English mouths are baked into each actor's cutscene animation. The
  * game keeps no link from a line to the actor who says it, so the cutscene speaker table (packs/cutscene_table.hpp)
  * supplies it. When the game's lines get voice-driven mouths (speech::drives_game_lines()), each cutscene line drives
- * the faces its table rows name.
+ * the faces its table rows name. A line outside the table, such as a mod cutscene's, drives the speakers that
+ * sfw_cutscene_actors or a pack line's CutsceneActors names, in every language.
  */
 #ifndef SNDFW_GAME_CUTSCENE_VOICES_HPP
 #define SNDFW_GAME_CUTSCENE_VOICES_HPP
@@ -14,6 +15,9 @@
 #include "anchors.hpp"
 
 #include <filesystem>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace SoundFramework::game::cutscene_voices
 {
@@ -43,6 +47,14 @@ namespace SoundFramework::game::cutscene_voices
      * @note Main thread only.
      */
     void on_frame() noexcept;
+
+    /**
+     * @brief Names the entities whose mouths follow @p voice (a voice path or file name) when a cutscene plays it, for
+     *        this session, ahead of any pack line's CutsceneActors. An empty list forgets the voice. A line of the
+     *        speaker table keeps the table's faces.
+     * @note Main thread only (sfw_cutscene_actors).
+     */
+    void set_session_actors(std::string_view voice, std::vector<std::string> actors);
 
     /**
      * @brief Drops the table, the queue and the running lines; later event starts pass through.

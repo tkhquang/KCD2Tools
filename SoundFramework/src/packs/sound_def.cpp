@@ -513,6 +513,13 @@ namespace SoundFramework::packs
                     }
                     line.mood_poses = std::move(*poses);
                 }
+                else if (iequals(key, "CutsceneActors"))
+                {
+                    for (const std::string_view item : split_list(entry.value))
+                    {
+                        line.cutscene_actors.emplace_back(item);
+                    }
+                }
                 else if (iequals(key, "ReplacesVoice"))
                 {
                     for (const std::string_view item : split_list(entry.value))

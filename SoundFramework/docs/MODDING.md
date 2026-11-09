@@ -167,6 +167,7 @@ MoodStrength = 0.8
 | `MoodStrength` | `1` | 0 to 2; scales every weight of the mood. Below 1 tones it down, above 1 exaggerates it, up to the mood's `MaxStrength`. |
 | `MoodPoses` | | Extra pose weights, or ones that override the mood's. Without `Mood`, a mood of the line's own. |
 | `ReplacesVoice` | | Game voice lines this line plays instead of (see below). |
+| `CutsceneActors` | | Entity names whose mouths move when your cutscene plays one of this line's recordings (see Lip movement in your cutscenes). |
 
 ### Recordings and text
 
@@ -239,6 +240,22 @@ Your voice lines move the speaker's mouth automatically; there is nothing to set
 
 `OffsetMs` (or `sfw_lipsync_offset <ms>` in the console) moves the mouth earlier or later than the sound.
 
+Your recordings that the game's own dialogue and quests speak, without a pack, move the mouth too: any line the game has no lip-sync animation for gets it from the voice, in every language.
+
+### Lip movement in your cutscenes
+
+A cutscene plays its voice lines from a Voice track in its sequence, not through an NPC, so the game knows no speaker for them. Name the actors yourself with `CutsceneActors`: whenever a cutscene plays one of the line's recordings, those entities' mouths follow it, in every language.
+
+```ini
+[my_mod_scene_greeting]
+Voice = Localization/dialog/my_mod/mymd_scene_hello_01
+CutsceneActors = my_mod_scene_henry
+```
+
+The Voice key in the sequence refers to the same recording, `Localization/dialog/my_mod/mymd_scene_hello_01.ogg`. The actors are entity names, such as the doubles your scene spawns. Name only your own recordings: the game's cutscene lines keep the game's mouths.
+
+Without a pack line, `sfw_cutscene_actors <voice> <entity> [entity ...]` names the actors for the rest of the session, ahead of any `CutsceneActors`. The voice is the recording's path or file name. With no entities, the framework forgets the voice. The Animation Framework's cutscenes send it from their `speakers` field (see its [cutscene guide](../../AnimationFramework/docs/CUTSCENES.md#playing-a-scene)).
+
 ## Console commands
 
 | Command | What it does |
@@ -247,6 +264,7 @@ Your voice lines move the speaker's mouth automatically; there is nothing to set
 | `sfw_stop <sound>` | Stops every playing copy of a sound. |
 | `sfw_stop_all` | Stops every framework sound. |
 | `sfw_say <entity> <line or voice path> ...` | An NPC says a voice line (see Saying a line). |
+| `sfw_cutscene_actors <voice> [entity ...]` | Names the actors whose mouths follow a recording in a cutscene, for the session. No entities forgets it (see Lip movement in your cutscenes). |
 | `sfw_mood_override <mood> [pose:weight ...]` | Changes a mood until the next reload. |
 | `sfw_mood_dump <mood>` | Writes a mood's poses to the log. |
 | `sfw_lipsync_offset <ms>` | Moves the mouth earlier (positive) or later (negative). |

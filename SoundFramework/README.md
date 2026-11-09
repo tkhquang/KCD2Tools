@@ -22,7 +22,7 @@ Questions, packs to share or ideas? Join the [KCD Modding Community](https://dis
 - **Voice lines:** NPCs speak a pack's lines through the game's own speech system, with a bottom subtitle and speaker name, a chat bubble, or both
 - **Voice replacement:** play a pack line instead of a game voice line, by exact key or by pattern
 - **Volume:** separate volume settings for conversation, bark and cutscene voices, and packs that make chosen game sounds quieter or louder
-- **Lip sync:** a pack's lines move the speaker's mouth, either with a small model that learned from the game's own animation (ADVANCED) or from the loudness of the voice (BASIC). A voice dub without mouth animation of its own gets it on every game line too, cutscenes included
+- **Lip sync:** a pack's lines move the speaker's mouth, either with a small model that learned from the game's own animation (ADVANCED) or from the loudness of the voice (BASIC). Any line without mouth animation gets it too, from mods or the game, and so do the speakers in mods' own cutscenes and every game line of a voice dub without mouth animation of its own
 - **Moods:** facial expressions held while a line plays, with eleven defaults that packs can change or add to
 - **Live reload:** saving a pack INI or the settings INI applies it while you play
 - Diagnostics for pack authors: every problem in a pack is logged with its file and line, and debug options log the game's sound events and voice lines
@@ -111,6 +111,7 @@ Open the game console with `~`.
 | `sfw_play <sound> [x y z]` | Plays a pack sound at a world position, or at the camera. |
 | `sfw_stop <sound>` / `sfw_stop_all` | Stops a sound / every framework sound. |
 | `sfw_say <entity> <line or voice path> ...` | An NPC says a pack voice line, or speaks a recording. |
+| `sfw_cutscene_actors <voice> [entity ...]` | Names who speaks a line in a mod's cutscene (see the [modding guide](docs/MODDING.md#lip-movement-in-your-cutscenes)). |
 | `sfw_lipsync_offset <ms>` | Moves the mouth earlier or later. |
 | `sfw_mood_override <mood> [pose:weight ...]` / `sfw_mood_dump <mood>` | Tries mood values live / writes a mood to the log. |
 | `sfw_reload` / `sfw_list` | Reads every pack again / writes the catalog to the log. |

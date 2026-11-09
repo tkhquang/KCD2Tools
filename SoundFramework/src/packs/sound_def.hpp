@@ -116,6 +116,7 @@ namespace SoundFramework::packs
      * Mood = angry                     ; a mood defined in the defaults file or any pack, held while the line plays
      * MoodStrength = 0.8               ; 0..2: below 1 tones the mood down, above 1 exaggerates it
      * MoodPoses = L_browsLowerer:0.6   ; extra or overriding pose weights, or a mood of its own
+     * CutsceneActors = my_double       ; entities whose mouths move when a cutscene plays one of these takes
      * @endcode
      */
     struct LineDef
@@ -140,6 +141,8 @@ namespace SoundFramework::packs
         std::vector<face::PoseWeight> mood_poses;
         /// ReplacesVoice: the game's line text keys (lower case; `*` matches any run) this line plays instead of.
         std::vector<std::string> replaces_voice;
+        /// CutsceneActors: entity names whose mouths follow these takes when a cutscene's Voice track plays them.
+        std::vector<std::string> cutscene_actors;
         std::string origin;
     };
 

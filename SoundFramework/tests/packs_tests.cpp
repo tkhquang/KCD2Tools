@@ -225,6 +225,23 @@ namespace
         CHECK(wildcard_match("a**b", "ab") && !wildcard_match("", "a"));
     }
 
+    void test_cutscene_actors()
+    {
+        const PackParse parsed = parse_pack(
+            "[scene]\nVoice = Localization/dialog/m/Scene_Hello_01\n"
+            "CutsceneActors = my_scene_henry, My_Scene_Guard\nCutsceneActors = my_scene_extra\n",
+            fs::path("C:/Mods/m/SoundFramework/p.ini")
+        );
+        CHECK(parsed.lines.size() == 1 && parsed.problems.empty());
+        CHECK(parsed.lines[0].cutscene_actors.size() == 3);
+        CHECK(
+            parsed.lines[0].cutscene_actors[0] == "my_scene_henry" &&
+            parsed.lines[0].cutscene_actors[1] == "My_Scene_Guard" &&
+            parsed.lines[0].cutscene_actors[2] == "my_scene_extra"
+        );
+        CHECK(cutscene_line_id(parsed.lines[0].voices[0]) == "scene_hello_01");
+    }
+
     void test_lines()
     {
         const fs::path ini = fs::path("C:/Mods/m/SoundFramework/p.ini");
@@ -530,6 +547,7 @@ int main(int argc, char **argv)
     test_adjusts();
     test_events();
     test_replaces_voice();
+    test_cutscene_actors();
     test_lines();
     test_moods();
     test_catalog();

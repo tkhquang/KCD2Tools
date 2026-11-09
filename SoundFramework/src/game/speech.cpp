@@ -837,6 +837,12 @@ namespace SoundFramework::game::speech
             return languages;
         }
 
+        /** @brief Whether the last Speak through @p speak_man found a lip-sync animation for its line. */
+        [[nodiscard]] bool has_lip_sync(const void *speak_man) noexcept
+        {
+            return static_cast<const std::uint8_t *>(speak_man)[constants::SPEAK_MAN_HAS_LIP_SYNC] != 0;
+        }
+
         /**
          * @brief Whether the game's lip-sync animation belongs to other recordings than the voices playing. The game
          *        opens the voice language's facial pak, or English when there is none, and finds a line's animation by
@@ -895,7 +901,7 @@ namespace SoundFramework::game::speech
         {
             // Speak found a lip-sync animation for this line. It moves the mouth unless it was made for other
             // recordings than the one playing. Then the voice drives the mouth over it.
-            const bool animated = static_cast<const std::uint8_t *>(speak_man)[constants::SPEAK_MAN_HAS_LIP_SYNC] != 0;
+            const bool animated = has_lip_sync(speak_man);
             const bool replace_mouth = animated && voice_is_dubbed();
             const bool lip_sync = animated && !replace_mouth;
             std::uint64_t ticket = 0;
@@ -1040,7 +1046,7 @@ namespace SoundFramework::game::speech
             s_in_say = true;
             (void)reinterpret_cast<SpeakFn>(s_anchors.speak)(speak_man, request.get());
             s_in_say = false;
-            const bool lip_sync = speak_man[constants::SPEAK_MAN_HAS_LIP_SYNC] != 0;
+            const bool lip_sync = has_lip_sync(speak_man);
             DMK::log().info(
                 "Speech: '{}' (id {:#x}) speaks {}{}",
                 say.entity_name,
@@ -1482,13 +1488,24 @@ namespace SoundFramework::game::speech
         s_dubbed_voices.store(mode, std::memory_order_relaxed);
     }
 
+    bool follows_game_lines()
+    {
+        return s_enabled && !s_in_say && lip_drive::active();
+    }
+
     bool drives_game_lines()
     {
-        return s_enabled && !s_in_say && lip_drive::active() && voice_is_dubbed();
+        return follows_game_lines() && voice_is_dubbed();
     }
 
     void follow_game_line(const void *speak_man, const std::string &voice_path)
     {
+        // An animation Speak found for the line keeps the mouth unless a dub plays over it. A line Speak found none
+        // for, such as a mod's own recording, gets its mouth from the voice in every language.
+        if (has_lip_sync(speak_man) && !voice_is_dubbed())
+        {
+            return;
+        }
         const void *const entity = speaker_entity(speak_man);
         if (entity == nullptr || beyond_facial_radius(entity))
         {

@@ -7,6 +7,8 @@
  */
 
 #include "game/cutscene_voices.hpp"
+
+#include "audio/line_table.hpp"
 #include "constants.hpp"
 #include "fmod/fmod_api.hpp"
 #include "game/entity_tracker.hpp"
@@ -30,6 +32,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace SoundFramework::game::cutscene_voices
@@ -66,6 +69,8 @@ namespace SoundFramework::game::cutscene_voices
         std::vector<Started> s_started;
         /// Main-thread state.
         std::vector<Running> s_running;
+        /// Main-thread state: the speakers sfw_cutscene_actors named for this session, by cutscene line id.
+        std::unordered_map<std::string, std::vector<std::string>> s_session_actors;
         std::atomic_flag s_reported_unreadable;
 
         /**
@@ -113,61 +118,78 @@ namespace SoundFramework::game::cutscene_voices
         }
 
         /**
-         * @brief The faces @p entries move, each entity once. A speaker row wins over a faces row for the same actor.
+         * @brief Adds the entity named @p name to @p faces, each entity once. A speaker wins over a face that follows
+         *        its own mouth motion for the same actor.
          */
+        void add_face(std::vector<speech::CutsceneFace> &faces, const std::string &name, bool follow_motion)
+        {
+            const std::uint32_t id = entities::find_id(name);
+            if (id == 0)
+            {
+                return;
+            }
+            const auto known = std::ranges::find(faces, id, &speech::CutsceneFace::entity);
+            if (known != faces.end())
+            {
+                known->follow_motion = known->follow_motion && follow_motion;
+                return;
+            }
+            faces.push_back(
+                speech::CutsceneFace{
+                    .entity = id,
+                    .follow_motion = follow_motion,
+                }
+            );
+        }
+
+        /** @brief The faces present now that the table rows @p entries move. */
         [[nodiscard]] std::vector<speech::CutsceneFace> faces_of(const std::vector<packs::CutsceneEntry> &entries)
         {
             std::vector<speech::CutsceneFace> faces;
-            const auto add = [&](const std::string &name, bool follow_motion)
-            {
-                const std::uint32_t id = entities::find_id(name);
-                if (id == 0)
-                {
-                    return;
-                }
-                const auto known = std::ranges::find(faces, id, &speech::CutsceneFace::entity);
-                if (known == faces.end())
-                {
-                    faces.push_back(
-                        speech::CutsceneFace{
-                            .entity = id,
-                            .follow_motion = follow_motion,
-                        }
-                    );
-                }
-                else
-                {
-                    known->follow_motion = known->follow_motion && follow_motion;
-                }
-            };
             for (const packs::CutsceneEntry &entry : entries)
             {
                 if (entry.mode == packs::CutsceneMode::Player)
                 {
-                    add(constants::PLAYER_ENTITY_NAME, false);
+                    add_face(faces, constants::PLAYER_ENTITY_NAME, false);
                 }
                 for (const std::string &actor : entry.actors)
                 {
-                    add(actor, entry.mode == packs::CutsceneMode::Faces);
+                    add_face(faces, actor, entry.mode == packs::CutsceneMode::Faces);
                 }
             }
             return faces;
         }
 
-        /** @brief Starts the faces of the cutscene line @p started. */
-        void follow(const packs::CutsceneTable &table, const Started &started)
+        /**
+         * @brief Starts @p faces on the line @p started and watches it until its event stops.
+         * @return False when no face started.
+         */
+        [[nodiscard]] bool start(const Started &started, const std::vector<speech::CutsceneFace> &faces)
         {
-            const std::string line = packs::cutscene_line_id(started.voice_path);
-            const auto entries = table.find(line);
-            if (entries == table.end())
-            {
-                DMK::log().debug("Cutscene: {} has no known face; the cutscene's faces stay", line);
-                return;
-            }
-            const std::vector<speech::CutsceneFace> faces = faces_of(entries->second);
             const std::uint64_t id =
                 faces.empty() ? 0 : speech::follow_cutscene_line(started.voice_path + ".ogg", faces);
             if (id == 0)
+            {
+                return false;
+            }
+            s_running.push_back(
+                Running{
+                    .instance = started.instance,
+                    .id = id,
+                }
+            );
+            return true;
+        }
+
+        /** @brief Starts the faces that the speaker table rows @p entries name for the game's line @p line. */
+        void follow_game_line(
+            const Started &started,
+            const std::string &line,
+            const std::vector<packs::CutsceneEntry> &entries
+        )
+        {
+            const std::vector<speech::CutsceneFace> faces = faces_of(entries);
+            if (!start(started, faces))
             {
                 DMK::log().debug("Cutscene: {} names no face present now; the cutscene's faces stay", line);
                 return;
@@ -178,12 +200,34 @@ namespace SoundFramework::game::cutscene_voices
                 faces.size(),
                 std::ranges::count_if(faces, &speech::CutsceneFace::follow_motion)
             );
-            s_running.push_back(
-                Running{
-                    .instance = started.instance,
-                    .id = id,
-                }
-            );
+        }
+
+        /**
+         * @brief Starts the mouths of the line @p line outside the speaker table: the speakers that sfw_cutscene_actors
+         *        named for it, else its pack line's CutsceneActors.
+         */
+        void follow_named_line(const Started &started, const std::string &line)
+        {
+            const auto session = s_session_actors.find(line);
+            const std::optional<std::vector<std::string>> actors = session != s_session_actors.end()
+                                                                       ? std::optional(session->second)
+                                                                       : audio::line_table::cutscene_actors(line);
+            if (!actors.has_value())
+            {
+                DMK::log().debug("Cutscene: {} has no known speaker; the cutscene's faces stay", line);
+                return;
+            }
+            std::vector<speech::CutsceneFace> faces;
+            for (const std::string &actor : *actors)
+            {
+                add_face(faces, actor, false);
+            }
+            if (!start(started, faces))
+            {
+                DMK::log().debug("Cutscene: {} names no speaker present now", line);
+                return;
+            }
+            DMK::log().debug("Cutscene: {} drives {} named speaker(s)", line, faces.size());
         }
 
         /**
@@ -208,6 +252,7 @@ namespace SoundFramework::game::cutscene_voices
                 }
             );
         }
+
         /** @brief The speaker table built into this module; empty when the resource is missing. */
         [[nodiscard]] std::string_view built_in_table() noexcept
         {
@@ -359,13 +404,26 @@ namespace SoundFramework::game::cutscene_voices
                 watch();
             }
             const std::shared_ptr<const packs::CutsceneTable> table = s_table.load(std::memory_order_acquire);
-            if (started.empty() || table == nullptr || !speech::drives_game_lines())
+            if (started.empty() || table == nullptr || !speech::follows_game_lines())
             {
                 return;
             }
+            const bool dubbed = speech::drives_game_lines();
             for (const Started &line : started)
             {
-                follow(*table, line);
+                // The table holds the game's cutscene lines with actors on stage. Their English mouths are baked into
+                // the cutscene animation, so the voice drives them only for a dub. Any other line moves the speakers
+                // named for it, in every language.
+                const std::string line_id = packs::cutscene_line_id(line.voice_path);
+                const auto entries = table->find(line_id);
+                if (entries == table->end())
+                {
+                    follow_named_line(line, line_id);
+                }
+                else if (dubbed)
+                {
+                    follow_game_line(line, line_id, entries->second);
+                }
             }
         }
         catch (...)
@@ -377,8 +435,20 @@ namespace SoundFramework::game::cutscene_voices
         }
     }
 
+    void set_session_actors(std::string_view voice, std::vector<std::string> actors)
+    {
+        const std::string line = packs::cutscene_line_id(voice);
+        if (actors.empty())
+        {
+            s_session_actors.erase(line);
+            return;
+        }
+        s_session_actors[line] = std::move(actors);
+    }
+
     void shutdown() noexcept
     {
+        s_session_actors.clear();
         s_cinematic_known.store(false, std::memory_order_release);
         s_table.store(nullptr, std::memory_order_release);
         {

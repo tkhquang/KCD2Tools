@@ -92,7 +92,8 @@ namespace SoundFramework::game::speak_hook
                 }
             }
             std::optional<speech::Swap> swap;
-            // The game's own line whose mouth the framework drives, or empty.
+            // The game's line whose mouth the framework can drive, or empty. Whether it does depends on the lip-sync
+            // animation Speak finds, so the decision waits until Speak ran.
             std::string game_line;
             if (request != nullptr && speak_man != nullptr && main_thread::is_main_thread())
             {
@@ -115,7 +116,7 @@ namespace SoundFramework::game::speak_hook
                 }
                 try
                 {
-                    if (!swap.has_value() && speech::drives_game_lines())
+                    if (!swap.has_value() && speech::follows_game_lines())
                     {
                         game_line = string_at(request, REQUEST_PATH);
                     }
@@ -125,7 +126,7 @@ namespace SoundFramework::game::speak_hook
                     game_line.clear();
                     (void)DMK::log().log_noexcept(
                         DMK::LogLevel::Warning,
-                        "Speech: the voice language check failed; the line keeps the game's face"
+                        "Speech: a game line's mouth failed; it keeps the game's face"
                     );
                 }
             }

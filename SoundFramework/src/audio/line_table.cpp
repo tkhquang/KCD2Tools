@@ -5,6 +5,8 @@
 
 #include "audio/line_table.hpp"
 
+#include "packs/cutscene_table.hpp"
+
 #include <DetourModKit.hpp>
 
 #include <algorithm>
@@ -30,6 +32,63 @@ namespace SoundFramework::audio::line_table
             std::vector<std::pair<std::string, std::string>> patterns;
         };
         std::atomic<std::shared_ptr<const VoiceIndex>> s_voices;
+
+        /** @brief The CutsceneActors of a pack line, and that line's name. */
+        struct CutsceneSpeakers
+        {
+            std::string line;
+            std::vector<std::string> actors;
+        };
+        /// The cutscene line id of each take of a line with CutsceneActors, to that line's actors.
+        using CutsceneIndex = std::unordered_map<std::string, CutsceneSpeakers>;
+        std::atomic<std::shared_ptr<const CutsceneIndex>> s_cutscene_lines;
+
+        [[nodiscard]] std::shared_ptr<const CutsceneIndex> build_cutscene_index(const packs::Catalog &catalog)
+        {
+            auto index = std::make_shared<CutsceneIndex>();
+            for (const auto &[name, line] : catalog.lines)
+            {
+                if (line.cutscene_actors.empty())
+                {
+                    continue;
+                }
+                for (const std::string &take : line.voices)
+                {
+                    const std::string id = packs::cutscene_line_id(take);
+                    const auto [found, added] = index->try_emplace(
+                        id,
+                        CutsceneSpeakers{
+                            .line = name,
+                            .actors = line.cutscene_actors,
+                        }
+                    );
+                    if (added || found->second.line == name)
+                    {
+                        continue;
+                    }
+                    // The map's order is arbitrary, so the smaller name wins to keep the pick stable.
+                    DMK::log().warning(
+                        "Catalog: cutscene take '{}' has CutsceneActors in both '{}' and '{}'; using '{}'",
+                        id,
+                        found->second.line,
+                        name,
+                        std::min(found->second.line, name)
+                    );
+                    if (name < found->second.line)
+                    {
+                        found->second = CutsceneSpeakers{
+                            .line = name,
+                            .actors = line.cutscene_actors,
+                        };
+                    }
+                }
+            }
+            if (!index->empty())
+            {
+                DMK::log().info("Catalog: {} cutscene take(s) move their actors' mouths", index->size());
+            }
+            return index;
+        }
 
         [[nodiscard]] std::shared_ptr<const VoiceIndex> build_voice_index(const packs::Catalog &catalog)
         {
@@ -80,6 +139,18 @@ namespace SoundFramework::audio::line_table
         s_lines.store(std::make_shared<const Lines>(catalog.lines));
         s_moods.store(std::make_shared<const Moods>(catalog.moods));
         s_voices.store(build_voice_index(catalog));
+        s_cutscene_lines.store(build_cutscene_index(catalog));
+    }
+
+    std::optional<std::vector<std::string>> cutscene_actors(std::string_view line_id)
+    {
+        const std::shared_ptr<const CutsceneIndex> index = s_cutscene_lines.load();
+        if (index == nullptr)
+        {
+            return std::nullopt;
+        }
+        const auto found = index->find(std::string(line_id));
+        return found != index->end() ? std::optional(found->second.actors) : std::nullopt;
     }
 
     std::optional<std::string> voice_replacement(std::string_view text_key)
@@ -118,6 +189,7 @@ namespace SoundFramework::audio::line_table
 
     void clear() noexcept
     {
+        s_cutscene_lines.store(nullptr);
         s_voices.store(nullptr);
         s_moods.store(nullptr);
         s_lines.store(nullptr);

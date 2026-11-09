@@ -6,6 +6,7 @@
 #include "game/console_commands.hpp"
 #include "audio/engine.hpp"
 #include "constants.hpp"
+#include "game/cutscene_voices.hpp"
 #include "game/speech.hpp"
 #include "game/voice_catalog.hpp"
 #include "packs/sound_def.hpp"
@@ -356,6 +357,32 @@ namespace SoundFramework::game::commands
             );
         }
 
+        void cmd_cutscene_actors(void *args)
+        {
+            guarded(
+                "sfw_cutscene_actors",
+                [args]
+                {
+                    const int count = arg_count(args);
+                    if (count < 2)
+                    {
+                        DMK::log().warning(
+                            "sfw_cutscene_actors: usage sfw_cutscene_actors <voice path or file> [entity name ...]"
+                        );
+                        return;
+                    }
+                    std::vector<std::string> actors;
+                    for (int i = 2; i < count; ++i)
+                    {
+                        actors.emplace_back(arg(args, i));
+                    }
+                    const std::string_view voice = arg(args, 1);
+                    DMK::log().info("sfw_cutscene_actors: {} -> {} entity name(s)", voice, actors.size());
+                    cutscene_voices::set_session_actors(voice, std::move(actors));
+                }
+            );
+        }
+
         void cmd_lipsync_offset(void *args)
         {
             guarded(
@@ -509,6 +536,12 @@ namespace SoundFramework::game::commands
                 "voice line, or speaks a localization voice file (no extension) with optional mood and text"
             },
             Command{
+                "sfw_cutscene_actors",
+                &cmd_cutscene_actors,
+                "sfw_cutscene_actors <voice> [entity ...]: when a cutscene plays this voice (path or file name), "
+                "these entities' mouths follow it for this session (no entities: forget it)"
+            },
+            Command{
                 "sfw_lipsync_offset",
                 &cmd_lipsync_offset,
                 "sfw_lipsync_offset <ms>: shifts voice-driven mouth "
@@ -621,8 +654,9 @@ namespace SoundFramework::game::commands
             case Reconciled::Change::Added:
                 (void)DMK::log().try_log(
                     DMK::LogLevel::Info,
-                    "Commands: sfw_play, sfw_say, sfw_lipsync_offset, sfw_mood_override, sfw_mood_dump, sfw_stop, "
-                    "sfw_stop_all, sfw_reload, sfw_list, sfw_lines_find and sfw_lines_line added (main thread {})",
+                    "Commands: sfw_play, sfw_say, sfw_cutscene_actors, sfw_lipsync_offset, sfw_mood_override, "
+                    "sfw_mood_dump, sfw_stop, sfw_stop_all, sfw_reload, sfw_list, sfw_lines_find and sfw_lines_line "
+                    "added (main thread {})",
                     GetCurrentThreadId()
                 );
                 break;
