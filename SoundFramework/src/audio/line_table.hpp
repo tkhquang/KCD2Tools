@@ -1,8 +1,7 @@
 /**
  * @file audio/line_table.hpp
  * @brief The packs' voice lines, published by the engine whenever the packs load and read by the speech code on the
- * main
- *        thread.
+ *        main thread.
  */
 #ifndef SNDFW_AUDIO_LINE_TABLE_HPP
 #define SNDFW_AUDIO_LINE_TABLE_HPP
@@ -14,6 +13,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 namespace SoundFramework::audio::line_table
 {
@@ -36,6 +36,12 @@ namespace SoundFramework::audio::line_table
      *        exact ReplacesVoice key first, then the longest matching pattern. Thread safe.
      */
     [[nodiscard]] std::optional<std::string> voice_replacement(std::string_view text_key);
+
+    /**
+     * @brief The CutsceneActors of the pack line with a take whose cutscene line id (packs::cutscene_line_id) is
+     *        @p line_id, or nothing. Thread safe.
+     */
+    [[nodiscard]] std::optional<std::vector<std::string>> cutscene_actors(std::string_view line_id);
 
     /** @brief Drops the table. */
     void clear() noexcept;

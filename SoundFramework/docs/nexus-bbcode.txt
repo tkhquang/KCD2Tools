@@ -16,7 +16,7 @@ It is still early days. If something doesn't work properly, please report it wit
 [*][b]Voice lines:[/b] NPCs speak a pack's lines through the game's own speech system, with a bottom subtitle and speaker name, a chat bubble, or both[/*]
 [*][b]Voice replacement:[/b] play a pack line instead of a game voice line, by exact key or by pattern[/*]
 [*][b]Volume:[/b] separate volume settings for conversation, bark and cutscene voices, and packs that make chosen game sounds quieter or louder[/*]
-[*][b]Lip sync:[/b] a pack's lines move the speaker's mouth, with a small model that learned from the game's own animation or from the loudness of the voice. A voice dub without mouth animation of its own gets it on every game line too, cutscenes included[/*]
+[*][b]Lip sync:[/b] a pack's lines move the speaker's mouth, with a small model that learned from the game's own animation or from the loudness of the voice. Any line without mouth animation gets it too, from mods or the game, and so do the speakers in mods' own cutscenes and every game line of a voice dub without mouth animation of its own[/*]
 [*][b]Moods:[/b] facial expressions held while a line plays, with eleven defaults that packs can change or add to[/*]
 [*][b]Live reload:[/b] saving a pack or the settings INI applies it while you play[/*]
 [*]Every problem in a pack is logged with its file and line; debug options log the game's sound events and voice lines[/*]
