@@ -120,7 +120,7 @@ jobs:
           DEPLOY_DIR: ${{ steps.pak.outputs.deploy-dir }}
         run: |
           Copy-Item 'TPVAnimations/LICENSE' (Join-Path $env:DEPLOY_DIR 'LICENSE.txt')
-          foreach ($required in 'mod.manifest', 'Data/tpv_animations_idle.pak', 'Data/tpv_animations_drunk.pak', 'Data/tpv_animations_torch_sprint.pak', 'Data/tpv_animations_smooth_turn.pak', 'Data/tpv_animations_idle_back_stretch.pak', 'Data/tpv_animations_idle_fidget02.pak', 'Data/tpv_animations_idle_fidget03.pak', 'Data/tpv_animations_idle_fidget04.pak', 'Data/tpv_animations_idle_fidget05.pak', 'Data/tpv_animations_idle_fidget07.pak', 'Data/tpv_animations_idle_forehead_wipe.pak', 'Data/tpv_animations_idle_look_around.pak', 'Data/tpv_animations_idle_neck_stretch.pak', 'Data/tpv_animations_idle_scratch_face.pak', 'Data/tpv_animations_idle_spit.pak', 'Data/tpv_animations_idle_weight_shift_left.pak', 'Data/tpv_animations_idle_weight_shift_right.pak', 'Data/tpv_animations_idle_yawn.pak') {
+          foreach ($required in 'mod.manifest', 'Data/tpv_animations_idle.pak', 'Data/tpv_animations_drunk.pak', 'Data/tpv_animations_torch_sprint.pak', 'Data/tpv_animations_smooth_turn.pak', 'Data/tpv_animations_door_exit.pak', 'Data/tpv_animations_idle_back_stretch.pak', 'Data/tpv_animations_idle_fidget02.pak', 'Data/tpv_animations_idle_fidget03.pak', 'Data/tpv_animations_idle_fidget04.pak', 'Data/tpv_animations_idle_fidget05.pak', 'Data/tpv_animations_idle_fidget07.pak', 'Data/tpv_animations_idle_forehead_wipe.pak', 'Data/tpv_animations_idle_look_around.pak', 'Data/tpv_animations_idle_neck_stretch.pak', 'Data/tpv_animations_idle_scratch_face.pak', 'Data/tpv_animations_idle_spit.pak', 'Data/tpv_animations_idle_weight_shift_left.pak', 'Data/tpv_animations_idle_weight_shift_right.pak', 'Data/tpv_animations_idle_yawn.pak') {
             if (-not (Test-Path (Join-Path $env:DEPLOY_DIR $required))) { throw "$required is missing from the package" }
           }
           Compress-Archive -Path $env:DEPLOY_DIR -DestinationPath $env:ARTIFACT_NAME -Force
@@ -140,7 +140,7 @@ jobs:
 
           ## Release {0} - {1}
 
-          Third-person animations for Henry: idle gestures, a drunk idle and a torch sprint. In first person the game's own animations play.
+          Third-person animations for Henry: idle gestures, a drunk idle, a torch sprint, smooth turns and a door exit fix. In first person the game's own animations play.
 
           ## Changelog
 
@@ -148,7 +148,7 @@ jobs:
 
           ### Installation
 
-          1. Install [Animation Framework](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3981) and a third-person camera mod that sets `mod_camera_view`, such as [TPV Camera](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3263).
+          1. Install [Animation Framework](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3981) and a third-person camera mod that sets `mod_camera_view`, such as [Proper Third Person View (TPV Camera)](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3263).
           2. Install this archive with your mod manager, or extract it into `<game>/Mods/`.
           3. To drop a gesture, delete its `Data/tpv_animations_idle_<gesture>.pak`. The [preview page](https://tkhquang.github.io/KCD2Tools/tpv_animations/) plays every animation.
 
