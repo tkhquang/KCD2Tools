@@ -16,7 +16,7 @@ Third-person animations for Henry, so he no longer stands like a statue. In firs
 [list]
 [*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3981]Animation Framework[/url] 1.0.0 or newer[/*]
 [*][url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3263]Proper Third Person View (TPV Camera)[/url] 3.0.0 or newer, or another camera mod that sets [b]mod_camera_view[/b][/*]
-[*]Smooth turns need TPV Camera 3.2.1 or newer. With an older version, delete [b]tpv_animations_smooth_turn.pak[/b], or Henry's big turns restart mid-step.[/*]
+[*]Smooth turns need Proper Third Person View (TPV Camera) 3.2.1 or newer. With an older version, delete [b]tpv_animations_smooth_turn.pak[/b], or Henry's big turns restart mid-step.[/*]
 [/list]
 
 [size=5]Installation[/size]
