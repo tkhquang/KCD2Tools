@@ -16,7 +16,7 @@ Questions, mods to share or ideas? Join the [url=https://discord.gg/wzhhsQRnkZ]K
 [*][b]Animations from scripts:[/b] [b]human:PlayAnim[/b] and [b]StopAnim[/b] work on NPCs too, play over what a character is doing, and new actions get the rows the game needs to play them in quests and NPC behaviours[/*]
 [*][b]Third-person animations and custom tags:[/b] options that play only while a camera mod shows Henry from outside, or while a mod's own state is on[/*]
 [*][b]Mod maker:[/b] turn a clip into a finished mod in the game, from the command line, in a window or from Blender, with clip reload while you play[/*]
-[*][b]In-game cutscenes:[/b] mods play their own cutscenes through the game's cutscene player, started from a script or a quest. Copy one of the game's or export one from the game's Sandbox editor (see the [url=https://github.com/tkhquang/KCD2Tools/blob/main/AnimationFramework/docs/CUTSCENES.md]cutscene guide[/url])[/*]
+[*][b]In-game cutscenes:[/b] mods play their own cutscenes through the game's cutscene player, started from a script or a quest. Copy one of the game's or export one from the game's Sandbox editor (see the [url=https://github.com/tkhquang/KCD2Tools/blob/main/AnimationFramework/docs/CUTSCENES.md]cutscene guide[/url] and the [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3996]Cutscene Examples[/url] mod)[/*]
 [*]The log names the mod that wins when two mods change the same thing[/*]
 [*][url=https://github.com/tkhquang/KCD2Tools]Open source[/url], built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url][/*]
 [/list]

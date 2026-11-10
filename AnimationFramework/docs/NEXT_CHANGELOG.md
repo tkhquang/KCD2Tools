@@ -10,4 +10,4 @@
 - `animfw pack` also packs a mod's level files and dialogue text.
 - `animfw retarget --skeleton female` makes animations for women.
 - New INI option Cutscenes switches all of this off.
-- New [cutscene guide](https://github.com/tkhquang/KCD2Tools/blob/main/AnimationFramework/docs/CUTSCENES.md) and a new example mod, Cutscene Examples.
+- New [cutscene guide](https://github.com/tkhquang/KCD2Tools/blob/main/AnimationFramework/docs/CUTSCENES.md) and a new example mod, [Cutscene Examples](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3996).
