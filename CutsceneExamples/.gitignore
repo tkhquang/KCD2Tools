@@ -1,6 +1,1 @@
 dist/
-# Local tools that wrote parts of the examples, and their data; they are not part of the mod.
-scripts/make_dance_battle.py
-scripts/shoot_field_duel.py
-scripts/field_duel_paths.json
-scripts/field_duel_steps.json
