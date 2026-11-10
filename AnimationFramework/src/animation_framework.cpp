@@ -16,10 +16,12 @@
 #include "camera_view.hpp"
 #include "console_vars.hpp"
 #include "custom_tags.hpp"
+#include "cutscenes.hpp"
 #include "config.hpp"
 #include "constants.hpp"
 #include "hooks/anim_patch.hpp"
 #include "hooks/frame_tick.hpp"
+#include "hooks/quest_console.hpp"
 #include "hooks/view_variants.hpp"
 #include "live_bridge.hpp"
 #include "npc_actions.hpp"
@@ -85,6 +87,10 @@ namespace AnimationFramework
         const Anchors anchors = resolve_anchors(game);
         bind_console(anchors.genv, anchors.console_vtable);
         bind_camera_view();
+        if (settings.cutscenes)
+        {
+            bind_cutscenes(anchors);
+        }
         // The frame tick carries the late clip registration, the camera-view read and the Blender bridge's requests.
         // The load-time hooks below work without it.
         const auto ticking = install_frame_tick_hook(anchors.character_manager_update, s_hooks);
@@ -120,6 +126,16 @@ namespace AnimationFramework
             install_view_variant_hooks(anchors, s_hooks);
         }
         install_npc_actions(anchors, settings.npc_actions, s_hooks);
+        if (settings.cutscenes)
+        {
+            install_quest_console_hooks(anchors, s_hooks);
+            install_scene_event_hook(anchors, s_hooks);
+            install_scene_layer_id_hook(anchors, s_hooks);
+        }
+        else
+        {
+            logger.info("Cutscenes: off in the INI; mods' cutscenes and the quest console command do not run");
+        }
         if (!settings.blender_bridge)
         {
             logger.info("Bridge: off in the INI; the Blender add-on's Play in game needs the Lua runner");

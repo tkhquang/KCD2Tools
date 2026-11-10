@@ -29,6 +29,8 @@ namespace AnimationFramework
         bool custom_tags{true};
         /// The Blender add-on's "Play in game" reaches the live game through a local pipe (live_bridge.hpp).
         bool blender_bridge{true};
+        /// Mods' in-game cutscenes and the quest ExecuteConsoleString body (cutscenes.hpp, quest_console.hpp).
+        bool cutscenes{true};
         /// [CustomTags] Priority: tag names, highest first, ranked above every other tag.
         std::string custom_tag_priority;
         /// [CustomTags] Disabled: tag names that never turn on.

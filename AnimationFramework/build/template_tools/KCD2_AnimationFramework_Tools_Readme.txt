@@ -7,8 +7,9 @@ is the main download. Extract this folder anywhere.
                       fragments and clips, makes and packs mods, compiles
                       Blender exports (.i_caf) without rc.exe and retargets BVH
                       and FBX animations onto Henry. "animfw mcp" serves the
-                      same to AI assistants. Run it without arguments for its
-                      usage.
+                      same to AI assistants. For cutscenes, it copies the
+                      game's scenes and converts scenes made in the game's
+                      Sandbox editor. Run it without arguments for its usage.
   animfw-studio.exe   AnimFW Studio. The same in a window, with a mannequin
                       that plays the clip.
 
@@ -19,6 +20,10 @@ AnimFW Studio.
 MODDING GUIDE
   How to make animation mods, with every command and the rules a clip follows:
   https://github.com/tkhquang/KCD2Tools/blob/main/AnimationFramework/docs/MODDING.md
+
+CUTSCENE GUIDE
+  How to copy, make and play in-game cutscenes:
+  https://github.com/tkhquang/KCD2Tools/blob/main/AnimationFramework/docs/CUTSCENES.md
 
 SOURCE AND ISSUES
   https://github.com/tkhquang/KCD2Tools/tree/main/AnimationFramework

@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<storm>
+  <tasks>
+    <task name="roles" class="roles">
+      <source path="roles\cutscene_examples.xml" />
+    </task>
+  </tasks>
+</storm>

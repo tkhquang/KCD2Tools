@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Database xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Name="brambora">
+<Skald>
+<Quest Name="ce_quest" Type="Activity" Players="0" Repeatable="true">
+<Ports>
+<Port Name="run" Direction="In" Type="trigger" />
+</Ports>
+<Definitions>
+<Definition File="ce_quest/ce_magda_dialog.xml" />
+</Definitions>
+<Nodes>
+<!-- While the quest is awake, the dialog's topics are offered to Magdalena (role CE_MAGDALENA). -->
+<ce_magda_dialog Name="ce_magda_dialog" PositionY="0" PositionX="0" />
+<!-- Per example: a State set when its topic is picked, and an If that plays it once the conversation has closed (the
+     scene must not start under the dialog camera) and clears the State. -->
+<State Name="ce_dance_pending" PositionY="0" PositionX="300" TypeT="bool">
+<Constant Name="DefaultValue" Value="false" />
+<Edge From="ce_magda_dialog.dance_chosen" To="SetTrue" />
+<Edge From="ce_dance_gate.True" To="SetFalse" />
+</State>
+<If Name="ce_dance_gate" PositionY="0" PositionX="600">
+<Edge From="ce_magda_dialog.AfterPlay" To="Exec" />
+<Edge From="ce_dance_pending.State" To="Condition" />
+</If>
+<Function Name="ce_dance_play" PositionY="0" PositionX="900" MethodName="wh::conceptmodule::ExecuteConsoleString" DeclaringType="wh::conceptmodule">
+<Constant Name="Command" Value="#CutsceneExamples.Play('dance')" />
+<Edge From="ce_dance_gate.True" To="Exec" />
+</Function>
+<State Name="ce_bergow_pending" PositionY="200" PositionX="300" TypeT="bool">
+<Constant Name="DefaultValue" Value="false" />
+<Edge From="ce_magda_dialog.bergow_chosen" To="SetTrue" />
+<Edge From="ce_bergow_gate.True" To="SetFalse" />
+</State>
+<If Name="ce_bergow_gate" PositionY="200" PositionX="600">
+<Edge From="ce_magda_dialog.AfterPlay" To="Exec" />
+<Edge From="ce_bergow_pending.State" To="Condition" />
+</If>
+<Function Name="ce_bergow_play" PositionY="200" PositionX="900" MethodName="wh::conceptmodule::ExecuteConsoleString" DeclaringType="wh::conceptmodule">
+<Constant Name="Command" Value="#CutsceneExamples.Play('bergow')" />
+<Edge From="ce_bergow_gate.True" To="Exec" />
+</Function>
+<State Name="ce_duel_pending" PositionY="400" PositionX="300" TypeT="bool">
+<Constant Name="DefaultValue" Value="false" />
+<Edge From="ce_magda_dialog.duel_chosen" To="SetTrue" />
+<Edge From="ce_duel_gate.True" To="SetFalse" />
+</State>
+<If Name="ce_duel_gate" PositionY="400" PositionX="600">
+<Edge From="ce_magda_dialog.AfterPlay" To="Exec" />
+<Edge From="ce_duel_pending.State" To="Condition" />
+</If>
+<Function Name="ce_duel_play" PositionY="400" PositionX="900" MethodName="wh::conceptmodule::ExecuteConsoleString" DeclaringType="wh::conceptmodule">
+<Constant Name="Command" Value="#CutsceneExamples.Play('duel')" />
+<Edge From="ce_duel_gate.True" To="Exec" />
+</Function>
+</Nodes>
+</Quest>
+</Skald>
+</Database>

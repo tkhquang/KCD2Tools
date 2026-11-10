@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Database xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Name="brambora">
+<Skald>
+<Level Name="kutnohorsko" HibernateMode="Auto" VoiceNamespace="false">
+<Definitions>
+<Definition File="kutnohorsko/ce_quest.xml" />
+</Definitions>
+<Nodes>
+<ce_quest Name="ce_quest" RequiredForOutput="kutnohorsko">
+<Edge From="OnWake" To="run" />
+</ce_quest>
+</Nodes>
+<Text Text="kutnohorsko" />
+</Level>
+</Skald>
+</Database>

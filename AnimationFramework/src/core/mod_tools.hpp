@@ -21,6 +21,8 @@ namespace AnimationFramework
 {
     /// Henry's skeleton.
     inline constexpr std::string_view MALE_SKELETON_PATH = "objects/characters/humans/male/skeleton/male.chr";
+    /// The women's skeleton (its clips load from `Animations/humans/female/`).
+    inline constexpr std::string_view FEMALE_SKELETON_PATH = "objects/characters/humans/female/skeleton/female.chr";
     /// The patch file names of a mod's actions, `<stem>__<modid>.<extension>` beside these game files.
     inline constexpr std::string_view FRAGMENT_IDS_STEM = "kcd_male_fragmentids";
     inline constexpr std::string_view CONTROLLER_DEFS_STEM = "kcd_male_controllerdefs";

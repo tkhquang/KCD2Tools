@@ -9,6 +9,7 @@
 #include "mod_maker_console.hpp"
 #include "camera_view.hpp"
 #include "custom_tags.hpp"
+#include "cutscenes.hpp"
 #include "live_bridge.hpp"
 #include "mod_settings.hpp"
 #include "hooks/anim_patch.hpp"
@@ -54,6 +55,7 @@ namespace AnimationFramework
             run_anim_catalog_frame_work();
             run_clip_check_frame_work();
             run_mod_maker_frame_work();
+            run_cutscene_frame_work();
             run_anim_patch_frame_work();
             poll_custom_tags(poll_camera_view() == CameraView::ThirdPerson);
         }
@@ -65,6 +67,7 @@ namespace AnimationFramework
             remove_anim_catalog();
             remove_clip_check_console();
             remove_mod_maker_console();
+            remove_cutscene_console();
             remove_anim_patch_commands();
         }
 
