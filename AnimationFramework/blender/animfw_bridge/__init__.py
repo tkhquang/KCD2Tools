@@ -10,7 +10,7 @@ mod folder that "Make action" and "Pack mod" turn into an installable mod.
 bl_info = {
     "name": "KCD2 Animation Framework Bridge",
     "author": "tkhquang",
-    "version": (1, 1, 0),
+    "version": (1, 2, 0),
     "blender": (4, 0, 0),
     "location": "View3D > Sidebar > AnimFW",
     "description": "Compile, check and play KCD2 animations in the running game through the Animation Framework",
