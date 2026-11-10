@@ -226,7 +226,7 @@ jobs:
           file_id: ${{ vars.NEXUSMODS_TPVANIMATIONS_FILE_ID }}
           filename: ${{ env.ARTIFACT_NAME }}
           version: ${{ env.NEW_VERSION }}
-          display_name: TPV Animations
+          display_name: Third-Person Animation Pack
           description: ${{ steps.prepare-release.outputs.NEXUS_DESCRIPTION }}
           category: main
           archive_existing_version: false
