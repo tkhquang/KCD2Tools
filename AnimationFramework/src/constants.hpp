@@ -55,6 +55,72 @@ namespace AnimationFramework::constants
     inline constexpr const char *RTTI_READ_ONLY_CHUNK_FILE = ".?AVCReadOnlyChunkFile@@";
     inline constexpr const char *RTTI_ACTION_SCOPE = ".?AVCActionScope@@";
     inline constexpr const char *RTTI_SCRIPT_SYSTEM = ".?AVCScriptSystem@@";
+    inline constexpr const char *RTTI_MOVIE_SYSTEM = ".?AVCMovieSystem@@";
+    inline constexpr const char *RTTI_SYSTEM = ".?AVCSystem@@";
+
+    /**
+     * @brief The TrackView movie system and the virtuals the sequence loader calls, the same on the Steam, GOG and Game
+     *        Pass builds.
+     * @details gEnv->pMovieSystem is at +0xF0: the level loader (Steam 0x1809B17E0) reads it there to load the level's
+     *          moviedata.xml, 0xA0 past gEnv->pCryPak on all three builds. CMovieSystem slots: 5 Load(file, mission),
+     *          8 LoadSequence(XmlNodeRef &, bool load empty tracks), which serializes a new CAnimSequence (slot
+     *          0x170 / 8), finds the sequence of the same name (slot 11), removes it (slot 10) and adds the new one.
+     *          CAnimSequence slot 6 is GetName. An entity node binds to its EntityGUID only
+     *          (CAnimEntityNode::Serialize, Steam 0x1807EB5A8), unlike the CryEngine reference, which looks the node's
+     *          Name up first.
+     */
+    inline constexpr std::ptrdiff_t GENV_MOVIE_SYSTEM_OFFSET = 0xF0;
+    inline constexpr std::size_t MOVIE_SYSTEM_LOAD_SLOT = 5;
+    inline constexpr std::size_t MOVIE_SYSTEM_LOAD_SEQUENCE_SLOT = 8;
+    inline constexpr std::size_t ANIM_SEQUENCE_GET_NAME_SLOT = 6;
+
+    /**
+     * @brief CAnimSequence slot 58 is TriggerTrackEvent(event, param, user): an Event node's key reaching its sequence.
+     * @details It notifies the sequence's track event listeners with reason 3 (Triggered). Slot 59 adds a listener and
+     *          slot 60 removes one (Steam 0x18383AC2C, 0x183839168, 0x18383A7B0).
+     */
+    inline constexpr const char *RTTI_ANIM_SEQUENCE = ".?AVCAnimSequence@@";
+    inline constexpr std::size_t ANIM_SEQUENCE_TRIGGER_TRACK_EVENT_SLOT = 58;
+
+    /**
+     * @brief The entity lookups the sequence loader and the cutscene command use, the same on the Steam, GOG and Game
+     *        Pass builds.
+     * @details gEnv->pEntitySystem is at +0xA0. CEntitySystem slot 16 is FindEntityByName (the Lua bind
+     *          System.GetEntityByName, Steam 0x1819B55D8). CEntity keeps its 64-bit GUID at +0x10 (the bind
+     *          Entity.GetGUID, Steam 0x1837D4740). CEntity slot 74 is GetProxy: proxy 17 is the CGameObject
+     *          (CCryAction::GetGameObject, Steam 0x180479B4C). CGameObject keeps its extensions in a vector at +0x88,
+     *          48 bytes each, with the extension's pointer at +8 (its serialization, Steam 0x1836B602C). A
+     *          CutsceneHolder entity's extension is a C_CutsceneHolder.
+     */
+    inline constexpr const char *RTTI_ENTITY_SYSTEM = ".?AVCEntitySystem@@";
+    inline constexpr const char *RTTI_CUTSCENE_HOLDER = ".?AVC_CutsceneHolder@entitymodule@wh@@";
+    inline constexpr std::ptrdiff_t GENV_ENTITY_SYSTEM_OFFSET = 0xA0;
+    inline constexpr std::size_t ENTITY_SYSTEM_FIND_BY_NAME_SLOT = 16;
+    inline constexpr std::ptrdiff_t ENTITY_GUID_OFFSET = 0x10;
+    inline constexpr std::size_t ENTITY_GET_PROXY_SLOT = 74;
+    inline constexpr int ENTITY_PROXY_GAME_OBJECT = 17;
+    inline constexpr std::ptrdiff_t GAME_OBJECT_EXTENSIONS_OFFSET = 0x88;
+    inline constexpr std::size_t GAME_OBJECT_EXTENSION_SIZE = 48;
+    inline constexpr std::ptrdiff_t GAME_OBJECT_EXTENSION_POINTER_OFFSET = 8;
+
+    /// C_GameProfileManager, the owner of the level's game profiles (which layers each profile switches on).
+    inline constexpr const char *RTTI_GAME_PROFILE_MANAGER = ".?AVC_GameProfileManager@entitymodule@wh@@";
+
+    /**
+     * @brief The quest function wh::conceptmodule::ExecuteConsoleString, which retail ships with an empty body.
+     * @details Skald quests call it as `<Function MethodName="wh::conceptmodule::ExecuteConsoleString">` with one
+     *          Constant "Command". Its RTTR method wrapper (registration Steam 0x180080A70) is the only object of this
+     *          vtable: slot 15 invokes it with one argument (Steam 0x182693980), slot 17 with an argument list (Steam
+     *          0x18182D6EC), and both call the function pointer at +0xE0 with the CryString. Retail stores an empty
+     *          `ret` there (nullsub_1).
+     */
+    inline constexpr const char *RTTI_CONSOLE_STRING_METHOD =
+        ".?AV?$method_wrapper@P6AXAEBV?$CryStringT@D@@@Z$0A@Udefault_invoke@detail@rttr@@U?$default_args@$$V@34@U?$"
+        "parameter_infos@V?$parameter_info_wrapper@AEBV?$CryStringT@D@@$0A@Uhas_param_name@detail@rttr@@X@detail@"
+        "rttr@@@34@$02@detail@rttr@@";
+    inline constexpr std::size_t CONSOLE_STRING_METHOD_INVOKE_SLOT = 15;
+    inline constexpr std::size_t CONSOLE_STRING_METHOD_INVOKE_LIST_SLOT = 17;
+    inline constexpr std::ptrdiff_t CONSOLE_STRING_METHOD_FUNCTION_OFFSET = 0xE0;
 
     /**
      * @brief SSystemGlobalEnvironment (gEnv) member offsets: I3DEngine, IScriptSystem, ICryPak, IConsole and the

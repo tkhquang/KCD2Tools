@@ -27,6 +27,19 @@ namespace AnimationFramework
     /** @brief The Steam libraries' copy of the game (Steam's own folder, then each library it lists), or nothing. */
     [[nodiscard]] std::optional<std::filesystem::path> find_steam_game();
 
+    /** @brief The Steam libraries' copy of the game's Sandbox editor (the KCD2Mod tools folder), or nothing. */
+    [[nodiscard]] std::optional<std::filesystem::path> find_steam_sandbox();
+
+    /** @brief The bytes of @p file, or nothing when it does not open. */
+    [[nodiscard]] std::optional<std::string> read_text(const std::filesystem::path &file);
+
+    /**
+     * @brief Writes @p text to @p file, creating its folders. The text goes to `<file>.tmp` first and replaces @p file
+     *        by a rename, so a failed write leaves the old file whole.
+     * @return Whether @p file now holds @p text.
+     */
+    [[nodiscard]] bool write_text(const std::filesystem::path &file, std::string_view text);
+
     /** @brief A clip from a `.caf` file on disk; its game path is the part from its `Animations` folder on, if any. */
     [[nodiscard]] std::expected<FoundClip, std::string> read_clip_file(const std::filesystem::path &file);
 
@@ -35,6 +48,9 @@ namespace AnimationFramework
 
     /** @brief The mod id of the source folder @p mod: its manifest's, else the folder's name. */
     [[nodiscard]] std::string mod_id_of(const std::filesystem::path &mod);
+
+    /** @brief The error for a mod id that is_mod_id refuses: the game skips such a mod. */
+    [[nodiscard]] std::unexpected<std::string> bad_mod_id(std::string_view modid);
 
     /** @brief The root motion named @p name ("path", "line" or "in-place", ignoring case), or nothing. */
     [[nodiscard]] std::optional<RootMotion> root_motion_named(std::string_view name);
@@ -56,8 +72,11 @@ namespace AnimationFramework
         [[nodiscard]] std::expected<FoundClip, std::string>
         find_clip(std::string_view name, const std::optional<std::filesystem::path> &mod_folder = std::nullopt);
 
-        /** @brief Henry's skeleton, or null when it cannot be read. */
+        /** @brief The skeleton clips are made for (Henry's unless use_female_skeleton), or null when unreadable. */
         [[nodiscard]] const std::vector<SkeletonBone> *skeleton();
+
+        /** @brief Makes clips (retarget, compile, check) for the women's skeleton when @p female, else Henry's. */
+        void use_female_skeleton(bool female) noexcept;
 
         /** @brief The game's fragments whose catalog line holds @p text (ignoring case), at most @p limit. */
         [[nodiscard]] std::vector<std::string> find_fragments(std::string_view text, std::size_t limit);
@@ -69,6 +88,7 @@ namespace AnimationFramework
         GamePaks m_paks;
         std::optional<std::vector<SkeletonBone>> m_skeleton;
         bool m_skeleton_read = false;
+        bool m_female = false;
         std::unique_ptr<AnimCatalog> m_catalog;
     };
 
@@ -95,9 +115,12 @@ namespace AnimationFramework
     make_action_in_folder(OfflineGame &game, const MakeRequest &request, const ToolPrint &print);
 
     /**
-     * @brief Writes the mod of source folder @p mod as installed into @p install: `mod.manifest` and
-     *        `Data/<modid>.pak` with everything under the source's `Data/` but `Levels/` and paks.
-     * @return A one-line summary, or the reason the mod was not packed.
+     * @brief Writes the mod of source folder @p mod as installed into @p install, as kcd-pak-action packs a mod:
+     *        `mod.manifest`, `Data/<modid>.pak` with everything under the source's `Data/` but `Levels/` and paks,
+     *        `Data/Levels/<level>/<modid>.pak` with each level folder's files, and `Localization/<folder>.pak` with
+     *        each folder of the source's `Localization/`.
+     * @details A `Data/<modid>.pak` or level pak that an earlier pack wrote and this one does not is removed.
+     * @return A one-line summary, or the reason the mod was not packed. Nothing is written when a pak cannot be built.
      */
     [[nodiscard]] std::expected<std::string, std::string>
     pack_mod_folder(const std::filesystem::path &mod, const std::filesystem::path &install);
@@ -142,6 +165,8 @@ namespace AnimationFramework
         CompileOptions compile;
         /// A game clip whose first frame poses the fingers when the source has none (empty: the default pose).
         std::string hands = "relaxed_idle_both_player";
+        /// Retarget onto the women's skeleton (a female NPC or double) instead of Henry's.
+        bool female = false;
     };
 
     /**

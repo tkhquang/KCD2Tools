@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<storm>
+  <rules>
+    <!-- Gives Magdalena (soul kkut_magdalena) the role this mod's dialog speaks to. -->
+    <rule name="cutscene_examples_magdalena">
+      <selectors>
+        <hasName name="kkut_magdalena" />
+      </selectors>
+      <operations>
+        <addRole name="CE_MAGDALENA" />
+      </operations>
+    </rule>
+  </rules>
+</storm>

@@ -35,8 +35,8 @@ namespace AnimationFramework
         /** @brief A game clip by name or path: from the clip index, out of its `.dba` pack or loose. */
         [[nodiscard]] std::expected<FoundClip, std::string> find_clip(std::string_view name) const;
 
-        /** @brief Henry's skeleton. */
-        [[nodiscard]] std::expected<std::vector<SkeletonBone>, std::string> male_skeleton() const;
+        /** @brief The skeleton at @p path (a `.chr` in the game's paks). */
+        [[nodiscard]] std::expected<std::vector<SkeletonBone>, std::string> skeleton_at(std::string_view path) const;
 
         /** @brief Every clip the game's index lists, by path (lowercase), in index order. */
         [[nodiscard]] const std::vector<std::string> &clip_paths() const noexcept { return m_clip_paths; }

@@ -38,6 +38,7 @@
 #include "core/zip_writer.hpp"
 #include "custom_tags.hpp"
 #include "game_memory.hpp"
+#include "game_xml.hpp"
 #include "hooks/hook_install.hpp"
 
 #include <DetourModKit.hpp>
@@ -76,25 +77,11 @@ namespace AnimationFramework
 {
     namespace
     {
-        constexpr std::size_t XML_UTILS_LOAD_BUFFER_SLOT = 2;
         constexpr std::size_t CRYPAK_FIND_FIRST_SLOT = 0x1F8 / 8;
         constexpr std::size_t CRYPAK_FIND_NEXT_SLOT = 0x200 / 8;
         constexpr std::size_t CRYPAK_FIND_CLOSE_SLOT = 0x208 / 8;
         constexpr std::ptrdiff_t FIND_DATA_NAME_OFFSET = 0x24;
         constexpr std::size_t FIND_DATA_SIZE = 0x130;
-
-        constexpr std::size_t XML_NODE_RELEASE_SLOT = 4;
-        constexpr std::size_t XML_NODE_GET_TAG_SLOT = 6;
-        constexpr std::size_t XML_NODE_GET_ATTR_SLOT = 33;
-        constexpr std::size_t XML_NODE_ADD_CHILD_SLOT = 38;
-        constexpr std::size_t XML_NODE_NEW_CHILD_SLOT = 39;
-        constexpr std::size_t XML_NODE_REMOVE_CHILD_SLOT = 40;
-        constexpr std::size_t XML_NODE_INSERT_CHILD_SLOT = 41;
-        constexpr std::size_t XML_NODE_REMOVE_ALL_CHILDREN_SLOT = 43;
-        constexpr std::size_t XML_NODE_CHILD_COUNT_SLOT = 44;
-        constexpr std::size_t XML_NODE_GET_CHILD_SLOT = 45;
-        constexpr std::size_t XML_NODE_FIND_CHILD_SLOT = 46;
-        constexpr std::size_t XML_NODE_SET_ATTR_SLOT = 78;
 
         using LoadXmlFileFunc = void **(__fastcall *)(void *utils,
                                                       void **out,
@@ -111,70 +98,6 @@ namespace AnimationFramework
         // Settings::third_person_variants: Henry's tag definition gets the thirdPerson tag as it loads. Set before the
         // XML loader hook arms, and only its detour reads it.
         bool s_add_view_tag = false;
-
-        /** @brief One XmlNodeRef: the node and the reference it holds. */
-        class XmlRef
-        {
-        public:
-            XmlRef() noexcept = default;
-            XmlRef(const XmlRef &) = delete;
-            XmlRef &operator=(const XmlRef &) = delete;
-            XmlRef(XmlRef &&other) noexcept : m_node(std::exchange(other.m_node, nullptr)) {}
-            XmlRef &operator=(XmlRef &&other) noexcept
-            {
-                if (this != &other)
-                {
-                    reset();
-                    m_node = std::exchange(other.m_node, nullptr);
-                }
-                return *this;
-            }
-            ~XmlRef() noexcept { reset(); }
-
-            void reset() noexcept
-            {
-                if (m_node != nullptr)
-                {
-                    vcall<void>(std::exchange(m_node, nullptr), XML_NODE_RELEASE_SLOT);
-                }
-            }
-            [[nodiscard]] void *get() const noexcept { return m_node; }
-            /** @brief Hands the reference over (to a caller's XmlNodeRef out-parameter). */
-            [[nodiscard]] void *release() noexcept { return std::exchange(m_node, nullptr); }
-            [[nodiscard]] void **out() noexcept
-            {
-                reset();
-                return &m_node;
-            }
-            explicit operator bool() const noexcept { return m_node != nullptr; }
-
-        private:
-            void *m_node = nullptr;
-        };
-
-        [[nodiscard]] std::string_view tag_of(void *node) noexcept
-        {
-            const char *tag = vcall<const char *>(node, XML_NODE_GET_TAG_SLOT);
-            return tag != nullptr ? std::string_view{tag} : std::string_view{};
-        }
-
-        [[nodiscard]] std::string_view attr_of(void *node, const char *key) noexcept
-        {
-            const char *value = vcall<const char *>(node, XML_NODE_GET_ATTR_SLOT, key);
-            return value != nullptr ? std::string_view{value} : std::string_view{};
-        }
-
-        [[nodiscard]] int child_count(void *node) noexcept
-        {
-            return vcall<int>(node, XML_NODE_CHILD_COUNT_SLOT);
-        }
-
-        [[nodiscard]] XmlRef child_at(void *node, int index) noexcept
-        {
-            XmlRef child;
-            vcall<void **>(node, XML_NODE_GET_CHILD_SLOT, child.out(), index);
-            return child;
-        }
 
         [[nodiscard]] XmlRef find_child(void *node, const char *tag) noexcept
         {

@@ -58,18 +58,9 @@ namespace AnimationFramework
             {
                 return nullptr;
             }
-            try
+            if (void *found = find_cvar(name); found != nullptr)
             {
-                const std::string terminated{name};
-                if (void *found = vcall<void *>(console_object, constants::CONSOLE_GET_CVAR_SLOT, terminated.c_str());
-                    found != nullptr)
-                {
-                    return found;
-                }
-            }
-            catch (...)
-            {
-                return nullptr;
+                return found;
             }
             char *leaked_name = leaked_copy(name);
             char *leaked_help = leaked_copy(help);
@@ -102,6 +93,24 @@ namespace AnimationFramework
     bool console_ready() noexcept
     {
         return console() != nullptr;
+    }
+
+    void *find_cvar(std::string_view name) noexcept
+    {
+        void *console_object = console();
+        if (console_object == nullptr || name.empty())
+        {
+            return nullptr;
+        }
+        try
+        {
+            const std::string terminated{name};
+            return vcall<void *>(console_object, constants::CONSOLE_GET_CVAR_SLOT, terminated.c_str());
+        }
+        catch (...)
+        {
+            return nullptr;
+        }
     }
 
     void *find_or_register_int_cvar(std::string_view name, std::string_view help, bool &registered) noexcept

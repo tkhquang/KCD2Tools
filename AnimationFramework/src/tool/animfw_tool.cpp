@@ -6,8 +6,11 @@
  */
 
 #include "core/text_util.hpp"
+#include "tool/cutscene_clone.hpp"
 #include "tool/mcp_server.hpp"
 #include "tool/offline_tools.hpp"
+#include "tool/sandbox_layer.hpp"
+#include "tool/sandbox_setup.hpp"
 
 #include <algorithm>
 #include <array>
@@ -49,6 +52,26 @@ namespace
       <clip> (a .caf file, copied into the mod, or a clip the mod or the game has), set up like <game fragment>, or with
       --upper on the upper body only, over what Henry is doing (for clips that animate the arms, such as gestures).
 
+  animfw [--game <folder>] clone-cutscene <mod folder> <vanilla sequence> <new name> [--row <row>] [--at <x>,<y>,<z>]
+      Copies one of the game's in-game cutscenes (its sequence name, such as cin_s9921k_crime__branding_kutnahora)
+      into the mod under <new name>: a new level layer with new entity GUIDs and a new row of the cutscene table, so
+      AnimationFramework.Cutscene plays (or you change) the copy and the original stays as it is. The row is found
+      through the level's CutsceneHolder; --row names it when none does. --at moves the copy to another spot of the
+      same level: the point its characters stand at lands on <x>,<y>,<z> (on the ground), cameras, lights and props
+      move along, and the scene keeps its heading.
+
+  animfw [--game <folder>] sandbox-layer <mod folder> <file.lyr> [--as <name>] [--row <row>]
+      Turns a layer saved in the game's Sandbox editor (Data/Levels/<level>/Layers/...lyr in the editor's folder) into
+      a scene in the mod, without exporting the level: a level layer named <name> (the file's name by default) with
+      its sequence and sequence object renamed to match, and a row of the cutscene table (the vanilla cinematic's own
+      when the layer is one, --row names another, else a plain row). Run it again after each save in Sandbox.
+
+  animfw sandbox-setup [--editor <folder>] [--mod <mod folder>] [--remove]
+      Adds an "AnimFW export" button to the Sandbox editor (its KCD2Mod folder, found in Steam's libraries unless
+      --editor names it): select an object of your scene and click it to save the layers and run sandbox-layer for
+      the scene's layer into <mod folder> (asked on the first click when not given). --remove takes it out again.
+      The editor's skins stop the button (every program the editor starts crashes): use View > No Skinning.
+
   animfw [--game <folder>] compile <file.i_caf> <file.caf> [--loop | --no-loop] [--additive]
                                [--overlay] [--compression <n>]
       Compiles an animation exported for the Resource Compiler (.i_caf, as Blender exporters write it) into a clip
@@ -61,7 +84,7 @@ namespace
                                [--calibrate rest|<frame>] [--root path|line|in-place] [--root-turns] [--keep-facing]
                                [--no-twist] [--feet lock|free] [--from <seconds>] [--to <seconds>]
                                [--map <Henry bone>=<joint>]... [--hands <clip>|none] [--loop | --no-loop]
-                               [--compression <n>]
+                               [--compression <n>] [--skeleton male|female]
       Puts an animation made on another skeleton (motion capture, Mixamo, SMPL, other games) on Henry's and compiles
       it, then checks it. Bones are matched by their names; the output lists the matches, and --map fixes one
       (--map Head=head_jnt; --map LeftShoulder= leaves Henry's bone out). The reference pose is the source's rest pose,
@@ -72,13 +95,16 @@ namespace
       --feet lock holds each planted heel and ball of the foot in place with leg IK, for sources whose feet skate
       (not for in-place clips; it costs some smoothness at the knees).
       --hands poses the fingers from a game clip when the source has none (relaxed_idle_both_player by default).
+      --skeleton female makes the clip for the women's skeleton (a female NPC or double); it plays from
+      Animations\humans\female\..., where the women's animation set loads clips.
 
   animfw actions <mod folder>
       Lists the mod's actions.
 
   animfw pack <mod folder> <install folder>
       Writes the mod as installed: <install folder>\mod.manifest and Data\<modid>.pak (a mod manager's mod folder,
-      such as MO2's mods\My Mod\my_mod, or the game's Mods\my_mod).
+      such as MO2's mods\My Mod\my_mod, or the game's Mods\my_mod), Data\Levels\<level>\<modid>.pak for each level
+      folder of the mod's Data\Levels, and Localization\<folder>.pak for each folder of the mod's Localization.
 
   animfw [--game <folder>] mcp
       Serves the tools to an AI assistant over MCP (stdio).
@@ -92,13 +118,23 @@ namespace
         std::cout << line << '\n';
     }
 
-    /** @brief The game from @p folder, else from the Steam install, or nothing after printing why not. */
-    [[nodiscard]] std::optional<OfflineGame> open_game(const std::optional<fs::path> &folder)
+    /** @brief @p folder, else the Steam install of the game, or nothing after printing why not. */
+    [[nodiscard]] std::optional<fs::path> game_folder(const std::optional<fs::path> &folder)
     {
-        const std::optional<fs::path> game = folder ? folder : find_steam_game();
+        std::optional<fs::path> game = folder ? folder : find_steam_game();
         if (!game)
         {
             print("the game's folder was not found in Steam's libraries: pass it with --game <folder>");
+        }
+        return game;
+    }
+
+    /** @brief The game from @p folder, else from the Steam install, or nothing after printing why not. */
+    [[nodiscard]] std::optional<OfflineGame> open_game(const std::optional<fs::path> &folder)
+    {
+        const std::optional<fs::path> game = game_folder(folder);
+        if (!game)
+        {
             return std::nullopt;
         }
         auto paks = GamePaks::open(*game);
@@ -108,6 +144,22 @@ namespace
             return std::nullopt;
         }
         return std::optional<OfflineGame>{std::in_place, std::move(*paks)};
+    }
+
+    /**
+     * @brief Prints the line that registers a scene clone-cutscene or sandbox-layer wrote, or why it was not written.
+     * @return The command's exit code.
+     */
+    [[nodiscard]] int print_scene(const std::expected<std::string, std::string> &scene)
+    {
+        if (!scene)
+        {
+            print(scene.error());
+            return 1;
+        }
+        print("Register it in your mod's Lua:");
+        print(std::format("  {}", *scene));
+        return 0;
     }
 
     /// Prints each of @p lines indented, its tabs as spaces.
@@ -130,11 +182,24 @@ namespace
         bool upper = false;
         CompileOptions compile;
         RetargetRequest retarget;
+        /// clone-cutscene's and sandbox-layer's --row.
+        std::string row;
+        /// clone-cutscene's --at.
+        std::optional<ScenePoint> at;
+        /// sandbox-layer's --as.
+        std::string as;
+        /// sandbox-setup's --editor, --mod and --remove.
+        SandboxSetupRequest setup;
     };
 
     /// The options that take the next argument as their value.
-    constexpr std::array<std::string_view, 10> VALUE_OPTIONS{
+    constexpr std::array<std::string_view, 16> VALUE_OPTIONS{
         "--game",
+        "--row",
+        "--at",
+        "--as",
+        "--editor",
+        "--mod",
         "--take",
         "--calibrate",
         "--root",
@@ -144,6 +209,7 @@ namespace
         "--map",
         "--hands",
         "--compression",
+        "--skeleton",
     };
 
     /** @brief @p text as a whole number or a decimal of type T, all of it, independent of the C locale. */
@@ -173,6 +239,30 @@ namespace
         if (option == "--game")
         {
             line.game_folder = fs::path{value};
+        }
+        else if (option == "--row")
+        {
+            line.row = value;
+        }
+        else if (option == "--at")
+        {
+            line.at = parse_scene_point(value);
+            if (!line.at)
+            {
+                return invalid("three numbers with commas, such as 3150.5,612.25,41.8");
+            }
+        }
+        else if (option == "--as")
+        {
+            line.as = value;
+        }
+        else if (option == "--editor")
+        {
+            line.setup.editor_root = fs::path{value};
+        }
+        else if (option == "--mod")
+        {
+            line.setup.mod_folder = fs::path{value};
         }
         else if (option == "--take")
         {
@@ -234,6 +324,14 @@ namespace
         {
             line.retarget.hands = value == "none" ? std::string{} : std::string{value};
         }
+        else if (option == "--skeleton")
+        {
+            if (value != "male" && value != "female")
+            {
+                return invalid("male or female");
+            }
+            line.retarget.female = value == "female";
+        }
         else if (option == "--compression")
         {
             const std::optional<int> compression = parse_number<int>(value);
@@ -280,6 +378,10 @@ namespace
             else if (argument == "--no-twist")
             {
                 line.retarget.options.share_twist = false;
+            }
+            else if (argument == "--remove")
+            {
+                line.setup.remove = true;
             }
             else if (argument == "--loop")
             {
@@ -364,6 +466,55 @@ namespace
             line.retarget.target = fs::path{rest[1]};
             line.retarget.compile = line.compile;
             return retarget_clip_file(*game, line.retarget, print);
+        }
+        if (command == "clone-cutscene" && rest.size() == 3)
+        {
+            const std::optional<fs::path> root = game_folder(line.game_folder);
+            if (!root)
+            {
+                return 1;
+            }
+            const CutsceneCloneRequest request{
+                .game_root = *root,
+                .mod_folder = fs::path{rest[0]},
+                .sequence = rest[1],
+                .new_name = rest[2],
+                .row = line.row,
+                .at = line.at,
+            };
+            return print_scene(clone_cutscene(request, print));
+        }
+        if (command == "sandbox-layer" && rest.size() == 2)
+        {
+            const std::optional<fs::path> root = game_folder(line.game_folder);
+            if (!root)
+            {
+                return 1;
+            }
+            const SandboxLayerRequest request{
+                .game_root = *root,
+                .mod_folder = fs::path{rest[0]},
+                .layer_file = fs::path{rest[1]},
+                .name = line.as,
+                .row = line.row,
+            };
+            return print_scene(convert_sandbox_layer(request, print));
+        }
+        if (command == "sandbox-setup" && rest.empty())
+        {
+            const auto set_up = setup_sandbox(line.setup, print);
+            if (!set_up)
+            {
+                print(set_up.error());
+                return 1;
+            }
+            return 0;
+        }
+        // The editor button's helper: closes the editor's "No modified layers found" note (see sandbox_setup.hpp).
+        if (command == "sandbox-note" && rest.size() == 1)
+        {
+            const std::optional<unsigned long> pid = parse_number<unsigned long>(rest[0]);
+            return pid && close_sandbox_note(*pid) ? 0 : 1;
         }
         if (command == "pack" && rest.size() == 2)
         {

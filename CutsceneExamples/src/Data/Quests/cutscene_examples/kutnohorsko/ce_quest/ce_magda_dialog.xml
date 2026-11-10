@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Database xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Name="brambora">
+<Skald>
+<FaderDialog Name="ce_magda_dialog">
+<Ports>
+<Port Name="dance_chosen" Direction="Out" Type="trigger" />
+<Port Name="bergow_chosen" Direction="Out" Type="trigger" />
+<Port Name="duel_chosen" Direction="Out" Type="trigger" />
+</Ports>
+<Text StringName="ce_dlg_title" />
+<!-- One topic per example; each sets its port, and the quest plays that example once the conversation closes.
+     The lines are the mod's own keys, so the game has no recording for them: SelectedSouls, VoiceoverFallbackLevel and
+     a ReferenceLength (seconds) on every line. SoundFramework/cutscene_examples.ini plays Henry's and Magdalena's own
+     recorded lines from the game on these keys; the lengths, moods and gestures are those of the game's lines. -->
+<Dialogue TechnicalStatus="Enabled" AllowFarewell="false" AllowGreeting="false">
+<SelectedSouls>
+<SelectedSoul Role="HENRY" Voice="tomMcKay" Type="Wave" Language="ENG" />
+<SelectedSoul Role="CE_MAGDALENA" Voice="andreaMiltnerova" Type="Wave" Language="ENG" />
+</SelectedSouls>
+<Decision Name="dec_root" Priority="General" VoiceoverFallbackLevel="2" VoiceoverFallbackLevelRoles="CE_MAGDALENA HENRY">
+<Sequences>
+<Sequence EndType="EndDialogue" Name="seq_dance">
+<UiPrompt StringName="ce_ui_dance" />
+<Elements>
+<Response Role="HENRY" ReferenceLength="1.61">
+<Text StringName="ce_henry_dance" />
+<Commands>
+<FacialMoodCommand FacialMood="happy1" />
+<CameraCommand CameraType="CloseUp" />
+</Commands>
+</Response>
+<Response Role="CE_MAGDALENA" ReferenceLength="3.03">
+<Text StringName="ce_magda_dance" />
+<Commands>
+<FacialMoodCommand FacialMood="happy1" />
+<AnimationCommand Delay="0.04" FragmentId="ADLG_Agree" Guid="f0f76cf7-bf3c-416e-83df-3f9594209321" Variant="3" />
+<CameraCommand CameraType="CloseShot" />
+</Commands>
+</Response>
+</Elements>
+<Triggers><Port Name="dance_chosen" /></Triggers>
+</Sequence>
+<Sequence EndType="EndDialogue" Name="seq_bergow">
+<UiPrompt StringName="ce_ui_bergow" />
+<Elements>
+<Response Role="HENRY" ReferenceLength="1.4">
+<Text StringName="ce_henry_bergow" />
+<Commands>
+<FacialMoodCommand FacialMood="happy1" />
+<AnimationCommand Delay="0" FragmentId="ADLG_You" Guid="be891276-e31d-d3de-0861-950464b02445" Variant="3" />
+<CameraCommand CameraType="CloseUp" />
+</Commands>
+</Response>
+<Response Role="CE_MAGDALENA" ReferenceLength="2.55">
+<Text StringName="ce_magda_bergow" />
+<Commands>
+<AnimationCommand Delay="0.03" FragmentId="ADLG_Nod" Guid="e19b4783-39a0-4a4e-951d-018bc8ad1a03" Variant="0" />
+<CameraCommand />
+</Commands>
+</Response>
+</Elements>
+<Triggers><Port Name="bergow_chosen" /></Triggers>
+</Sequence>
+<Sequence EndType="EndDialogue" Name="seq_duel">
+<UiPrompt StringName="ce_ui_duel" />
+<Elements>
+<Response Role="HENRY" ReferenceLength="6.09">
+<Text StringName="ce_henry_duel" />
+<Commands>
+<FacialMoodCommand FacialMood="thinking2" />
+<AnimationCommand Delay="0.74" FragmentId="ADLG_Gesture" Guid="25de57a6-3edf-41c0-9ffb-06c9aec7a63f" Variant="3" />
+<AnimationCommand Delay="3.48" FragmentId="ADLG_Gesture" Guid="34ac6648-6fd5-4005-84ec-632a56223892" Variant="5" DesiredDuration="1.26" />
+<AnimationCommand Delay="4.83" FragmentId="ADLG_Disagree_light" Guid="231a82ae-beac-4474-8538-e58365c056b8" Variant="0" />
+<CameraCommand CameraType="CloseUp" />
+</Commands>
+</Response>
+<Response Role="CE_MAGDALENA" ReferenceLength="2.02">
+<Text StringName="ce_magda_duel" />
+<Commands>
+<FacialMoodCommand FacialMood="thinking2" />
+<AnimationCommand Delay="0.91" FragmentId="ADLG_Disagree" Guid="e75df559-6860-4234-bdac-0bf6fb204b31" Variant="4" />
+<CameraCommand CameraType="CloseShot" />
+</Commands>
+</Response>
+</Elements>
+<Triggers><Port Name="duel_chosen" /></Triggers>
+</Sequence>
+</Sequences>
+</Decision>
+</Dialogue>
+</FaderDialog>
+</Skald>
+</Database>

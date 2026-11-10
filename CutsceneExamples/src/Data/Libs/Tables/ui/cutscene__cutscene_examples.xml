@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="us-ascii"?>
+<database name="barbora" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="cutscene.xsd">
+	<Cutscenes version="1">
+		<IngameCutscene Name="dance_battle_win">
+			<Events>
+				<Event Type="CustomText" StartFrame="954" EndFrame="1071" StringData="ce_card_win" Layout="Center" FadeIn="15" FadeOut="15" />
+			</Events>
+		</IngameCutscene>
+		<IngameCutscene Name="dance_battle_lose">
+			<Events>
+				<Event Type="CustomText" StartFrame="949" EndFrame="1066" StringData="ce_card_lose" Layout="Center" FadeIn="15" FadeOut="15" />
+			</Events>
+		</IngameCutscene>
+		<IngameCutscene Name="ce_bergow_bout" StartWeather="cloudy_no_rain" StartBlendDuration="3s" EndWeather="cloudy_no_rain" EndBlendDuration="3s" />
+		<IngameCutscene Name="ce_field_duel" Time="18h45m" StartWeather="cloudless_sunny" StartBlendDuration="0s" />
+	</Cutscenes>
+</database>

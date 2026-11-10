@@ -9,6 +9,7 @@ A mod can:
 - add new clips and replace the game's clips, without shipping the game's clip index
 - move skeleton bones (such as where a weapon sits on the back) and keep the bones other mods move
 - give Henry different animations in third person, or while a state of your own is on
+- play your own in-game cutscenes through the game's cutscene player (see [Cutscenes](#cutscenes))
 
 The framework writes what it merged, and every conflict it found, to `KCD2_AnimationFramework.log` beside `WHGame.dll`.
 
@@ -469,7 +470,7 @@ animfw pack D:\Mods\my_mod "D:\MO2\mods\My Mod\my_mod"
 It sees the game as it ships, not other mods' changes. To try an action in game, run the in-game commands above, or install the packed mod. Run `animfw` without arguments for every command and option.
 
 - `make <mod folder> <new fragment> <clip> <game fragment> [--loop] [--upper]` copies the clip into `Data\Animations\humans\male\my_mod\`, checks it, and writes the patches into `Data\Animations\Mannequin\ADB\` and a `mod.manifest`. A refused action leaves the folder as it was.
-- `pack <mod folder> <install folder>` writes the mod as installed: `mod.manifest` and `Data\my_mod.pak`, with everything under the source's `Data\` except `Levels\`. Give it a mod manager's mod folder, or the game's `Mods\my_mod`.
+- `pack <mod folder> <install folder>` writes the mod as installed: `mod.manifest`, `Data\my_mod.pak` with everything under the source's `Data\` except `Levels\`, `Data\Levels\<level>\my_mod.pak` with each level folder (a cutscene's layer), and `Localization\<language>_xml.pak` with each `Localization\<language>_xml\` folder beside `Data\` (dialogue text). It deletes the mod's paks that an earlier pack left and the source no longer fills. Give it a mod manager's mod folder, or the game's `Mods\my_mod`.
 - `actions <mod folder>` lists the mod's actions.
 - `check <clip> [reference] [--loop]` checks a `.caf` file or a game clip. It exits with 2 when it warns, so a build script can stop on it.
 - `fragments [text]` lists the game's fragments, to pick the one to copy.
@@ -506,6 +507,7 @@ animfw retarget D:\Mocap\walk.bvh D:\Mods\my_mod\Data\Animations\humans\male\my_
 - **Feet:** it reports how far the planted feet slide and how low they get. A source whose feet slide or float does the same on Henry. `--feet lock` holds each planted heel and ball of the foot in place with leg IK, for sources whose feet skate. It costs the knees some smoothness, and retargeted feet usually slide no more than the game's own clips (2 to 7 cm/s), so it is off by default.
 - **Wrist twist:** the hand's twist is spread over the forearm's roll bones (a quarter, a half and three quarters of the way down), so a turned wrist does not pinch the skin into a ring. The game's own clips leave them still, and so does `--no-twist`.
 - **Palms and soles:** they line up with Henry's. A source whose rest pose holds the palms another way, or tilts the feet, still puts Henry's hands and feet the right way round.
+- **Women:** `--skeleton female` makes the clip for the women's skeleton, for a female NPC or a double in a cutscene. Save it under `Animations\humans\female\`, where the women's clips load from.
 
 ### AnimFW Studio
 
@@ -597,6 +599,10 @@ local text = System.GetCVar("animfw_settings_text")   -- empty when the mod has 
 
 - The text is yours to lay out, up to 1 MB. A larger file loads as empty text, and the log says why.
 - Under Mod Organizer 2, a new file lands in the Overwrite folder, which the game still sees in the mod's folder.
+
+## Cutscenes
+
+Your own in-game cutscenes play through the game's cutscene player, as its quests start them: letterbox, fades, skipping, voices, subtitles and Henry's double included. Copy one of the game's (`animfw clone-cutscene`), edit one in the game's Sandbox editor and export it with one click, or write one by hand, then play it from a script or a quest. The [cutscene guide](CUTSCENES.md) has the setup, the Lua and quest side, and the rules a scene must follow.
 
 ## Checklist
 

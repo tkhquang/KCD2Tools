@@ -359,7 +359,7 @@ jobs:
           $kcseLead = 'KCSE build: needs [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3332]KCSE[/url]. Installs into Mods, or with a mod manager. Install this or the ASI build, not both.'
           $asiLead = 'ASI build: needs an [url=https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases]ASI loader[/url]. Extract it beside WHGame.dll by hand. Install this or the KCSE build, not both.'
           $toolsLead = 'animfw.exe: the command line (check, make, pack, compile, retarget, MCP). animfw-studio.exe: the same in a window. Extract anywhere.'
-          $blenderLead = 'For Bohemian Animator armatures. Install it in Blender from disk without extracting it.'
+          $blenderLead = 'For [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3639]Bohemian Animator[/url] armatures. Install it in Blender from disk without extracting it.'
           $note = ($env:NEXUS_DESC_INPUT -replace "`r`n", "`n").Trim()
           function Format-FileNote([string]$lead) {
             if ($note -eq '') { return $lead }

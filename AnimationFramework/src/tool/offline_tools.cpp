@@ -18,8 +18,10 @@
 #include <format>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <numbers>
 #include <regex>
+#include <set>
 #include <span>
 
 namespace AnimationFramework
@@ -30,25 +32,6 @@ namespace AnimationFramework
 
         constexpr std::string_view PATCH_FOLDER = "Data/Animations/Mannequin/ADB";
         constexpr std::string_view CLIP_FOLDER = "Data/Animations/humans/male";
-
-        [[nodiscard]] std::optional<std::string> read_text(const fs::path &file)
-        {
-            std::ifstream in{file, std::ios::binary};
-            if (!in)
-            {
-                return std::nullopt;
-            }
-            return std::string{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
-        }
-
-        [[nodiscard]] bool write_text(const fs::path &file, std::string_view text)
-        {
-            std::error_code error;
-            fs::create_directories(file.parent_path(), error);
-            std::ofstream out{file, std::ios::binary | std::ios::trunc};
-            out.write(text.data(), static_cast<std::streamsize>(text.size()));
-            return out.good();
-        }
 
         [[nodiscard]] std::string today()
         {
@@ -64,14 +47,6 @@ namespace AnimationFramework
         [[nodiscard]] bool contains_ignoring_case(std::string_view text, std::string_view wanted)
         {
             return wanted.empty() || lowercase(text).find(lowercase(wanted)) != std::string::npos;
-        }
-
-        [[nodiscard]] std::unexpected<std::string> bad_mod_id(std::string_view modid)
-        {
-            // The game skips a mod whose manifest mod id holds anything else.
-            return std::unexpected{
-                std::format("{}: name the mod folder after its mod id (lowercase letters and underscores)", modid)
-            };
         }
 
         /** @brief A clip file's path as the game names it: from its `animations/` folder on, else its file name. */
@@ -103,51 +78,140 @@ namespace AnimationFramework
             print(std::format("{}: the clip to write must be a .caf file", target.string()));
             return false;
         }
+
+        /** @brief Steam's own folder, then each library its libraryfolders.vdf lists, or none without Steam. */
+        [[nodiscard]] std::vector<fs::path> steam_libraries()
+        {
+            std::array<wchar_t, MAX_PATH> buffer{};
+            DWORD size = static_cast<DWORD>(buffer.size() * sizeof(wchar_t));
+            if (RegGetValueW(
+                    HKEY_CURRENT_USER,
+                    L"Software\\Valve\\Steam",
+                    L"SteamPath",
+                    RRF_RT_REG_SZ,
+                    nullptr,
+                    buffer.data(),
+                    &size
+                ) != ERROR_SUCCESS)
+            {
+                return {};
+            }
+            const fs::path steam{buffer.data()};
+            std::vector<fs::path> libraries{steam};
+            if (const std::optional<std::string> vdf = read_text(steam / "steamapps" / "libraryfolders.vdf"))
+            {
+                static const std::regex PATH_LINE{R"re("path"\s+"([^"]+)")re"};
+                for (std::sregex_iterator it{vdf->begin(), vdf->end(), PATH_LINE}, end; it != end; ++it)
+                {
+                    const std::string path = (*it)[1].str();
+                    std::string unescaped;
+                    for (std::size_t i = 0; i < path.size(); ++i)
+                    {
+                        unescaped += path[i];
+                        if (path[i] == '\\' && i + 1 < path.size() && path[i + 1] == '\\')
+                        {
+                            ++i;
+                        }
+                    }
+                    libraries.emplace_back(unescaped);
+                }
+            }
+            return libraries;
+        }
+
+        /**
+         * @brief Every file under @p folder but paks (a pak never nests), named by its path relative to @p folder.
+         * @return The files, or why one could not be listed or read: a pak of the files the walk reached before the
+         *         failure ships a mod with files missing.
+         */
+        [[nodiscard]] std::expected<std::vector<ZipSource>, std::string> read_pak_sources(const fs::path &folder)
+        {
+            std::vector<ZipSource> files;
+            std::error_code error;
+            using Walk = fs::recursive_directory_iterator;
+            for (Walk it{folder, fs::directory_options::skip_permission_denied, error}; !error && it != Walk{};
+                 it.increment(error))
+            {
+                std::error_code file_error;
+                if (!it->is_regular_file(file_error) || lowercase(it->path().extension().string()) == ".pak")
+                {
+                    continue;
+                }
+                std::optional<std::string> bytes = read_text(it->path());
+                if (!bytes)
+                {
+                    return std::unexpected{std::format("could not read {}", it->path().string())};
+                }
+                files.push_back(
+                    ZipSource{
+                        .name = it->path().lexically_relative(folder).generic_string(),
+                        .data = std::move(*bytes),
+                    }
+                );
+            }
+            if (error)
+            {
+                return std::unexpected{std::format("could not list {}: {}", folder.string(), error.message())};
+            }
+            return files;
+        }
     } // namespace
 
-    std::optional<fs::path> find_steam_game()
+    std::optional<std::string> read_text(const fs::path &file)
     {
-        std::array<wchar_t, MAX_PATH> buffer{};
-        DWORD size = static_cast<DWORD>(buffer.size() * sizeof(wchar_t));
-        if (RegGetValueW(
-                HKEY_CURRENT_USER,
-                L"Software\\Valve\\Steam",
-                L"SteamPath",
-                RRF_RT_REG_SZ,
-                nullptr,
-                buffer.data(),
-                &size
-            ) != ERROR_SUCCESS)
+        std::ifstream in{file, std::ios::binary};
+        if (!in)
         {
             return std::nullopt;
         }
-        const fs::path steam{buffer.data()};
-        std::vector<fs::path> libraries{steam};
-        if (const std::optional<std::string> vdf = read_text(steam / "steamapps" / "libraryfolders.vdf"))
+        return std::string{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+    }
+
+    bool write_text(const fs::path &file, std::string_view text)
+    {
+        std::error_code error;
+        fs::create_directories(file.parent_path(), error);
+        fs::path temporary = file;
+        temporary += ".tmp";
+        std::ofstream out{temporary, std::ios::binary | std::ios::trunc};
+        out.write(text.data(), static_cast<std::streamsize>(text.size()));
+        out.close();
+        bool written = !out.fail();
+        if (written)
         {
-            static const std::regex PATH_LINE{R"re("path"\s+"([^"]+)")re"};
-            for (std::sregex_iterator it{vdf->begin(), vdf->end(), PATH_LINE}, end; it != end; ++it)
-            {
-                const std::string path = (*it)[1].str();
-                std::string unescaped;
-                for (std::size_t i = 0; i < path.size(); ++i)
-                {
-                    unescaped += path[i];
-                    if (path[i] == '\\' && i + 1 < path.size() && path[i + 1] == '\\')
-                    {
-                        ++i;
-                    }
-                }
-                libraries.emplace_back(unescaped);
-            }
+            fs::rename(temporary, file, error);
+            written = !error;
         }
-        for (const fs::path &library : libraries)
+        if (!written)
+        {
+            fs::remove(temporary, error);
+        }
+        return written;
+    }
+
+    std::optional<fs::path> find_steam_game()
+    {
+        for (const fs::path &library : steam_libraries())
         {
             const fs::path game = library / "steamapps" / "common" / "KingdomComeDeliverance2";
             std::error_code error;
             if (fs::exists(game / "Data" / "Animations.pak", error))
             {
                 return game;
+            }
+        }
+        return std::nullopt;
+    }
+
+    std::optional<fs::path> find_steam_sandbox()
+    {
+        for (const fs::path &library : steam_libraries())
+        {
+            const fs::path sandbox = library / "steamapps" / "common" / "KCD2Mod";
+            std::error_code error;
+            if (fs::is_directory(sandbox / "Editor" / "Scripts", error))
+            {
+                return sandbox;
             }
         }
         return std::nullopt;
@@ -195,6 +259,13 @@ namespace AnimationFramework
             full = full.parent_path();
         }
         return full.filename().string();
+    }
+
+    std::unexpected<std::string> bad_mod_id(std::string_view modid)
+    {
+        return std::unexpected{
+            std::format("{}: name the mod folder after its mod id (lowercase letters and underscores)", modid)
+        };
     }
 
     std::optional<RootMotion> root_motion_named(std::string_view name)
@@ -260,12 +331,22 @@ namespace AnimationFramework
         if (!m_skeleton_read)
         {
             m_skeleton_read = true;
-            if (auto bones = m_paks.male_skeleton())
+            if (auto bones = m_paks.skeleton_at(m_female ? FEMALE_SKELETON_PATH : MALE_SKELETON_PATH))
             {
                 m_skeleton = std::move(*bones);
             }
         }
         return m_skeleton ? &*m_skeleton : nullptr;
+    }
+
+    void OfflineGame::use_female_skeleton(bool female) noexcept
+    {
+        if (female != m_female)
+        {
+            m_female = female;
+            m_skeleton.reset();
+            m_skeleton_read = false;
+        }
     }
 
     std::vector<std::string> OfflineGame::find_fragments(std::string_view text, std::size_t limit)
@@ -438,46 +519,112 @@ namespace AnimationFramework
         {
             return std::unexpected{std::string{"the install folder cannot be inside the mod's Data folder"}};
         }
-        std::vector<ZipSource> files;
-        using Walk = fs::recursive_directory_iterator;
-        for (Walk it{data, fs::directory_options::skip_permission_denied, error}; !error && it != Walk{};
-             it.increment(error))
+        auto data_files = read_pak_sources(data);
+        if (!data_files)
         {
-            std::error_code file_error;
-            if (!it->is_regular_file(file_error))
+            return std::unexpected{std::move(data_files.error())};
+        }
+        // The game mounts a level pak at its level folder, so its files are named from there on (layers/<name>.xml).
+        std::map<fs::path, std::vector<ZipSource>> paks;
+        constexpr std::string_view levels_prefix = "levels/";
+        for (ZipSource &file : *data_files)
+        {
+            if (!lowercase(file.name).starts_with(levels_prefix))
             {
+                paks[install / "Data" / (modid + ".pak")].push_back(std::move(file));
                 continue;
             }
-            const std::string relative = it->path().lexically_relative(data).generic_string();
-            // As kcd-pak-action packs a mod: level data goes into the level's own paks, and paks are not nested.
-            if (lowercase(relative).starts_with("levels/") || lowercase(it->path().extension().string()) == ".pak")
+            // A file of Levels/ itself belongs to no level.
+            const std::size_t level_end = file.name.find('/', levels_prefix.size());
+            if (level_end != std::string::npos)
             {
-                continue;
+                const fs::path level_pak = install / "Data" / "Levels" /
+                                           file.name.substr(levels_prefix.size(), level_end - levels_prefix.size());
+                file.name.erase(0, level_end + 1);
+                paks[level_pak / (modid + ".pak")].push_back(std::move(file));
             }
-            const std::optional<std::string> bytes = read_text(it->path());
-            if (!bytes)
+        }
+        const fs::path localization = mod / "Localization";
+        if (fs::exists(localization, error))
+        {
+            using Folders = fs::directory_iterator;
+            for (Folders it{localization, error}; !error && it != Folders{}; it.increment(error))
             {
-                return std::unexpected{std::format("could not read {}", it->path().string())};
+                std::error_code folder_error;
+                if (!it->is_directory(folder_error))
+                {
+                    continue;
+                }
+                auto texts = read_pak_sources(it->path());
+                if (!texts)
+                {
+                    return std::unexpected{std::move(texts.error())};
+                }
+                if (!texts->empty())
+                {
+                    paks[install / "Localization" / (it->path().filename().string() + ".pak")] = std::move(*texts);
+                }
             }
-            files.push_back(ZipSource{.name = relative, .data = *bytes});
         }
         if (error)
         {
-            // A pack of the files the walk reached before its failure ships a mod with files missing.
-            return std::unexpected{std::format("could not list {}: {}", data.string(), error.message())};
+            return std::unexpected{std::format("could not list {}: {}", localization.string(), error.message())};
         }
-        if (files.empty())
+        if (paks.empty())
         {
             return std::unexpected{std::format("{} holds no files to pack", data.string())};
         }
-        const std::optional<std::string> pak = write_stored_zip(files);
-        const std::string manifest = read_text(mod / "mod.manifest").value_or(mod_manifest(modid, today()));
-        const fs::path pak_file = install / "Data" / (modid + ".pak");
-        if (!pak || !write_text(pak_file, *pak) || !write_text(install / "mod.manifest", manifest))
+        std::vector<std::pair<fs::path, std::string>> outputs;
+        std::string summary = std::format("{}:", modid);
+        for (const auto &[pak_file, entries] : paks)
         {
-            return std::unexpected{std::format("could not write the mod to {}", install.string())};
+            std::optional<std::string> pak = write_stored_zip(entries);
+            if (!pak)
+            {
+                return std::unexpected{std::format("{}: too many or too large files for a pak", pak_file.string())};
+            }
+            summary += std::format(
+                "{} {} file(s) packed into {}",
+                outputs.empty() ? "" : ";",
+                entries.size(),
+                pak_file.string()
+            );
+            outputs.emplace_back(pak_file, std::move(*pak));
         }
-        return std::format("{}: {} file(s) packed into {}", modid, files.size(), pak_file.string());
+        outputs.emplace_back(
+            install / "mod.manifest",
+            read_text(mod / "mod.manifest").value_or(mod_manifest(modid, today()))
+        );
+        for (const auto &[file, bytes] : outputs)
+        {
+            if (!write_text(file, bytes))
+            {
+                return std::unexpected{std::format("could not write {}", file.string())};
+            }
+        }
+        // A pak of this mod that an earlier pack wrote and this one did not (its files left the source) would still
+        // load, so it goes. Windows paths ignore case, so the comparison does too.
+        std::set<std::string> written;
+        for (const auto &pak : paks)
+        {
+            written.insert(lowercase(pak.first.generic_string()));
+        }
+        const std::string pak_name = modid + ".pak";
+        std::vector<fs::path> mod_paks{install / "Data" / pak_name};
+        using Folders = fs::directory_iterator;
+        for (Folders it{install / "Data" / "Levels", error}; !error && it != Folders{}; it.increment(error))
+        {
+            mod_paks.push_back(it->path() / pak_name);
+        }
+        for (const fs::path &pak_file : mod_paks)
+        {
+            std::error_code remove_error;
+            if (!written.contains(lowercase(pak_file.generic_string())) && fs::remove(pak_file, remove_error))
+            {
+                summary += std::format("; removed the stale {}", pak_file.string());
+            }
+        }
+        return summary;
     }
 
     std::vector<ModActionInfo> list_mod_actions(const fs::path &mod)
@@ -552,10 +699,16 @@ namespace AnimationFramework
         {
             return 1;
         }
+        game.use_female_skeleton(request.female);
         const std::vector<SkeletonBone> *skeleton = game.skeleton();
         if (skeleton == nullptr)
         {
-            print("Henry's skeleton could not be read from the game's paks");
+            print(
+                std::format(
+                    "{} could not be read from the game's paks",
+                    request.female ? FEMALE_SKELETON_PATH : MALE_SKELETON_PATH
+                )
+            );
             return 1;
         }
         auto source = read_mocap_file(request.source, request.take);

@@ -60,6 +60,7 @@ add_library(animfw_core STATIC
   src/core/legacy_merge.cpp
   src/core/mod_maker.cpp
   src/core/mod_tools.cpp
+  src/core/scene_move.cpp
   src/core/tag_rules.cpp
   src/core/xml_elements.cpp
   src/core/zip_reader.cpp
@@ -86,9 +87,39 @@ add_library(animfw_retarget STATIC src/retarget/mocap.cpp src/retarget/retarget.
 configure_mod_compile(animfw_retarget)
 target_link_libraries(animfw_retarget PUBLIC animfw_core PRIVATE ufbx)
 
-add_library(animfw_offline STATIC src/tool/offline_tools.cpp)
+add_library(animfw_offline STATIC
+  src/tool/offline_tools.cpp
+  src/tool/cutscene_clone.cpp
+  src/tool/cutscene_files.cpp
+  src/tool/sandbox_layer.cpp
+  src/tool/sandbox_setup.cpp
+)
 configure_mod_compile(animfw_offline)
 target_link_libraries(animfw_offline PUBLIC animfw_core animfw_retarget)
+
+# The Sandbox editor's "AnimFW export" button (sandbox/), embedded in animfw.exe: `animfw sandbox-setup` writes it into
+# the editor's folder, so no release archive carries the editor script itself.
+set(ANIMFW_SANDBOX_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/sandbox/animfw_export.py ${CMAKE_CURRENT_SOURCE_DIR}/sandbox/AnimationFramework.xml)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${ANIMFW_SANDBOX_SOURCES})
+# MSVC refuses a string literal over 16380 bytes (C2026), so each file embeds as adjacent raw literals of at most 8000
+# bytes. Carriage returns go first, so no piece ends between the two bytes of a line break.
+function(animfw_embed_text out_var file delimiter)
+  file(READ ${file} text)
+  string(REPLACE "\r" "" text "${text}")
+  string(LENGTH "${text}" length)
+  set(pieces "")
+  set(at 0)
+  while(at LESS length)
+    string(SUBSTRING "${text}" ${at} 8000 piece)
+    string(APPEND pieces "R\"${delimiter}(${piece})${delimiter}\"\n")
+    math(EXPR at "${at} + 8000")
+  endwhile()
+  set(${out_var} "${pieces}" PARENT_SCOPE)
+endfunction()
+animfw_embed_text(ANIMFW_SANDBOX_EXPORT_PY ${CMAKE_CURRENT_SOURCE_DIR}/sandbox/animfw_export.py afw_py)
+animfw_embed_text(ANIMFW_SANDBOX_TOOLBAR_XML ${CMAKE_CURRENT_SOURCE_DIR}/sandbox/AnimationFramework.xml afw_xml)
+configure_file(src/tool/sandbox_files.hpp.in ${CMAKE_CURRENT_BINARY_DIR}/generated/sandbox_files.hpp @ONLY)
+target_include_directories(animfw_offline PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 
 FetchContent_Declare(nlohmann_json
   URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
@@ -161,7 +192,9 @@ if(ANIMFW_BUILD_TESTS)
   enable_testing()
   add_executable(animfw_core_tests tests/core_tests.cpp)
   configure_mod_compile(animfw_core_tests)
-  target_include_directories(animfw_core_tests PRIVATE tests)
+  # The generated sandbox_files.hpp and its sources, which the test compares.
+  target_include_directories(animfw_core_tests PRIVATE tests ${CMAKE_CURRENT_BINARY_DIR}/generated)
+  target_compile_definitions(animfw_core_tests PRIVATE ANIMFW_SANDBOX_DIR="${CMAKE_CURRENT_SOURCE_DIR}/sandbox")
   target_link_libraries(animfw_core_tests PRIVATE animfw_core animfw_retarget)
   add_test(NAME core COMMAND animfw_core_tests)
 endif()
@@ -191,6 +224,7 @@ set(COMMON_SOURCES
   src/config.cpp
   src/console_vars.cpp
   src/custom_tags.cpp
+  src/cutscenes.cpp
   src/forced_options.cpp
   src/live_bridge.cpp
   src/mod_settings.cpp
@@ -198,6 +232,7 @@ set(COMMON_SOURCES
   src/version.cpp
   src/hooks/anim_patch.cpp
   src/hooks/frame_tick.cpp
+  src/hooks/quest_console.cpp
   src/hooks/view_variants.cpp
 )
 

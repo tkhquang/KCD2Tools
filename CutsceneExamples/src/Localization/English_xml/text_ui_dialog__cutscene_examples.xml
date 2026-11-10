@@ -1,0 +1,14 @@
+<Table>
+<Row><Cell>ce_dlg_title</Cell><Cell>Cutscene examples</Cell><Cell>Cutscene examples</Cell></Row>
+<Row><Cell>ce_ui_dance</Cell><Cell>I challenge you to a (dance) duel!</Cell><Cell>I challenge you to a (dance) duel!</Cell></Row>
+<Row><Cell>ce_henry_dance</Cell><Cell>I challenge you to a duel!</Cell><Cell>I challenge you to a duel!</Cell></Row>
+<Row><Cell>ce_magda_dance</Cell><Cell>Alright, then. Come, I'll show you something.</Cell><Cell>Alright, then. Come, I'll show you something.</Cell></Row>
+<Row><Cell>ce_card_win</Cell><Cell>Henry won the dance battle. Magdalena blames her shoes.</Cell><Cell>Henry won the dance battle. Magdalena blames her shoes.</Cell></Row>
+<Row><Cell>ce_card_lose</Cell><Cell>Magdalena won the dance battle. Henry is still looking for his dignity.</Cell><Cell>Magdalena won the dance battle. Henry is still looking for his dignity.</Cell></Row>
+<Row><Cell>ce_ui_bergow</Cell><Cell>Did I ever tell you how I beat von Bergow at fencing? (I didn't.)</Cell><Cell>Did I ever tell you how I beat von Bergow at fencing? (I didn't.)</Cell></Row>
+<Row><Cell>ce_henry_bergow</Cell><Cell>How about another story?</Cell><Cell>How about another story?</Cell></Row>
+<Row><Cell>ce_magda_bergow</Cell><Cell>Gladly. What would you like to know?</Cell><Cell>Gladly. What would you like to know?</Cell></Row>
+<Row><Cell>ce_ui_duel</Cell><Cell>Hans and I had a friendly bout. (He'll be fine.)</Cell><Cell>Hans and I had a friendly bout. (He'll be fine.)</Cell></Row>
+<Row><Cell>ce_henry_duel</Cell><Cell>Look, we had a friendly bout, and I caught him good. But he'll be fine. Nothing serious.</Cell><Cell>Look, we had a friendly bout, and I caught him good. But he'll be fine. Nothing serious.</Cell></Row>
+<Row><Cell>ce_magda_duel</Cell><Cell>Christ, you men…</Cell><Cell>Christ, you men…</Cell></Row>
+</Table>

@@ -1,0 +1,21 @@
+/**
+ * @file tool/sandbox_files.hpp
+ * @brief The Sandbox editor's AnimFW export button, which `animfw sandbox-setup` writes into the editor's folder (see
+ *        tool/sandbox_setup.hpp). CMake generates this header from AnimationFramework/sandbox/: edit those files.
+ */
+#ifndef ANIMFW_TOOL_SANDBOX_FILES_HPP
+#define ANIMFW_TOOL_SANDBOX_FILES_HPP
+
+#include <string_view>
+
+namespace AnimationFramework::sandbox_files
+{
+    /// The button's script, `Editor/Scripts/animfw_export.py` (sandbox/animfw_export.py).
+    inline constexpr std::string_view EXPORT_SCRIPT =
+        @ANIMFW_SANDBOX_EXPORT_PY@;
+    /// The editor toolbar that holds the button, `Editor/DynamicToolbars/AnimationFramework.xml`.
+    inline constexpr std::string_view TOOLBAR =
+        @ANIMFW_SANDBOX_TOOLBAR_XML@;
+} // namespace AnimationFramework::sandbox_files
+
+#endif // ANIMFW_TOOL_SANDBOX_FILES_HPP

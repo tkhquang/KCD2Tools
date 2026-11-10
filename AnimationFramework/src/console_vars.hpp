@@ -30,6 +30,9 @@ namespace AnimationFramework
     /** @brief Whether the console is bound and up. Main thread only. */
     [[nodiscard]] bool console_ready() noexcept;
 
+    /** @brief The registered variable @p name, or nullptr when none is or the console is not up. Main thread only. */
+    [[nodiscard]] void *find_cvar(std::string_view name) noexcept;
+
     /**
      * @brief The variable @p name, registered with value 0, no flags and @p help when no mod has yet. Nullptr while
      *        the console is not up or when registering fails.

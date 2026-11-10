@@ -24,6 +24,7 @@ namespace AnimationFramework
         std::atomic<bool> s_third_person_variants{true};
         std::atomic<bool> s_custom_tags{true};
         std::atomic<bool> s_blender_bridge{true};
+        std::atomic<bool> s_cutscenes{true};
         // Written by the INI load (setup), read after it.
         std::mutex s_lists_mutex;
         std::string s_custom_tag_priority;
@@ -43,6 +44,7 @@ namespace AnimationFramework
         features.bind<bool>("ThirdPersonVariants", "Third Person Variants", s_third_person_variants, true);
         features.bind<bool>("CustomTags", "Custom Tags", s_custom_tags, true);
         features.bind<bool>("BlenderBridge", "Blender Bridge", s_blender_bridge, true);
+        features.bind<bool>("Cutscenes", "Cutscenes", s_cutscenes, true);
 
         const DMK::config::SectionBinder tags = DMK::config::section("CustomTags");
         tags.bind_string(
@@ -79,6 +81,7 @@ namespace AnimationFramework
             .third_person_variants = s_third_person_variants.load(std::memory_order_relaxed),
             .custom_tags = s_custom_tags.load(std::memory_order_relaxed),
             .blender_bridge = s_blender_bridge.load(std::memory_order_relaxed),
+            .cutscenes = s_cutscenes.load(std::memory_order_relaxed),
             .custom_tag_priority = s_custom_tag_priority,
             .custom_tag_disabled = s_custom_tag_disabled,
         };

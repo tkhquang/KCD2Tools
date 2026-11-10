@@ -24,12 +24,14 @@
 #include "core/mod_tools.hpp"
 #include "core/legacy_merge.hpp"
 #include "core/mod_maker.hpp"
+#include "core/scene_move.hpp"
 #include "core/tag_rules.hpp"
 #include "core/text_util.hpp"
 #include "core/zip_reader.hpp"
 #include "core/zip_writer.hpp"
 #include "retarget/mocap.hpp"
 #include "retarget/retarget.hpp"
+#include "sandbox_files.hpp"
 
 #include <process.h>
 
@@ -128,6 +130,83 @@ namespace
         std::error_code error;
         return std::filesystem::temp_directory_path(error) /
                (std::string{stem} + "_" + std::to_string(_getpid()) + "_" + std::to_string(++counter) + ".zip");
+    }
+
+    void test_scene_move()
+    {
+        // Two characters at the scene's origin, a camera, an entity parented to another (local position), a prop
+        // that a LinkTo key attaches at 1 s, and a node that drives one of the level's own entities.
+        const std::string layer = R"(<Objects>
+<Entity Name="a" Pos="10,20,30" EntityClass="AnimChar" EntityGuid="g-a" />
+<Entity Name="b" Pos="10,20,30" EntityClass="AnimChar" EntityGuid="g-b" />
+<Entity Name="watcher" Pos="4,5,6" EntityClass="AnimChar" EntityGuid="g-w" />
+<Entity Name="cam" Pos="1,2,3" Rotate="1,0,0,0" EntityClass="CameraSource" EntityGuid="g-c" />
+<Entity Name="child" Pos="0.5,0,0" EntityClass="GeomEntity" EntityGuid="g-d" ParentId="7" />
+<Entity Name="prop" Pos="12,22,31" EntityClass="GeomEntity" EntityGuid="g-p" />
+<Entity Name="scene" EntityClass="SequenceObject" EntityGuid="g-s">
+<Sequence Name="scene" EndTime="10">
+<Node Id="1" Type="Entity" Name="a" EntityGUID="g-a"><Track paramType="Animation" ValueType="21"><Key time="0" anim="x" /></Track>
+<Track paramType="Position" Type="4"><NewSubTrack defaultValue="0,10"><Key time="0" value="0,10" /><Key time="2" value="2,11.5" /></NewSubTrack><NewSubTrack defaultValue="0,20"><Key time="0" value="0,20" /></NewSubTrack><NewSubTrack defaultValue="0,30" /></Track>
+<Track paramType="Rotation" Type="4"><NewSubTrack defaultValue="0,0"><Key time="0" value="0,45" /></NewSubTrack></Track></Node>
+<Node Id="2" Type="Entity" Name="b" EntityGUID="g-b"><Track paramType="Animation" ValueType="21"><Key time="0" anim="y" /></Track></Node>
+<Node Id="3" Type="Camera" Name="cam" EntityGUID="g-c"><Track paramType="Position" Type="4"><NewSubTrack defaultValue="0,1"><Key time="0" value="0,1" /></NewSubTrack><NewSubTrack defaultValue="0,2" /><NewSubTrack defaultValue="0,3" /></Track></Node>
+<Node Id="4" Type="Entity" Name="prop" EntityGUID="g-p"><Track paramType="Position" Type="4"><NewSubTrack defaultValue="0,12"><Key time="0" value="0,12" /><Key time="1" value="1,0.2" /><Key time="5" value="5,13" /></NewSubTrack><NewSubTrack defaultValue="0,22" /><NewSubTrack defaultValue="0,31" /></Track>
+<Track paramType="LinkTo"><Key time="1" node="a" boneName="RightHandSlot" /><Key time="5" node="" boneName="" /></Track></Node>
+<Node Id="5" Type="Entity" Name="door" EntityGUID="g-level-door"><Track paramType="Position" Type="4"><NewSubTrack defaultValue="0,99"><Key time="0" value="0,99" /></NewSubTrack><NewSubTrack defaultValue="0,98" /><NewSubTrack defaultValue="0,97" /></Track></Node>
+<Node Id="6" Type="Entity" Name="child" EntityGUID="g-d"><Track paramType="Position" Type="4"><NewSubTrack defaultValue="0,0.5" /><NewSubTrack defaultValue="0,0" /><NewSubTrack defaultValue="0,0" /></Track></Node>
+</Sequence>
+</Entity>
+</Objects>)";
+        const std::optional<ScenePoint> origin = scene_origin(layer, "scene");
+        CHECK(origin.has_value());
+        CHECK(origin && origin->x == 10.0 && origin->y == 20.0 && origin->z == 30.0);
+        CHECK(!scene_origin(layer, "other").has_value());
+
+        const MovedScene moved = move_scene(layer, ScenePoint{100.0, 200.0, -0.25});
+        const std::string &out = moved.layer_xml;
+        const auto has = [&](std::string_view part) { return out.find(part) != std::string::npos; };
+        CHECK(moved.entities == 5);
+        CHECK(has(R"(Name="a" Pos="110,220,29.75")"));
+        CHECK(has(R"(Name="cam" Pos="101,202,2.75" Rotate="1,0,0,0")"));
+        CHECK(has(R"(Name="child" Pos="0.5,0,0")"));
+        CHECK(has(R"(<NewSubTrack defaultValue="0,110"><Key time="0" value="0,110" /><Key time="2" value="2,111.5" />)"));
+        CHECK(has(R"(<NewSubTrack defaultValue="0,29.75" />)"));
+        CHECK(has(R"(<Key time="0" value="0,45" />)"));
+        CHECK(has(R"(<NewSubTrack defaultValue="0,112"><Key time="0" value="0,112" /><Key time="1" value="1,0.2" /><Key time="5" value="5,113" />)"));
+        CHECK(has(R"(<NewSubTrack defaultValue="0,99"><Key time="0" value="0,99" />)"));
+        CHECK(has(R"(<NewSubTrack defaultValue="0,0.5" />)"));
+        // Keys and default values: a 3 + 2 + 1, cam 2 + 1 + 1, prop 3 + 1 + 1 (its key while attached stays).
+        CHECK(moved.keys == 15);
+        CHECK(move_scene(layer, ScenePoint{}).layer_xml == layer);
+
+        const std::optional<ScenePoint> point = parse_scene_point("3150.5,-612.25,41");
+        CHECK(point && point->x == 3150.5 && point->y == -612.25 && point->z == 41.0);
+        CHECK(!parse_scene_point("1,2").has_value());
+        CHECK(!parse_scene_point("1,2,3,4").has_value());
+        CHECK(!parse_scene_point("1, 2,3").has_value());
+
+        // A truncated layer: the tags that never end hold no keys, and nothing is read past the text.
+        const std::string truncated = R"(<Entity Name="a" EntityClass="AnimChar" EntityGuid="g-a" />
+<Sequence Name="scene"><Node EntityGUID="g-a")";
+        CHECK(!scene_origin(truncated, "scene").has_value());
+        CHECK(move_scene(truncated, ScenePoint{1.0, 2.0, 3.0}).layer_xml == truncated);
+    }
+
+    void test_sandbox_files()
+    {
+        // The build embeds sandbox/ with its carriage returns removed, line feeds kept.
+        const auto source = [](const char *name) -> std::string
+        {
+            std::ifstream stream(std::filesystem::path{ANIMFW_SANDBOX_DIR} / name, std::ios::binary);
+            std::string text{std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+            std::erase(text, '\r');
+            return text;
+        };
+        const std::string script = source("animfw_export.py");
+        CHECK(!script.empty());
+        CHECK(sandbox_files::EXPORT_SCRIPT == script);
+        CHECK(std::ranges::count(sandbox_files::EXPORT_SCRIPT, '\n') > 1);
+        CHECK(sandbox_files::TOOLBAR == source("AnimationFramework.xml"));
     }
 
     void test_text_util()
@@ -1836,7 +1915,7 @@ Frame Time: 0.033333
             const auto found = paks->find_clip("TEST_CLIP");
             CHECK(found.has_value() && found->path == clip_path && found->clip.tracks.size() == 1);
             CHECK(!paks->find_clip("no_clip").has_value());
-            const auto skeleton = paks->male_skeleton();
+            const auto skeleton = paks->skeleton_at(MALE_SKELETON_PATH);
             CHECK(skeleton.has_value() && skeleton->size() == 2);
 
             const std::vector<SkeletonBone> bones_read = skeleton.value_or(std::vector<SkeletonBone>{});
@@ -2573,6 +2652,8 @@ int main(int argc, char **argv)
         return run_delta(argv[1], argv[2], argv[3], argc >= 5 ? argv[4] : nullptr);
     }
     test_text_util();
+    test_sandbox_files();
+    test_scene_move();
     test_bridge_protocol();
     test_clip_path_hash();
     test_clip_header();

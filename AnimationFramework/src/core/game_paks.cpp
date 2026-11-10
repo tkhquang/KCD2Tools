@@ -171,12 +171,12 @@ namespace AnimationFramework
         return std::unexpected{std::format("{}{}", NO_CLIP_ERROR_PREFIX, name)};
     }
 
-    std::expected<std::vector<SkeletonBone>, std::string> GamePaks::male_skeleton() const
+    std::expected<std::vector<SkeletonBone>, std::string> GamePaks::skeleton_at(std::string_view path) const
     {
-        const std::optional<std::string> data = read(MALE_SKELETON_PATH);
+        const std::optional<std::string> data = read(path);
         if (!data)
         {
-            return std::unexpected{std::format("no pak holds {}", MALE_SKELETON_PATH)};
+            return std::unexpected{std::format("no pak holds {}", path)};
         }
         return read_skeleton_file(std::as_bytes(std::span{*data}));
     }

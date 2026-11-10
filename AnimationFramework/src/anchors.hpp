@@ -65,6 +65,74 @@ namespace AnimationFramework
         std::uintptr_t stop_anim_bind = 0;
         /// Primary vtable of CScriptSystem, with its ExecuteBuffer slot checked. The bridge's Lua runs through it.
         std::uintptr_t script_system_vtable = 0;
+        /// Primary vtable of CMovieSystem, with its Load and LoadSequence slots checked.
+        std::uintptr_t movie_system_vtable = 0;
+        /// Primary vtable of CSystem, whose ISystem::LoadXmlFromFile slot CMovieSystem::Load calls. Resolved with it.
+        std::uintptr_t system_vtable = 0;
+        /// The movie system's ISystem field, decoded from CMovieSystem::Load (`mov rcx, [rcx+disp8]`).
+        std::ptrdiff_t movie_system_system_offset = 0;
+        /// The CSystem field that holds CXmlUtils, decoded from the ISystem::LoadXmlFromFile slot Load calls.
+        std::ptrdiff_t system_xml_utils_offset = 0;
+        /// Primary vtable of C_CutsceneHolder, the game-object extension of a CutsceneHolder entity.
+        std::uintptr_t cutscene_holder_vtable = 0;
+        /// Makes a C_CutsceneConfiguration from a holder: what the quest CutsceneHandler node calls to enqueue.
+        std::uintptr_t cutscene_create = 0;
+        /// C_CutscenePlayer's enqueue of a configuration, the handler node's next call.
+        std::uintptr_t cutscene_enqueue = 0;
+        /// The getter of the game object the handler node reaches the cutscene player through.
+        std::uintptr_t cutscene_game_getter = 0;
+        /// The first field of the chain from that object to C_CutscenePlayer, decoded from the handler node.
+        std::ptrdiff_t cutscene_player_outer_offset = 0;
+        /// The second field of that chain, which holds C_CutscenePlayer.
+        std::ptrdiff_t cutscene_player_inner_offset = 0;
+        /// The static holding the game's linkable-object manager, decoded from the spawn listener.
+        std::uintptr_t linkable_manager_static = 0;
+        /// Whether the manager takes an entity, the listener's check before it makes one linkable.
+        std::uintptr_t linkable_filter = 0;
+        /// Makes one entity a linkable object with a WUID: (manager, entity, ownership flag).
+        std::uintptr_t linkable_make = 0;
+        /// CEntitySystem's vtable, to check the object gEnv holds before its entity and layer slots are called.
+        std::uintptr_t entity_system_vtable = 0;
+        /// C_GameProfileManager's vtable, to check the object the game state holds.
+        std::uintptr_t profile_manager_vtable = 0;
+        /// The game state getter the cutscene's profile step reaches the profile manager through.
+        std::uintptr_t profile_game_getter = 0;
+        /// The first field of the chain from the game state to C_GameProfileManager, decoded from the same step.
+        std::ptrdiff_t profile_manager_outer_offset = 0;
+        /// The second field of that chain, which holds C_GameProfileManager.
+        std::ptrdiff_t profile_manager_inner_offset = 0;
+        /// CryString from text, as the cutscene's profile step makes its key name.
+        std::uintptr_t string_from_text = 0;
+        /// CryString's release, as the same step drops its key name.
+        std::uintptr_t string_release = 0;
+        /// The level loader's profile record constructor.
+        std::uintptr_t profile_record_create = 0;
+        /// The level loader's insert of a record into the profile manager's record vector.
+        std::uintptr_t profile_records_insert = 0;
+        /// The level loader's push of one layer name into a record's layer list.
+        std::uintptr_t profile_layer_push = 0;
+        /**
+         * @brief CEntityLoadManager::ReserveEntityIds(XmlNodeRef &entities): the id reservation of one layer as it
+         *        loads, reached through CEntitySystem slot 42 (`mov rcx, [rcx+disp32]; jmp`).
+         */
+        std::uintptr_t reserve_layer_ids = 0;
+        /**
+         * @brief The spin lock of CEntitySystem's entity id allocator, decoded from ReserveEntityId (slot 17).
+         *        Resolved only with reserve_layer_ids, as are the two offsets below.
+         */
+        std::ptrdiff_t entity_id_lock_offset = 0;
+        /// The allocator's slot array (24-byte slots: salt +0, prev +4, next +8, entity +16), from the same function.
+        std::ptrdiff_t entity_id_slots_offset = 0;
+        /// The free list head relative to the slot array, decoded from the unlink ReserveEntityId reaches.
+        std::ptrdiff_t entity_id_free_head_offset = 0;
+        /// Primary vtable of the RTTR method wrapper of the quest function ExecuteConsoleString.
+        std::uintptr_t console_string_method_vtable = 0;
+        /// The wrapper's single-argument invoke (slot 15).
+        std::uintptr_t console_string_invoke = 0;
+        /// The wrapper's argument-list invoke (slot 17).
+        std::uintptr_t console_string_invoke_list = 0;
+        /// CAnimSequence::TriggerTrackEvent: an Event node's key reaching its sequence.
+        std::uintptr_t trigger_track_event = 0;
     };
 
     /**
