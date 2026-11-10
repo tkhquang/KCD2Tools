@@ -9,6 +9,7 @@ Third-person animations for Henry. In first person the game's own animations pla
 - **Drunk idle** for a drunk Henry.
 - **Torch sprint:** Henry holds the torch low in front of him instead of up.
 - **Smooth turns:** turn the camera further while Henry turns on the spot, and he carries on turning instead of restarting his step or standing still.
+- **Door exit:** holding a move key while Henry opens a door or gate no longer makes him slide when he walks off.
 - Open source, built on the Animation Framework (built with DetourModKit).
 
 ## Requirements
@@ -35,6 +36,7 @@ this mod replaces.
 | `tpv_animations_drunk.pak` | Drunk idle |
 | `tpv_animations_torch_sprint.pak` | Torch sprint |
 | `tpv_animations_smooth_turn.pak` | Smooth turns |
+| `tpv_animations_door_exit.pak` | Door exit |
 
 ## How it works
 
@@ -43,6 +45,7 @@ this mod replaces.
   turning in place keep working.
 - **Drunk idle and torch sprint:** options tagged `thirdPerson` added next to the game's own.
 - **Smooth turns:** transitions between the game's own turn fragments, tagged `thirdPerson`. A requested turn starts at once instead of waiting for the blend space's average length, and crossing 90 degrees keeps the current step. TPV Camera decides when the next turn is requested.
+- **Door exit:** the game's own door and gate options, tagged `thirdPerson`, with the game's `MovementRestriction` procedural added. A held move key no longer builds up speed while Henry opens the door, so he leaves it from a standing start instead of at full speed with his feet planted.
 - Each pak gives its clips the sounds of the game animations they are made from.
 
 All clips are made from the game's own animations. Each gesture is a game fidget or gesture followed by calm idle in

@@ -8,6 +8,7 @@ Third-person animations for Henry, so he no longer stands like a statue. In firs
 [*][b]Drunk idle[/b] for a drunk Henry.[/*]
 [*][b]Torch sprint:[/b] Henry holds the torch low in front of him instead of up.[/*]
 [*][b]Smooth turns:[/b] turn the camera further while Henry turns on the spot, and he carries on turning instead of restarting his step or standing still.[/*]
+[*][b]Door exit:[/b] holding a move key while Henry opens a door or gate no longer makes him slide when he walks off.[/*]
 [*][url=https://github.com/tkhquang/KCD2Tools/tree/main/TPVAnimations]Open source[/url], built on [url=https://www.nexusmods.com/kingdomcomedeliverance2/mods/3981]Animation Framework[/url] (built with [url=https://github.com/tkhquang/DetourModKit]DetourModKit[/url])[/*]
 [/list]
 
@@ -30,7 +31,8 @@ Mods/
         |-- tpv_animations_idle_<gesture>.pak   (14 files)
         |-- tpv_animations_drunk.pak
         |-- tpv_animations_torch_sprint.pak
-        \-- tpv_animations_smooth_turn.pak
+        |-- tpv_animations_smooth_turn.pak
+        \-- tpv_animations_door_exit.pak
 [/code]
 [/spoiler]
 
@@ -42,6 +44,7 @@ Each part is its own pak in [b]Mods/tpv_animations/Data[/b]. Delete one to remov
 [*][b]tpv_animations_drunk.pak[/b] - drunk idle[/*]
 [*][b]tpv_animations_torch_sprint.pak[/b] - torch sprint[/*]
 [*][b]tpv_animations_smooth_turn.pak[/b] - smooth turns[/*]
+[*][b]tpv_animations_door_exit.pak[/b] - door exit[/*]
 [/list]
 [spoiler]
 Gestures: neck_stretch, back_stretch, scratch_face, forehead_wipe, yawn, spit, look_around, weight_shift_left, weight_shift_right, fidget02, fidget03, fidget04, fidget05, fidget07.

@@ -3,7 +3,7 @@
   <info>
     <name>TPV Animations</name>
     <modid>tpv_animations</modid>
-    <description>Third-person animations for Henry: idle gestures, a drunk idle, a torch sprint and smooth turns.</description>
+    <description>Third-person animations for Henry: idle gestures, a drunk idle, a torch sprint, smooth turns and a door exit fix.</description>
     <author>tkhquang</author>
     <version>1.1.0</version>
     <created_on>2026-11-02</created_on>
