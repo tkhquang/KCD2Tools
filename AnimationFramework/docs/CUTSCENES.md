@@ -8,7 +8,7 @@ You can:
 - build a new scene in the game's Sandbox editor, or by hand around wherever Henry stands
 - play it from your own script, from the console, or from a quest
 
-The [Cutscene Examples](../../CutsceneExamples/) mod does both: a dance battle written from scratch and a game cutscene copied and changed, each started from a dialog topic. Its [devlog](../../CutsceneExamples/docs/DEVLOG.md) walks through them.
+The [Cutscene Examples](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3996) mod ([source](../../CutsceneExamples/)) does both: a dance battle written from scratch and a game cutscene copied and changed, each started from a dialog topic. Its [devlog](../../CutsceneExamples/docs/DEVLOG.md) walks through them.
 
 ## How a game cutscene is built
 

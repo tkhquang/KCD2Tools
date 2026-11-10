@@ -3,6 +3,8 @@ Three cutscenes made with the [url=https://www.nexusmods.com/kingdomcomedelivera
 
 [b]A showcase and a set of examples for modders who want to make their own cutscenes.[/b] It adds no gameplay.
 
+[youtube]6ZPFdMtJ8R8[/youtube]
+
 [size=5]Key Features[/size]
 [list]
 [*][b]A dance battle:[/b] Henry challenges Magdalena. Both dance, and he wins or loses at random, in front of a crowd that cheers, claps and laughs.[/*]
@@ -55,7 +57,7 @@ Talk to Magdalena and pick a topic. The cutscene starts when the conversation cl
 
 [size=5]Credits[/size]
 [list]
-[*]The dance animations were made with [url=https://www.meshy.ai/]Meshy[/url] (AI) and retargeted with the Animation Framework.[/*]
+[*]The dance animations were made with [url=https://www.meshy.ai/]Meshy[/url] (AI), because I can't animate, and retargeted with the Animation Framework. This mod is a free, non-commercial example, made only to show how cutscenes are built.[/*]
 [*]The crowd, voices, music and sounds are the game's own, played from the installed game.[/*]
 [/list]
 

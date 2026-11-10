@@ -4,6 +4,8 @@ Three cutscenes made with the [Animation Framework](https://www.nexusmods.com/ki
 
 > A showcase and a set of examples for modders who want to make their own cutscenes. It adds no gameplay.
 
+[![Showcase video on YouTube](https://img.youtube.com/vi/6ZPFdMtJ8R8/maxresdefault.jpg)](https://youtu.be/6ZPFdMtJ8R8)
+
 - **A dance battle:** Henry challenges Magdalena. Both dance, and he wins or loses at random, in front of a crowd that cheers, claps and laughs.
 - **A game cutscene, recast:** the fencers' bout from Kutna Hora, in its arena, with Henry, Jobst von Bergow and Hans in other people's places.
 - **The same cutscene, moved:** the bout in an open field as a duel between Henry and Hans, with new camera work, grass footsteps and its music.
@@ -22,7 +24,7 @@ Three cutscenes made with the [Animation Framework](https://www.nexusmods.com/ki
 
 ## Installation
 
-Install with your mod manager, or extract into `<game>/Mods/`. To uninstall, delete `Mods/cutscene_examples`.
+Download from [Nexus Mods](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3996). Install with your mod manager, or extract into `<game>/Mods/`. To uninstall, delete `Mods/cutscene_examples`.
 
 ## Playing the examples
 
@@ -44,7 +46,7 @@ Talk to Magdalena and pick a topic. The cutscene starts when the conversation cl
 
 ## Credits
 
-- The dance animations were made with [Meshy](https://www.meshy.ai/) (AI) and retargeted with the Animation Framework.
+- The dance animations were made with [Meshy](https://www.meshy.ai/) (AI), because I can't animate, and retargeted with the Animation Framework. This mod is a free, non-commercial example, made only to show how cutscenes are built.
 - The crowd, voices, music and sounds are the game's own, played from the installed game.
 
 ## License
