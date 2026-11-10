@@ -1,6 +1,7 @@
 -- Cutscene Examples: Animation Framework cutscene examples.
 -- Copyright (c) 2026-present Quang Trinh (tkhquang) <khacquang.trinh@gmail.com>
--- https://tkhquang.dev - MIT License
+-- https://github.com/tkhquang/KCD2Tools/tree/main/CutsceneExamples
+-- MIT License: https://github.com/tkhquang/KCD2Tools/blob/main/CutsceneExamples/LICENSE
 --
 -- Magdalena in Kutna Hora offers one topic per example (Quests/cutscene_examples). Once the conversation closes, the
 -- quest runs `#CutsceneExamples.Play('<example>')`, which plays it through AnimationFramework.Cutscene:
