@@ -16,8 +16,8 @@ Third-person animations for Henry. In first person the game's own animations pla
 
 - [Animation Framework](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3981) 1.0.0 or newer.
 - A third-person camera mod that sets `mod_camera_view`, such as
-  [TPV Camera](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3263) 3.0.0 or newer.
-- Smooth turns need TPV Camera 3.2.1 or newer. With an older version, delete `tpv_animations_smooth_turn.pak`, or Henry's big turns restart mid-step.
+  [Proper Third Person View (TPV Camera)](https://www.nexusmods.com/kingdomcomedeliverance2/mods/3263) 3.0.0 or newer.
+- Smooth turns need Proper Third Person View (TPV Camera) 3.2.1 or newer. With an older version, delete `tpv_animations_smooth_turn.pak`, or Henry's big turns restart mid-step.
 
 ## Installation
 
