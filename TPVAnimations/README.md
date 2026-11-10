@@ -44,7 +44,7 @@ this mod replaces.
   a new idle at random from the installed gestures, while Henry stays in his normal movement, so the torch grip and
   turning in place keep working.
 - **Drunk idle and torch sprint:** options tagged `thirdPerson` added next to the game's own.
-- **Smooth turns:** transitions between the game's own turn fragments, tagged `thirdPerson`. A requested turn starts at once instead of waiting for the blend space's average length, and crossing 90 degrees keeps the current step. TPV Camera decides when the next turn is requested.
+- **Smooth turns:** transitions between the game's own turn fragments, tagged `thirdPerson`. A requested turn starts at once instead of waiting for the blend space's average length, and crossing 90 degrees keeps the current step. Proper Third Person View (TPV Camera) decides when the next turn is requested.
 - **Door exit:** the game's own door and gate options, tagged `thirdPerson`, with the game's `MovementRestriction` procedural added. A held move key no longer builds up speed while Henry opens the door, so he leaves it from a standing start instead of at full speed with his feet planted.
 - Each pak gives its clips the sounds of the game animations they are made from.
 
