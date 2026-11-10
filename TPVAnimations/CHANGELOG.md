@@ -2,6 +2,11 @@
 
 All notable changes to the TPVAnimations mod will be documented in this file.
 
+## [1.2.0] - Door Exit
+
+- Fixed Henry sliding when you hold a move key while he opens a door or gate in third person: he now walks off from a standing start.
+- New file `tpv_animations_door_exit.pak`: delete it to keep the game's behaviour.
+
 ## [1.1.0] - Smooth Turns
 
 - Added smooth turns: turn the camera further while Henry turns on the spot, and he carries on turning instead of restarting his step or standing still.
@@ -14,5 +19,6 @@ All notable changes to the TPVAnimations mod will be documented in this file.
 - Drunk idle.
 - Torch sprint with the torch held low in front.
 
+[1.2.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVAnimations-v1.2.0
 [1.1.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVAnimations-v1.1.0
 [1.0.0]: https://github.com/tkhquang/KCD2Tools/releases/tag/TPVAnimations-v1.0.0
